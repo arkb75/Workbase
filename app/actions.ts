@@ -15,8 +15,10 @@ import {
   onboardingSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
+import { getEligibleClaimsForArtifact } from "@/src/domain/artifact-eligibility";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { buildArtifactFromApprovedClaims, buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
+import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
 import { artifactGenerationService } from "@/src/services/artifact-generation-service";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
@@ -89,10 +91,11 @@ function mapClaimSnapshot(claim: {
   confidence: "low" | "medium" | "high";
   ownershipClarity: "unclear" | "partial" | "clear";
   sensitivityFlag: boolean;
-  verificationStatus: "draft" | "approved" | "flagged";
+  verificationStatus: "draft" | "approved" | "flagged" | "rejected";
   visibility: "private" | "resume_safe" | "linkedin_safe" | "public_safe";
   risksSummary: string | null;
   missingInfo: string | null;
+  rejectionReason: string | null;
   evidenceCard: {
     evidenceSummary: string;
     rationaleSummary: string;
@@ -112,6 +115,7 @@ function mapClaimSnapshot(claim: {
     visibility: claim.visibility,
     risksSummary: claim.risksSummary,
     missingInfo: claim.missingInfo,
+    rejectionReason: claim.rejectionReason,
     evidenceCard: {
       evidenceSummary: claim.evidenceCard?.evidenceSummary ?? "",
       rationaleSummary: claim.evidenceCard?.rationaleSummary ?? "",
@@ -276,15 +280,22 @@ export async function generateClaimsAction(workItemId: string) {
     },
   });
 
-  const claimPlan = await buildClaimGenerationDrafts({
-    workItem: mapWorkItemSnapshot(workItem),
-    sources: workItem.sources.map(mapSourceSnapshot),
-    existingClaims: workItem.claims.map(mapClaimSnapshot),
-    sourceIngestionService,
-    claimResearchService,
-    claimVerificationService,
-  });
+  let claimPlan;
 
+  try {
+    claimPlan = await buildClaimGenerationDrafts({
+      workItem: mapWorkItemSnapshot(workItem),
+      sources: workItem.sources.map(mapSourceSnapshot),
+      existingClaims: workItem.claims.map(mapClaimSnapshot),
+      sourceIngestionService,
+      claimResearchService,
+      claimVerificationService,
+    });
+  } catch {
+    redirect(`/work-items/${workItem.id}/claims?error=claim-generation-failed`);
+  }
+
+  const createdClaimIds: string[] = [];
   await prisma.$transaction(async (tx) => {
     if (claimPlan.replaceableClaims.length) {
       await tx.claim.deleteMany({
@@ -297,7 +308,7 @@ export async function generateClaimsAction(workItemId: string) {
     }
 
     for (const draft of claimPlan.drafts) {
-      await tx.claim.create({
+      const createdClaim = await tx.claim.create({
         data: {
           workItemId: workItem.id,
           text: draft.text,
@@ -309,6 +320,7 @@ export async function generateClaimsAction(workItemId: string) {
           visibility: draft.visibility,
           risksSummary: draft.risksSummary ?? null,
           missingInfo: draft.missingInfo ?? null,
+          rejectionReason: draft.rejectionReason ?? null,
           evidenceCard: {
             create: {
               evidenceSummary: draft.evidenceCard.evidenceSummary,
@@ -320,8 +332,21 @@ export async function generateClaimsAction(workItemId: string) {
           },
         },
       });
+
+      createdClaimIds.push(createdClaim.id);
     }
   });
+
+  await Promise.allSettled(
+    [claimPlan.generationRunIds.research, claimPlan.generationRunIds.verification]
+      .filter(Boolean)
+      .map((generationRunId) =>
+        updateGenerationRunResultRefs(generationRunId!, {
+          persistedClaimIds: createdClaimIds,
+          preservedClaimIds: claimPlan.preservedClaims.map((claim) => claim.id),
+        } as Prisma.InputJsonValue),
+      ),
+  );
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/claims`);
@@ -348,6 +373,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
     visibility: formData.get("visibility"),
     sensitivityFlag: formDataToBoolean(formData.get("sensitivityFlag")),
     verificationNotes: formData.get("verificationNotes"),
+    rejectionReason: formData.get("rejectionReason"),
     intent: formData.get("intent") ?? "save",
   });
 
@@ -359,19 +385,10 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
     claim.verificationStatus,
     parsed.data.intent,
   );
-
-  if (parsed.data.intent === "reject") {
-    await prisma.claim.delete({
-      where: {
-        id: claim.id,
-      },
-    });
-
-    revalidatePath(`/work-items/${parsed.data.workItemId}`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
-    redirect(`/work-items/${parsed.data.workItemId}/claims?result=rejected`);
-  }
+  const nextRejectionReason =
+    nextStatus === "rejected"
+      ? parsed.data.rejectionReason?.trim() || null
+      : null;
 
   await prisma.claim.update({
     where: {
@@ -382,6 +399,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       visibility: parsed.data.visibility,
       sensitivityFlag: parsed.data.sensitivityFlag,
       verificationStatus: nextStatus,
+      rejectionReason: nextRejectionReason,
       evidenceCard: claim.evidenceCard
         ? {
             update: {
@@ -396,11 +414,13 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
   const result =
-    parsed.data.intent === "save"
-      ? "saved"
-      : nextStatus === "approved"
+    parsed.data.intent === "approve" || nextStatus === "approved"
         ? "approved"
-        : "saved";
+        : parsed.data.intent === "reject" || nextStatus === "rejected"
+          ? "rejected"
+          : parsed.data.intent === "restore"
+            ? "restored"
+            : "saved";
   redirect(`/work-items/${parsed.data.workItemId}/claims?result=${result}`);
 }
 
@@ -430,8 +450,16 @@ export async function generateArtifactAction(formData: FormData) {
       },
     },
   });
+  const eligibleClaims = getEligibleClaimsForArtifact(
+    workItem.claims.map(mapClaimSnapshot),
+    parsed.data.type,
+  );
 
-  let artifactDraft = null;
+  if (!eligibleClaims.length) {
+    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-claims`);
+  }
+
+  let artifactDraft;
 
   try {
     artifactDraft = await buildArtifactFromApprovedClaims({
@@ -446,23 +474,26 @@ export async function generateArtifactAction(formData: FormData) {
       artifactGenerationService,
     });
   } catch {
-    artifactDraft = null;
-  }
-
-  if (!artifactDraft) {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-claims`);
+    redirect(`/work-items/${workItem.id}/artifacts/new?error=artifact-generation-failed`);
   }
 
   const artifact = await prisma.artifact.create({
     data: {
       userId: demoUser.id,
       workItemId: workItem.id,
-      type: artifactDraft.type,
-      targetAngle: artifactDraft.targetAngle,
-      tone: artifactDraft.tone,
-      content: artifactDraft.content,
+      type: artifactDraft.artifactDraft.type,
+      targetAngle: artifactDraft.artifactDraft.targetAngle,
+      tone: artifactDraft.artifactDraft.tone,
+      content: artifactDraft.artifactDraft.content,
     },
   });
+
+  if (artifactDraft.generationRunId) {
+    await updateGenerationRunResultRefs(artifactDraft.generationRunId, {
+      artifactId: artifact.id,
+      usedClaimIds: artifactDraft.artifactDraft.usedClaimIds,
+    } as Prisma.InputJsonValue);
+  }
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/artifacts/new`);

@@ -46,6 +46,7 @@ enum VerificationStatus {
   draft
   approved
   flagged
+  rejected
 }
 
 enum VisibilityLevel {
@@ -75,6 +76,19 @@ enum ArtifactTone {
   recruiter_friendly
 }
 
+enum GenerationKind {
+  claim_research
+  claim_verification
+  artifact_generation
+}
+
+enum GenerationStatus {
+  success
+  provider_error
+  parse_error
+  validation_error
+}
+
 model User {
   id              String           @id @default(cuid())
   email           String           @unique
@@ -100,6 +114,7 @@ model WorkItem {
   sources     Source[]
   claims      Claim[]
   artifacts   Artifact[]
+  generationRuns GenerationRun[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 }
@@ -128,6 +143,7 @@ model Claim {
   visibility        VisibilityLevel
   risksSummary      String?
   missingInfo       String?
+  rejectionReason   String?
   workItem          WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidenceCard      EvidenceCard?
   createdAt         DateTime            @default(now())
@@ -158,4 +174,25 @@ model Artifact {
   workItem    WorkItem?    @relation(fields: [workItemId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+}
+
+model GenerationRun {
+  id              String           @id @default(cuid())
+  workItemId      String
+  kind            GenerationKind
+  status          GenerationStatus
+  provider        String
+  modelId         String
+  inputSummary    Json
+  rawOutput       String?
+  parsedOutput    Json?
+  validationErrors Json?
+  resultRefs      Json?
+  tokenUsage      Json?
+  estimatedCostUsd Float?
+  workItem        WorkItem         @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([workItemId, kind, createdAt])
 }

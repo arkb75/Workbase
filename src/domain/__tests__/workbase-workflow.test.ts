@@ -55,6 +55,7 @@ describe("workbase workflow", () => {
       ),
       visibility: "resume_safe" as const,
       sensitivityFlag: false,
+      rejectionReason: null,
     };
     const artifact = await buildArtifactFromApprovedClaims({
       request: {
@@ -68,7 +69,9 @@ describe("workbase workflow", () => {
       artifactGenerationService,
     });
 
-    expect(artifact.content).toContain(approvedClaim.text.replace(/\.$/, ""));
-    expect(artifact.usedClaimIds).toEqual(["claim-approved"]);
+    expect(artifact.artifactDraft.content).toContain(
+      approvedClaim.text.replace(/\.$/, ""),
+    );
+    expect(artifact.artifactDraft.usedClaimIds).toEqual(["claim-approved"]);
   });
 });

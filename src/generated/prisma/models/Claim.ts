@@ -36,6 +36,7 @@ export type ClaimMinAggregateOutputType = {
   visibility: $Enums.VisibilityLevel | null
   risksSummary: string | null
   missingInfo: string | null
+  rejectionReason: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -52,6 +53,7 @@ export type ClaimMaxAggregateOutputType = {
   visibility: $Enums.VisibilityLevel | null
   risksSummary: string | null
   missingInfo: string | null
+  rejectionReason: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -68,6 +70,7 @@ export type ClaimCountAggregateOutputType = {
   visibility: number
   risksSummary: number
   missingInfo: number
+  rejectionReason: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -86,6 +89,7 @@ export type ClaimMinAggregateInputType = {
   visibility?: true
   risksSummary?: true
   missingInfo?: true
+  rejectionReason?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,6 +106,7 @@ export type ClaimMaxAggregateInputType = {
   visibility?: true
   risksSummary?: true
   missingInfo?: true
+  rejectionReason?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -118,6 +123,7 @@ export type ClaimCountAggregateInputType = {
   visibility?: true
   risksSummary?: true
   missingInfo?: true
+  rejectionReason?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -207,6 +213,7 @@ export type ClaimGroupByOutputType = {
   visibility: $Enums.VisibilityLevel
   risksSummary: string | null
   missingInfo: string | null
+  rejectionReason: string | null
   createdAt: Date
   updatedAt: Date
   _count: ClaimCountAggregateOutputType | null
@@ -244,6 +251,7 @@ export type ClaimWhereInput = {
   visibility?: Prisma.EnumVisibilityLevelFilter<"Claim"> | $Enums.VisibilityLevel
   risksSummary?: Prisma.StringNullableFilter<"Claim"> | string | null
   missingInfo?: Prisma.StringNullableFilter<"Claim"> | string | null
+  rejectionReason?: Prisma.StringNullableFilter<"Claim"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -262,6 +270,7 @@ export type ClaimOrderByWithRelationInput = {
   visibility?: Prisma.SortOrder
   risksSummary?: Prisma.SortOrderInput | Prisma.SortOrder
   missingInfo?: Prisma.SortOrderInput | Prisma.SortOrder
+  rejectionReason?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
@@ -283,6 +292,7 @@ export type ClaimWhereUniqueInput = Prisma.AtLeast<{
   visibility?: Prisma.EnumVisibilityLevelFilter<"Claim"> | $Enums.VisibilityLevel
   risksSummary?: Prisma.StringNullableFilter<"Claim"> | string | null
   missingInfo?: Prisma.StringNullableFilter<"Claim"> | string | null
+  rejectionReason?: Prisma.StringNullableFilter<"Claim"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -301,6 +311,7 @@ export type ClaimOrderByWithAggregationInput = {
   visibility?: Prisma.SortOrder
   risksSummary?: Prisma.SortOrderInput | Prisma.SortOrder
   missingInfo?: Prisma.SortOrderInput | Prisma.SortOrder
+  rejectionReason?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ClaimCountOrderByAggregateInput
@@ -323,6 +334,7 @@ export type ClaimScalarWhereWithAggregatesInput = {
   visibility?: Prisma.EnumVisibilityLevelWithAggregatesFilter<"Claim"> | $Enums.VisibilityLevel
   risksSummary?: Prisma.StringNullableWithAggregatesFilter<"Claim"> | string | null
   missingInfo?: Prisma.StringNullableWithAggregatesFilter<"Claim"> | string | null
+  rejectionReason?: Prisma.StringNullableWithAggregatesFilter<"Claim"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Claim"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Claim"> | Date | string
 }
@@ -338,6 +350,7 @@ export type ClaimCreateInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutClaimsInput
@@ -356,6 +369,7 @@ export type ClaimUncheckedCreateInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceCard?: Prisma.EvidenceCardUncheckedCreateNestedOneWithoutClaimInput
@@ -372,6 +386,7 @@ export type ClaimUpdateInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutClaimsNestedInput
@@ -390,6 +405,7 @@ export type ClaimUncheckedUpdateInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceCard?: Prisma.EvidenceCardUncheckedUpdateOneWithoutClaimNestedInput
@@ -407,6 +423,7 @@ export type ClaimCreateManyInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -422,6 +439,7 @@ export type ClaimUpdateManyMutationInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -438,6 +456,7 @@ export type ClaimUncheckedUpdateManyInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -464,6 +483,7 @@ export type ClaimCountOrderByAggregateInput = {
   visibility?: Prisma.SortOrder
   risksSummary?: Prisma.SortOrder
   missingInfo?: Prisma.SortOrder
+  rejectionReason?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -480,6 +500,7 @@ export type ClaimMaxOrderByAggregateInput = {
   visibility?: Prisma.SortOrder
   risksSummary?: Prisma.SortOrder
   missingInfo?: Prisma.SortOrder
+  rejectionReason?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -496,6 +517,7 @@ export type ClaimMinOrderByAggregateInput = {
   visibility?: Prisma.SortOrder
   risksSummary?: Prisma.SortOrder
   missingInfo?: Prisma.SortOrder
+  rejectionReason?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -592,6 +614,7 @@ export type ClaimCreateWithoutWorkItemInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceCard?: Prisma.EvidenceCardCreateNestedOneWithoutClaimInput
@@ -608,6 +631,7 @@ export type ClaimUncheckedCreateWithoutWorkItemInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceCard?: Prisma.EvidenceCardUncheckedCreateNestedOneWithoutClaimInput
@@ -654,6 +678,7 @@ export type ClaimScalarWhereInput = {
   visibility?: Prisma.EnumVisibilityLevelFilter<"Claim"> | $Enums.VisibilityLevel
   risksSummary?: Prisma.StringNullableFilter<"Claim"> | string | null
   missingInfo?: Prisma.StringNullableFilter<"Claim"> | string | null
+  rejectionReason?: Prisma.StringNullableFilter<"Claim"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Claim"> | Date | string
 }
@@ -669,6 +694,7 @@ export type ClaimCreateWithoutEvidenceCardInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutClaimsInput
@@ -686,6 +712,7 @@ export type ClaimUncheckedCreateWithoutEvidenceCardInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -717,6 +744,7 @@ export type ClaimUpdateWithoutEvidenceCardInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutClaimsNestedInput
@@ -734,6 +762,7 @@ export type ClaimUncheckedUpdateWithoutEvidenceCardInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -749,6 +778,7 @@ export type ClaimCreateManyWorkItemInput = {
   visibility: $Enums.VisibilityLevel
   risksSummary?: string | null
   missingInfo?: string | null
+  rejectionReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -764,6 +794,7 @@ export type ClaimUpdateWithoutWorkItemInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceCard?: Prisma.EvidenceCardUpdateOneWithoutClaimNestedInput
@@ -780,6 +811,7 @@ export type ClaimUncheckedUpdateWithoutWorkItemInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceCard?: Prisma.EvidenceCardUncheckedUpdateOneWithoutClaimNestedInput
@@ -796,6 +828,7 @@ export type ClaimUncheckedUpdateManyWithoutWorkItemInput = {
   visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
   risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -814,6 +847,7 @@ export type ClaimSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   visibility?: boolean
   risksSummary?: boolean
   missingInfo?: boolean
+  rejectionReason?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -832,6 +866,7 @@ export type ClaimSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   visibility?: boolean
   risksSummary?: boolean
   missingInfo?: boolean
+  rejectionReason?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -849,6 +884,7 @@ export type ClaimSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   visibility?: boolean
   risksSummary?: boolean
   missingInfo?: boolean
+  rejectionReason?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -866,11 +902,12 @@ export type ClaimSelectScalar = {
   visibility?: boolean
   risksSummary?: boolean
   missingInfo?: boolean
+  rejectionReason?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ClaimOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "text" | "category" | "confidence" | "ownershipClarity" | "sensitivityFlag" | "verificationStatus" | "visibility" | "risksSummary" | "missingInfo" | "createdAt" | "updatedAt", ExtArgs["result"]["claim"]>
+export type ClaimOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "text" | "category" | "confidence" | "ownershipClarity" | "sensitivityFlag" | "verificationStatus" | "visibility" | "risksSummary" | "missingInfo" | "rejectionReason" | "createdAt" | "updatedAt", ExtArgs["result"]["claim"]>
 export type ClaimInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidenceCard?: boolean | Prisma.Claim$evidenceCardArgs<ExtArgs>
@@ -900,6 +937,7 @@ export type $ClaimPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
     visibility: $Enums.VisibilityLevel
     risksSummary: string | null
     missingInfo: string | null
+    rejectionReason: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["claim"]>
@@ -1338,6 +1376,7 @@ export interface ClaimFieldRefs {
   readonly visibility: Prisma.FieldRef<"Claim", 'VisibilityLevel'>
   readonly risksSummary: Prisma.FieldRef<"Claim", 'String'>
   readonly missingInfo: Prisma.FieldRef<"Claim", 'String'>
+  readonly rejectionReason: Prisma.FieldRef<"Claim", 'String'>
   readonly createdAt: Prisma.FieldRef<"Claim", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Claim", 'DateTime'>
 }

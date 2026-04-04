@@ -75,7 +75,8 @@ export const claimUpdateSchema = z.object({
   visibility: z.enum(visibilityValues),
   sensitivityFlag: z.boolean(),
   verificationNotes: z.string().trim().max(1200).optional(),
-  intent: z.enum(["save", "approve", "reject"]),
+  rejectionReason: z.string().trim().max(280).optional(),
+  intent: z.enum(["save", "approve", "reject", "restore"]),
 });
 
 export const artifactGenerationSchema = z.object({

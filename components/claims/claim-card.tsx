@@ -18,6 +18,10 @@ function toneForStatus(status: string) {
     return "success" as const;
   }
 
+  if (status === "rejected") {
+    return "danger" as const;
+  }
+
   if (status === "flagged") {
     return "warning" as const;
   }
@@ -52,6 +56,7 @@ export function ClaimCard({
     visibility: string;
     risksSummary: string | null;
     missingInfo: string | null;
+    rejectionReason: string | null;
     evidenceCard: {
       evidenceSummary: string;
       rationaleSummary: string;
@@ -65,11 +70,18 @@ export function ClaimCard({
     ? claim.evidenceCard?.sourceRefs
     : [];
   const isApproved = claim.verificationStatus === "approved";
+  const isRejected = claim.verificationStatus === "rejected";
   const isPending =
     claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={
+        isRejected
+          ? "overflow-hidden border-rose-200 bg-rose-50/40 shadow-none"
+          : "overflow-hidden"
+      }
+    >
       <form action={action}>
         <input type="hidden" name="workItemId" value={claim.workItemId} />
         <CardHeader className="space-y-4">
@@ -87,7 +99,9 @@ export function ClaimCard({
           <div className="space-y-2">
             <CardTitle>Claim</CardTitle>
             <CardDescription>
-              Edit the wording, then decide whether it is ready to approve.
+              {isRejected
+                ? "Rejected claims stay hidden from the main review flow, but you can still revise, restore, or approve them here."
+                : "Edit the wording, then decide whether it is ready to approve."}
             </CardDescription>
           </div>
         </CardHeader>
@@ -194,6 +208,23 @@ export function ClaimCard({
 
               <Card className="border-dashed border-black/10 shadow-none">
                 <CardHeader>
+                  <CardTitle className="text-lg">Rejection reason</CardTitle>
+                  <CardDescription>
+                    Optional. Workbase uses this to steer future claim generation away from repeats.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <Textarea
+                    name="rejectionReason"
+                    defaultValue={claim.rejectionReason ?? ""}
+                    className="min-h-28"
+                    placeholder="Example: Overstates impact, unclear ownership, or still too sensitive."
+                  />
+                </CardContent>
+              </Card>
+
+              <Card className="border-dashed border-black/10 shadow-none">
+                <CardHeader>
                   <CardTitle className="text-lg">Uncertainty</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 pt-0">
@@ -215,37 +246,63 @@ export function ClaimCard({
         </CardContent>
 
         <CardFooter className="border-t border-black/6 bg-[color:var(--panel-muted)]">
-          <button
-            type="submit"
-            name="intent"
-            value="save"
-            className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--surface)]"
-          >
-            Save edits
-          </button>
-          {isPending ? (
-            <button
-              type="submit"
-              name="intent"
-              value="approve"
-              className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-4 text-sm font-medium text-white transition hover:bg-emerald-700"
-            >
-              Approve claim
-            </button>
-          ) : null}
-          <button
-            type="submit"
-            name="intent"
-            value="reject"
-            className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
-          >
-            {isApproved ? "Remove claim" : "Reject claim"}
-          </button>
-          {isApproved ? (
-            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-              This claim is already approved and will be eligible for artifacts when visibility allows it.
-            </p>
-          ) : null}
+          {isRejected ? (
+            <>
+              <label className="grid min-w-[15rem] gap-2">
+                <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+                  Rejected claim action
+                </span>
+                <Select name="intent" defaultValue="save">
+                  <option value="save">Save edits</option>
+                  <option value="approve">Approve claim</option>
+                  <option value="restore">Restore to review</option>
+                </Select>
+              </label>
+              <button
+                type="submit"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--ink-strong)] px-4 text-sm font-medium text-white transition hover:bg-black"
+              >
+                Apply action
+              </button>
+              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                Rejected claims never feed Artifacts, but they remain available as guidance for future generations.
+              </p>
+            </>
+          ) : (
+            <>
+              <button
+                type="submit"
+                name="intent"
+                value="save"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--surface)]"
+              >
+                Save edits
+              </button>
+              {isPending ? (
+                <button
+                  type="submit"
+                  name="intent"
+                  value="approve"
+                  className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-4 text-sm font-medium text-white transition hover:bg-emerald-700"
+                >
+                  Approve claim
+                </button>
+              ) : null}
+              <button
+                type="submit"
+                name="intent"
+                value="reject"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
+              >
+                {isApproved ? "Move to rejected" : "Reject claim"}
+              </button>
+              {isApproved ? (
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  This claim is already approved and will be eligible for artifacts when visibility allows it.
+                </p>
+              ) : null}
+            </>
+          )}
         </CardFooter>
       </form>
     </Card>

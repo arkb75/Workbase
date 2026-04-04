@@ -47,3 +47,8 @@ export type EvidenceCard = Prisma.EvidenceCardModel
  * 
  */
 export type Artifact = Prisma.ArtifactModel
+/**
+ * Model GenerationRun
+ * 
+ */
+export type GenerationRun = Prisma.GenerationRunModel

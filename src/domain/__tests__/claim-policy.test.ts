@@ -16,6 +16,7 @@ function makeClaim(overrides: Partial<ClaimSnapshot> = {}): ClaimSnapshot {
     visibility: overrides.visibility ?? "resume_safe",
     risksSummary: overrides.risksSummary ?? null,
     missingInfo: overrides.missingInfo ?? null,
+    rejectionReason: overrides.rejectionReason ?? null,
     evidenceCard: overrides.evidenceCard ?? {
       evidenceSummary: "Grounded in the source note.",
       rationaleSummary: "Implementation language matches the evidence.",
@@ -26,14 +27,16 @@ function makeClaim(overrides: Partial<ClaimSnapshot> = {}): ClaimSnapshot {
 }
 
 describe("claim status transitions", () => {
-  it("allows draft and flagged claims to become approved", () => {
+  it("allows draft, flagged, and rejected claims to become approved", () => {
     expect(transitionClaimStatus("draft", "approve")).toBe("approved");
     expect(transitionClaimStatus("flagged", "approve")).toBe("approved");
+    expect(transitionClaimStatus("rejected", "approve")).toBe("approved");
   });
 
-  it("leaves status unchanged for non-approve intents", () => {
-    expect(transitionClaimStatus("draft", "reject")).toBe("draft");
-    expect(transitionClaimStatus("approved", "reject")).toBe("approved");
+  it("moves claims into rejected and can restore rejected claims to flagged", () => {
+    expect(transitionClaimStatus("draft", "reject")).toBe("rejected");
+    expect(transitionClaimStatus("approved", "reject")).toBe("rejected");
+    expect(transitionClaimStatus("rejected", "restore")).toBe("flagged");
   });
 });
 
@@ -59,6 +62,11 @@ describe("artifact eligibility", () => {
       verificationStatus: "approved",
       visibility: "public_safe",
       sensitivityFlag: true,
+    }),
+    makeClaim({
+      id: "rejected-claim",
+      verificationStatus: "rejected",
+      visibility: "public_safe",
     }),
   ];
 

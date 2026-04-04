@@ -10,9 +10,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "bedrock:preflight": "tsx scripts/bedrock-preflight.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1024.0",
+    "@aws-sdk/credential-providers": "^3.1024.0",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
     "class-variance-authority": "^0.7.1",

@@ -218,6 +218,7 @@ export type WorkItemWhereInput = {
   sources?: Prisma.SourceListRelationFilter
   claims?: Prisma.ClaimListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
+  generationRuns?: Prisma.GenerationRunListRelationFilter
 }
 
 export type WorkItemOrderByWithRelationInput = {
@@ -234,6 +235,7 @@ export type WorkItemOrderByWithRelationInput = {
   sources?: Prisma.SourceOrderByRelationAggregateInput
   claims?: Prisma.ClaimOrderByRelationAggregateInput
   artifacts?: Prisma.ArtifactOrderByRelationAggregateInput
+  generationRuns?: Prisma.GenerationRunOrderByRelationAggregateInput
 }
 
 export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
@@ -253,6 +255,7 @@ export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
   sources?: Prisma.SourceListRelationFilter
   claims?: Prisma.ClaimListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
+  generationRuns?: Prisma.GenerationRunListRelationFilter
 }, "id">
 
 export type WorkItemOrderByWithAggregationInput = {
@@ -298,6 +301,7 @@ export type WorkItemCreateInput = {
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateInput = {
@@ -313,6 +317,7 @@ export type WorkItemUncheckedCreateInput = {
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUpdateInput = {
@@ -328,6 +333,7 @@ export type WorkItemUpdateInput = {
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateInput = {
@@ -343,6 +349,7 @@ export type WorkItemUncheckedUpdateInput = {
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateManyInput = {
@@ -530,6 +537,20 @@ export type WorkItemUpdateOneWithoutArtifactsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutArtifactsInput, Prisma.WorkItemUpdateWithoutArtifactsInput>, Prisma.WorkItemUncheckedUpdateWithoutArtifactsInput>
 }
 
+export type WorkItemCreateNestedOneWithoutGenerationRunsInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedCreateWithoutGenerationRunsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutGenerationRunsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+}
+
+export type WorkItemUpdateOneRequiredWithoutGenerationRunsNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedCreateWithoutGenerationRunsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutGenerationRunsInput
+  upsert?: Prisma.WorkItemUpsertWithoutGenerationRunsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutGenerationRunsInput, Prisma.WorkItemUpdateWithoutGenerationRunsInput>, Prisma.WorkItemUncheckedUpdateWithoutGenerationRunsInput>
+}
+
 export type WorkItemCreateWithoutUserInput = {
   id?: string
   title: string
@@ -542,6 +563,7 @@ export type WorkItemCreateWithoutUserInput = {
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutUserInput = {
@@ -556,6 +578,7 @@ export type WorkItemUncheckedCreateWithoutUserInput = {
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutUserInput = {
@@ -611,6 +634,7 @@ export type WorkItemCreateWithoutSourcesInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutSourcesInput = {
@@ -625,6 +649,7 @@ export type WorkItemUncheckedCreateWithoutSourcesInput = {
   updatedAt?: Date | string
   claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutSourcesInput = {
@@ -655,6 +680,7 @@ export type WorkItemUpdateWithoutSourcesInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutSourcesInput = {
@@ -669,6 +695,7 @@ export type WorkItemUncheckedUpdateWithoutSourcesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutClaimsInput = {
@@ -683,6 +710,7 @@ export type WorkItemCreateWithoutClaimsInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutClaimsInput = {
@@ -697,6 +725,7 @@ export type WorkItemUncheckedCreateWithoutClaimsInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutClaimsInput = {
@@ -727,6 +756,7 @@ export type WorkItemUpdateWithoutClaimsInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutClaimsInput = {
@@ -741,6 +771,7 @@ export type WorkItemUncheckedUpdateWithoutClaimsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutArtifactsInput = {
@@ -755,6 +786,7 @@ export type WorkItemCreateWithoutArtifactsInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutArtifactsInput = {
@@ -769,6 +801,7 @@ export type WorkItemUncheckedCreateWithoutArtifactsInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutArtifactsInput = {
@@ -799,6 +832,7 @@ export type WorkItemUpdateWithoutArtifactsInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
@@ -813,6 +847,83 @@ export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemCreateWithoutGenerationRunsInput = {
+  id?: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
+  sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
+  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemUncheckedCreateWithoutGenerationRunsInput = {
+  id?: string
+  userId: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
+  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemCreateOrConnectWithoutGenerationRunsInput = {
+  where: Prisma.WorkItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedCreateWithoutGenerationRunsInput>
+}
+
+export type WorkItemUpsertWithoutGenerationRunsInput = {
+  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedUpdateWithoutGenerationRunsInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedCreateWithoutGenerationRunsInput>
+  where?: Prisma.WorkItemWhereInput
+}
+
+export type WorkItemUpdateToOneWithWhereWithoutGenerationRunsInput = {
+  where?: Prisma.WorkItemWhereInput
+  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedUpdateWithoutGenerationRunsInput>
+}
+
+export type WorkItemUpdateWithoutGenerationRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
+  sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
+  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemUncheckedUpdateWithoutGenerationRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
+  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateManyUserInput = {
@@ -838,6 +949,7 @@ export type WorkItemUpdateWithoutUserInput = {
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutUserInput = {
@@ -852,6 +964,7 @@ export type WorkItemUncheckedUpdateWithoutUserInput = {
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateManyWithoutUserInput = {
@@ -874,12 +987,14 @@ export type WorkItemCountOutputType = {
   sources: number
   claims: number
   artifacts: number
+  generationRuns: number
 }
 
 export type WorkItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   sources?: boolean | WorkItemCountOutputTypeCountSourcesArgs
   claims?: boolean | WorkItemCountOutputTypeCountClaimsArgs
   artifacts?: boolean | WorkItemCountOutputTypeCountArtifactsArgs
+  generationRuns?: boolean | WorkItemCountOutputTypeCountGenerationRunsArgs
 }
 
 /**
@@ -913,6 +1028,13 @@ export type WorkItemCountOutputTypeCountArtifactsArgs<ExtArgs extends runtime.Ty
   where?: Prisma.ArtifactWhereInput
 }
 
+/**
+ * WorkItemCountOutputType without action
+ */
+export type WorkItemCountOutputTypeCountGenerationRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.GenerationRunWhereInput
+}
+
 
 export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -928,6 +1050,7 @@ export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   sources?: boolean | Prisma.WorkItem$sourcesArgs<ExtArgs>
   claims?: boolean | Prisma.WorkItem$claimsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
+  generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["workItem"]>
 
@@ -975,6 +1098,7 @@ export type WorkItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArg
   sources?: boolean | Prisma.WorkItem$sourcesArgs<ExtArgs>
   claims?: boolean | Prisma.WorkItem$claimsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
+  generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type WorkItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -991,6 +1115,7 @@ export type $WorkItemPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     sources: Prisma.$SourcePayload<ExtArgs>[]
     claims: Prisma.$ClaimPayload<ExtArgs>[]
     artifacts: Prisma.$ArtifactPayload<ExtArgs>[]
+    generationRuns: Prisma.$GenerationRunPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1400,6 +1525,7 @@ export interface Prisma__WorkItemClient<T, Null = never, ExtArgs extends runtime
   sources<T extends Prisma.WorkItem$sourcesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$sourcesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   claims<T extends Prisma.WorkItem$claimsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$claimsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ClaimPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifacts<T extends Prisma.WorkItem$artifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  generationRuns<T extends Prisma.WorkItem$generationRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$generationRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GenerationRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1908,6 +2034,30 @@ export type WorkItem$artifactsArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   distinct?: Prisma.ArtifactScalarFieldEnum | Prisma.ArtifactScalarFieldEnum[]
+}
+
+/**
+ * WorkItem.generationRuns
+ */
+export type WorkItem$generationRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the GenerationRun
+   */
+  select?: Prisma.GenerationRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the GenerationRun
+   */
+  omit?: Prisma.GenerationRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.GenerationRunInclude<ExtArgs> | null
+  where?: Prisma.GenerationRunWhereInput
+  orderBy?: Prisma.GenerationRunOrderByWithRelationInput | Prisma.GenerationRunOrderByWithRelationInput[]
+  cursor?: Prisma.GenerationRunWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.GenerationRunScalarFieldEnum | Prisma.GenerationRunScalarFieldEnum[]
 }
 
 /**

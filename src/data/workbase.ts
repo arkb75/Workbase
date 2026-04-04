@@ -40,6 +40,11 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           },
         ],
       },
+      generationRuns: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
       artifacts: {
         orderBy: {
           createdAt: "desc",

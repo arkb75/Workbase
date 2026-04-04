@@ -389,7 +389,8 @@ export const ModelName = {
   Source: 'Source',
   Claim: 'Claim',
   EvidenceCard: 'EvidenceCard',
-  Artifact: 'Artifact'
+  Artifact: 'Artifact',
+  GenerationRun: 'GenerationRun'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -405,7 +406,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "claim" | "evidenceCard" | "artifact"
+    modelProps: "user" | "workItem" | "source" | "claim" | "evidenceCard" | "artifact" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -853,6 +854,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    GenerationRun: {
+      payload: Prisma.$GenerationRunPayload<ExtArgs>
+      fields: Prisma.GenerationRunFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.GenerationRunFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.GenerationRunFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        findFirst: {
+          args: Prisma.GenerationRunFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.GenerationRunFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        findMany: {
+          args: Prisma.GenerationRunFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>[]
+        }
+        create: {
+          args: Prisma.GenerationRunCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        createMany: {
+          args: Prisma.GenerationRunCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.GenerationRunCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>[]
+        }
+        delete: {
+          args: Prisma.GenerationRunDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        update: {
+          args: Prisma.GenerationRunUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        deleteMany: {
+          args: Prisma.GenerationRunDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.GenerationRunUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.GenerationRunUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>[]
+        }
+        upsert: {
+          args: Prisma.GenerationRunUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GenerationRunPayload>
+        }
+        aggregate: {
+          args: Prisma.GenerationRunAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateGenerationRun>
+        }
+        groupBy: {
+          args: Prisma.GenerationRunGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GenerationRunGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.GenerationRunCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GenerationRunCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -947,6 +1022,7 @@ export const ClaimScalarFieldEnum = {
   visibility: 'visibility',
   risksSummary: 'risksSummary',
   missingInfo: 'missingInfo',
+  rejectionReason: 'rejectionReason',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -981,6 +1057,27 @@ export const ArtifactScalarFieldEnum = {
 } as const
 
 export type ArtifactScalarFieldEnum = (typeof ArtifactScalarFieldEnum)[keyof typeof ArtifactScalarFieldEnum]
+
+
+export const GenerationRunScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  kind: 'kind',
+  status: 'status',
+  provider: 'provider',
+  modelId: 'modelId',
+  inputSummary: 'inputSummary',
+  rawOutput: 'rawOutput',
+  parsedOutput: 'parsedOutput',
+  validationErrors: 'validationErrors',
+  resultRefs: 'resultRefs',
+  tokenUsage: 'tokenUsage',
+  estimatedCostUsd: 'estimatedCostUsd',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GenerationRunScalarFieldEnum = (typeof GenerationRunScalarFieldEnum)[keyof typeof GenerationRunScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1241,6 +1338,48 @@ export type ListEnumArtifactToneFieldRefInput<$PrismaModel> = FieldRefInputType<
 
 
 /**
+ * Reference to a field of type 'GenerationKind'
+ */
+export type EnumGenerationKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationKind'>
+    
+
+
+/**
+ * Reference to a field of type 'GenerationKind[]'
+ */
+export type ListEnumGenerationKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationKind[]'>
+    
+
+
+/**
+ * Reference to a field of type 'GenerationStatus'
+ */
+export type EnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'GenerationStatus[]'
+ */
+export type ListEnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationStatus[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Float'
+ */
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+    
+
+
+/**
+ * Reference to a field of type 'Float[]'
+ */
+export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
+    
+
+
+/**
  * Reference to a field of type 'Int'
  */
 export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
@@ -1354,6 +1493,7 @@ export type GlobalOmitConfig = {
   claim?: Prisma.ClaimOmit
   evidenceCard?: Prisma.EvidenceCardOmit
   artifact?: Prisma.ArtifactOmit
+  generationRun?: Prisma.GenerationRunOmit
 }
 
 /* Types for Logging */

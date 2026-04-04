@@ -16,6 +16,20 @@ export function formatDate(date: Date | string | null | undefined) {
   }).format(new Date(date));
 }
 
+export function formatDateTime(date: Date | string | null | undefined) {
+  if (!date) {
+    return "Not set";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(date));
+}
+
 export function formatDateRange(
   startDate: Date | string | null | undefined,
   endDate: Date | string | null | undefined,

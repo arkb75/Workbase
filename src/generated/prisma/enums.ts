@@ -65,7 +65,8 @@ export type OwnershipClarity = (typeof OwnershipClarity)[keyof typeof OwnershipC
 export const VerificationStatus = {
   draft: 'draft',
   approved: 'approved',
-  flagged: 'flagged'
+  flagged: 'flagged',
+  rejected: 'rejected'
 } as const
 
 export type VerificationStatus = (typeof VerificationStatus)[keyof typeof VerificationStatus]
@@ -108,3 +109,22 @@ export const ArtifactTone = {
 } as const
 
 export type ArtifactTone = (typeof ArtifactTone)[keyof typeof ArtifactTone]
+
+
+export const GenerationKind = {
+  claim_research: 'claim_research',
+  claim_verification: 'claim_verification',
+  artifact_generation: 'artifact_generation'
+} as const
+
+export type GenerationKind = (typeof GenerationKind)[keyof typeof GenerationKind]
+
+
+export const GenerationStatus = {
+  success: 'success',
+  provider_error: 'provider_error',
+  parse_error: 'parse_error',
+  validation_error: 'validation_error'
+} as const
+
+export type GenerationStatus = (typeof GenerationStatus)[keyof typeof GenerationStatus]

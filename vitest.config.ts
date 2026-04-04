@@ -9,6 +9,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: {
+      WORKBASE_LLM_PROVIDER: "mock",
+      VITEST: "true",
+    },
     coverage: {
       provider: "v8",
     },

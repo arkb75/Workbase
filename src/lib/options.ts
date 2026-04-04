@@ -56,6 +56,7 @@ export const verificationStatusOptions = [
   { value: "draft", label: "Draft" },
   { value: "approved", label: "Approved" },
   { value: "flagged", label: "Flagged" },
+  { value: "rejected", label: "Rejected" },
 ] as const;
 
 export type VerificationStatus =

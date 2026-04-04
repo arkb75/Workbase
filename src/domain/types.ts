@@ -76,6 +76,7 @@ export interface ClaimDraft {
   visibility: VisibilityLevel;
   risksSummary?: string | null;
   missingInfo?: string | null;
+  rejectionReason?: string | null;
   evidenceCard: EvidenceCardDraft;
 }
 
@@ -109,4 +110,22 @@ export interface NormalizedSource {
   body: string;
   excerpts: string[];
   metadata: JsonValue | null;
+}
+
+export interface GenerationTraceSnapshot {
+  id: string;
+  workItemId: string;
+  kind: "claim_research" | "claim_verification" | "artifact_generation";
+  status: "success" | "provider_error" | "parse_error" | "validation_error";
+  provider: string;
+  modelId: string;
+  inputSummary: JsonValue;
+  rawOutput: string | null;
+  parsedOutput: JsonValue | null;
+  validationErrors: JsonValue | null;
+  resultRefs: JsonValue | null;
+  tokenUsage: JsonValue | null;
+  estimatedCostUsd: number | null;
+  createdAt?: Date;
+  updatedAt?: Date;
 }

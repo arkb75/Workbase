@@ -56,7 +56,8 @@ export const ModelName = {
   Source: 'Source',
   Claim: 'Claim',
   EvidenceCard: 'EvidenceCard',
-  Artifact: 'Artifact'
+  Artifact: 'Artifact',
+  GenerationRun: 'GenerationRun'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -130,6 +131,7 @@ export const ClaimScalarFieldEnum = {
   visibility: 'visibility',
   risksSummary: 'risksSummary',
   missingInfo: 'missingInfo',
+  rejectionReason: 'rejectionReason',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -164,6 +166,27 @@ export const ArtifactScalarFieldEnum = {
 } as const
 
 export type ArtifactScalarFieldEnum = (typeof ArtifactScalarFieldEnum)[keyof typeof ArtifactScalarFieldEnum]
+
+
+export const GenerationRunScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  kind: 'kind',
+  status: 'status',
+  provider: 'provider',
+  modelId: 'modelId',
+  inputSummary: 'inputSummary',
+  rawOutput: 'rawOutput',
+  parsedOutput: 'parsedOutput',
+  validationErrors: 'validationErrors',
+  resultRefs: 'resultRefs',
+  tokenUsage: 'tokenUsage',
+  estimatedCostUsd: 'estimatedCostUsd',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GenerationRunScalarFieldEnum = (typeof GenerationRunScalarFieldEnum)[keyof typeof GenerationRunScalarFieldEnum]
 
 
 export const SortOrder = {

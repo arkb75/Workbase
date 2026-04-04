@@ -2,6 +2,7 @@ import { generateClaimsAction } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { ClaimCard } from "@/components/claims/claim-card";
+import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
@@ -25,15 +26,18 @@ export default async function ClaimReviewPage({
   const approved = workItem.claims.filter(
     (claim) => claim.verificationStatus === "approved",
   ).length;
-  const flagged = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "flagged",
-  ).length;
   const pendingClaims = workItem.claims.filter(
     (claim) =>
       claim.verificationStatus === "draft" || claim.verificationStatus === "flagged",
   );
   const approvedClaims = workItem.claims.filter(
     (claim) => claim.verificationStatus === "approved",
+  );
+  const rejectedClaims = workItem.claims.filter(
+    (claim) => claim.verificationStatus === "rejected",
+  );
+  const claimGenerationTraces = workItem.generationRuns.filter(
+    (run) => run.kind === "claim_research" || run.kind === "claim_verification",
   );
 
   return (
@@ -75,12 +79,12 @@ export default async function ClaimReviewPage({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Flagged</CardTitle>
-            <CardDescription>Claims needing caution on wording or sensitivity.</CardDescription>
+            <CardTitle>Pending</CardTitle>
+            <CardDescription>Claims that still need a decision.</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="font-display text-4xl font-semibold tracking-[-0.05em] text-[color:var(--ink-strong)]">
-              {flagged}
+              {pendingClaims.length}
             </p>
           </CardContent>
         </Card>
@@ -97,6 +101,17 @@ export default async function ClaimReviewPage({
         </Card>
       ) : null}
 
+      {error === "claim-generation-failed" ? (
+        <Card className="border-amber-200 bg-amber-50 shadow-none">
+          <CardContent className="py-4">
+            <p className="text-sm leading-6 text-amber-900">
+              Workbase could not generate claims from the current sources. The generation trace
+              panel below has the provider or validation details.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {result ? (
         <Card className="border-emerald-200 bg-emerald-50 shadow-none">
           <CardContent className="py-4">
@@ -104,7 +119,9 @@ export default async function ClaimReviewPage({
               {result === "approved"
                 ? "Claim approved. It has moved into the approved section."
                 : result === "rejected"
-                  ? "Claim rejected and removed from this Work Item."
+                  ? "Claim rejected. It has moved into the hidden rejected section."
+                  : result === "restored"
+                    ? "Claim restored to pending review."
                   : "Claim changes saved."}
             </p>
           </CardContent>
@@ -167,6 +184,50 @@ export default async function ClaimReviewPage({
                 />
               ))
             ) : null}
+
+            <GenerationTracePanel
+              traces={claimGenerationTraces}
+              title="Generation traces"
+              description="Internal trace records for claim research and verification."
+            />
+
+            <details className="group">
+              <summary className="list-none cursor-pointer">
+                <Card className="border-rose-200 bg-rose-50/50 shadow-none transition group-open:border-rose-300">
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle>Rejected</CardTitle>
+                      <Badge tone="danger">{rejectedClaims.length} claims</Badge>
+                    </div>
+                    <CardDescription>
+                      Hidden by default. Rejected claims remain available to guide future generations.
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              </summary>
+
+              <div className="mt-4 grid gap-4">
+                {rejectedClaims.length ? (
+                  rejectedClaims.map((claim) => (
+                    <ClaimCard
+                      key={claim.id}
+                      claim={{
+                        ...claim,
+                        workItemId: workItem.id,
+                      }}
+                    />
+                  ))
+                ) : (
+                  <Card>
+                    <CardContent className="py-6">
+                      <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                        No rejected claims for this Work Item.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </details>
           </>
         ) : (
           <Card>

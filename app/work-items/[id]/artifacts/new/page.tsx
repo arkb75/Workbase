@@ -1,5 +1,6 @@
 import { generateArtifactAction } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
+import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, KeyValue } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -19,15 +20,18 @@ export default async function ArtifactGeneratorPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ artifactId?: string }>;
+  searchParams: Promise<{ artifactId?: string; error?: string }>;
 }) {
   const { id } = await params;
-  const { artifactId } = await searchParams;
+  const { artifactId, error } = await searchParams;
   const user = await getDemoUser();
   const workItem = await getWorkItemForUser(user.id, id);
   const selectedArtifact = await getArtifactForUser(user.id, artifactId);
   const approvedClaims = workItem.claims.filter(
     (claim) => claim.verificationStatus === "approved" && !claim.sensitivityFlag,
+  );
+  const artifactGenerationTraces = workItem.generationRuns.filter(
+    (run) => run.kind === "artifact_generation",
   );
 
   return (
@@ -128,6 +132,27 @@ export default async function ArtifactGeneratorPage({
         </Card>
       </section>
 
+      {error === "no-eligible-claims" ? (
+        <Card className="border-amber-200 bg-amber-50 shadow-none">
+          <CardContent className="py-4">
+            <p className="text-sm leading-6 text-amber-900">
+              No approved, non-sensitive claims match the current visibility rules for that Artifact.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {error === "artifact-generation-failed" ? (
+        <Card className="border-amber-200 bg-amber-50 shadow-none">
+          <CardContent className="py-4">
+            <p className="text-sm leading-6 text-amber-900">
+              Workbase could not generate that Artifact. The generation trace panel below has the
+              provider and validation details.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <CardHeader>
@@ -189,6 +214,12 @@ export default async function ArtifactGeneratorPage({
           </CardContent>
         </Card>
       </section>
+
+      <GenerationTracePanel
+        traces={artifactGenerationTraces}
+        title="Generation traces"
+        description="Internal trace records for Artifact generation runs."
+      />
     </WorkbaseFrame>
   );
 }

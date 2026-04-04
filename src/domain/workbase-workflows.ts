@@ -8,12 +8,44 @@ import type {
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
+import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import type {
   ArtifactGenerationService,
   ClaimResearchService,
   ClaimVerificationService,
   SourceIngestionService,
 } from "@/src/services/types";
+
+function buildRejectedClaimGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
+  if (!rejectedClaims.length) {
+    return null;
+  }
+
+  return {
+    id: "rejected-claim-guidance",
+    label: "Previously rejected claims",
+    type: "manual_note" as const,
+    body: rejectedClaims
+      .map((claim) =>
+        [
+          `Rejected claim: ${claim.text}`,
+          claim.rejectionReason
+            ? `Reason: ${claim.rejectionReason}`
+            : "Reason: No rejection reason was provided.",
+        ].join("\n"),
+      )
+      .join("\n\n"),
+    excerpts: rejectedClaims.map((claim) =>
+      claim.rejectionReason
+        ? `${claim.text} Reason: ${claim.rejectionReason}`
+        : claim.text,
+    ),
+    metadata: {
+      kind: "rejected_claim_context",
+      rejectedClaimIds: rejectedClaims.map((claim) => claim.id),
+    } as const,
+  };
+}
 
 export async function buildClaimGenerationDrafts(params: {
   workItem: WorkItemSnapshot;
@@ -27,24 +59,36 @@ export async function buildClaimGenerationDrafts(params: {
     workItem: params.workItem,
     sources: params.sources,
   });
-  const candidateClaims = await params.claimResearchService.generate({
-    workItem: params.workItem,
-    sources: normalizedSources,
-  });
-  const verifiedClaims = await params.claimVerificationService.verify({
-    workItem: params.workItem,
-    sources: normalizedSources,
-    claims: candidateClaims,
-  });
   const { preserved, replaceable } = partitionClaimsByPersistence(
     params.existingClaims,
   );
+  const rejectedGuidanceSource = buildRejectedClaimGuidanceSource(
+    preserved.filter((claim) => claim.verificationStatus === "rejected"),
+  );
+  const researchSources = rejectedGuidanceSource
+    ? [...normalizedSources, rejectedGuidanceSource]
+    : normalizedSources;
+  const candidateClaims = await params.claimResearchService.generate({
+    workItem: params.workItem,
+    sources: researchSources,
+  });
+  const verifiedClaims = await params.claimVerificationService.verify({
+    workItem: params.workItem,
+    sources: researchSources,
+    claims: candidateClaims,
+  });
+  const researchRun = readGenerationRunMetadata(candidateClaims);
+  const verificationRun = readGenerationRunMetadata(verifiedClaims);
 
   return {
     normalizedSources,
     preservedClaims: preserved,
     replaceableClaims: replaceable,
     drafts: filterDuplicateClaimDrafts(verifiedClaims, preserved),
+    generationRunIds: {
+      research: researchRun?.id ?? null,
+      verification: verificationRun?.id ?? null,
+    },
   };
 }
 
@@ -58,10 +102,16 @@ export async function buildArtifactFromApprovedClaims(params: {
     params.request.type,
   );
 
-  return params.artifactGenerationService.generate({
+  const artifactDraft = await params.artifactGenerationService.generate({
     request: params.request,
     claims: eligibleClaims,
   });
+  const generationRun = readGenerationRunMetadata(artifactDraft);
+
+  return {
+    artifactDraft,
+    generationRunId: generationRun?.id ?? null,
+  };
 }
 
 export function countClaimsByStatus(claims: ClaimSnapshot[]) {
