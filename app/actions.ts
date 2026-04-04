@@ -26,6 +26,19 @@ function toDateOrNull(value: string | undefined) {
   return value ? new Date(value) : null;
 }
 
+function appendFieldErrors(
+  searchParams: URLSearchParams,
+  fieldErrors: Record<string, string[] | undefined>,
+) {
+  for (const [field, errors] of Object.entries(fieldErrors)) {
+    if (!errors?.length) {
+      continue;
+    }
+
+    searchParams.set(`${field}Error`, errors[0]);
+  }
+}
+
 function mapWorkItemSnapshot(workItem: {
   id: string;
   userId: string;
@@ -136,16 +149,28 @@ export async function updateOnboardingAction(formData: FormData) {
 
 export async function createWorkItemAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
-  const parsed = workItemSchema.safeParse({
-    title: formData.get("title"),
-    type: formData.get("type"),
-    description: formData.get("description"),
-    startDate: formData.get("startDate"),
-    endDate: formData.get("endDate"),
-  });
+  const submittedValues = {
+    title: String(formData.get("title") ?? ""),
+    type: String(formData.get("type") ?? "project"),
+    description: String(formData.get("description") ?? ""),
+    startDate: String(formData.get("startDate") ?? ""),
+    endDate: String(formData.get("endDate") ?? ""),
+  };
+  const parsed = workItemSchema.safeParse(submittedValues);
 
   if (!parsed.success) {
-    redirect("/work-items/new?error=invalid");
+    const searchParams = new URLSearchParams({
+      error: "invalid",
+      title: submittedValues.title,
+      type: submittedValues.type,
+      description: submittedValues.description,
+      startDate: submittedValues.startDate,
+      endDate: submittedValues.endDate,
+    });
+
+    appendFieldErrors(searchParams, parsed.error.flatten().fieldErrors);
+
+    redirect(`/work-items/new?${searchParams.toString()}`);
   }
 
   const workItem = await prisma.workItem.create({
