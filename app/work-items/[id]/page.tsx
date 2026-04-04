@@ -222,7 +222,7 @@ export default async function WorkItemDetailPage({
                   Claim generation
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Replaces only draft and flagged claims, while keeping approved and rejected decisions intact.
+                  Replaces only draft and flagged claims, while keeping approved claims intact.
                 </p>
               </div>
             </div>

@@ -31,13 +31,9 @@ describe("claim status transitions", () => {
     expect(transitionClaimStatus("flagged", "approve")).toBe("approved");
   });
 
-  it("allows non-rejected claims to become rejected", () => {
-    expect(transitionClaimStatus("draft", "reject")).toBe("rejected");
-    expect(transitionClaimStatus("approved", "reject")).toBe("rejected");
-  });
-
-  it("keeps rejected claims rejected when approve is attempted later", () => {
-    expect(transitionClaimStatus("rejected", "approve")).toBe("rejected");
+  it("leaves status unchanged for non-approve intents", () => {
+    expect(transitionClaimStatus("draft", "reject")).toBe("draft");
+    expect(transitionClaimStatus("approved", "reject")).toBe("approved");
   });
 });
 
@@ -63,11 +59,6 @@ describe("artifact eligibility", () => {
       verificationStatus: "approved",
       visibility: "public_safe",
       sensitivityFlag: true,
-    }),
-    makeClaim({
-      id: "rejected-public",
-      verificationStatus: "rejected",
-      visibility: "public_safe",
     }),
   ];
 

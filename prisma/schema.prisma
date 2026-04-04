@@ -46,7 +46,6 @@ enum VerificationStatus {
   draft
   approved
   flagged
-  rejected
 }
 
 enum VisibilityLevel {

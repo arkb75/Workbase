@@ -65,8 +65,7 @@ export type OwnershipClarity = (typeof OwnershipClarity)[keyof typeof OwnershipC
 export const VerificationStatus = {
   draft: 'draft',
   approved: 'approved',
-  flagged: 'flagged',
-  rejected: 'rejected'
+  flagged: 'flagged'
 } as const
 
 export type VerificationStatus = (typeof VerificationStatus)[keyof typeof VerificationStatus]

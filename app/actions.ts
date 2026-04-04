@@ -76,7 +76,7 @@ function mapClaimSnapshot(claim: {
   confidence: "low" | "medium" | "high";
   ownershipClarity: "unclear" | "partial" | "clear";
   sensitivityFlag: boolean;
-  verificationStatus: "draft" | "approved" | "flagged" | "rejected";
+  verificationStatus: "draft" | "approved" | "flagged";
   visibility: "private" | "resume_safe" | "linkedin_safe" | "public_safe";
   risksSummary: string | null;
   missingInfo: string | null;
@@ -335,6 +335,19 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
     parsed.data.intent,
   );
 
+  if (parsed.data.intent === "reject") {
+    await prisma.claim.delete({
+      where: {
+        id: claim.id,
+      },
+    });
+
+    revalidatePath(`/work-items/${parsed.data.workItemId}`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
+    redirect(`/work-items/${parsed.data.workItemId}/claims?result=rejected`);
+  }
+
   await prisma.claim.update({
     where: {
       id: claim.id,
@@ -362,9 +375,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       ? "saved"
       : nextStatus === "approved"
         ? "approved"
-        : nextStatus === "rejected"
-          ? "rejected"
-          : "saved";
+        : "saved";
   redirect(`/work-items/${parsed.data.workItemId}/claims?result=${result}`);
 }
 

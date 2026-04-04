@@ -3,9 +3,7 @@ import { slugifyText } from "@/src/lib/utils";
 
 export function partitionClaimsByPersistence(claims: ClaimSnapshot[]) {
   const preserved = claims.filter(
-    (claim) =>
-      claim.verificationStatus === "approved" ||
-      claim.verificationStatus === "rejected",
+    (claim) => claim.verificationStatus === "approved",
   );
   const replaceable = claims.filter(
     (claim) =>

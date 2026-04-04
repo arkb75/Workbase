@@ -35,9 +35,6 @@ export default async function ClaimReviewPage({
   const approvedClaims = workItem.claims.filter(
     (claim) => claim.verificationStatus === "approved",
   );
-  const rejectedClaims = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "rejected",
-  );
 
   return (
     <WorkbaseFrame>
@@ -107,7 +104,7 @@ export default async function ClaimReviewPage({
               {result === "approved"
                 ? "Claim approved. It has moved into the approved section."
                 : result === "rejected"
-                  ? "Claim rejected. It has moved into the rejected section."
+                  ? "Claim rejected and removed from this Work Item."
                   : "Claim changes saved."}
             </p>
           </CardContent>
@@ -169,31 +166,6 @@ export default async function ClaimReviewPage({
                   }}
                 />
               ))
-            ) : null}
-
-            {rejectedClaims.length ? (
-              <>
-                <Card className="border-rose-200 bg-rose-50 shadow-none">
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle>Rejected</CardTitle>
-                      <Badge tone="danger">{rejectedClaims.length} claims</Badge>
-                    </div>
-                    <CardDescription>
-                      Rejected claims stay persisted for auditability, but they are excluded from artifacts.
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-                {rejectedClaims.map((claim) => (
-                  <ClaimCard
-                    key={claim.id}
-                    claim={{
-                      ...claim,
-                      workItemId: workItem.id,
-                    }}
-                  />
-                ))}
-              </>
             ) : null}
           </>
         ) : (

@@ -22,10 +22,6 @@ function toneForStatus(status: string) {
     return "warning" as const;
   }
 
-  if (status === "rejected") {
-    return "danger" as const;
-  }
-
   return "neutral" as const;
 }
 
@@ -69,7 +65,6 @@ export function ClaimCard({
     ? claim.evidenceCard?.sourceRefs
     : [];
   const isApproved = claim.verificationStatus === "approved";
-  const isRejected = claim.verificationStatus === "rejected";
   const isPending =
     claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
 
@@ -238,16 +233,14 @@ export function ClaimCard({
               Approve claim
             </button>
           ) : null}
-          {!isRejected ? (
-            <button
-              type="submit"
-              name="intent"
-              value="reject"
-              className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
-            >
-              {isApproved ? "Remove from approved" : "Reject claim"}
-            </button>
-          ) : null}
+          <button
+            type="submit"
+            name="intent"
+            value="reject"
+            className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
+          >
+            {isApproved ? "Remove claim" : "Reject claim"}
+          </button>
           {isApproved ? (
             <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
               This claim is already approved and will be eligible for artifacts when visibility allows it.

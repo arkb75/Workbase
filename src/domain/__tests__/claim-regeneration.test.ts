@@ -54,7 +54,7 @@ function makeExistingClaim(
 }
 
 describe("claim regeneration behavior", () => {
-  it("preserves approved and rejected claims while replacing pending ones", async () => {
+  it("preserves approved claims while replacing pending ones", async () => {
     const result = await buildClaimGenerationDrafts({
       workItem,
       sources,
@@ -64,7 +64,6 @@ describe("claim regeneration behavior", () => {
           "approved",
           "Built the first claim review screen.",
         ),
-        makeExistingClaim("rejected-1", "rejected", "Handled all hiring analytics alone."),
         makeExistingClaim("draft-1", "draft", "Outdated pending claim."),
         makeExistingClaim("flagged-1", "flagged", "Potentially sensitive pending claim."),
       ],
@@ -73,10 +72,7 @@ describe("claim regeneration behavior", () => {
       claimVerificationService,
     });
 
-    expect(result.preservedClaims.map((claim) => claim.id)).toEqual([
-      "approved-1",
-      "rejected-1",
-    ]);
+    expect(result.preservedClaims.map((claim) => claim.id)).toEqual(["approved-1"]);
     expect(result.replaceableClaims.map((claim) => claim.id)).toEqual([
       "draft-1",
       "flagged-1",

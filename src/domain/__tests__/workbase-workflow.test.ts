@@ -56,11 +56,6 @@ describe("workbase workflow", () => {
       visibility: "resume_safe" as const,
       sensitivityFlag: false,
     };
-    const rejectedClaim = {
-      ...toClaimSnapshot(workItem.id, "claim-rejected", claimPlan.drafts[1]),
-      verificationStatus: "rejected" as const,
-    };
-
     const artifact = await buildArtifactFromApprovedClaims({
       request: {
         userId: "user-1",
@@ -69,12 +64,11 @@ describe("workbase workflow", () => {
         targetAngle: "backend",
         tone: "concise",
       },
-      claims: [approvedClaim, rejectedClaim],
+      claims: [approvedClaim],
       artifactGenerationService,
     });
 
     expect(artifact.content).toContain(approvedClaim.text.replace(/\.$/, ""));
-    expect(artifact.content).not.toContain(rejectedClaim.text.replace(/\.$/, ""));
     expect(artifact.usedClaimIds).toEqual(["claim-approved"]);
   });
 });

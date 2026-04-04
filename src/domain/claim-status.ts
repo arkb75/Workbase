@@ -16,11 +16,5 @@ export function transitionClaimStatus(
     return currentStatus;
   }
 
-  if (intent === "reject") {
-    if (currentStatus !== "rejected") {
-      return "rejected" as const;
-    }
-  }
-
   return currentStatus;
 }
