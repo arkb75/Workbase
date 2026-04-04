@@ -68,6 +68,10 @@ export function ClaimCard({
   const sourceRefs = Array.isArray(claim.evidenceCard?.sourceRefs)
     ? claim.evidenceCard?.sourceRefs
     : [];
+  const isApproved = claim.verificationStatus === "approved";
+  const isRejected = claim.verificationStatus === "rejected";
+  const isPending =
+    claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
 
   return (
     <Card className="overflow-hidden">
@@ -224,22 +228,31 @@ export function ClaimCard({
           >
             Save edits
           </button>
-          <button
-            type="submit"
-            name="intent"
-            value="approve"
-            className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-4 text-sm font-medium text-white transition hover:bg-emerald-700"
-          >
-            Approve claim
-          </button>
-          <button
-            type="submit"
-            name="intent"
-            value="reject"
-            className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
-          >
-            Reject claim
-          </button>
+          {isPending ? (
+            <button
+              type="submit"
+              name="intent"
+              value="approve"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-4 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              Approve claim
+            </button>
+          ) : null}
+          {!isRejected ? (
+            <button
+              type="submit"
+              name="intent"
+              value="reject"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
+            >
+              {isApproved ? "Remove from approved" : "Reject claim"}
+            </button>
+          ) : null}
+          {isApproved ? (
+            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+              This claim is already approved and will be eligible for artifacts when visibility allows it.
+            </p>
+          ) : null}
         </CardFooter>
       </form>
     </Card>

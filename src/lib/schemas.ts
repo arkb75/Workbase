@@ -74,7 +74,7 @@ export const claimUpdateSchema = z.object({
   text: z.string().trim().min(10).max(240),
   visibility: z.enum(visibilityValues),
   sensitivityFlag: z.boolean(),
-  verificationNotes: z.string().trim().max(240).optional(),
+  verificationNotes: z.string().trim().max(1200).optional(),
   intent: z.enum(["save", "approve", "reject"]),
 });
 

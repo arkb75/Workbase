@@ -330,6 +330,11 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
     redirect(`/work-items/${claim.workItemId}/claims?error=invalid-claim`);
   }
 
+  const nextStatus = transitionClaimStatus(
+    claim.verificationStatus,
+    parsed.data.intent,
+  );
+
   await prisma.claim.update({
     where: {
       id: claim.id,
@@ -338,10 +343,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       text: parsed.data.text,
       visibility: parsed.data.visibility,
       sensitivityFlag: parsed.data.sensitivityFlag,
-      verificationStatus: transitionClaimStatus(
-        claim.verificationStatus,
-        parsed.data.intent,
-      ),
+      verificationStatus: nextStatus,
       evidenceCard: claim.evidenceCard
         ? {
             update: {
@@ -355,7 +357,15 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
-  redirect(`/work-items/${parsed.data.workItemId}/claims`);
+  const result =
+    parsed.data.intent === "save"
+      ? "saved"
+      : nextStatus === "approved"
+        ? "approved"
+        : nextStatus === "rejected"
+          ? "rejected"
+          : "saved";
+  redirect(`/work-items/${parsed.data.workItemId}/claims?result=${result}`);
 }
 
 export async function generateArtifactAction(formData: FormData) {
