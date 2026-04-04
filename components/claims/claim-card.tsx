@@ -1,17 +1,11 @@
 import { updateClaimAction } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  KeyValue,
-} from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { visibilityOptions } from "@/src/lib/options";
+import { titleCase } from "@/src/lib/utils";
+import { ChevronDown, Info, ShieldAlert } from "lucide-react";
 
 function toneForStatus(status: string) {
   if (status === "approved") {
@@ -41,8 +35,63 @@ function toneForConfidence(confidence: string) {
   return "warning" as const;
 }
 
+function summarizeSignal(claim: {
+  verificationStatus: string;
+  risksSummary: string | null;
+  missingInfo: string | null;
+  evidenceCard: { evidenceSummary: string } | null;
+}) {
+  if (claim.verificationStatus === "approved") {
+    return "Approved and available for artifact generation when visibility allows it.";
+  }
+
+  if (claim.verificationStatus === "rejected") {
+    return claim.risksSummary ?? "Rejected claims stay hidden from the main workflow but still guide future generations.";
+  }
+
+  return (
+    claim.risksSummary ??
+    claim.missingInfo ??
+    claim.evidenceCard?.evidenceSummary ??
+    "Review the evidence and decide whether this wording should survive."
+  );
+}
+
+function FieldLabel({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+        {label}
+      </p>
+      {tooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[color:var(--ink-muted)] transition hover:text-[color:var(--ink-strong)]"
+              aria-label={`${label} help`}
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>{tooltip}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
 export function ClaimCard({
   claim,
+  defaultOpen = false,
 }: {
   claim: {
     id: string;
@@ -64,6 +113,7 @@ export function ClaimCard({
       sourceRefs: unknown;
     } | null;
   };
+  defaultOpen?: boolean;
 }) {
   const action = updateClaimAction.bind(null, claim.id);
   const sourceRefs = Array.isArray(claim.evidenceCard?.sourceRefs)
@@ -73,186 +123,215 @@ export function ClaimCard({
   const isRejected = claim.verificationStatus === "rejected";
   const isPending =
     claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
+  const summaryCopy = summarizeSignal(claim);
+  const compactSourceRefs = sourceRefs.slice(0, 3);
 
   return (
-    <Card
-      className={
-        isRejected
-          ? "overflow-hidden border-rose-200 bg-rose-50/40 shadow-none"
-          : "overflow-hidden"
-      }
+    <details
+      open={defaultOpen}
+      className={[
+        "group rounded-[28px] border bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)]",
+        isApproved
+          ? "border-emerald-200/80"
+          : isRejected
+            ? "border-rose-200/80 bg-rose-50/55"
+            : claim.verificationStatus === "flagged"
+              ? "border-amber-200/80"
+              : "border-black/8",
+      ].join(" ")}
     >
-      <form action={action}>
-        <input type="hidden" name="workItemId" value={claim.workItemId} />
-        <CardHeader className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={toneForStatus(claim.verificationStatus)}>
-              {claim.verificationStatus.replace("_", " ")}
-            </Badge>
-            <Badge tone={toneForConfidence(claim.confidence)}>
-              {claim.confidence} confidence
-            </Badge>
-            <Badge>{claim.visibility.replace("_", " ")}</Badge>
-            <Badge>{claim.ownershipClarity} ownership</Badge>
-            {claim.sensitivityFlag ? <Badge tone="danger">Sensitive</Badge> : null}
-          </div>
-          <div className="space-y-2">
-            <CardTitle>Claim</CardTitle>
-            <CardDescription>
-              {isRejected
-                ? "Rejected claims stay hidden from the main review flow, but you can still revise, restore, or approve them here."
-                : "Edit the wording, then decide whether it is ready to approve."}
-            </CardDescription>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-6">
-          <label className="grid gap-2">
-            <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-              Claim text
-            </span>
-            <Textarea name="text" defaultValue={claim.text} className="min-h-32" />
-          </label>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-                Visibility
-              </span>
-              <Select name="visibility" defaultValue={claim.visibility}>
-                {visibilityOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-
-            <label className="flex items-end gap-3 rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] px-4 py-3">
-              <input
-                type="checkbox"
-                name="sensitivityFlag"
-                defaultChecked={claim.sensitivityFlag}
-                className="mt-1 h-4 w-4 rounded border-black/20 text-[color:var(--accent)]"
-              />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+      <summary className="list-none cursor-pointer p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={toneForStatus(claim.verificationStatus)}>
+                {titleCase(claim.verificationStatus)}
+              </Badge>
+              <Badge tone={toneForConfidence(claim.confidence)}>
+                {titleCase(claim.confidence)} confidence
+              </Badge>
+              <Badge>{titleCase(claim.visibility)}</Badge>
+              <Badge>{titleCase(claim.ownershipClarity)} ownership</Badge>
+              {claim.category ? <Badge>{titleCase(claim.category)}</Badge> : null}
+              {claim.sensitivityFlag ? (
+                <Badge tone="danger">
+                  <ShieldAlert className="mr-1 h-3.5 w-3.5" />
                   Sensitive
-                </p>
-                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Keep this claim out of public-facing artifacts until you are sure it is safe.
-                </p>
-              </div>
-            </label>
-          </div>
+                </Badge>
+              ) : null}
+            </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <Card className="border-dashed border-black/10 shadow-none">
-              <CardHeader>
-                <CardTitle className="text-lg">Evidence</CardTitle>
-                <CardDescription>
-                  What Workbase used to justify the wording.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-5 pt-0">
-                <KeyValue
-                  label="Evidence summary"
-                  value={claim.evidenceCard?.evidenceSummary ?? "No evidence attached."}
-                />
-                <KeyValue
-                  label="Rationale summary"
-                  value={
-                    claim.evidenceCard?.rationaleSummary ??
-                    "No rationale attached."
-                  }
-                />
-                <KeyValue
-                  label="Source refs"
-                  value={
-                    <div className="space-y-2">
-                      {sourceRefs.length ? (
-                        sourceRefs.map((reference, index) => (
-                          <div
-                            key={`${claim.id}-ref-${index}`}
-                            className="rounded-2xl bg-[color:var(--panel-muted)] px-3 py-2 text-sm"
-                          >
-                            {typeof reference === "object" && reference
-                              ? `${String((reference as { sourceLabel?: string }).sourceLabel ?? "Source")}: ${String((reference as { excerpt?: string }).excerpt ?? "")}`
-                              : String(reference)}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-[color:var(--ink-soft)]">
-                          No source excerpts attached.
-                        </p>
-                      )}
-                    </div>
-                  }
-                />
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4">
-              <Card className="border-dashed border-black/10 shadow-none">
-                <CardHeader>
-                  <CardTitle className="text-lg">Review notes</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <Textarea
-                    name="verificationNotes"
-                    defaultValue={claim.evidenceCard?.verificationNotes ?? ""}
-                    className="min-h-36"
-                  />
-                </CardContent>
-              </Card>
-
-              <Card className="border-dashed border-black/10 shadow-none">
-                <CardHeader>
-                  <CardTitle className="text-lg">Rejection reason</CardTitle>
-                  <CardDescription>
-                    Optional. Workbase uses this to steer future claim generation away from repeats.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <Textarea
-                    name="rejectionReason"
-                    defaultValue={claim.rejectionReason ?? ""}
-                    className="min-h-28"
-                    placeholder="Example: Overstates impact, unclear ownership, or still too sensitive."
-                  />
-                </CardContent>
-              </Card>
-
-              <Card className="border-dashed border-black/10 shadow-none">
-                <CardHeader>
-                  <CardTitle className="text-lg">Uncertainty</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 pt-0">
-                  <KeyValue
-                    label="Risks"
-                    value={claim.risksSummary ?? "No explicit risks captured yet."}
-                  />
-                  <KeyValue
-                    label="Missing info"
-                    value={claim.missingInfo ?? "No missing info captured yet."}
-                  />
-                  {claim.category ? (
-                    <KeyValue label="Category" value={claim.category.replace("_", " ")} />
-                  ) : null}
-                </CardContent>
-              </Card>
+            <div className="space-y-2">
+              <h3 className="font-display text-xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
+                {claim.text}
+              </h3>
+              <p className="line-clamp-2 max-w-4xl text-sm leading-6 text-[color:var(--ink-soft)]">
+                {summaryCopy}
+              </p>
             </div>
           </div>
-        </CardContent>
 
-        <CardFooter className="border-t border-black/6 bg-[color:var(--panel-muted)]">
+          <div className="flex shrink-0 items-center gap-2 rounded-full border border-black/8 bg-[color:var(--panel-muted)] px-3 py-2 text-xs font-medium uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+            Open
+            <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
+          </div>
+        </div>
+      </summary>
+
+      <form action={action} className="border-t border-black/6">
+        <input type="hidden" name="workItemId" value={claim.workItemId} />
+
+        <div className="grid gap-4 p-5 sm:p-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <section className="space-y-4">
+            <div className="space-y-2">
+              <FieldLabel label="Claim text" />
+              <Textarea name="text" defaultValue={claim.text} className="min-h-28 bg-white" />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 rounded-[24px] border border-black/8 bg-[color:var(--surface)] px-4 py-3">
+              <label className="flex min-w-[12rem] items-center gap-3">
+                <FieldLabel label="Visibility" />
+                <Select
+                  name="visibility"
+                  defaultValue={claim.visibility}
+                  className="h-10 min-w-[10rem] w-auto rounded-full bg-white"
+                >
+                  {visibilityOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
+              <label className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white px-3 py-2">
+                <input
+                  type="checkbox"
+                  name="sensitivityFlag"
+                  defaultChecked={claim.sensitivityFlag}
+                  className="h-4 w-4 rounded border-black/20 text-[color:var(--accent)]"
+                />
+                <span className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Sensitive
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[color:var(--ink-muted)] transition hover:text-[color:var(--ink-strong)]"
+                      aria-label="Sensitive help"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p>Keep this claim out of public artifacts until you are confident it is safe to share.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </label>
+            </div>
+
+            <section className="grid gap-2 rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+              <FieldLabel
+                label="Review notes"
+                tooltip="Short reviewer context for this claim. Keep only what helps the next decision."
+              />
+              <Textarea
+                name="verificationNotes"
+                defaultValue={claim.evidenceCard?.verificationNotes ?? ""}
+                className="min-h-24 bg-white"
+              />
+            </section>
+
+            <section className="grid gap-2 rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+              <FieldLabel
+                label="Rejection reason"
+                tooltip="Optional. Stored rejected claims use this as future negative guidance."
+              />
+              <Textarea
+                name="rejectionReason"
+                defaultValue={claim.rejectionReason ?? ""}
+                className="min-h-24 bg-white"
+                placeholder="Example: Overstates impact, unclear ownership, or still too sensitive."
+              />
+            </section>
+          </section>
+
+          <section className="space-y-4">
+            <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+              <FieldLabel label="Evidence summary" />
+              <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
+                {claim.evidenceCard?.evidenceSummary ?? "No evidence attached."}
+              </p>
+            </div>
+
+            <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+              <FieldLabel label="Rationale summary" />
+              <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
+                {claim.evidenceCard?.rationaleSummary ?? "No rationale attached."}
+              </p>
+            </div>
+
+            <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+              <FieldLabel
+                label="Source refs"
+                tooltip="Quick evidence excerpts. Open the Work Item if you need the full source list."
+              />
+              <div className="mt-3 space-y-2">
+                {compactSourceRefs.length ? (
+                  compactSourceRefs.map((reference, index) => (
+                    <div
+                      key={`${claim.id}-ref-${index}`}
+                      className="rounded-2xl bg-white px-3 py-2 text-sm leading-6 text-[color:var(--ink-strong)]"
+                    >
+                      {typeof reference === "object" && reference
+                        ? `${String((reference as { sourceLabel?: string }).sourceLabel ?? "Source")}: ${String((reference as { excerpt?: string }).excerpt ?? "")}`
+                        : String(reference)}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                    No source excerpts attached.
+                  </p>
+                )}
+                {sourceRefs.length > compactSourceRefs.length ? (
+                  <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
+                    +{sourceRefs.length - compactSourceRefs.length} more refs
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+              <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+                <FieldLabel label="Risks" />
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
+                  {claim.risksSummary ?? "No explicit risks captured yet."}
+                </p>
+              </div>
+
+              <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
+                <FieldLabel label="Missing info" />
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
+                  {claim.missingInfo ?? "No missing info captured yet."}
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-black/6 bg-[color:var(--panel-muted)] p-5 sm:p-6">
           {isRejected ? (
             <>
               <label className="grid min-w-[15rem] gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
                   Rejected claim action
                 </span>
-                <Select name="intent" defaultValue="save">
+                <Select
+                  name="intent"
+                  defaultValue="save"
+                  className="h-10 min-w-[12rem] rounded-full bg-white"
+                >
                   <option value="save">Save edits</option>
                   <option value="approve">Approve claim</option>
                   <option value="restore">Restore to review</option>
@@ -260,12 +339,12 @@ export function ClaimCard({
               </label>
               <button
                 type="submit"
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--ink-strong)] px-4 text-sm font-medium text-white transition hover:bg-black"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)] [color:white]"
               >
                 Apply action
               </button>
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                Rejected claims never feed Artifacts, but they remain available as guidance for future generations.
+                Rejected claims stay off artifacts but remain useful as guidance.
               </p>
             </>
           ) : (
@@ -279,14 +358,14 @@ export function ClaimCard({
                 Save edits
               </button>
               {isPending ? (
-                <button
-                  type="submit"
-                  name="intent"
-                  value="approve"
-                  className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-4 text-sm font-medium text-white transition hover:bg-emerald-700"
-                >
-                  Approve claim
-                </button>
+              <button
+                type="submit"
+                name="intent"
+                value="approve"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white transition hover:bg-[color:var(--accent-strong)] [color:white]"
+              >
+                Approve claim
+              </button>
               ) : null}
               <button
                 type="submit"
@@ -296,15 +375,10 @@ export function ClaimCard({
               >
                 {isApproved ? "Move to rejected" : "Reject claim"}
               </button>
-              {isApproved ? (
-                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  This claim is already approved and will be eligible for artifacts when visibility allows it.
-                </p>
-              ) : null}
             </>
           )}
-        </CardFooter>
+        </div>
       </form>
-    </Card>
+    </details>
   );
 }

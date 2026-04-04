@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, FileText, Layers3, NotebookPen } from "lucide-react";
+import { ArrowRight, FileText, Layers3, NotebookPen, Plus, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, KeyValue } from "@/components/ui/card";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
@@ -23,32 +23,36 @@ export default async function DashboardPage() {
     (count, workItem) => count + workItem.claims.length,
     0,
   );
+  const pendingClaims = totalClaims - approvedClaims;
 
   return (
     <WorkbaseFrame>
       <PageHeader
         eyebrow="Dashboard"
-        title="Real work in. Verified artifacts out."
-        description="Workbase keeps the loop tight: capture a Work Item, attach evidence, review claims, then generate output from approved material only."
+        title="Capture work. Review the evidence. Ship only what holds up."
+        description="This workspace is meant to stay operational. Add a Work Item, attach notes, review claims, and keep approved material separate from everything still under scrutiny."
         actions={
           <Link
             href="/work-items/new"
-            className="inline-flex h-11 items-center gap-2 rounded-full bg-[color:var(--ink-strong)] px-4 text-sm font-medium text-white"
+            className="inline-flex h-11 items-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)]"
           >
+            <Plus className="h-4 w-4" />
             New Work Item
             <ArrowRight className="h-4 w-4" />
           </Link>
         }
       />
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <Card>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="bg-[color:var(--ink-strong)] text-white shadow-[0_24px_60px_rgba(16,33,43,0.18)]">
           <CardHeader>
-            <CardTitle>Work Items</CardTitle>
-            <CardDescription>Projects and experience records in the workspace.</CardDescription>
+            <CardTitle className="text-white">Work Items</CardTitle>
+            <CardDescription className="text-white/72">
+              Projects and experience records in the workspace.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-[color:var(--ink-strong)]">
+            <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-white">
               {workItems.length}
             </p>
           </CardContent>
@@ -66,6 +70,17 @@ export default async function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
+            <CardTitle>Pending review</CardTitle>
+            <CardDescription>Claims still waiting on a decision.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-[color:var(--ink-strong)]">
+              {pendingClaims}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
             <CardTitle>Claim inventory</CardTitle>
             <CardDescription>Current claims attached across the whole workspace.</CardDescription>
           </CardHeader>
@@ -77,25 +92,39 @@ export default async function DashboardPage() {
         </Card>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Workspace</CardTitle>
-            <CardDescription>
-              Start with manual notes, then progress toward claim review and artifact generation.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <section className="grid gap-4 lg:grid-cols-[1.45fr_0.55fr]">
+        <section className="rounded-[32px] border border-black/8 bg-white/86 p-6 shadow-[0_18px_52px_rgba(15,23,42,0.06)]">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--ink-muted)]">
+                Workspace
+              </p>
+              <h2 className="font-display text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
+                Active Work Items
+              </h2>
+              <p className="max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
+                Treat this as the operating list. Add evidence, review claims, and move only the strong material toward artifacts.
+              </p>
+            </div>
+            <Badge tone="accent">{workItems.length} items</Badge>
+          </div>
+
+          <div className="mt-6 space-y-3">
             {workItems.length ? (
               workItems.map((workItem) => {
                 const claimCount = workItem.claims.length;
                 const sourceCount = workItem.sources.length;
+                const pendingCount = workItem.claims.filter(
+                  (claim) =>
+                    claim.verificationStatus === "draft" ||
+                    claim.verificationStatus === "flagged",
+                ).length;
 
                 return (
                   <Link
                     key={workItem.id}
                     href={`/work-items/${workItem.id}`}
-                    className="grid gap-4 rounded-[28px] border border-black/8 bg-[color:var(--panel-muted)] p-5 transition hover:border-[color:var(--accent)] hover:bg-white"
+                    className="grid gap-4 rounded-[28px] border border-black/8 bg-[color:var(--panel-muted)] p-5 transition hover:-translate-y-0.5 hover:border-[color:var(--accent)]/45 hover:bg-white"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-2">
@@ -112,9 +141,10 @@ export default async function DashboardPage() {
                       </div>
                       <ArrowRight className="h-5 w-5 text-[color:var(--ink-muted)]" />
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-3">
                       <KeyValue label="Sources" value={`${sourceCount} attached`} />
                       <KeyValue label="Claims" value={`${claimCount} total`} />
+                      <KeyValue label="Pending" value={`${pendingCount} in review`} />
                     </div>
                   </Link>
                 );
@@ -124,13 +154,13 @@ export default async function DashboardPage() {
                 No Work Items yet. Create one to start the capture → verify → generate loop.
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
+        <Card className="bg-[color:var(--surface)] shadow-none">
           <CardHeader>
-            <CardTitle>Product loop</CardTitle>
-            <CardDescription>What the v1 prototype does today.</CardDescription>
+            <CardTitle>Operating loop</CardTitle>
+            <CardDescription>What this prototype is optimized to do well.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5">
             <div className="flex gap-3">
@@ -152,6 +182,17 @@ export default async function DashboardPage() {
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
                   Every claim keeps evidence, rationale, risk, visibility, and sensitivity.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <ShieldCheck className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Keep the bar high
+                </p>
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  Sensitive, weak, or overstated claims stay visible for review but separate from approved material.
                 </p>
               </div>
             </div>

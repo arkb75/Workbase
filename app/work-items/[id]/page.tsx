@@ -51,7 +51,7 @@ export default async function WorkItemDetailPage({
             </Link>
             <Link
               href={`/work-items/${workItem.id}/artifacts/new`}
-              className="inline-flex h-11 items-center gap-2 rounded-full bg-[color:var(--ink-strong)] px-4 text-sm font-medium text-white"
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)] [color:white] [&_svg]:text-white"
             >
               Artifact generator
               <ArrowRight className="h-4 w-4" />
