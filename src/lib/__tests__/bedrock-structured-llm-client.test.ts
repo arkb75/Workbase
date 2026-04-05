@@ -1,6 +1,7 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { toBedrockCompatibleJsonSchema } from "@/src/lib/llm-json-schemas";
 import {
   AwsBedrockConverseRuntime,
   BedrockStructuredLlmClient,
@@ -52,6 +53,39 @@ const jsonSchema = {
   properties: {
     ok: {
       type: "boolean",
+    },
+  },
+};
+
+const arrayBoundedSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: {
+    items: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "string",
+      },
+    },
+  },
+};
+
+const numericBoundedSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["score", "index"],
+  properties: {
+    score: {
+      type: "number",
+      minimum: 0,
+      maximum: 1,
+    },
+    index: {
+      type: "integer",
+      minimum: 0,
     },
   },
 };
@@ -181,6 +215,41 @@ describe("BedrockStructuredLlmClient", () => {
   });
 });
 
+describe("toBedrockCompatibleJsonSchema", () => {
+  it("removes unsupported array maxItems constraints while preserving the rest", () => {
+    expect(toBedrockCompatibleJsonSchema(arrayBoundedSchema)).toEqual({
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: {
+        items: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "string",
+          },
+        },
+      },
+    });
+  });
+
+  it("removes unsupported numeric bounds while preserving numeric types", () => {
+    expect(toBedrockCompatibleJsonSchema(numericBoundedSchema)).toEqual({
+      type: "object",
+      additionalProperties: false,
+      required: ["score", "index"],
+      properties: {
+        score: {
+          type: "number",
+        },
+        index: {
+          type: "integer",
+        },
+      },
+    });
+  });
+});
+
 describe("AwsBedrockConverseRuntime", () => {
   it("sends outputConfig.textFormat for native json schema mode", async () => {
     const sendSpy = vi
@@ -241,7 +310,7 @@ describe("AwsBedrockConverseRuntime", () => {
           }
         ).textFormat.structure.jsonSchema.schema,
       ),
-    ).toEqual(jsonSchema);
+    ).toEqual(toBedrockCompatibleJsonSchema(jsonSchema));
 
     sendSpy.mockRestore();
   });
@@ -297,6 +366,19 @@ describe("AwsBedrockConverseRuntime", () => {
         },
       },
     });
+    expect(
+      (
+        command.input.toolConfig as {
+          tools: Array<{
+            toolSpec: {
+              inputSchema: {
+                json: unknown;
+              };
+            };
+          }>;
+        }
+      ).tools[0]?.toolSpec.inputSchema.json,
+    ).toEqual(toBedrockCompatibleJsonSchema(jsonSchema));
     expect(response.structuredData).toEqual({ ok: true });
 
     sendSpy.mockRestore();

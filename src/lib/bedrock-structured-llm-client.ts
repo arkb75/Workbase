@@ -6,6 +6,7 @@ import {
 import { fromIni } from "@aws-sdk/credential-providers";
 import { z } from "zod";
 import type { JsonValue } from "@/src/domain/types";
+import { toBedrockCompatibleJsonSchema } from "@/src/lib/llm-json-schemas";
 import type {
   JsonSchemaObject,
   StructuredOutputTransportMode,
@@ -123,6 +124,10 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
       jsonSchema: JsonSchemaObject;
     };
   }) {
+    const bedrockCompatibleSchema = input.structuredOutput
+      ? toBedrockCompatibleJsonSchema(input.structuredOutput.jsonSchema)
+      : null;
+
     const response = await this.client.send(
       new ConverseCommand({
         modelId: this.config.modelId,
@@ -154,7 +159,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
                     jsonSchema: {
                       name: input.structuredOutput.schemaName,
                       description: input.structuredOutput.schemaDescription,
-                      schema: JSON.stringify(input.structuredOutput.jsonSchema),
+                      schema: JSON.stringify(bedrockCompatibleSchema),
                     },
                   },
                 },
@@ -169,7 +174,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
                       name: input.structuredOutput.schemaName,
                       description: input.structuredOutput.schemaDescription,
                       inputSchema: {
-                        json: input.structuredOutput.jsonSchema as never,
+                        json: bedrockCompatibleSchema as never,
                       },
                       strict: true,
                     },

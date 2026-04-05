@@ -11,6 +11,40 @@ export const structuredOutputTransportModes = [
 export type StructuredOutputTransportMode =
   (typeof structuredOutputTransportModes)[number];
 
+function sanitizeJsonSchemaNodeForBedrock(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeJsonSchemaNodeForBedrock);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const objectValue = value as Record<string, unknown>;
+  const sanitizedEntries = Object.entries(objectValue).flatMap(([key, nestedValue]) => {
+    if (objectValue.type === "array" && key === "maxItems") {
+      return [];
+    }
+
+    if (
+      (objectValue.type === "integer" || objectValue.type === "number") &&
+      ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"].includes(
+        key,
+      )
+    ) {
+      return [];
+    }
+
+    return [[key, sanitizeJsonSchemaNodeForBedrock(nestedValue)]];
+  });
+
+  return Object.fromEntries(sanitizedEntries);
+}
+
+export function toBedrockCompatibleJsonSchema(schema: JsonSchemaObject): JsonSchemaObject {
+  return sanitizeJsonSchemaNodeForBedrock(schema) as JsonSchemaObject;
+}
+
 const nullableString = (maxLength: number): JsonSchemaObject => ({
   anyOf: [
     {
