@@ -4,7 +4,9 @@ import type {
   ArtifactRequest,
   ClaimDraft,
   ClaimSnapshot,
-  NormalizedSource,
+  EvidenceClusterSnapshot,
+  EvidenceItemSnapshot,
+  NormalizedEvidenceItem,
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
@@ -23,8 +25,10 @@ function buildRejectedClaimGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
 
   return {
     id: "rejected-claim-guidance",
+    sourceId: "rejected-claim-guidance",
     label: "Previously rejected claims",
     type: "manual_note" as const,
+    evidenceType: "manual_note_excerpt" as const,
     body: rejectedClaims
       .map((claim) =>
         [
@@ -50,14 +54,17 @@ function buildRejectedClaimGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
 export async function buildClaimGenerationDrafts(params: {
   workItem: WorkItemSnapshot;
   sources: SourceSnapshot[];
+  evidenceItems: EvidenceItemSnapshot[];
+  clusters: EvidenceClusterSnapshot[];
   existingClaims: ClaimSnapshot[];
   sourceIngestionService: SourceIngestionService;
   claimResearchService: ClaimResearchService;
   claimVerificationService: ClaimVerificationService;
 }) {
-  const normalizedSources = await params.sourceIngestionService.normalize({
+  const normalizedEvidenceItems = await params.sourceIngestionService.normalize({
     workItem: params.workItem,
     sources: params.sources,
+    evidenceItems: params.evidenceItems,
   });
   const { preserved, replaceable } = partitionClaimsByPersistence(
     params.existingClaims,
@@ -65,23 +72,25 @@ export async function buildClaimGenerationDrafts(params: {
   const rejectedGuidanceSource = buildRejectedClaimGuidanceSource(
     preserved.filter((claim) => claim.verificationStatus === "rejected"),
   );
-  const researchSources = rejectedGuidanceSource
-    ? [...normalizedSources, rejectedGuidanceSource]
-    : normalizedSources;
+  const researchEvidenceItems = rejectedGuidanceSource
+    ? [...normalizedEvidenceItems, rejectedGuidanceSource]
+    : normalizedEvidenceItems;
   const candidateClaims = await params.claimResearchService.generate({
     workItem: params.workItem,
-    sources: researchSources,
+    evidenceItems: researchEvidenceItems,
+    clusters: params.clusters,
   });
   const verifiedClaims = await params.claimVerificationService.verify({
     workItem: params.workItem,
-    sources: researchSources,
+    evidenceItems: researchEvidenceItems,
+    clusters: params.clusters,
     claims: candidateClaims,
   });
   const researchRun = readGenerationRunMetadata(candidateClaims);
   const verificationRun = readGenerationRunMetadata(verifiedClaims);
 
   return {
-    normalizedSources,
+    normalizedEvidenceItems,
     preservedClaims: preserved,
     replaceableClaims: replaceable,
     drafts: filterDuplicateClaimDrafts(verifiedClaims, preserved),
@@ -140,8 +149,8 @@ export function hasUsableSources(sources: SourceSnapshot[]) {
   );
 }
 
-export function summarizeNormalizedSources(sources: NormalizedSource[]) {
-  return sources.map((source) => ({
+export function summarizeNormalizedSources(evidenceItems: NormalizedEvidenceItem[]) {
+  return evidenceItems.map((source) => ({
     id: source.id,
     label: source.label,
     excerptCount: source.excerpts.length,

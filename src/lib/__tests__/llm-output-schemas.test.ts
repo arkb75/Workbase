@@ -1,5 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
+import {
+  claimResearchLlmOutputSchema,
+  claimVerificationLlmOutputSchema,
+  evidenceClusteringLlmOutputSchema,
+} from "@/src/lib/llm-output-schemas";
+
+describe("claimResearchLlmOutputSchema", () => {
+  it("normalizes claim and evidenceRefs aliases from research payloads", () => {
+    const parsed = claimResearchLlmOutputSchema.parse({
+      claims: [
+        {
+          claim: "Implemented role-aware filters for internal and public datasets.",
+          category: "backend",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
+          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          evidenceRefs: ["evidence-1", "evidence-2"],
+        },
+      ],
+    });
+
+    expect(parsed).toEqual({
+      claims: [
+        {
+          claimText: "Implemented role-aware filters for internal and public datasets.",
+          category: "backend",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
+          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          sourceRefs: ["evidence-1", "evidence-2"],
+        },
+      ],
+    });
+  });
+
+  it("backfills required claim research metadata when repair output is minimal", () => {
+    const parsed = claimResearchLlmOutputSchema.parse({
+      claims: [
+        {
+          claim: "Developed a background CSV import worker for multi-team uploads.",
+          category: "data_engineering",
+          evidenceRefs: ["evidence-1"],
+        },
+      ],
+    });
+
+    expect(parsed.claims[0]).toMatchObject({
+      claimText: "Developed a background CSV import worker for multi-team uploads.",
+      category: "data_engineering",
+      confidence: "medium",
+      ownershipClarity: "partial",
+      evidenceSummary:
+        "Candidate claim derived from the reviewed evidence: Developed a background CSV import worker for multi-team uploads.",
+      rationaleSummary: "Ground this claim against the cited evidence before approval.",
+      sourceRefs: ["evidence-1"],
+    });
+  });
+});
 
 describe("claimVerificationLlmOutputSchema", () => {
   it("normalizes reviewer-style verification payloads into Workbase fields", () => {
@@ -102,6 +161,38 @@ describe("claimVerificationLlmOutputSchema", () => {
         "Consider specifying what the candidate's individual role was within the collaboration.",
       visibilitySuggestion: "private",
       sensitivityWarning: true,
+    });
+  });
+});
+
+describe("evidenceClusteringLlmOutputSchema", () => {
+  it("normalizes shorthand cluster item ids into evidence item references", () => {
+    const parsed = evidenceClusteringLlmOutputSchema.parse({
+      clusters: [
+        {
+          title: "Dashboard work",
+          summary: "Frontend and review surface improvements for the work item flow.",
+          theme: "Dashboard and UX",
+          confidence: "high",
+          items: ["evidence-1", { id: "evidence-2" }, { evidenceItemId: "evidence-3" }],
+        },
+      ],
+    });
+
+    expect(parsed).toEqual({
+      clusters: [
+        {
+          title: "Dashboard work",
+          summary: "Frontend and review surface improvements for the work item flow.",
+          theme: "Dashboard and UX",
+          confidence: "high",
+          items: [
+            { evidenceItemId: "evidence-1" },
+            { evidenceItemId: "evidence-2" },
+            { evidenceItemId: "evidence-3" },
+          ],
+        },
+      ],
     });
   });
 });

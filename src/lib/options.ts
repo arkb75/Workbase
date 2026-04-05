@@ -35,6 +35,18 @@ export const sourceTypeOptions = [
 
 export type SourceType = (typeof sourceTypeOptions)[number]["value"];
 
+export const evidenceItemTypeOptions = [
+  { value: "manual_note_excerpt", label: "Manual note excerpt" },
+  { value: "github_readme", label: "README" },
+  { value: "github_commit", label: "Commit" },
+  { value: "github_pull_request", label: "Pull request" },
+  { value: "github_issue", label: "Issue" },
+  { value: "github_release", label: "Release" },
+] as const;
+
+export type EvidenceItemType =
+  (typeof evidenceItemTypeOptions)[number]["value"];
+
 export const confidenceOptions = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },

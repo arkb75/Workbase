@@ -33,6 +33,26 @@ export type WorkItem = Prisma.WorkItemModel
  */
 export type Source = Prisma.SourceModel
 /**
+ * Model GitHubConnection
+ * 
+ */
+export type GitHubConnection = Prisma.GitHubConnectionModel
+/**
+ * Model EvidenceItem
+ * 
+ */
+export type EvidenceItem = Prisma.EvidenceItemModel
+/**
+ * Model EvidenceCluster
+ * 
+ */
+export type EvidenceCluster = Prisma.EvidenceClusterModel
+/**
+ * Model EvidenceClusterItem
+ * 
+ */
+export type EvidenceClusterItem = Prisma.EvidenceClusterItemModel
+/**
  * Model Claim
  * 
  */

@@ -10,14 +10,19 @@ const visibilityEnum = z.enum([
 ]);
 
 const evidenceSourceRefSchema = z.object({
+  evidenceItemId: z.string().min(1).optional(),
   sourceId: z.string().min(1),
   sourceLabel: z.string().min(1),
   sourceType: z.enum(["manual_note", "github_repo"]),
+  title: z.string().min(1).max(160).optional(),
   excerpt: z.string().min(1).max(500),
 });
 
 const evidenceSourceRefInputSchema = z.union([
   evidenceSourceRefSchema,
+  z.object({
+    evidenceItemId: z.string().min(1),
+  }),
   z.object({
     id: z.string().min(1),
   }),
@@ -196,30 +201,106 @@ function normalizeVerificationItem(value: unknown) {
   };
 }
 
-export const claimResearchLlmOutputSchema = z.object({
-  claims: z
-    .array(
-      z
-        .object({
-          text: z.string().min(10).max(240).optional(),
-          claimText: z.string().min(10).max(240).optional(),
-          category: z.string().trim().min(1).max(64).nullable().optional(),
-          confidence: confidenceEnum,
-          ownershipClarity: ownershipClarityEnum,
-          evidenceSummary: z.string().min(16).max(500),
-          rationaleSummary: z.string().min(16).max(500),
-          risksSummary: z.string().trim().max(500).nullable().optional(),
-          missingInfo: z.string().trim().max(500).nullable().optional(),
-          sourceRefs: z.array(evidenceSourceRefInputSchema).min(1).max(4),
-        })
-        .refine((value) => Boolean(value.text || value.claimText), {
-          message: "Each claim must include text or claimText.",
-          path: ["text"],
-        }),
-    )
-    .min(1)
-    .max(6),
-});
+function normalizeClusterItem(value: unknown) {
+  if (typeof value === "string") {
+    const evidenceItemId = toTrimmedString(value);
+
+    return evidenceItemId ? { evidenceItemId } : value;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const item = value as Record<string, unknown>;
+
+  return {
+    ...item,
+    evidenceItemId:
+      toTrimmedString(item.evidenceItemId) ??
+      toTrimmedString(item.id) ??
+      toTrimmedString(item.evidenceId),
+  };
+}
+
+export const claimResearchLlmOutputSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const input = value as Record<string, unknown>;
+
+    return {
+      ...input,
+      claims: Array.isArray(input.claims)
+        ? input.claims.map((claim) => {
+            if (!claim || typeof claim !== "object" || Array.isArray(claim)) {
+              return claim;
+            }
+
+            const claimRecord = claim as Record<string, unknown>;
+
+            return {
+              ...claimRecord,
+              claimText:
+                toTrimmedString(claimRecord.claimText) ??
+                toTrimmedString(claimRecord.claim) ??
+                toTrimmedString(claimRecord.text),
+              confidence:
+                toTrimmedString(claimRecord.confidence)?.toLowerCase() ?? "medium",
+              ownershipClarity:
+                toTrimmedString(claimRecord.ownershipClarity)?.toLowerCase() ?? "partial",
+              evidenceSummary:
+                toTrimmedString(claimRecord.evidenceSummary) ??
+                (() => {
+                  const normalizedClaimText =
+                    toTrimmedString(claimRecord.claimText) ??
+                    toTrimmedString(claimRecord.claim) ??
+                    toTrimmedString(claimRecord.text);
+
+                  return normalizedClaimText
+                    ? `Candidate claim derived from the reviewed evidence: ${normalizedClaimText}`
+                    : null;
+                })(),
+              rationaleSummary:
+                toTrimmedString(claimRecord.rationaleSummary) ??
+                "Ground this claim against the cited evidence before approval.",
+              sourceRefs: Array.isArray(claimRecord.sourceRefs)
+                ? claimRecord.sourceRefs
+                : Array.isArray(claimRecord.evidenceRefs)
+                  ? claimRecord.evidenceRefs
+                  : claimRecord.sourceRefs,
+            };
+          })
+        : input.claims,
+    };
+  },
+  z.object({
+    claims: z
+      .array(
+        z
+          .object({
+            text: z.string().min(10).max(240).optional(),
+            claimText: z.string().min(10).max(240).optional(),
+            category: z.string().trim().min(1).max(64).nullable().optional(),
+            confidence: confidenceEnum,
+            ownershipClarity: ownershipClarityEnum,
+            evidenceSummary: z.string().min(16).max(500),
+            rationaleSummary: z.string().min(16).max(500),
+            risksSummary: z.string().trim().max(500).nullable().optional(),
+            missingInfo: z.string().trim().max(500).nullable().optional(),
+            sourceRefs: z.array(evidenceSourceRefInputSchema).min(1).max(4),
+          })
+          .refine((claim) => Boolean(claim.text || claim.claimText), {
+            message: "Each claim must include text or claimText.",
+            path: ["text"],
+          }),
+      )
+      .min(1)
+      .max(6),
+  }),
+);
 
 export const claimVerificationLlmOutputSchema = z.preprocess(
   (value) => {
@@ -282,3 +363,55 @@ export const artifactGenerationLlmOutputSchema = z.object({
   content: z.string().min(20).max(4000),
   usedClaimIds: z.array(z.string().min(1)).min(1).max(3),
 });
+
+export const evidenceClusteringLlmOutputSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const input = value as Record<string, unknown>;
+
+    return {
+      ...input,
+      clusters: Array.isArray(input.clusters)
+        ? input.clusters.map((cluster) => {
+            if (!cluster || typeof cluster !== "object" || Array.isArray(cluster)) {
+              return cluster;
+            }
+
+            const clusterRecord = cluster as Record<string, unknown>;
+
+            return {
+              ...clusterRecord,
+              items: Array.isArray(clusterRecord.items)
+                ? clusterRecord.items.map(normalizeClusterItem)
+                : clusterRecord.items,
+            };
+          })
+        : input.clusters,
+    };
+  },
+  z.object({
+    clusters: z
+      .array(
+        z.object({
+          title: z.string().min(3).max(120),
+          summary: z.string().min(16).max(500),
+          theme: z.string().min(2).max(80),
+          confidence: confidenceEnum,
+          metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+          items: z
+            .array(
+              z.object({
+                evidenceItemId: z.string().min(1),
+                relevanceScore: z.number().min(0).max(1).nullable().optional(),
+              }),
+            )
+            .min(1),
+        }),
+      )
+      .min(1)
+      .max(8),
+  }),
+);

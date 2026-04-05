@@ -143,7 +143,7 @@ function createClaimDraft(params: {
 }
 
 export const mockClaimResearchService: ClaimResearchService = {
-  async generate({ workItem, sources }) {
+  async generate({ workItem, evidenceItems }) {
     const drafts: ClaimDraft[] = [
       createClaimDraft({
         sourceId: `${workItem.id}-description`,
@@ -157,7 +157,7 @@ export const mockClaimResearchService: ClaimResearchService = {
       }),
     ];
 
-    for (const source of sources) {
+    for (const source of evidenceItems) {
       const isRejectedGuidance =
         typeof source.metadata === "object" &&
         source.metadata &&
@@ -181,8 +181,14 @@ export const mockClaimResearchService: ClaimResearchService = {
 
         drafts.push(
           createClaimDraft({
-            sourceId: source.id,
-            sourceLabel: source.label,
+            sourceId: source.sourceId,
+            sourceLabel:
+              typeof source.metadata === "object" &&
+              source.metadata &&
+              "sourceLabel" in source.metadata &&
+              typeof source.metadata.sourceLabel === "string"
+                ? source.metadata.sourceLabel
+                : source.label,
             sourceType: source.type,
             claimText: normalizedExcerpt,
             supportingExcerpt: normalizedExcerpt,

@@ -29,6 +29,7 @@ export type SourceMinAggregateOutputType = {
   workItemId: string | null
   type: $Enums.SourceType | null
   label: string | null
+  externalId: string | null
   rawContent: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -39,6 +40,7 @@ export type SourceMaxAggregateOutputType = {
   workItemId: string | null
   type: $Enums.SourceType | null
   label: string | null
+  externalId: string | null
   rawContent: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -49,6 +51,7 @@ export type SourceCountAggregateOutputType = {
   workItemId: number
   type: number
   label: number
+  externalId: number
   rawContent: number
   metadata: number
   createdAt: number
@@ -62,6 +65,7 @@ export type SourceMinAggregateInputType = {
   workItemId?: true
   type?: true
   label?: true
+  externalId?: true
   rawContent?: true
   createdAt?: true
   updatedAt?: true
@@ -72,6 +76,7 @@ export type SourceMaxAggregateInputType = {
   workItemId?: true
   type?: true
   label?: true
+  externalId?: true
   rawContent?: true
   createdAt?: true
   updatedAt?: true
@@ -82,6 +87,7 @@ export type SourceCountAggregateInputType = {
   workItemId?: true
   type?: true
   label?: true
+  externalId?: true
   rawContent?: true
   metadata?: true
   createdAt?: true
@@ -166,6 +172,7 @@ export type SourceGroupByOutputType = {
   workItemId: string
   type: $Enums.SourceType
   label: string
+  externalId: string | null
   rawContent: string | null
   metadata: runtime.JsonValue | null
   createdAt: Date
@@ -198,11 +205,13 @@ export type SourceWhereInput = {
   workItemId?: Prisma.StringFilter<"Source"> | string
   type?: Prisma.EnumSourceTypeFilter<"Source"> | $Enums.SourceType
   label?: Prisma.StringFilter<"Source"> | string
+  externalId?: Prisma.StringNullableFilter<"Source"> | string | null
   rawContent?: Prisma.StringNullableFilter<"Source"> | string | null
   metadata?: Prisma.JsonNullableFilter<"Source">
   createdAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
+  evidenceItems?: Prisma.EvidenceItemListRelationFilter
 }
 
 export type SourceOrderByWithRelationInput = {
@@ -210,33 +219,39 @@ export type SourceOrderByWithRelationInput = {
   workItemId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   label?: Prisma.SortOrder
+  externalId?: Prisma.SortOrderInput | Prisma.SortOrder
   rawContent?: Prisma.SortOrderInput | Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
+  evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
 }
 
 export type SourceWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  workItemId_type_externalId?: Prisma.SourceWorkItemIdTypeExternalIdCompoundUniqueInput
   AND?: Prisma.SourceWhereInput | Prisma.SourceWhereInput[]
   OR?: Prisma.SourceWhereInput[]
   NOT?: Prisma.SourceWhereInput | Prisma.SourceWhereInput[]
   workItemId?: Prisma.StringFilter<"Source"> | string
   type?: Prisma.EnumSourceTypeFilter<"Source"> | $Enums.SourceType
   label?: Prisma.StringFilter<"Source"> | string
+  externalId?: Prisma.StringNullableFilter<"Source"> | string | null
   rawContent?: Prisma.StringNullableFilter<"Source"> | string | null
   metadata?: Prisma.JsonNullableFilter<"Source">
   createdAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
-}, "id">
+  evidenceItems?: Prisma.EvidenceItemListRelationFilter
+}, "id" | "workItemId_type_externalId">
 
 export type SourceOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   label?: Prisma.SortOrder
+  externalId?: Prisma.SortOrderInput | Prisma.SortOrder
   rawContent?: Prisma.SortOrderInput | Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -254,6 +269,7 @@ export type SourceScalarWhereWithAggregatesInput = {
   workItemId?: Prisma.StringWithAggregatesFilter<"Source"> | string
   type?: Prisma.EnumSourceTypeWithAggregatesFilter<"Source"> | $Enums.SourceType
   label?: Prisma.StringWithAggregatesFilter<"Source"> | string
+  externalId?: Prisma.StringNullableWithAggregatesFilter<"Source"> | string | null
   rawContent?: Prisma.StringNullableWithAggregatesFilter<"Source"> | string | null
   metadata?: Prisma.JsonNullableWithAggregatesFilter<"Source">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Source"> | Date | string
@@ -264,11 +280,13 @@ export type SourceCreateInput = {
   id?: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateInput = {
@@ -276,21 +294,25 @@ export type SourceUncheckedCreateInput = {
   workItemId: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateInput = {
@@ -298,10 +320,12 @@ export type SourceUncheckedUpdateInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyInput = {
@@ -309,6 +333,7 @@ export type SourceCreateManyInput = {
   workItemId: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
@@ -319,6 +344,7 @@ export type SourceUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -330,6 +356,7 @@ export type SourceUncheckedUpdateManyInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -346,11 +373,18 @@ export type SourceOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type SourceWorkItemIdTypeExternalIdCompoundUniqueInput = {
+  workItemId: string
+  type: $Enums.SourceType
+  externalId: string
+}
+
 export type SourceCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   label?: Prisma.SortOrder
+  externalId?: Prisma.SortOrder
   rawContent?: Prisma.SortOrder
   metadata?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -362,6 +396,7 @@ export type SourceMaxOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   label?: Prisma.SortOrder
+  externalId?: Prisma.SortOrder
   rawContent?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -372,9 +407,15 @@ export type SourceMinOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   label?: Prisma.SortOrder
+  externalId?: Prisma.SortOrder
   rawContent?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type SourceScalarRelationFilter = {
+  is?: Prisma.SourceWhereInput
+  isNot?: Prisma.SourceWhereInput
 }
 
 export type SourceCreateNestedManyWithoutWorkItemInput = {
@@ -423,24 +464,42 @@ export type EnumSourceTypeFieldUpdateOperationsInput = {
   set?: $Enums.SourceType
 }
 
+export type SourceCreateNestedOneWithoutEvidenceItemsInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutEvidenceItemsInput, Prisma.SourceUncheckedCreateWithoutEvidenceItemsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutEvidenceItemsInput
+  connect?: Prisma.SourceWhereUniqueInput
+}
+
+export type SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutEvidenceItemsInput, Prisma.SourceUncheckedCreateWithoutEvidenceItemsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutEvidenceItemsInput
+  upsert?: Prisma.SourceUpsertWithoutEvidenceItemsInput
+  connect?: Prisma.SourceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.SourceUpdateToOneWithWhereWithoutEvidenceItemsInput, Prisma.SourceUpdateWithoutEvidenceItemsInput>, Prisma.SourceUncheckedUpdateWithoutEvidenceItemsInput>
+}
+
 export type SourceCreateWithoutWorkItemInput = {
   id?: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutWorkItemInput = {
   id?: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutWorkItemInput = {
@@ -477,16 +536,82 @@ export type SourceScalarWhereInput = {
   workItemId?: Prisma.StringFilter<"Source"> | string
   type?: Prisma.EnumSourceTypeFilter<"Source"> | $Enums.SourceType
   label?: Prisma.StringFilter<"Source"> | string
+  externalId?: Prisma.StringNullableFilter<"Source"> | string | null
   rawContent?: Prisma.StringNullableFilter<"Source"> | string | null
   metadata?: Prisma.JsonNullableFilter<"Source">
   createdAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
 }
 
+export type SourceCreateWithoutEvidenceItemsInput = {
+  id?: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+}
+
+export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
+  id?: string
+  workItemId: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type SourceCreateOrConnectWithoutEvidenceItemsInput = {
+  where: Prisma.SourceWhereUniqueInput
+  create: Prisma.XOR<Prisma.SourceCreateWithoutEvidenceItemsInput, Prisma.SourceUncheckedCreateWithoutEvidenceItemsInput>
+}
+
+export type SourceUpsertWithoutEvidenceItemsInput = {
+  update: Prisma.XOR<Prisma.SourceUpdateWithoutEvidenceItemsInput, Prisma.SourceUncheckedUpdateWithoutEvidenceItemsInput>
+  create: Prisma.XOR<Prisma.SourceCreateWithoutEvidenceItemsInput, Prisma.SourceUncheckedCreateWithoutEvidenceItemsInput>
+  where?: Prisma.SourceWhereInput
+}
+
+export type SourceUpdateToOneWithWhereWithoutEvidenceItemsInput = {
+  where?: Prisma.SourceWhereInput
+  data: Prisma.XOR<Prisma.SourceUpdateWithoutEvidenceItemsInput, Prisma.SourceUncheckedUpdateWithoutEvidenceItemsInput>
+}
+
+export type SourceUpdateWithoutEvidenceItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+}
+
+export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
 export type SourceCreateManyWorkItemInput = {
   id?: string
   type: $Enums.SourceType
   label: string
+  externalId?: string | null
   rawContent?: string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
@@ -497,32 +622,66 @@ export type SourceUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
   label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
+
+/**
+ * Count Type SourceCountOutputType
+ */
+
+export type SourceCountOutputType = {
+  evidenceItems: number
+}
+
+export type SourceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  evidenceItems?: boolean | SourceCountOutputTypeCountEvidenceItemsArgs
+}
+
+/**
+ * SourceCountOutputType without action
+ */
+export type SourceCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SourceCountOutputType
+   */
+  select?: Prisma.SourceCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * SourceCountOutputType without action
+ */
+export type SourceCountOutputTypeCountEvidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.EvidenceItemWhereInput
+}
 
 
 export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -530,11 +689,14 @@ export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   workItemId?: boolean
   type?: boolean
   label?: boolean
+  externalId?: boolean
   rawContent?: boolean
   metadata?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
+  evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
+  _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["source"]>
 
 export type SourceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -542,6 +704,7 @@ export type SourceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extens
   workItemId?: boolean
   type?: boolean
   label?: boolean
+  externalId?: boolean
   rawContent?: boolean
   metadata?: boolean
   createdAt?: boolean
@@ -554,6 +717,7 @@ export type SourceSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extens
   workItemId?: boolean
   type?: boolean
   label?: boolean
+  externalId?: boolean
   rawContent?: boolean
   metadata?: boolean
   createdAt?: boolean
@@ -566,15 +730,18 @@ export type SourceSelectScalar = {
   workItemId?: boolean
   type?: boolean
   label?: boolean
+  externalId?: boolean
   rawContent?: boolean
   metadata?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type SourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "type" | "label" | "rawContent" | "metadata" | "createdAt" | "updatedAt", ExtArgs["result"]["source"]>
+export type SourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "type" | "label" | "externalId" | "rawContent" | "metadata" | "createdAt" | "updatedAt", ExtArgs["result"]["source"]>
 export type SourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
+  evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
+  _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type SourceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -587,12 +754,14 @@ export type $SourcePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
   name: "Source"
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
+    evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     workItemId: string
     type: $Enums.SourceType
     label: string
+    externalId: string | null
     rawContent: string | null
     metadata: runtime.JsonValue | null
     createdAt: Date
@@ -992,6 +1161,7 @@ readonly fields: SourceFieldRefs;
 export interface Prisma__SourceClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  evidenceItems<T extends Prisma.Source$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1025,6 +1195,7 @@ export interface SourceFieldRefs {
   readonly workItemId: Prisma.FieldRef<"Source", 'String'>
   readonly type: Prisma.FieldRef<"Source", 'SourceType'>
   readonly label: Prisma.FieldRef<"Source", 'String'>
+  readonly externalId: Prisma.FieldRef<"Source", 'String'>
   readonly rawContent: Prisma.FieldRef<"Source", 'String'>
   readonly metadata: Prisma.FieldRef<"Source", 'Json'>
   readonly createdAt: Prisma.FieldRef<"Source", 'DateTime'>
@@ -1427,6 +1598,30 @@ export type SourceDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.Intern
    * Limit how many Sources to delete.
    */
   limit?: number
+}
+
+/**
+ * Source.evidenceItems
+ */
+export type Source$evidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the EvidenceItem
+   */
+  select?: Prisma.EvidenceItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the EvidenceItem
+   */
+  omit?: Prisma.EvidenceItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.EvidenceItemInclude<ExtArgs> | null
+  where?: Prisma.EvidenceItemWhereInput
+  orderBy?: Prisma.EvidenceItemOrderByWithRelationInput | Prisma.EvidenceItemOrderByWithRelationInput[]
+  cursor?: Prisma.EvidenceItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.EvidenceItemScalarFieldEnum | Prisma.EvidenceItemScalarFieldEnum[]
 }
 
 /**

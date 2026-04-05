@@ -9,7 +9,7 @@ function downgradeConfidence(value: "low" | "medium" | "high") {
 }
 
 export const mockClaimVerificationService: ClaimVerificationService = {
-  async verify({ claims, sources }) {
+  async verify({ claims, evidenceItems }) {
     return claims.map((claim) => {
       const risks = [claim.risksSummary].filter(Boolean);
       let verificationStatus = claim.verificationStatus;
@@ -30,7 +30,7 @@ export const mockClaimVerificationService: ClaimVerificationService = {
         risks.push("Clarify individual ownership before using in a public artifact.");
       }
 
-      const sourceMentionsSensitivity = sources.some((source) =>
+      const sourceMentionsSensitivity = evidenceItems.some((source) =>
         /sensitive|confidential|internal|private dataset|customer/i.test(source.body),
       );
 

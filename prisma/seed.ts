@@ -89,15 +89,17 @@ async function main() {
           "workItemId",
           "type",
           "label",
+          "externalId",
           "rawContent",
           "updatedAt"
         )
-        VALUES ($1, $2, $3, $4, $5, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
         ON CONFLICT ("id")
         DO UPDATE SET
           "workItemId" = EXCLUDED."workItemId",
           "type" = EXCLUDED."type",
           "label" = EXCLUDED."label",
+          "externalId" = EXCLUDED."externalId",
           "rawContent" = EXCLUDED."rawContent",
           "updatedAt" = NOW()
       `,
@@ -106,6 +108,7 @@ async function main() {
         "sample-work-item",
         "manual_note",
         "Interview prep notes",
+        null,
         `Built a Next.js dashboard for lab members to search experiment records.
 Integrated Prisma with PostgreSQL and added role-aware filters for internal and public datasets.
 Created background import scripts to normalize CSV uploads from multiple teams.
@@ -120,15 +123,17 @@ Worked with two classmates and the lab coordinator to tighten wording for sensit
           "workItemId",
           "type",
           "label",
+          "externalId",
           "metadata",
           "updatedAt"
         )
-        VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())
         ON CONFLICT ("id")
         DO UPDATE SET
           "workItemId" = EXCLUDED."workItemId",
           "type" = EXCLUDED."type",
           "label" = EXCLUDED."label",
+          "externalId" = EXCLUDED."externalId",
           "metadata" = EXCLUDED."metadata",
           "updatedAt" = NOW()
       `,
@@ -136,11 +141,232 @@ Worked with two classmates and the lab coordinator to tighten wording for sensit
         "sample-github-source",
         "sample-work-item",
         "github_repo",
-        "GitHub repo placeholder",
+        "workbase/sample-research-search",
+        "sample-research-search-repo",
         JSON.stringify({
-          repoUrl: "https://github.com/workbase/sample-research-search",
-          status: "placeholder",
+          repository: {
+            id: "sample-research-search-repo",
+            fullName: "workbase/sample-research-search",
+            owner: "workbase",
+            name: "sample-research-search",
+            description: "Campus research search demo repository",
+            url: "https://github.com/workbase/sample-research-search",
+            defaultBranch: "main",
+            private: false,
+            updatedAt: "2026-04-03T17:00:00.000Z",
+          },
+          importedAt: "2026-04-03T17:00:00.000Z",
+          counts: {
+            github_readme: 1,
+            github_commit: 2,
+            github_pull_request: 1,
+            github_issue: 1,
+            github_release: 1,
+          },
+          status: "imported",
         }),
+      ],
+    );
+
+    await client.query(
+      `
+        INSERT INTO "EvidenceItem" (
+          "id",
+          "workItemId",
+          "sourceId",
+          "externalId",
+          "type",
+          "title",
+          "content",
+          "included",
+          "metadata",
+          "updatedAt"
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW()),
+          ($10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW()),
+          ($19, $20, $21, $22, $23, $24, $25, $26, $27::jsonb, NOW()),
+          ($28, $29, $30, $31, $32, $33, $34, $35, $36::jsonb, NOW()),
+          ($37, $38, $39, $40, $41, $42, $43, $44, $45::jsonb, NOW()),
+          ($46, $47, $48, $49, $50, $51, $52, $53, $54::jsonb, NOW()),
+          ($55, $56, $57, $58, $59, $60, $61, $62, $63::jsonb, NOW())
+        ON CONFLICT ("id")
+        DO UPDATE SET
+          "workItemId" = EXCLUDED."workItemId",
+          "sourceId" = EXCLUDED."sourceId",
+          "externalId" = EXCLUDED."externalId",
+          "type" = EXCLUDED."type",
+          "title" = EXCLUDED."title",
+          "content" = EXCLUDED."content",
+          "included" = EXCLUDED."included",
+          "metadata" = EXCLUDED."metadata",
+          "updatedAt" = NOW()
+      `,
+      [
+        "sample-evidence-note-1",
+        "sample-work-item",
+        "sample-note-source",
+        "sample-note-source:excerpt:0",
+        "manual_note_excerpt",
+        "Interview prep notes excerpt 1",
+        "Built a Next.js dashboard for lab members to search experiment records.",
+        true,
+        JSON.stringify({ lineIndex: 0, sourceType: "manual_note" }),
+        "sample-evidence-note-2",
+        "sample-work-item",
+        "sample-note-source",
+        "sample-note-source:excerpt:1",
+        "manual_note_excerpt",
+        "Interview prep notes excerpt 2",
+        "Integrated Prisma with PostgreSQL and added role-aware filters for internal and public datasets.",
+        true,
+        JSON.stringify({ lineIndex: 1, sourceType: "manual_note" }),
+        "sample-evidence-note-3",
+        "sample-work-item",
+        "sample-note-source",
+        "sample-note-source:excerpt:2",
+        "manual_note_excerpt",
+        "Interview prep notes excerpt 3",
+        "Created background import scripts to normalize CSV uploads from multiple teams.",
+        true,
+        JSON.stringify({ lineIndex: 2, sourceType: "manual_note" }),
+        "sample-evidence-note-4",
+        "sample-work-item",
+        "sample-note-source",
+        "sample-note-source:excerpt:3",
+        "manual_note_excerpt",
+        "Interview prep notes excerpt 4",
+        "Worked with two classmates and the lab coordinator to tighten wording for sensitive data.",
+        false,
+        JSON.stringify({ lineIndex: 3, sourceType: "manual_note" }),
+        "sample-evidence-readme",
+        "sample-work-item",
+        "sample-github-source",
+        "readme:README.md",
+        "github_readme",
+        "sample-research-search README",
+        "Campus research search demo with Next.js, Prisma, PostgreSQL, and CSV import workflows.",
+        true,
+        JSON.stringify({ path: "README.md", importedAt: "2026-04-03T17:00:00.000Z" }),
+        "sample-evidence-commit",
+        "sample-work-item",
+        "sample-github-source",
+        "commit:abc123",
+        "github_commit",
+        "Add import worker",
+        "Add import worker for CSV normalization and queue retries.",
+        true,
+        JSON.stringify({
+          sha: "abc123",
+          changedFiles: ["src/import-worker.ts", "src/retries.ts"],
+          importedAt: "2026-04-03T17:00:00.000Z",
+        }),
+        "sample-evidence-pr",
+        "sample-work-item",
+        "sample-github-source",
+        "pull:12",
+        "github_pull_request",
+        "PR #12: Tighten access filters",
+        "Clarifies internal/public dataset filtering at the query layer.",
+        true,
+        JSON.stringify({
+          number: 12,
+          changedFiles: ["src/access.ts", "src/queries.ts"],
+          importedAt: "2026-04-03T17:00:00.000Z",
+        }),
+      ],
+    );
+
+    await client.query(
+      `
+        INSERT INTO "EvidenceCluster" (
+          "id",
+          "workItemId",
+          "title",
+          "summary",
+          "theme",
+          "confidence",
+          "metadata",
+          "updatedAt"
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW()),
+          ($8, $9, $10, $11, $12, $13, $14::jsonb, NOW())
+        ON CONFLICT ("id")
+        DO UPDATE SET
+          "workItemId" = EXCLUDED."workItemId",
+          "title" = EXCLUDED."title",
+          "summary" = EXCLUDED."summary",
+          "theme" = EXCLUDED."theme",
+          "confidence" = EXCLUDED."confidence",
+          "metadata" = EXCLUDED."metadata",
+          "updatedAt" = NOW()
+      `,
+      [
+        "sample-cluster-platform",
+        "sample-work-item",
+        "Search dashboard and platform surface",
+        "UI and repo evidence both point to dashboard and search work for lab metadata.",
+        "full_stack",
+        "high",
+        JSON.stringify({ strategy: "seed_demo" }),
+        "sample-cluster-data",
+        "sample-work-item",
+        "Data pipeline and access control",
+        "Database integration, import scripts, and access filters cluster around data handling work.",
+        "backend",
+        "medium",
+        JSON.stringify({ strategy: "seed_demo" }),
+      ],
+    );
+
+    await client.query(
+      `
+        INSERT INTO "EvidenceClusterItem" (
+          "id",
+          "clusterId",
+          "evidenceItemId",
+          "relevanceScore",
+          "createdAt"
+        )
+        VALUES
+          ($1, $2, $3, $4, NOW()),
+          ($5, $6, $7, $8, NOW()),
+          ($9, $10, $11, $12, NOW()),
+          ($13, $14, $15, $16, NOW()),
+          ($17, $18, $19, $20, NOW()),
+          ($21, $22, $23, $24, NOW())
+        ON CONFLICT ("id")
+        DO UPDATE SET
+          "clusterId" = EXCLUDED."clusterId",
+          "evidenceItemId" = EXCLUDED."evidenceItemId",
+          "relevanceScore" = EXCLUDED."relevanceScore"
+      `,
+      [
+        "sample-cluster-item-1",
+        "sample-cluster-platform",
+        "sample-evidence-note-1",
+        0.96,
+        "sample-cluster-item-2",
+        "sample-cluster-platform",
+        "sample-evidence-readme",
+        0.82,
+        "sample-cluster-item-3",
+        "sample-cluster-platform",
+        "sample-evidence-pr",
+        0.78,
+        "sample-cluster-item-4",
+        "sample-cluster-data",
+        "sample-evidence-note-2",
+        0.92,
+        "sample-cluster-item-5",
+        "sample-cluster-data",
+        "sample-evidence-note-3",
+        0.89,
+        "sample-cluster-item-6",
+        "sample-cluster-data",
+        "sample-evidence-commit",
+        0.86,
       ],
     );
 

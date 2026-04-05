@@ -601,14 +601,6 @@ export type EnumGenerationStatusFieldUpdateOperationsInput = {
   set?: $Enums.GenerationStatus
 }
 
-export type NullableFloatFieldUpdateOperationsInput = {
-  set?: number | null
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type GenerationRunCreateWithoutWorkItemInput = {
   id?: string
   kind: $Enums.GenerationKind

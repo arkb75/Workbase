@@ -3,10 +3,12 @@ import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import type {
   ClaimDraft,
   ClaimSnapshot,
-  NormalizedSource,
+  EvidenceItemSnapshot,
+  NormalizedEvidenceItem,
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
+import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
@@ -37,6 +39,26 @@ const sources: SourceSnapshot[] = [
     metadata: null,
   },
 ];
+
+const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource(
+  sources[0],
+).map((item, index) => ({
+  id: `evidence-${index + 1}`,
+  workItemId: item.workItemId,
+  sourceId: item.sourceId,
+  externalId: item.externalId,
+  type: item.type,
+  title: item.title,
+  content: item.content,
+  included: item.included,
+  metadata: item.metadata,
+  source: {
+    id: sources[0].id,
+    label: sources[0].label,
+    type: sources[0].type,
+    externalId: sources[0].externalId ?? null,
+  },
+}));
 
 function makeExistingClaim(
   id: string,
@@ -70,6 +92,8 @@ describe("claim regeneration behavior", () => {
     const result = await buildClaimGenerationDrafts({
       workItem,
       sources,
+      evidenceItems,
+      clusters: [],
       existingClaims: [
         makeExistingClaim(
           "approved-1",
@@ -103,6 +127,8 @@ describe("claim regeneration behavior", () => {
     const result = await buildClaimGenerationDrafts({
       workItem,
       sources,
+      evidenceItems,
+      clusters: [],
       existingClaims: [
         makeExistingClaim(
           "approved-1",
@@ -128,7 +154,7 @@ describe("claim regeneration behavior", () => {
   });
 
   it("includes rejected claim reasons in the generation context assembly", async () => {
-    let capturedSources: NormalizedSource[] = [];
+    let capturedEvidenceItems: NormalizedEvidenceItem[] = [];
 
     const capturingSourceIngestionService: SourceIngestionService = {
       async normalize(input) {
@@ -136,8 +162,8 @@ describe("claim regeneration behavior", () => {
       },
     };
     const capturingResearchService: ClaimResearchService = {
-      async generate({ sources: normalizedSources }) {
-        capturedSources = normalizedSources;
+      async generate({ evidenceItems: normalizedEvidenceItems }) {
+        capturedEvidenceItems = normalizedEvidenceItems;
 
         const draft: ClaimDraft = {
           text: "Built the first claim review screen.",
@@ -177,6 +203,8 @@ describe("claim regeneration behavior", () => {
     await buildClaimGenerationDrafts({
       workItem,
       sources,
+      evidenceItems,
+      clusters: [],
       existingClaims: [
         makeExistingClaim(
           "rejected-1",
@@ -189,12 +217,12 @@ describe("claim regeneration behavior", () => {
       claimVerificationService: passthroughVerificationService,
     });
 
-    const rejectedContext = capturedSources.find(
-      (source) =>
-        typeof source.metadata === "object" &&
-        source.metadata &&
-        "kind" in source.metadata &&
-        source.metadata.kind === "rejected_claim_context",
+    const rejectedContext = capturedEvidenceItems.find(
+      (evidenceItem) =>
+        typeof evidenceItem.metadata === "object" &&
+        evidenceItem.metadata &&
+        "kind" in evidenceItem.metadata &&
+        evidenceItem.metadata.kind === "rejected_claim_context",
     );
 
     expect(rejectedContext?.body).toContain("Claim that should not be regenerated.");

@@ -40,6 +40,31 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           },
         ],
       },
+      evidenceItems: {
+        include: {
+          source: true,
+        },
+        orderBy: [
+          {
+            included: "desc",
+          },
+          {
+            updatedAt: "desc",
+          },
+        ],
+      },
+      evidenceClusters: {
+        include: {
+          items: {
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+      },
       generationRuns: {
         orderBy: {
           createdAt: "desc",

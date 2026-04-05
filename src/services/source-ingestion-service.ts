@@ -1,53 +1,32 @@
-import type { NormalizedSource } from "@/src/domain/types";
+import type { NormalizedEvidenceItem } from "@/src/domain/types";
 import type { SourceIngestionService } from "@/src/services/types";
-import { normalizeWhitespace, toSentence } from "@/src/lib/utils";
-
-function splitIntoExcerpts(value: string) {
-  return value
-    .split(/\n+/)
-    .map((line) => toSentence(line))
-    .filter((line) => line.length > 12)
-    .slice(0, 6);
-}
+import { normalizeWhitespace } from "@/src/lib/utils";
 
 export const sourceIngestionService: SourceIngestionService = {
-  async normalize({ workItem, sources }) {
-    const normalizedSources: NormalizedSource[] = [];
+  async normalize({ evidenceItems }) {
+    const normalizedEvidenceItems: NormalizedEvidenceItem[] = [];
 
-    for (const source of sources) {
-      if (source.type === "manual_note") {
-        const body = normalizeWhitespace(source.rawContent ?? "");
-
-        normalizedSources.push({
-          id: source.id,
-          label: source.label,
-          type: source.type,
-          body,
-          excerpts: splitIntoExcerpts(source.rawContent ?? ""),
-          metadata: source.metadata,
-        });
-        continue;
-      }
-
-      const repoUrl =
-        typeof source.metadata === "object" &&
-        source.metadata &&
-        "repoUrl" in source.metadata
-          ? String(source.metadata.repoUrl)
-          : "";
-
-      normalizedSources.push({
-        id: source.id,
-        label: source.label,
-        type: source.type,
-        body: normalizeWhitespace(
-          `${workItem.title} repository placeholder ${repoUrl}`.trim(),
-        ),
-        excerpts: repoUrl ? [toSentence(repoUrl)] : [],
-        metadata: source.metadata,
+    for (const evidenceItem of evidenceItems) {
+      normalizedEvidenceItems.push({
+        id: evidenceItem.id,
+        sourceId: evidenceItem.sourceId,
+        label: evidenceItem.title,
+        type: evidenceItem.source.type,
+        evidenceType: evidenceItem.type,
+        body: normalizeWhitespace(evidenceItem.content),
+        excerpts: [normalizeWhitespace(evidenceItem.content)],
+        metadata: {
+          ...(typeof evidenceItem.metadata === "object" &&
+          evidenceItem.metadata &&
+          !Array.isArray(evidenceItem.metadata)
+            ? evidenceItem.metadata
+            : {}),
+          sourceLabel: evidenceItem.source.label,
+          sourceExternalId: evidenceItem.source.externalId ?? null,
+        },
       });
     }
 
-    return normalizedSources;
+    return normalizedEvidenceItems;
   },
 };

@@ -10,17 +10,19 @@ The prototype is built around one hard rule: Artifacts are generated from approv
 - TypeScript
 - Tailwind CSS
 - Prisma 7 with Neon/PostgreSQL
-- Deterministic mock services for claim research, verification, and artifact generation
+- Bedrock-backed structured generation for claim research, verification, artifact drafting, and evidence clustering
+- GitHub OAuth App integration with bounded REST ingestion
 - Vitest for domain tests
 
 ## Product loop
 
 1. Complete onboarding for the demo user
 2. Create a Work Item
-3. Attach manual notes and optional GitHub repo placeholders
-4. Generate candidate Claims with Evidence
-5. Review, edit, approve, reject, or mark Claims as Sensitive
-6. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved Claims only
+3. Attach manual notes and import a real GitHub repository
+4. Review included Evidence and cluster it into work themes
+5. Generate candidate Claims with Evidence
+6. Review, edit, approve, reject, or mark Claims as Sensitive
+7. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved Claims only
 
 ## Local setup
 
@@ -36,27 +38,28 @@ npm install
 cp .env.example .env
 ```
 
-3. Set `DATABASE_URL` to your Neon Postgres connection string in `.env`
+3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
+4. Add the GitHub OAuth App and encryption settings from `.env.example`
 
-4. Generate the Prisma client
+5. Generate the Prisma client
 
 ```bash
 npm run prisma:generate
 ```
 
-5. Apply the schema to your database
+6. Apply the schema to your database
 
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 ```
 
-6. Seed the demo workspace
+7. Seed the demo workspace
 
 ```bash
 npm run db:seed
 ```
 
-7. Start the app
+8. Start the app
 
 ```bash
 npm run dev
@@ -81,6 +84,8 @@ npm run test
 - `/work-items/[id]`
 - `/work-items/[id]/claims`
 - `/work-items/[id]/artifacts/new`
+- `/api/github/connect`
+- `/api/github/callback`
 - `/api/health`
 
 ## Testing focus
@@ -88,12 +93,16 @@ npm run test
 The test suite covers:
 
 - claim status transitions
+- GitHub connection encryption and OAuth exchange handling
+- bounded GitHub repo import behavior
+- evidence persistence refresh/dedupe behavior
 - artifact eligibility constraints
 - claim regeneration behavior
 - a server-side workflow from source notes to approved-claim artifact generation
 
 ## Notes
 
-- GitHub support is intentionally limited to a stored repo URL placeholder in v1.
+- GitHub import is intentionally bounded: README, recent commits, PRs, issues, releases, and changed file paths only.
+- Included evidence items are the source of truth for clustering and future claim generation.
 - Claim research, verification, and artifact generation live behind typed service interfaces in `src/services`.
 - Sensitive or private claims are excluded from public-facing Artifact generation.

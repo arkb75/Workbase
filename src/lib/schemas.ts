@@ -69,6 +69,22 @@ export const githubSourceSchema = z.object({
   repoUrl: z.string().trim().url().max(300),
 });
 
+export const githubRepoImportSchema = z.object({
+  workItemId: z.string().trim().min(1),
+  repositoryId: z.string().trim().min(1),
+  repositoryFullName: z.string().trim().min(3).max(200),
+});
+
+export const evidenceInclusionSchema = z.object({
+  workItemId: z.string().trim().min(1),
+  evidenceItemId: z.string().trim().min(1),
+  included: z.boolean(),
+});
+
+export const reclusterEvidenceSchema = z.object({
+  workItemId: z.string().trim().min(1),
+});
+
 export const claimUpdateSchema = z.object({
   workItemId: z.string().trim().min(1),
   text: z.string().trim().min(10).max(240),

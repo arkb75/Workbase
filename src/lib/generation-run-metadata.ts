@@ -2,7 +2,11 @@ const generationRunMetadataSymbol = Symbol.for("workbase.generation-run-metadata
 
 export interface GenerationRunMetadata {
   id: string;
-  kind: "claim_research" | "claim_verification" | "artifact_generation";
+  kind:
+    | "claim_research"
+    | "claim_verification"
+    | "artifact_generation"
+    | "evidence_clustering";
 }
 
 export function attachGenerationRunMetadata<T extends object>(

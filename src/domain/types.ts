@@ -2,6 +2,7 @@ import type {
   ArtifactTone,
   ArtifactType,
   ClaimConfidence,
+  EvidenceItemType,
   FocusPreference,
   OwnershipClarity,
   TargetAngle,
@@ -46,16 +47,69 @@ export interface SourceSnapshot {
   workItemId: string;
   type: SourceType;
   label: string;
+  externalId?: string | null;
   rawContent: string | null;
   metadata: JsonValue | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+export interface GitHubConnectionSnapshot {
+  id: string;
+  userId: string;
+  githubUserId: string;
+  login: string;
+  scope: string | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface EvidenceItemSnapshot {
+  id: string;
+  workItemId: string;
+  sourceId: string;
+  externalId: string;
+  type: EvidenceItemType;
+  title: string;
+  content: string;
+  included: boolean;
+  metadata: JsonValue | null;
+  source: Pick<SourceSnapshot, "id" | "label" | "type" | "externalId">;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface EvidenceClusterItemSnapshot {
+  id: string;
+  clusterId: string;
+  evidenceItemId: string;
+  relevanceScore: number | null;
+  createdAt?: Date;
+}
+
+export interface EvidenceClusterSnapshot {
+  id: string;
+  workItemId: string;
+  title: string;
+  summary: string;
+  theme: string;
+  confidence: ClaimConfidence;
+  metadata: JsonValue | null;
+  items: Array<{
+    id: string;
+    evidenceItemId: string;
+    relevanceScore: number | null;
+  }>;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface EvidenceSourceReference {
+  evidenceItemId?: string;
   sourceId: string;
   sourceLabel: string;
   sourceType: SourceType;
+  title?: string;
   excerpt: string;
 }
 
@@ -103,19 +157,37 @@ export interface GeneratedArtifact {
   usedClaimIds: string[];
 }
 
-export interface NormalizedSource {
+export interface NormalizedEvidenceItem {
   id: string;
+  sourceId: string;
   label: string;
   type: SourceType;
+  evidenceType: EvidenceItemType;
   body: string;
   excerpts: string[];
   metadata: JsonValue | null;
 }
 
+export interface EvidenceClusterDraft {
+  title: string;
+  summary: string;
+  theme: string;
+  confidence: ClaimConfidence;
+  metadata: JsonValue | null;
+  items: Array<{
+    evidenceItemId: string;
+    relevanceScore: number | null;
+  }>;
+}
+
 export interface GenerationTraceSnapshot {
   id: string;
   workItemId: string;
-  kind: "claim_research" | "claim_verification" | "artifact_generation";
+  kind:
+    | "claim_research"
+    | "claim_verification"
+    | "artifact_generation"
+    | "evidence_clustering";
   status: "success" | "provider_error" | "parse_error" | "validation_error";
   provider: string;
   modelId: string;

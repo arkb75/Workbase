@@ -44,6 +44,18 @@ export const SourceType = {
 export type SourceType = (typeof SourceType)[keyof typeof SourceType]
 
 
+export const EvidenceItemType = {
+  manual_note_excerpt: 'manual_note_excerpt',
+  github_readme: 'github_readme',
+  github_commit: 'github_commit',
+  github_pull_request: 'github_pull_request',
+  github_issue: 'github_issue',
+  github_release: 'github_release'
+} as const
+
+export type EvidenceItemType = (typeof EvidenceItemType)[keyof typeof EvidenceItemType]
+
+
 export const ClaimConfidence = {
   low: 'low',
   medium: 'medium',
@@ -114,7 +126,8 @@ export type ArtifactTone = (typeof ArtifactTone)[keyof typeof ArtifactTone]
 export const GenerationKind = {
   claim_research: 'claim_research',
   claim_verification: 'claim_verification',
-  artifact_generation: 'artifact_generation'
+  artifact_generation: 'artifact_generation',
+  evidence_clustering: 'evidence_clustering'
 } as const
 
 export type GenerationKind = (typeof GenerationKind)[keyof typeof GenerationKind]

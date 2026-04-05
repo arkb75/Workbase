@@ -30,6 +30,15 @@ enum SourceType {
   github_repo
 }
 
+enum EvidenceItemType {
+  manual_note_excerpt
+  github_readme
+  github_commit
+  github_pull_request
+  github_issue
+  github_release
+}
+
 enum ClaimConfidence {
   low
   medium
@@ -80,6 +89,7 @@ enum GenerationKind {
   claim_research
   claim_verification
   artifact_generation
+  evidence_clustering
 }
 
 enum GenerationStatus {
@@ -98,37 +108,104 @@ model User {
   focusPreference FocusPreference?
   workItems       WorkItem[]
   artifacts       Artifact[]
+  githubConnection GitHubConnection?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 }
 
 model WorkItem {
-  id          String        @id @default(cuid())
-  userId      String
-  title       String
-  type        WorkItemType
-  description String
-  startDate   DateTime?
-  endDate     DateTime?
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sources     Source[]
-  claims      Claim[]
-  artifacts   Artifact[]
-  generationRuns GenerationRun[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id              String            @id @default(cuid())
+  userId          String
+  title           String
+  type            WorkItemType
+  description     String
+  startDate       DateTime?
+  endDate         DateTime?
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources         Source[]
+  evidenceItems   EvidenceItem[]
+  evidenceClusters EvidenceCluster[]
+  claims          Claim[]
+  artifacts       Artifact[]
+  generationRuns  GenerationRun[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 }
 
 model Source {
-  id          String      @id @default(cuid())
-  workItemId  String
-  type        SourceType
-  label       String
-  rawContent  String?
-  metadata    Json?
-  workItem    WorkItem    @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id           String         @id @default(cuid())
+  workItemId   String
+  type         SourceType
+  label        String
+  externalId   String?
+  rawContent   String?
+  metadata     Json?
+  workItem     WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  evidenceItems EvidenceItem[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([workItemId, type, externalId])
+}
+
+model GitHubConnection {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  githubUserId         String   @unique
+  login                String
+  accessTokenEncrypted String
+  scope                String?
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model EvidenceItem {
+  id           String           @id @default(cuid())
+  workItemId   String
+  sourceId     String
+  externalId   String
+  type         EvidenceItemType
+  title        String
+  content      String
+  included     Boolean          @default(true)
+  metadata     Json?
+  workItem     WorkItem         @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  source       Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  clusterItems EvidenceClusterItem[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([sourceId, externalId])
+  @@index([workItemId, included, updatedAt])
+}
+
+model EvidenceCluster {
+  id         String                @id @default(cuid())
+  workItemId String
+  title      String
+  summary    String
+  theme      String
+  confidence ClaimConfidence
+  metadata   Json?
+  workItem   WorkItem              @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  items      EvidenceClusterItem[]
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  @@index([workItemId, updatedAt])
+}
+
+model EvidenceClusterItem {
+  id            String          @id @default(cuid())
+  clusterId     String
+  evidenceItemId String
+  relevanceScore Float?
+  cluster       EvidenceCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  evidenceItem  EvidenceItem    @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+
+  @@unique([clusterId, evidenceItemId])
 }
 
 model Claim {

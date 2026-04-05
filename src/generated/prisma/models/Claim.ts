@@ -569,16 +569,8 @@ export type ClaimUncheckedUpdateManyWithoutWorkItemNestedInput = {
   deleteMany?: Prisma.ClaimScalarWhereInput | Prisma.ClaimScalarWhereInput[]
 }
 
-export type EnumClaimConfidenceFieldUpdateOperationsInput = {
-  set?: $Enums.ClaimConfidence
-}
-
 export type EnumOwnershipClarityFieldUpdateOperationsInput = {
   set?: $Enums.OwnershipClarity
-}
-
-export type BoolFieldUpdateOperationsInput = {
-  set?: boolean
 }
 
 export type EnumVerificationStatusFieldUpdateOperationsInput = {

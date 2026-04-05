@@ -3,7 +3,11 @@ import { prisma } from "@/src/lib/prisma";
 
 type GenerationRunWriteInput = {
   workItemId: string;
-  kind: "claim_research" | "claim_verification" | "artifact_generation";
+  kind:
+    | "claim_research"
+    | "claim_verification"
+    | "artifact_generation"
+    | "evidence_clustering";
   status: "success" | "provider_error" | "parse_error" | "validation_error";
   provider: string;
   modelId: string;

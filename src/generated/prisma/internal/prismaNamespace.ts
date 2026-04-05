@@ -387,6 +387,10 @@ export const ModelName = {
   User: 'User',
   WorkItem: 'WorkItem',
   Source: 'Source',
+  GitHubConnection: 'GitHubConnection',
+  EvidenceItem: 'EvidenceItem',
+  EvidenceCluster: 'EvidenceCluster',
+  EvidenceClusterItem: 'EvidenceClusterItem',
   Claim: 'Claim',
   EvidenceCard: 'EvidenceCard',
   Artifact: 'Artifact',
@@ -406,7 +410,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "claim" | "evidenceCard" | "artifact" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceCluster" | "evidenceClusterItem" | "claim" | "evidenceCard" | "artifact" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -629,6 +633,302 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.SourceCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.SourceCountAggregateOutputType> | number
+        }
+      }
+    }
+    GitHubConnection: {
+      payload: Prisma.$GitHubConnectionPayload<ExtArgs>
+      fields: Prisma.GitHubConnectionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.GitHubConnectionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.GitHubConnectionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        findFirst: {
+          args: Prisma.GitHubConnectionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.GitHubConnectionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        findMany: {
+          args: Prisma.GitHubConnectionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>[]
+        }
+        create: {
+          args: Prisma.GitHubConnectionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        createMany: {
+          args: Prisma.GitHubConnectionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.GitHubConnectionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>[]
+        }
+        delete: {
+          args: Prisma.GitHubConnectionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        update: {
+          args: Prisma.GitHubConnectionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        deleteMany: {
+          args: Prisma.GitHubConnectionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.GitHubConnectionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.GitHubConnectionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>[]
+        }
+        upsert: {
+          args: Prisma.GitHubConnectionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubConnectionPayload>
+        }
+        aggregate: {
+          args: Prisma.GitHubConnectionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateGitHubConnection>
+        }
+        groupBy: {
+          args: Prisma.GitHubConnectionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GitHubConnectionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.GitHubConnectionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GitHubConnectionCountAggregateOutputType> | number
+        }
+      }
+    }
+    EvidenceItem: {
+      payload: Prisma.$EvidenceItemPayload<ExtArgs>
+      fields: Prisma.EvidenceItemFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.EvidenceItemFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.EvidenceItemFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        findFirst: {
+          args: Prisma.EvidenceItemFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.EvidenceItemFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        findMany: {
+          args: Prisma.EvidenceItemFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>[]
+        }
+        create: {
+          args: Prisma.EvidenceItemCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        createMany: {
+          args: Prisma.EvidenceItemCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.EvidenceItemCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>[]
+        }
+        delete: {
+          args: Prisma.EvidenceItemDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        update: {
+          args: Prisma.EvidenceItemUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        deleteMany: {
+          args: Prisma.EvidenceItemDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.EvidenceItemUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.EvidenceItemUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>[]
+        }
+        upsert: {
+          args: Prisma.EvidenceItemUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceItemPayload>
+        }
+        aggregate: {
+          args: Prisma.EvidenceItemAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceItem>
+        }
+        groupBy: {
+          args: Prisma.EvidenceItemGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceItemGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.EvidenceItemCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceItemCountAggregateOutputType> | number
+        }
+      }
+    }
+    EvidenceCluster: {
+      payload: Prisma.$EvidenceClusterPayload<ExtArgs>
+      fields: Prisma.EvidenceClusterFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.EvidenceClusterFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.EvidenceClusterFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        findFirst: {
+          args: Prisma.EvidenceClusterFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.EvidenceClusterFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        findMany: {
+          args: Prisma.EvidenceClusterFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+        }
+        create: {
+          args: Prisma.EvidenceClusterCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        createMany: {
+          args: Prisma.EvidenceClusterCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.EvidenceClusterCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+        }
+        delete: {
+          args: Prisma.EvidenceClusterDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        update: {
+          args: Prisma.EvidenceClusterUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        deleteMany: {
+          args: Prisma.EvidenceClusterDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.EvidenceClusterUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.EvidenceClusterUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+        }
+        upsert: {
+          args: Prisma.EvidenceClusterUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+        }
+        aggregate: {
+          args: Prisma.EvidenceClusterAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceCluster>
+        }
+        groupBy: {
+          args: Prisma.EvidenceClusterGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.EvidenceClusterCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterCountAggregateOutputType> | number
+        }
+      }
+    }
+    EvidenceClusterItem: {
+      payload: Prisma.$EvidenceClusterItemPayload<ExtArgs>
+      fields: Prisma.EvidenceClusterItemFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.EvidenceClusterItemFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.EvidenceClusterItemFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        findFirst: {
+          args: Prisma.EvidenceClusterItemFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.EvidenceClusterItemFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        findMany: {
+          args: Prisma.EvidenceClusterItemFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+        }
+        create: {
+          args: Prisma.EvidenceClusterItemCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        createMany: {
+          args: Prisma.EvidenceClusterItemCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.EvidenceClusterItemCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+        }
+        delete: {
+          args: Prisma.EvidenceClusterItemDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        update: {
+          args: Prisma.EvidenceClusterItemUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        deleteMany: {
+          args: Prisma.EvidenceClusterItemDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.EvidenceClusterItemUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.EvidenceClusterItemUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+        }
+        upsert: {
+          args: Prisma.EvidenceClusterItemUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+        }
+        aggregate: {
+          args: Prisma.EvidenceClusterItemAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceClusterItem>
+        }
+        groupBy: {
+          args: Prisma.EvidenceClusterItemGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterItemGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.EvidenceClusterItemCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterItemCountAggregateOutputType> | number
         }
       }
     }
@@ -1001,6 +1301,7 @@ export const SourceScalarFieldEnum = {
   workItemId: 'workItemId',
   type: 'type',
   label: 'label',
+  externalId: 'externalId',
   rawContent: 'rawContent',
   metadata: 'metadata',
   createdAt: 'createdAt',
@@ -1008,6 +1309,63 @@ export const SourceScalarFieldEnum = {
 } as const
 
 export type SourceScalarFieldEnum = (typeof SourceScalarFieldEnum)[keyof typeof SourceScalarFieldEnum]
+
+
+export const GitHubConnectionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  githubUserId: 'githubUserId',
+  login: 'login',
+  accessTokenEncrypted: 'accessTokenEncrypted',
+  scope: 'scope',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GitHubConnectionScalarFieldEnum = (typeof GitHubConnectionScalarFieldEnum)[keyof typeof GitHubConnectionScalarFieldEnum]
+
+
+export const EvidenceItemScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  sourceId: 'sourceId',
+  externalId: 'externalId',
+  type: 'type',
+  title: 'title',
+  content: 'content',
+  included: 'included',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EvidenceItemScalarFieldEnum = (typeof EvidenceItemScalarFieldEnum)[keyof typeof EvidenceItemScalarFieldEnum]
+
+
+export const EvidenceClusterScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  title: 'title',
+  summary: 'summary',
+  theme: 'theme',
+  confidence: 'confidence',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EvidenceClusterScalarFieldEnum = (typeof EvidenceClusterScalarFieldEnum)[keyof typeof EvidenceClusterScalarFieldEnum]
+
+
+export const EvidenceClusterItemScalarFieldEnum = {
+  id: 'id',
+  clusterId: 'clusterId',
+  evidenceItemId: 'evidenceItemId',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type EvidenceClusterItemScalarFieldEnum = (typeof EvidenceClusterItemScalarFieldEnum)[keyof typeof EvidenceClusterItemScalarFieldEnum]
 
 
 export const ClaimScalarFieldEnum = {
@@ -1233,6 +1591,27 @@ export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$Prisma
 
 
 /**
+ * Reference to a field of type 'EvidenceItemType'
+ */
+export type EnumEvidenceItemTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EvidenceItemType'>
+    
+
+
+/**
+ * Reference to a field of type 'EvidenceItemType[]'
+ */
+export type ListEnumEvidenceItemTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EvidenceItemType[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Boolean'
+ */
+export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+    
+
+
+/**
  * Reference to a field of type 'ClaimConfidence'
  */
 export type EnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ClaimConfidence'>
@@ -1247,6 +1626,20 @@ export type ListEnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputTy
 
 
 /**
+ * Reference to a field of type 'Float'
+ */
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+    
+
+
+/**
+ * Reference to a field of type 'Float[]'
+ */
+export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
+    
+
+
+/**
  * Reference to a field of type 'OwnershipClarity'
  */
 export type EnumOwnershipClarityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'OwnershipClarity'>
@@ -1257,13 +1650,6 @@ export type EnumOwnershipClarityFieldRefInput<$PrismaModel> = FieldRefInputType<
  * Reference to a field of type 'OwnershipClarity[]'
  */
 export type ListEnumOwnershipClarityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'OwnershipClarity[]'>
-    
-
-
-/**
- * Reference to a field of type 'Boolean'
- */
-export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
     
 
 
@@ -1362,20 +1748,6 @@ export type EnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<
  * Reference to a field of type 'GenerationStatus[]'
  */
 export type ListEnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationStatus[]'>
-    
-
-
-/**
- * Reference to a field of type 'Float'
- */
-export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
-    
-
-
-/**
- * Reference to a field of type 'Float[]'
- */
-export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
     
 
 
@@ -1490,6 +1862,10 @@ export type GlobalOmitConfig = {
   user?: Prisma.UserOmit
   workItem?: Prisma.WorkItemOmit
   source?: Prisma.SourceOmit
+  gitHubConnection?: Prisma.GitHubConnectionOmit
+  evidenceItem?: Prisma.EvidenceItemOmit
+  evidenceCluster?: Prisma.EvidenceClusterOmit
+  evidenceClusterItem?: Prisma.EvidenceClusterItemOmit
   claim?: Prisma.ClaimOmit
   evidenceCard?: Prisma.EvidenceCardOmit
   artifact?: Prisma.ArtifactOmit

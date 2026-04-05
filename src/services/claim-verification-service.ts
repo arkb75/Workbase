@@ -1,5 +1,8 @@
 import type { Prisma } from "@/src/generated/prisma/client";
-import type { JsonValue, NormalizedSource } from "@/src/domain/types";
+import type {
+  JsonValue,
+  NormalizedEvidenceItem,
+} from "@/src/domain/types";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
@@ -10,7 +13,7 @@ import type { ClaimVerificationService } from "@/src/services/types";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimVerificationService } from "@/src/services/mock-claim-verification-service";
 
-function isRejectedGuidanceSource(source: NormalizedSource) {
+function isRejectedGuidanceSource(source: NormalizedEvidenceItem) {
   return (
     typeof source.metadata === "object" &&
     source.metadata &&
@@ -62,17 +65,27 @@ function buildVerificationInputSummary(params: {
 }
 
 const bedrockClaimVerificationService: ClaimVerificationService = {
-  async verify({ workItem, sources, claims }) {
+  async verify({ workItem, evidenceItems, clusters, claims }) {
     const structuredClient = getBedrockStructuredLlmClient();
-    const rejectedGuidance = sources
+    const rejectedGuidance = evidenceItems
       .filter(isRejectedGuidanceSource)
       .map((source) => source.body)
       .join("\n\n");
-    const supportingSources = sources
+    const supportingEvidence = evidenceItems
       .filter((source) => !isRejectedGuidanceSource(source))
       .map((source) => ({
-        id: source.id,
-        label: source.label,
+        evidenceItemId: source.id,
+        sourceId: source.sourceId,
+        sourceLabel:
+          typeof source.metadata === "object" &&
+          source.metadata &&
+          "sourceLabel" in source.metadata &&
+          typeof source.metadata.sourceLabel === "string"
+            ? source.metadata.sourceLabel
+            : source.label,
+        title: source.label,
+        sourceType: source.type,
+        evidenceType: source.evidenceType,
         excerpts: source.excerpts.length ? source.excerpts : [source.body],
       }));
     const systemPrompt = [
@@ -90,8 +103,16 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
           type: workItem.type,
           description: workItem.description,
         },
+        clusters: clusters.map((cluster) => ({
+          clusterId: cluster.id,
+          title: cluster.title,
+          summary: cluster.summary,
+          theme: cluster.theme,
+          confidence: cluster.confidence,
+          evidenceItemIds: cluster.items.map((item) => item.evidenceItemId),
+        })),
         rejectedClaimGuidance: rejectedGuidance || null,
-        sources: supportingSources,
+        evidenceItems: supportingEvidence,
         claims: claims.map((claim, index) => ({
           claimIndex: index,
           text: claim.text,
@@ -146,7 +167,13 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         },
       });
 
-      const verifiedClaims = claims.map((claim, index) => {
+        const sourceMentionsSensitivity = supportingEvidence.some((item) =>
+          item.excerpts.some((excerpt) =>
+            /sensitive|confidential|internal|private dataset|customer/i.test(excerpt),
+          ),
+        );
+
+        const verifiedClaims = claims.map((claim, index) => {
         const verification = result.data.results.find(
           (item) => item.claimIndex === index,
         );
@@ -158,7 +185,8 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         const risks = [claim.risksSummary, verification.risksSummary].filter(Boolean);
         let verificationStatus = claim.verificationStatus;
         let visibility = verification.visibilitySuggestion;
-        const sensitivityFlag = claim.sensitivityFlag || verification.sensitivityWarning;
+        const sensitivityFlag =
+          claim.sensitivityFlag || verification.sensitivityWarning || sourceMentionsSensitivity;
         let confidence = verification.confidence;
         const ownershipClarity = verification.ownershipClarity;
 
