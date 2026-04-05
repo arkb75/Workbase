@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  ChevronDown,
   FolderGit2,
   ListChecks,
   ShieldCheck,
@@ -497,85 +498,133 @@ export default async function WorkItemDetailPage({
                 Connect GitHub, list accessible repositories, and import bounded evidence into the existing review flow.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4">
-              {githubConnection ? (
-                <>
-                  <div className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="success">Connected</Badge>
-                      <Badge>@{githubConnection.login}</Badge>
+            <CardContent>
+              <details className="source-panel">
+                <summary className="source-panel__summary">
+                  <div className="flex min-w-0 items-start gap-4">
+                    <div className="source-panel__icon source-panel__icon--github">
+                      <FolderGit2 className="h-5 w-5" />
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      Search the connected account’s repositories and attach one to this Work Item.
-                    </p>
-                  </div>
-
-                  <form method="GET" className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-                    <div className="grid gap-2">
-                      <label
-                        htmlFor="repoQuery"
-                        className="text-sm font-medium text-[color:var(--ink-strong)]"
-                      >
-                        Search repositories
-                      </label>
-                      <Input
-                        id="repoQuery"
-                        name="repoQuery"
-                        defaultValue={repoQuery}
-                        placeholder="Filter by owner, repo, or description"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--panel-muted)]"
-                    >
-                      Refresh list
-                    </button>
-                  </form>
-
-                  {repositoryLookupFailed ? (
-                    <p className="text-sm leading-6 text-[color:var(--danger)]">
-                      Workbase could not list repositories for the current GitHub connection.
-                    </p>
-                  ) : repositories.length ? (
-                    <div className="grid gap-3">
-                      {repositories.map((repository) => (
-                        <GitHubRepoRow
-                          key={repository.id}
-                          repository={repository}
-                          workItemId={workItem.id}
-                          attached={attachedRepoIds.has(repository.id)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                      No repositories matched this filter.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <div className="grid gap-4 rounded-[24px] border border-dashed border-black/10 bg-[color:var(--panel-muted)] p-5">
-                  <div className="flex items-start gap-3">
-                    <FolderGit2 className="mt-0.5 h-5 w-5 text-[color:var(--accent)]" />
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                        GitHub is not connected yet
-                      </p>
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-[color:var(--ink-strong)]">
+                          GitHub repositories
+                        </p>
+                        <span className="rounded-full bg-black/4 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
+                          Bounded import
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
+                            githubConnection
+                              ? "bg-[rgba(15,118,110,0.08)] text-[color:var(--accent)]"
+                              : "bg-[rgba(16,33,43,0.05)] text-[color:var(--ink-muted)]"
+                          }`}
+                        >
+                          {githubConnection
+                            ? `Connected as @${githubConnection.login}`
+                            : "Not connected"}
+                        </span>
+                      </div>
                       <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                        Connect the demo user’s GitHub account to list accessible repositories and import bounded evidence.
+                        Search accessible repositories and attach one without expanding the full evidence surface.
                       </p>
                     </div>
                   </div>
-                  <Link
-                    href={`/api/github/connect?returnTo=${encodeURIComponent(`/work-items/${workItem.id}`)}`}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)]"
-                  >
-                    <FolderGit2 className="h-4 w-4" />
-                    Connect GitHub
-                  </Link>
+                  <div className="source-panel__meta">
+                    <span className="source-panel__chevron" aria-hidden="true">
+                      <ChevronDown className="h-4 w-4" />
+                    </span>
+                  </div>
+                </summary>
+
+                <div className="source-panel__body">
+                  <div className="source-panel__inner">
+                    <div className="grid gap-4 border-t border-black/6 bg-[color:var(--panel-muted)] px-4 py-4">
+                      {githubConnection ? (
+                        <>
+                          <div className="rounded-[24px] border border-black/8 bg-white p-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge tone="success">Connected</Badge>
+                              <Badge>@{githubConnection.login}</Badge>
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
+                              Search the connected account’s repositories and attach one to this Work Item.
+                            </p>
+                          </div>
+
+                          <form
+                            method="GET"
+                            className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+                          >
+                            <div className="grid gap-2">
+                              <label
+                                htmlFor="repoQuery"
+                                className="text-sm font-medium text-[color:var(--ink-strong)]"
+                              >
+                                Search repositories
+                              </label>
+                              <Input
+                                id="repoQuery"
+                                name="repoQuery"
+                                defaultValue={repoQuery}
+                                placeholder="Filter by owner, repo, or description"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--panel-muted)]"
+                            >
+                              Refresh list
+                            </button>
+                          </form>
+
+                          {repositoryLookupFailed ? (
+                            <p className="text-sm leading-6 text-[color:var(--danger)]">
+                              Workbase could not list repositories for the current GitHub connection.
+                            </p>
+                          ) : repositories.length ? (
+                            <div className="grid gap-3">
+                              {repositories.map((repository) => (
+                                <GitHubRepoRow
+                                  key={repository.id}
+                                  repository={repository}
+                                  workItemId={workItem.id}
+                                  attached={attachedRepoIds.has(repository.id)}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                              No repositories matched this filter.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className="grid gap-4 rounded-[24px] border border-dashed border-black/10 bg-white p-5">
+                          <div className="flex items-start gap-3">
+                            <FolderGit2 className="mt-0.5 h-5 w-5 text-[color:var(--accent)]" />
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                                GitHub is not connected yet
+                              </p>
+                              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                                Connect the demo user’s GitHub account to list accessible repositories and import bounded evidence.
+                              </p>
+                            </div>
+                          </div>
+                          <Link
+                            href={`/api/github/connect?returnTo=${encodeURIComponent(`/work-items/${workItem.id}`)}`}
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)]"
+                          >
+                            <FolderGit2 className="h-4 w-4" />
+                            Connect GitHub
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
+              </details>
             </CardContent>
           </Card>
         </div>
