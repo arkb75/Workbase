@@ -412,6 +412,7 @@ export async function updateOnboardingAction(formData: FormData) {
 
 export async function createWorkItemAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const manualNotes = String(formData.get("manualNotes") ?? "").trim();
   const submittedValues = {
     title: String(formData.get("title") ?? ""),
     type: String(formData.get("type") ?? "project"),
@@ -446,6 +447,10 @@ export async function createWorkItemAction(formData: FormData) {
       searchParams.set("attachRepositoryOnCreate", "true");
     }
 
+    if (manualNotes) {
+      searchParams.set("manualNotes", manualNotes);
+    }
+
     appendFieldErrors(searchParams, parsed.error.flatten().fieldErrors);
 
     redirect(`/work-items/new?${searchParams.toString()}`);
@@ -474,6 +479,22 @@ export async function createWorkItemAction(formData: FormData) {
       revalidatePath("/dashboard");
       redirect(`/work-items/${workItem.id}?error=github-import-failed`);
     }
+  }
+
+  if (manualNotes) {
+    const source = await prisma.source.create({
+      data: {
+        workItemId: workItem.id,
+        type: "manual_note",
+        label: "Initial notes",
+        rawContent: manualNotes,
+      },
+    });
+
+    await upsertEvidenceItemsForSource(
+      source.id,
+      buildManualEvidenceItemsFromSource(mapSourceSnapshot(source)),
+    );
   }
 
   revalidatePath("/dashboard");
