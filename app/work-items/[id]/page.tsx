@@ -16,6 +16,7 @@ import {
 } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Badge } from "@/components/ui/badge";
+import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import {
   Card,
   CardContent,
@@ -416,47 +417,44 @@ export default async function WorkItemDetailPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Attached sources</CardTitle>
-            <CardDescription>
-              Manual notes and imported GitHub repositories are the upstream source records for this Work Item.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {workItem.sources.length ? (
-              workItem.sources.map((source) => {
-                const importedAt = getSourceImportedAt(source.metadata);
-                const repositoryFullName = getRepositoryFullName(source.metadata);
+        <CollapsibleCard
+          title="Attached sources"
+          description="Manual notes and imported GitHub repositories are the upstream source records for this Work Item."
+          meta={<Badge>{workItem.sources.length} attached</Badge>}
+          bodyClassName="space-y-4"
+        >
+          {workItem.sources.length ? (
+            workItem.sources.map((source) => {
+              const importedAt = getSourceImportedAt(source.metadata);
+              const repositoryFullName = getRepositoryFullName(source.metadata);
 
-                return (
-                  <div
-                    key={source.id}
-                    className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={source.type === "manual_note" ? "accent" : "neutral"}>
-                        {titleCase(source.type)}
-                      </Badge>
-                      <Badge>{source.label}</Badge>
-                      {source.externalId ? <Badge>external {source.externalId}</Badge> : null}
-                      {importedAt ? <Badge>imported {formatDateTime(importedAt)}</Badge> : null}
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      {source.rawContent ??
-                        repositoryFullName ??
-                        "Structured metadata-backed source attached to this Work Item."}
-                    </p>
+              return (
+                <div
+                  key={source.id}
+                  className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={source.type === "manual_note" ? "accent" : "neutral"}>
+                      {titleCase(source.type)}
+                    </Badge>
+                    <Badge>{source.label}</Badge>
+                    {source.externalId ? <Badge>external {source.externalId}</Badge> : null}
+                    {importedAt ? <Badge>imported {formatDateTime(importedAt)}</Badge> : null}
                   </div>
-                );
-              })
-            ) : (
-              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No sources attached yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+                  <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
+                    {source.rawContent ??
+                      repositoryFullName ??
+                      "Structured metadata-backed source attached to this Work Item."}
+                  </p>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+              No sources attached yet.
+            </p>
+          )}
+        </CollapsibleCard>
 
         <div className="grid gap-4">
           <Card>
@@ -631,14 +629,17 @@ export default async function WorkItemDetailPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Evidence review</CardTitle>
-            <CardDescription>
-              Included evidence feeds clustering and claim generation. Excluded evidence stays persisted but out of both steps.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
+        <CollapsibleCard
+          title="Evidence review"
+          description="Included evidence feeds clustering and claim generation. Excluded evidence stays persisted but out of both steps."
+          meta={
+            <>
+              <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
+              <Badge>{excludedEvidenceItems.length} excluded</Badge>
+            </>
+          }
+          bodyClassName="grid gap-4"
+        >
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
               <Badge>{excludedEvidenceItems.length} excluded</Badge>
@@ -702,18 +703,26 @@ export default async function WorkItemDetailPage({
                 No evidence items have been materialized for this Work Item yet.
               </p>
             )}
-          </CardContent>
-        </Card>
+        </CollapsibleCard>
 
         <div className="grid gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Evidence clusters</CardTitle>
-              <CardDescription>
-                Persisted work themes keep claim generation from seeing a flat pile of notes and GitHub records.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
+          <CollapsibleCard
+            title="Evidence clusters"
+            description="Persisted work themes keep claim generation from seeing a flat pile of notes and GitHub records."
+            meta={
+              <>
+                <Badge>{workItem.evidenceClusters.length} clusters</Badge>
+                <Badge tone={clustersStale ? "neutral" : "success"}>
+                  {includedEvidenceItems.length === 0
+                    ? "No included evidence"
+                    : clustersStale
+                      ? "Stale"
+                      : "Current"}
+                </Badge>
+              </>
+            }
+            bodyClassName="grid gap-4"
+          >
               <div className="grid gap-3 sm:grid-cols-2">
                 <KeyValue label="Clusters" value={workItem.evidenceClusters.length} />
                 <KeyValue
@@ -761,17 +770,14 @@ export default async function WorkItemDetailPage({
                   No clusters persisted yet. Workbase will cluster included evidence before the next claim-generation run.
                 </p>
               )}
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Pipeline</CardTitle>
-              <CardDescription>
-                The business rules stay the same even with GitHub import and clustering layered in.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
+          <CollapsibleCard
+            title="Pipeline"
+            description="The business rules stay the same even with GitHub import and clustering layered in."
+            meta={<Badge>4 rules</Badge>}
+            bodyClassName="grid gap-4"
+          >
               <div className="flex gap-3">
                 <FolderGit2 className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
                 <div className="space-y-1">
@@ -819,8 +825,7 @@ export default async function WorkItemDetailPage({
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
         </div>
       </section>
     </WorkbaseFrame>

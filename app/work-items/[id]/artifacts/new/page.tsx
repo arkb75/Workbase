@@ -2,6 +2,7 @@ import { generateArtifactAction } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Badge } from "@/components/ui/badge";
+import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, KeyValue } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
@@ -149,14 +150,12 @@ export default async function ArtifactGeneratorPage({
           </form>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Eligible approved claims</CardTitle>
-            <CardDescription>
-              Sensitive claims stay out. Visibility is checked at generation time.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <CollapsibleCard
+          title="Eligible approved claims"
+          description="Sensitive claims stay out. Visibility is checked at generation time."
+          meta={<Badge tone="success">{approvedClaims.length} eligible</Badge>}
+          bodyClassName="space-y-4"
+        >
             {approvedClaims.length ? (
               approvedClaims.map((claim) => (
                 <div
@@ -178,8 +177,7 @@ export default async function ArtifactGeneratorPage({
                 No approved, non-sensitive claims are available yet.
               </p>
             )}
-          </CardContent>
-        </Card>
+        </CollapsibleCard>
       </section>
 
       {error === "no-eligible-claims" ? (
