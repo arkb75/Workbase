@@ -3,6 +3,7 @@ import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import type {
   ClaimDraft,
   ClaimSnapshot,
+  EvidenceClusterSnapshot,
   EvidenceItemSnapshot,
   NormalizedEvidenceItem,
   SourceSnapshot,
@@ -60,6 +61,23 @@ const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource
   },
 }));
 
+const clusters: EvidenceClusterSnapshot[] = [
+  {
+    id: "cluster-1",
+    workItemId: workItem.id,
+    title: "Manual note implementation work",
+    summary: "Claim review screen implementation and collaboration notes.",
+    theme: "full_stack",
+    confidence: "medium",
+    metadata: null,
+    items: evidenceItems.map((item, index) => ({
+      id: `cluster-item-${index + 1}`,
+      evidenceItemId: item.id,
+      relevanceScore: 0.8,
+    })),
+  },
+];
+
 function makeExistingClaim(
   id: string,
   status: ClaimSnapshot["verificationStatus"],
@@ -93,7 +111,7 @@ describe("claim regeneration behavior", () => {
       workItem,
       sources,
       evidenceItems,
-      clusters: [],
+      clusters,
       existingClaims: [
         makeExistingClaim(
           "approved-1",
@@ -128,7 +146,7 @@ describe("claim regeneration behavior", () => {
       workItem,
       sources,
       evidenceItems,
-      clusters: [],
+      clusters,
       existingClaims: [
         makeExistingClaim(
           "approved-1",
@@ -191,7 +209,13 @@ describe("claim regeneration behavior", () => {
           },
         };
 
-        return [draft];
+        return {
+          claims: [draft],
+          generationRunIds: {
+            clusterResearch: [],
+            merge: null,
+          },
+        };
       },
     };
     const passthroughVerificationService: ClaimVerificationService = {
@@ -204,7 +228,7 @@ describe("claim regeneration behavior", () => {
       workItem,
       sources,
       evidenceItems,
-      clusters: [],
+      clusters,
       existingClaims: [
         makeExistingClaim(
           "rejected-1",

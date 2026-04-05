@@ -125,6 +125,8 @@ export type ArtifactTone = (typeof ArtifactTone)[keyof typeof ArtifactTone]
 
 export const GenerationKind = {
   claim_research: 'claim_research',
+  claim_cluster_research: 'claim_cluster_research',
+  claim_merge: 'claim_merge',
   claim_verification: 'claim_verification',
   artifact_generation: 'artifact_generation',
   evidence_clustering: 'evidence_clustering'

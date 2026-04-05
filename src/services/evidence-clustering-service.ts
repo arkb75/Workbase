@@ -1,8 +1,17 @@
 import type { Prisma } from "@/src/generated/prisma/client";
 import type { EvidenceClusterDraft, JsonValue } from "@/src/domain/types";
+import { buildPromptReadyEvidenceExcerpt } from "@/src/lib/claim-prompt-prep";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { evidenceClusteringLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  evidenceClusteringExampleOutput,
+  evidenceClusteringJsonSchema,
+  evidenceClusteringRequiredFields,
+  evidenceClusteringSchemaDescription,
+  evidenceClusteringSchemaName,
+} from "@/src/lib/llm-json-schemas";
+import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { EvidenceClusteringService } from "@/src/services/types";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
@@ -12,6 +21,9 @@ function buildClusteringInputSummary(params: {
   workItemId: string;
   workItemTitle: string;
   evidenceCount: number;
+  totalExcerptChars: number;
+  transportMode?: string | null;
+  attempts?: JsonValue | null;
   systemPrompt: string;
   userPrompt: string;
 }) {
@@ -19,9 +31,12 @@ function buildClusteringInputSummary(params: {
     workItemId: params.workItemId,
     workItemTitle: params.workItemTitle,
     evidenceCount: params.evidenceCount,
+    totalExcerptChars: params.totalExcerptChars,
+    transportMode: params.transportMode ?? null,
+    transportAttempts: params.attempts ?? null,
     systemPrompt: params.systemPrompt,
     userPrompt: params.userPrompt,
-  } as JsonValue;
+  };
 }
 
 function toClusterDrafts(
@@ -77,45 +92,75 @@ const bedrockEvidenceClusteringService: EvidenceClusteringService = {
     const llmRefs = new Set(llmRefToEvidenceItemId.keys());
     const systemPrompt = [
       "You cluster Workbase evidence into coherent technical work themes.",
-      "Return strict JSON only.",
-      "Use all included evidence items exactly once.",
-      "Use the provided itemRef values exactly in the output items list.",
-      "Do not merge unrelated work just to reduce cluster count.",
-      "Do not create trivial single-item clusters unless the evidence is clearly distinct.",
+      "Return JSON that matches the provided schema exactly.",
+      "Use each included evidence item exactly once.",
     ].join(" ");
-    const userPrompt = JSON.stringify(
+    const promptEvidenceItems = evidenceItems.map((item) => ({
+      itemRef: evidenceItemIdToLlmRef.get(item.id),
+      sourceType: item.source.type,
+      evidenceType: item.type,
+      title: item.title,
+      excerpt: buildPromptReadyEvidenceExcerpt({
+        evidenceType: item.type,
+        title: item.title,
+        content: item.content,
+      }),
+      sourceLabel: item.source.label,
+    }));
+    const userPrompt = formatTaggedSections([
       {
-        task: "Group included evidence into 2 to 8 coherent work clusters.",
-        workItem: {
-          id: workItem.id,
-          title: workItem.title,
-          type: workItem.type,
-          description: workItem.description,
-        },
-        evidenceItems: evidenceItems.map((item) => ({
-          itemRef: evidenceItemIdToLlmRef.get(item.id),
-          sourceType: item.source.type,
-          evidenceType: item.type,
-          title: item.title,
-          content: item.content,
-          sourceLabel: item.source.label,
-        })),
-        outputRequirements: {
-          notes: [
-            "Use every included evidence item exactly once.",
-            "For each cluster item, return the itemRef exactly as provided.",
-            "Cluster by meaningful work themes derived from the evidence.",
-            "Titles and themes should be descriptive, not generic bucket names.",
-          ],
-        },
+        tag: "task",
+        content:
+          "Group the included evidence into 2 to 8 coherent work clusters. Titles and themes should be specific and derived from the evidence rather than generic bucket names.",
       },
-      null,
-      2,
-    );
-    const inputSummary = buildClusteringInputSummary({
+      {
+        tag: "rules",
+        content: [
+          "Return a top-level JSON object with a `clusters` array.",
+          "Use every provided itemRef exactly once across all cluster items.",
+          "For each cluster item, return the itemRef string in the `evidenceItemId` field exactly as provided.",
+          "Do not merge obviously unrelated work to reduce cluster count.",
+          "Do not create trivial single-item clusters unless the evidence is clearly distinct.",
+        ].join("\n"),
+      },
+      {
+        tag: "output_schema",
+        content: JSON.stringify(evidenceClusteringJsonSchema, null, 2),
+      },
+      {
+        tag: "required_fields",
+        content: JSON.stringify(evidenceClusteringRequiredFields, null, 2),
+      },
+      {
+        tag: "example_output",
+        content: JSON.stringify(evidenceClusteringExampleOutput, null, 2),
+      },
+      {
+        tag: "work_item",
+        content: JSON.stringify(
+          {
+            id: workItem.id,
+            title: workItem.title,
+            type: workItem.type,
+            description: workItem.description,
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        tag: "evidence_items",
+        content: JSON.stringify(promptEvidenceItems, null, 2),
+      },
+    ]);
+    const baseInputSummary = buildClusteringInputSummary({
       workItemId: workItem.id,
       workItemTitle: workItem.title,
       evidenceCount: evidenceItems.length,
+      totalExcerptChars: promptEvidenceItems.reduce(
+        (sum, item) => sum + item.excerpt.length,
+        0,
+      ),
       systemPrompt,
       userPrompt,
     });
@@ -125,6 +170,11 @@ const bedrockEvidenceClusteringService: EvidenceClusteringService = {
         systemPrompt,
         userPrompt,
         schema: evidenceClusteringLlmOutputSchema,
+        schemaName: evidenceClusteringSchemaName,
+        schemaDescription: evidenceClusteringSchemaDescription,
+        jsonSchema: evidenceClusteringJsonSchema,
+        exampleOutput: evidenceClusteringExampleOutput,
+        requiredFieldPaths: evidenceClusteringRequiredFields,
         maxTokens: 2400,
         extraValidation: (value) => {
           const errors: string[] = [];
@@ -160,7 +210,13 @@ const bedrockEvidenceClusteringService: EvidenceClusteringService = {
         status: "success",
         provider: result.provider,
         modelId: result.modelId,
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: result.transportMode,
+          transportAttempts: JSON.parse(
+            JSON.stringify(result.attempts),
+          ) as Prisma.InputJsonValue,
+        } as Prisma.InputJsonValue,
         rawOutput: result.rawOutput,
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
@@ -191,7 +247,14 @@ const bedrockEvidenceClusteringService: EvidenceClusteringService = {
         status: failure?.status ?? "provider_error",
         provider: "bedrock",
         modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: failure?.transportMode ?? null,
+          transportAttempts:
+            failure?.attempts == null
+              ? null
+              : (JSON.parse(JSON.stringify(failure.attempts)) as Prisma.InputJsonValue),
+        } as Prisma.InputJsonValue,
         rawOutput: failure?.rawOutput ?? null,
         parsedOutput: null,
         validationErrors:

@@ -81,7 +81,12 @@ export default async function ClaimReviewPage({
   );
   const sensitiveClaims = workItem.claims.filter((claim) => claim.sensitivityFlag);
   const claimGenerationTraces = workItem.generationRuns.filter(
-    (run) => run.kind === "claim_research" || run.kind === "claim_verification",
+    (run) =>
+      run.kind === "claim_research" ||
+      run.kind === "claim_cluster_research" ||
+      run.kind === "claim_merge" ||
+      run.kind === "claim_verification" ||
+      run.kind === "evidence_clustering",
   );
 
   return (

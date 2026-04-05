@@ -223,84 +223,78 @@ function normalizeClusterItem(value: unknown) {
   };
 }
 
-export const claimResearchLlmOutputSchema = z.preprocess(
-  (value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return value;
-    }
+function buildClaimResearchLlmOutputSchema(params: {
+  minClaims: number;
+  maxClaims: number;
+}) {
+  return z.preprocess(
+    (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+      }
 
-    const input = value as Record<string, unknown>;
+      const input = value as Record<string, unknown>;
 
-    return {
-      ...input,
-      claims: Array.isArray(input.claims)
-        ? input.claims.map((claim) => {
-            if (!claim || typeof claim !== "object" || Array.isArray(claim)) {
-              return claim;
-            }
+      return {
+        ...input,
+        claims: Array.isArray(input.claims)
+          ? input.claims.map((claim) => {
+              if (!claim || typeof claim !== "object" || Array.isArray(claim)) {
+                return claim;
+              }
 
-            const claimRecord = claim as Record<string, unknown>;
+              const claimRecord = claim as Record<string, unknown>;
 
-            return {
-              ...claimRecord,
-              claimText:
-                toTrimmedString(claimRecord.claimText) ??
-                toTrimmedString(claimRecord.claim) ??
-                toTrimmedString(claimRecord.text),
-              confidence:
-                toTrimmedString(claimRecord.confidence)?.toLowerCase() ?? "medium",
-              ownershipClarity:
-                toTrimmedString(claimRecord.ownershipClarity)?.toLowerCase() ?? "partial",
-              evidenceSummary:
-                toTrimmedString(claimRecord.evidenceSummary) ??
-                (() => {
-                  const normalizedClaimText =
-                    toTrimmedString(claimRecord.claimText) ??
-                    toTrimmedString(claimRecord.claim) ??
-                    toTrimmedString(claimRecord.text);
-
-                  return normalizedClaimText
-                    ? `Candidate claim derived from the reviewed evidence: ${normalizedClaimText}`
-                    : null;
-                })(),
-              rationaleSummary:
-                toTrimmedString(claimRecord.rationaleSummary) ??
-                "Ground this claim against the cited evidence before approval.",
-              sourceRefs: Array.isArray(claimRecord.sourceRefs)
-                ? claimRecord.sourceRefs
-                : Array.isArray(claimRecord.evidenceRefs)
-                  ? claimRecord.evidenceRefs
-                  : claimRecord.sourceRefs,
-            };
-          })
-        : input.claims,
-    };
-  },
-  z.object({
-    claims: z
-      .array(
-        z
-          .object({
-            text: z.string().min(10).max(240).optional(),
-            claimText: z.string().min(10).max(240).optional(),
-            category: z.string().trim().min(1).max(64).nullable().optional(),
+              return {
+                ...claimRecord,
+                claimText:
+                  toTrimmedString(claimRecord.claimText) ??
+                  toTrimmedString(claimRecord.claim) ??
+                  toTrimmedString(claimRecord.text),
+                confidence: toTrimmedString(claimRecord.confidence)?.toLowerCase(),
+                ownershipClarity: toTrimmedString(claimRecord.ownershipClarity)?.toLowerCase(),
+                evidenceSummary: toTrimmedString(claimRecord.evidenceSummary),
+                rationaleSummary: toTrimmedString(claimRecord.rationaleSummary),
+                sourceRefs: Array.isArray(claimRecord.sourceRefs)
+                  ? claimRecord.sourceRefs
+                  : Array.isArray(claimRecord.evidenceRefs)
+                    ? claimRecord.evidenceRefs
+                    : claimRecord.sourceRefs,
+              };
+            })
+          : input.claims,
+      };
+    },
+    z.object({
+      claims: z
+        .array(
+          z.object({
+            claimText: z.string().min(10).max(240),
+            category: z.string().trim().min(1).max(64),
             confidence: confidenceEnum,
             ownershipClarity: ownershipClarityEnum,
             evidenceSummary: z.string().min(16).max(500),
             rationaleSummary: z.string().min(16).max(500),
-            risksSummary: z.string().trim().max(500).nullable().optional(),
-            missingInfo: z.string().trim().max(500).nullable().optional(),
+            risksSummary: z.string().trim().max(500).nullable(),
+            missingInfo: z.string().trim().max(500).nullable(),
             sourceRefs: z.array(evidenceSourceRefInputSchema).min(1).max(4),
-          })
-          .refine((claim) => Boolean(claim.text || claim.claimText), {
-            message: "Each claim must include text or claimText.",
-            path: ["text"],
           }),
-      )
-      .min(1)
-      .max(6),
-  }),
-);
+        )
+        .min(params.minClaims)
+        .max(params.maxClaims),
+    }),
+  );
+}
+
+export const claimResearchLlmOutputSchema = buildClaimResearchLlmOutputSchema({
+  minClaims: 1,
+  maxClaims: 6,
+});
+
+export const clusterClaimResearchLlmOutputSchema = buildClaimResearchLlmOutputSchema({
+  minClaims: 0,
+  maxClaims: 2,
+});
 
 export const claimVerificationLlmOutputSchema = z.preprocess(
   (value) => {

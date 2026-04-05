@@ -3,6 +3,14 @@ import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { artifactGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  artifactGenerationExampleOutput,
+  artifactGenerationJsonSchema,
+  artifactGenerationRequiredFields,
+  artifactGenerationSchemaDescription,
+  artifactGenerationSchemaName,
+} from "@/src/lib/llm-json-schemas";
+import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
@@ -14,6 +22,8 @@ function buildArtifactInputSummary(params: {
   targetAngle: string;
   tone: string;
   claimCount: number;
+  transportMode?: string | null;
+  attempts?: unknown;
   systemPrompt: string;
   userPrompt: string;
 }) {
@@ -23,6 +33,8 @@ function buildArtifactInputSummary(params: {
     targetAngle: params.targetAngle,
     tone: params.tone,
     claimCount: params.claimCount,
+    transportMode: params.transportMode ?? null,
+    transportAttempts: params.attempts ?? null,
     systemPrompt: params.systemPrompt,
     userPrompt: params.userPrompt,
   };
@@ -54,31 +66,63 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
     const allowedClaimIds = new Set(claims.map((claim) => claim.id));
     const systemPrompt = [
       "You draft Workbase artifacts from already-approved claims.",
-      "Return strict JSON only.",
-      "Never invent work, metrics, outcomes, scope, or technologies.",
+      "Return JSON that matches the provided schema exactly.",
       "Only use the provided approved claims.",
     ].join(" ");
-    const userPrompt = JSON.stringify(
+    const userPrompt = formatTaggedSections([
       {
-        task: "Generate one Workbase artifact draft.",
-        request: {
-          type: request.type,
-          targetAngle: request.targetAngle,
-          tone: request.tone,
-        },
-        contentInstructions: buildArtifactContentInstructions(request.type),
-        approvedClaims: claims.map((claim) => ({
-          id: claim.id,
-          text: claim.text,
-          category: claim.category,
-          confidence: claim.confidence,
-          ownershipClarity: claim.ownershipClarity,
-        })),
+        tag: "task",
+        content: "Generate one Workbase artifact draft.",
       },
-      null,
-      2,
-    );
-    const inputSummary = buildArtifactInputSummary({
+      {
+        tag: "rules",
+        content: [
+          "Return a top-level JSON object with `content` and `usedClaimIds`.",
+          "Never invent work, metrics, outcomes, scope, or technologies.",
+          "Only cite claim IDs that were provided in the approvedClaims input.",
+          buildArtifactContentInstructions(request.type),
+        ].join("\n"),
+      },
+      {
+        tag: "output_schema",
+        content: JSON.stringify(artifactGenerationJsonSchema, null, 2),
+      },
+      {
+        tag: "required_fields",
+        content: JSON.stringify(artifactGenerationRequiredFields, null, 2),
+      },
+      {
+        tag: "example_output",
+        content: JSON.stringify(artifactGenerationExampleOutput, null, 2),
+      },
+      {
+        tag: "request",
+        content: JSON.stringify(
+          {
+            type: request.type,
+            targetAngle: request.targetAngle,
+            tone: request.tone,
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        tag: "approved_claims",
+        content: JSON.stringify(
+          claims.map((claim) => ({
+            id: claim.id,
+            text: claim.text,
+            category: claim.category,
+            confidence: claim.confidence,
+            ownershipClarity: claim.ownershipClarity,
+          })),
+          null,
+          2,
+        ),
+      },
+    ]);
+    const baseInputSummary = buildArtifactInputSummary({
       workItemId: request.workItemId,
       artifactType: request.type,
       targetAngle: request.targetAngle,
@@ -93,6 +137,11 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         systemPrompt,
         userPrompt,
         schema: artifactGenerationLlmOutputSchema,
+        schemaName: artifactGenerationSchemaName,
+        schemaDescription: artifactGenerationSchemaDescription,
+        jsonSchema: artifactGenerationJsonSchema,
+        exampleOutput: artifactGenerationExampleOutput,
+        requiredFieldPaths: artifactGenerationRequiredFields,
         maxTokens: 1400,
         extraValidation: (value) => {
           const errors: string[] = [];
@@ -124,7 +173,13 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         status: "success",
         provider: result.provider,
         modelId: result.modelId,
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: result.transportMode,
+          transportAttempts: JSON.parse(
+            JSON.stringify(result.attempts),
+          ) as Prisma.InputJsonValue,
+        } as Prisma.InputJsonValue,
         rawOutput: result.rawOutput,
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
@@ -148,7 +203,14 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         status: failure?.status ?? "provider_error",
         provider: "bedrock",
         modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: failure?.transportMode ?? null,
+          transportAttempts:
+            failure?.attempts == null
+              ? null
+              : (JSON.parse(JSON.stringify(failure.attempts)) as Prisma.InputJsonValue),
+        } as Prisma.InputJsonValue,
         rawOutput: failure?.rawOutput ?? null,
         parsedOutput: null,
         validationErrors:

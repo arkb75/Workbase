@@ -197,6 +197,12 @@ export const mockClaimResearchService: ClaimResearchService = {
       }
     }
 
-    return drafts.slice(0, 6);
+    return {
+      claims: drafts.slice(0, 6),
+      generationRunIds: {
+        clusterResearch: [],
+        merge: null,
+      },
+    };
   },
 };

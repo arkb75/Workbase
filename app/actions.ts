@@ -757,7 +757,11 @@ export async function generateClaimsAction(workItemId: string) {
   });
 
   await Promise.allSettled(
-    [claimPlan.generationRunIds.research, claimPlan.generationRunIds.verification]
+    [
+      ...claimPlan.generationRunIds.clusterResearch,
+      claimPlan.generationRunIds.merge,
+      claimPlan.generationRunIds.verification,
+    ]
       .filter(Boolean)
       .map((generationRunId) =>
         updateGenerationRunResultRefs(generationRunId!, {

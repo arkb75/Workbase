@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clusterClaimResearchLlmOutputSchema,
   claimResearchLlmOutputSchema,
   claimVerificationLlmOutputSchema,
   evidenceClusteringLlmOutputSchema,
@@ -16,6 +17,8 @@ describe("claimResearchLlmOutputSchema", () => {
           ownershipClarity: "partial",
           evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
           rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          risksSummary: null,
+          missingInfo: null,
           evidenceRefs: ["evidence-1", "evidence-2"],
         },
       ],
@@ -30,32 +33,36 @@ describe("claimResearchLlmOutputSchema", () => {
           ownershipClarity: "partial",
           evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
           rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          risksSummary: null,
+          missingInfo: null,
           sourceRefs: ["evidence-1", "evidence-2"],
         },
       ],
     });
   });
 
-  it("backfills required claim research metadata when repair output is minimal", () => {
-    const parsed = claimResearchLlmOutputSchema.parse({
+  it("rejects title and description drift when required claim fields are missing", () => {
+    const parsed = claimResearchLlmOutputSchema.safeParse({
       claims: [
         {
-          claim: "Developed a background CSV import worker for multi-team uploads.",
+          title: "Developed a background CSV import worker for multi-team uploads.",
           category: "data_engineering",
+          description: "Created CSV normalization scripts for multi-team imports.",
           evidenceRefs: ["evidence-1"],
         },
       ],
     });
 
-    expect(parsed.claims[0]).toMatchObject({
-      claimText: "Developed a background CSV import worker for multi-team uploads.",
-      category: "data_engineering",
-      confidence: "medium",
-      ownershipClarity: "partial",
-      evidenceSummary:
-        "Candidate claim derived from the reviewed evidence: Developed a background CSV import worker for multi-team uploads.",
-      rationaleSummary: "Ground this claim against the cited evidence before approval.",
-      sourceRefs: ["evidence-1"],
+    expect(parsed.success).toBe(false);
+  });
+
+  it("allows empty cluster-local claim output when a cluster is not claim-worthy", () => {
+    const parsed = clusterClaimResearchLlmOutputSchema.parse({
+      claims: [],
+    });
+
+    expect(parsed).toEqual({
+      claims: [],
     });
   });
 });

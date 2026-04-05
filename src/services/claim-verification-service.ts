@@ -7,6 +7,15 @@ import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  claimVerificationExampleOutput,
+  claimVerificationJsonSchema,
+  claimVerificationRepairMappings,
+  claimVerificationRequiredFields,
+  claimVerificationSchemaDescription,
+  claimVerificationSchemaName,
+} from "@/src/lib/llm-json-schemas";
+import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import { toSentence } from "@/src/lib/utils";
 import type { ClaimVerificationService } from "@/src/services/types";
@@ -54,14 +63,22 @@ function buildVerificationInputSummary(params: {
   systemPrompt: string;
   userPrompt: string;
   claimCount: number;
+  clusterCount: number;
+  evidenceCount: number;
+  transportMode?: string | null;
+  attempts?: JsonValue | null;
 }) {
   return {
     workItemId: params.workItemId,
     workItemTitle: params.workItemTitle,
     claimCount: params.claimCount,
+    clusterCount: params.clusterCount,
+    evidenceCount: params.evidenceCount,
+    transportMode: params.transportMode ?? null,
+    transportAttempts: params.attempts ?? null,
     systemPrompt: params.systemPrompt,
     userPrompt: params.userPrompt,
-  } as JsonValue;
+  };
 }
 
 const bedrockClaimVerificationService: ClaimVerificationService = {
@@ -90,51 +107,100 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
       }));
     const systemPrompt = [
       "You verify Workbase candidate claims against provided evidence.",
-      "Return strict JSON only.",
+      "Return JSON that matches the provided schema exactly.",
       "Do not decide final application rules such as artifact eligibility or state transitions.",
-      "You may suggest cautions, revised wording, uncertainty, sensitivity warnings, and visibility suggestions.",
     ].join(" ");
-    const userPrompt = JSON.stringify(
+    const userPrompt = formatTaggedSections([
       {
-        task: "Review each candidate claim and return one verification result per claim.",
-        workItem: {
-          id: workItem.id,
-          title: workItem.title,
-          type: workItem.type,
-          description: workItem.description,
-        },
-        clusters: clusters.map((cluster) => ({
-          clusterId: cluster.id,
-          title: cluster.title,
-          summary: cluster.summary,
-          theme: cluster.theme,
-          confidence: cluster.confidence,
-          evidenceItemIds: cluster.items.map((item) => item.evidenceItemId),
-        })),
-        rejectedClaimGuidance: rejectedGuidance || null,
-        evidenceItems: supportingEvidence,
-        claims: claims.map((claim, index) => ({
-          claimIndex: index,
-          text: claim.text,
-          category: claim.category,
-          confidence: claim.confidence,
-          ownershipClarity: claim.ownershipClarity,
-          evidenceSummary: claim.evidenceCard.evidenceSummary,
-          rationaleSummary: claim.evidenceCard.rationaleSummary,
-          sourceRefs: claim.evidenceCard.sourceRefs,
-          risksSummary: claim.risksSummary,
-          missingInfo: claim.missingInfo,
-        })),
+        tag: "task",
+        content:
+          "Review each candidate claim and return exactly one verification result per claim.",
       },
-      null,
-      2,
-    );
-    const inputSummary = buildVerificationInputSummary({
+      {
+        tag: "rules",
+        content: [
+          "Return a top-level JSON object with a `results` array.",
+          "Each result object must include exactly these fields: claimIndex, revisedText, confidence, ownershipClarity, visibilitySuggestion, sensitivityWarning, shouldFlag, overstatementWarning, unsupportedImpactWarning, rationaleSummary, risksSummary, missingInfo, verificationNotes.",
+          "Preserve one result per input claim in the same indexing space.",
+          "Use null for revisedText, risksSummary, missingInfo, or verificationNotes only when the field should be empty.",
+        ].join("\n"),
+      },
+      {
+        tag: "output_schema",
+        content: JSON.stringify(claimVerificationJsonSchema, null, 2),
+      },
+      {
+        tag: "required_fields",
+        content: JSON.stringify(claimVerificationRequiredFields, null, 2),
+      },
+      {
+        tag: "example_output",
+        content: JSON.stringify(claimVerificationExampleOutput, null, 2),
+      },
+      {
+        tag: "work_item",
+        content: JSON.stringify(
+          {
+            id: workItem.id,
+            title: workItem.title,
+            type: workItem.type,
+            description: workItem.description,
+          },
+          null,
+          2,
+        ),
+      },
+      {
+        tag: "clusters",
+        content: JSON.stringify(
+          clusters.map((cluster) => ({
+            clusterId: cluster.id,
+            title: cluster.title,
+            summary: cluster.summary,
+            theme: cluster.theme,
+            confidence: cluster.confidence,
+            evidenceItemIds: cluster.items.map((item) => item.evidenceItemId),
+          })),
+          null,
+          2,
+        ),
+      },
+      {
+        tag: "rejected_claim_guidance",
+        content: rejectedGuidance || "null",
+      },
+      {
+        tag: "evidence_items",
+        content: JSON.stringify(supportingEvidence, null, 2),
+      },
+      {
+        tag: "claims",
+        content: JSON.stringify(
+          claims.map((claim, index) => ({
+            claimIndex: index,
+            text: claim.text,
+            category: claim.category,
+            confidence: claim.confidence,
+            ownershipClarity: claim.ownershipClarity,
+            evidenceSummary: claim.evidenceCard.evidenceSummary,
+            rationaleSummary: claim.evidenceCard.rationaleSummary,
+            sourceRefs: claim.evidenceCard.sourceRefs,
+            risksSummary: claim.risksSummary,
+            missingInfo: claim.missingInfo,
+          })),
+          null,
+          2,
+        ),
+      },
+    ]);
+    const baseInputSummary = buildVerificationInputSummary({
       workItemId: workItem.id,
       workItemTitle: workItem.title,
       systemPrompt,
       userPrompt,
       claimCount: claims.length,
+      clusterCount: clusters.length,
+      evidenceCount: supportingEvidence.length,
     });
 
     try {
@@ -142,6 +208,12 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         systemPrompt,
         userPrompt,
         schema: claimVerificationLlmOutputSchema,
+        schemaName: claimVerificationSchemaName,
+        schemaDescription: claimVerificationSchemaDescription,
+        jsonSchema: claimVerificationJsonSchema,
+        exampleOutput: claimVerificationExampleOutput,
+        requiredFieldPaths: claimVerificationRequiredFields,
+        repairMappings: claimVerificationRepairMappings,
         maxTokens: 2600,
         extraValidation: (value) => {
           const errors: string[] = [];
@@ -167,13 +239,13 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         },
       });
 
-        const sourceMentionsSensitivity = supportingEvidence.some((item) =>
-          item.excerpts.some((excerpt) =>
-            /sensitive|confidential|internal|private dataset|customer/i.test(excerpt),
-          ),
-        );
+      const sourceMentionsSensitivity = supportingEvidence.some((item) =>
+        item.excerpts.some((excerpt) =>
+          /sensitive|confidential|internal|private dataset|customer/i.test(excerpt),
+        ),
+      );
 
-        const verifiedClaims = claims.map((claim, index) => {
+      const verifiedClaims = claims.map((claim, index) => {
         const verification = result.data.results.find(
           (item) => item.claimIndex === index,
         );
@@ -247,7 +319,13 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         status: "success",
         provider: result.provider,
         modelId: result.modelId,
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: result.transportMode,
+          transportAttempts: JSON.parse(
+            JSON.stringify(result.attempts),
+          ) as Prisma.InputJsonValue,
+        } as Prisma.InputJsonValue,
         rawOutput: result.rawOutput,
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
@@ -269,7 +347,14 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         status: failure?.status ?? "provider_error",
         provider: "bedrock",
         modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
-        inputSummary: inputSummary as Prisma.InputJsonValue,
+        inputSummary: {
+          ...baseInputSummary,
+          transportMode: failure?.transportMode ?? null,
+          transportAttempts:
+            failure?.attempts == null
+              ? null
+              : (JSON.parse(JSON.stringify(failure.attempts)) as Prisma.InputJsonValue),
+        } as Prisma.InputJsonValue,
         rawOutput: failure?.rawOutput ?? null,
         parsedOutput: null,
         validationErrors:

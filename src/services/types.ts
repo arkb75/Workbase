@@ -20,12 +20,50 @@ export interface SourceIngestionService {
   }): Promise<NormalizedEvidenceItem[]>;
 }
 
+export interface ClaimResearchResult {
+  claims: ClaimDraft[];
+  generationRunIds: {
+    clusterResearch: string[];
+    merge: string | null;
+  };
+}
+
+export interface ClusterClaimResearchService {
+  generate(input: {
+    workItem: WorkItemSnapshot;
+    cluster: EvidenceClusterSnapshot;
+    evidenceItems: NormalizedEvidenceItem[];
+    rejectedClaimGuidance: string | null;
+  }): Promise<{
+    claims: ClaimDraft[];
+    generationRunId: string | null;
+  }>;
+}
+
+export interface ClaimMergeService {
+  merge(input: {
+    workItem: WorkItemSnapshot;
+    clusters: EvidenceClusterSnapshot[];
+    clusterClaims: Array<{
+      clusterId: string;
+      clusterTitle: string;
+      clusterTheme: string;
+      clusterConfidence: EvidenceClusterSnapshot["confidence"];
+      claims: ClaimDraft[];
+    }>;
+    rejectedClaimGuidance: string | null;
+  }): Promise<{
+    claims: ClaimDraft[];
+    generationRunId: string | null;
+  }>;
+}
+
 export interface ClaimResearchService {
   generate(input: {
     workItem: WorkItemSnapshot;
     evidenceItems: NormalizedEvidenceItem[];
     clusters: EvidenceClusterSnapshot[];
-  }): Promise<ClaimDraft[]>;
+  }): Promise<ClaimResearchResult>;
 }
 
 export interface ClaimVerificationService {

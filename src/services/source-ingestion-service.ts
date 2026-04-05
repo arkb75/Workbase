@@ -1,4 +1,5 @@
 import type { NormalizedEvidenceItem } from "@/src/domain/types";
+import { buildPromptReadyEvidenceExcerpt } from "@/src/lib/claim-prompt-prep";
 import type { SourceIngestionService } from "@/src/services/types";
 import { normalizeWhitespace } from "@/src/lib/utils";
 
@@ -7,14 +8,20 @@ export const sourceIngestionService: SourceIngestionService = {
     const normalizedEvidenceItems: NormalizedEvidenceItem[] = [];
 
     for (const evidenceItem of evidenceItems) {
+      const promptExcerpt = buildPromptReadyEvidenceExcerpt({
+        evidenceType: evidenceItem.type,
+        title: evidenceItem.title,
+        content: evidenceItem.content,
+      });
+
       normalizedEvidenceItems.push({
         id: evidenceItem.id,
         sourceId: evidenceItem.sourceId,
         label: evidenceItem.title,
         type: evidenceItem.source.type,
         evidenceType: evidenceItem.type,
-        body: normalizeWhitespace(evidenceItem.content),
-        excerpts: [normalizeWhitespace(evidenceItem.content)],
+        body: promptExcerpt,
+        excerpts: [promptExcerpt],
         metadata: {
           ...(typeof evidenceItem.metadata === "object" &&
           evidenceItem.metadata &&
@@ -23,6 +30,8 @@ export const sourceIngestionService: SourceIngestionService = {
             : {}),
           sourceLabel: evidenceItem.source.label,
           sourceExternalId: evidenceItem.source.externalId ?? null,
+          promptExcerptLength: promptExcerpt.length,
+          rawContentLength: normalizeWhitespace(evidenceItem.content).length,
         },
       });
     }

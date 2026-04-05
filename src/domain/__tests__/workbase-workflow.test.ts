@@ -5,6 +5,7 @@ import {
   toClaimSnapshot,
 } from "@/src/domain/workbase-workflows";
 import type {
+  EvidenceClusterSnapshot,
   EvidenceItemSnapshot,
   SourceSnapshot,
   WorkItemSnapshot,
@@ -63,12 +64,28 @@ describe("workbase workflow", () => {
         externalId: sources[0].externalId ?? null,
       },
     }));
+    const clusters: EvidenceClusterSnapshot[] = [
+      {
+        id: "cluster-1",
+        workItemId: workItem.id,
+        title: "Incident review and filters",
+        summary: "Console UI, filters, and internal-review wording.",
+        theme: "backend",
+        confidence: "medium",
+        metadata: null,
+        items: evidenceItems.map((item, index) => ({
+          id: `cluster-item-${index + 1}`,
+          evidenceItemId: item.id,
+          relevanceScore: 0.8,
+        })),
+      },
+    ];
 
     const claimPlan = await buildClaimGenerationDrafts({
       workItem,
       sources,
       evidenceItems,
-      clusters: [],
+      clusters,
       existingClaims: [],
       sourceIngestionService,
       claimResearchService,
@@ -168,26 +185,32 @@ describe("workbase workflow", () => {
       async generate(input) {
         researchEvidenceIds = input.evidenceItems.map((item) => item.id);
 
-        return [
-          {
-            text: "Built a dashboard and import workflow.",
-            category: "full_stack",
-            confidence: "medium",
-            ownershipClarity: "clear",
-            sensitivityFlag: false,
-            verificationStatus: "draft",
-            visibility: "resume_safe",
-            risksSummary: null,
-            missingInfo: null,
-            rejectionReason: null,
-            evidenceCard: {
-              evidenceSummary: "Grounded in evidence items.",
-              rationaleSummary: "Grouped by cluster.",
-              sourceRefs: [],
-              verificationNotes: null,
+        return {
+          claims: [
+            {
+              text: "Built a dashboard and import workflow.",
+              category: "full_stack",
+              confidence: "medium",
+              ownershipClarity: "clear",
+              sensitivityFlag: false,
+              verificationStatus: "draft",
+              visibility: "resume_safe",
+              risksSummary: null,
+              missingInfo: null,
+              rejectionReason: null,
+              evidenceCard: {
+                evidenceSummary: "Grounded in evidence items.",
+                rationaleSummary: "Grouped by cluster.",
+                sourceRefs: [],
+                verificationNotes: null,
+              },
             },
+          ],
+          generationRunIds: {
+            clusterResearch: [],
+            merge: null,
           },
-        ];
+        };
       },
     };
     const capturingVerificationService: ClaimVerificationService = {

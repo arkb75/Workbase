@@ -185,6 +185,8 @@ export interface GenerationTraceSnapshot {
   workItemId: string;
   kind:
     | "claim_research"
+    | "claim_cluster_research"
+    | "claim_merge"
     | "claim_verification"
     | "artifact_generation"
     | "evidence_clustering";

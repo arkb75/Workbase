@@ -84,9 +84,8 @@ export async function buildClaimGenerationDrafts(params: {
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
     clusters: params.clusters,
-    claims: candidateClaims,
+    claims: candidateClaims.claims,
   });
-  const researchRun = readGenerationRunMetadata(candidateClaims);
   const verificationRun = readGenerationRunMetadata(verifiedClaims);
 
   return {
@@ -95,7 +94,8 @@ export async function buildClaimGenerationDrafts(params: {
     replaceableClaims: replaceable,
     drafts: filterDuplicateClaimDrafts(verifiedClaims, preserved),
     generationRunIds: {
-      research: researchRun?.id ?? null,
+      clusterResearch: candidateClaims.generationRunIds.clusterResearch,
+      merge: candidateClaims.generationRunIds.merge,
       verification: verificationRun?.id ?? null,
     },
   };
