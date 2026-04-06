@@ -1,7 +1,6 @@
 import type {
   HighlightDraft,
   NormalizedEvidenceItem,
-  WorkItemSnapshot,
 } from "@/src/domain/types";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { toSentence } from "@/src/lib/utils";
@@ -24,18 +23,9 @@ export function buildRejectedGuidance(evidenceItems: NormalizedEvidenceItem[]) {
 }
 
 export function buildResearchSourceCatalog(
-  workItem: Pick<WorkItemSnapshot, "id" | "description">,
   evidenceItems: NormalizedEvidenceItem[],
 ) {
   return [
-    {
-      evidenceItemId: `${workItem.id}-description`,
-      sourceId: `${workItem.id}-description`,
-      sourceLabel: "Work Item description",
-      sourceType: "manual_note" as const,
-      title: "Work Item description",
-      excerpt: toSentence(workItem.description),
-    },
     ...evidenceItems
       .filter((item) => !isRejectedGuidanceSource(item))
       .map((item) => ({

@@ -8,6 +8,8 @@ import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { prisma } from "@/src/lib/prisma";
 
+export const WORK_ITEM_DESCRIPTION_SOURCE_KIND = "work_item_description";
+
 type EvidenceItemWrite = {
   workItemId: string;
   sourceId: string;
@@ -28,6 +30,27 @@ type EvidenceItemWrite = {
   included: boolean;
   metadata: JsonValue | null;
 };
+
+function readMetadataRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+export function isWorkItemDescriptionSourceMetadata(value: unknown) {
+  const metadata = readMetadataRecord(value);
+  return metadata?.kind === WORK_ITEM_DESCRIPTION_SOURCE_KIND;
+}
+
+function buildWorkItemDescriptionSourceExternalId(workItemId: string) {
+  return `${workItemId}:work-item-description-source`;
+}
+
+function buildWorkItemDescriptionEvidenceExternalId(workItemId: string) {
+  return `${workItemId}:work-item-description`;
+}
 
 export async function upsertEvidenceItemsForSource(
   sourceId: string,
@@ -134,6 +157,10 @@ export async function syncManualEvidenceItemsForWorkItem(workItemId: string) {
   });
 
   for (const source of sources) {
+    if (isWorkItemDescriptionSourceMetadata(source.metadata)) {
+      continue;
+    }
+
     const sourceSnapshot: SourceSnapshot = {
       id: source.id,
       workItemId: source.workItemId,
@@ -151,6 +178,88 @@ export async function syncManualEvidenceItemsForWorkItem(workItemId: string) {
       buildManualEvidenceItemsFromSource(sourceSnapshot),
     );
   }
+}
+
+export async function syncWorkItemDescriptionEvidenceForWorkItem(workItemId: string) {
+  const workItem = await prisma.workItem.findUniqueOrThrow({
+    where: {
+      id: workItemId,
+    },
+    select: {
+      id: true,
+      description: true,
+      sources: {
+        where: {
+          type: "manual_note",
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+    },
+  });
+
+  const existingDescriptionSource =
+    workItem.sources.find((source) => isWorkItemDescriptionSourceMetadata(source.metadata)) ?? null;
+  const descriptionSource =
+    existingDescriptionSource ??
+    (await prisma.source.create({
+      data: {
+        workItemId: workItem.id,
+        type: "manual_note",
+        label: "Work Item description",
+        externalId: buildWorkItemDescriptionSourceExternalId(workItem.id),
+        rawContent: workItem.description,
+        metadata: {
+          kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
+          systemOwned: true,
+        } satisfies Prisma.InputJsonValue,
+      },
+    }));
+
+  if (existingDescriptionSource) {
+    await prisma.source.update({
+      where: {
+        id: existingDescriptionSource.id,
+      },
+      data: {
+        label: "Work Item description",
+        rawContent: workItem.description,
+        metadata: {
+          kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
+          systemOwned: true,
+        } satisfies Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  await upsertEvidenceItemsForSource(descriptionSource.id, [
+    {
+      workItemId: workItem.id,
+      sourceId: descriptionSource.id,
+      externalId: buildWorkItemDescriptionEvidenceExternalId(workItem.id),
+      sourceType: "manual_note",
+      type: "manual_note_excerpt",
+      title: "Work Item description",
+      content: workItem.description,
+      searchText: buildEvidenceSearchText({
+        title: "Work Item description",
+        content: workItem.description,
+        metadata: {
+          kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
+          systemOwned: true,
+        },
+      }),
+      parentKind: "work_item",
+      parentKey: workItem.id,
+      included: true,
+      metadata: {
+        kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
+        systemOwned: true,
+        sourceType: "manual_note",
+      },
+    },
+  ]);
 }
 
 export async function createHighlightWithRelations(params: {

@@ -21,6 +21,11 @@ const prismaMock = vi.hoisted(() => ({
   },
   source: {
     findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
+  workItem: {
+    findUniqueOrThrow: vi.fn(),
   },
 }));
 
@@ -30,6 +35,8 @@ vi.mock("@/src/lib/prisma", () => ({
 
 import {
   createHighlightWithRelations,
+  syncManualEvidenceItemsForWorkItem,
+  syncWorkItemDescriptionEvidenceForWorkItem,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
 
@@ -183,5 +190,88 @@ describe("evidence persistence", () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  it("skips system-owned work item description sources during manual note sync", async () => {
+    prismaMock.source.findMany.mockResolvedValue([
+      {
+        id: "source-description",
+        workItemId: "work-item-1",
+        type: "manual_note",
+        label: "Work Item description",
+        externalId: "work-item-1:work-item-description-source",
+        rawContent: "Built a highlight-first artifact workflow.",
+        metadata: {
+          kind: "work_item_description",
+          systemOwned: true,
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: "source-manual",
+        workItemId: "work-item-1",
+        type: "manual_note",
+        label: "Manual notes",
+        externalId: null,
+        rawContent: "Built the review flow.\nAdded artifact retrieval.",
+        metadata: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    prismaMock.evidenceItem.findMany.mockResolvedValue([]);
+    prismaMock.evidenceItem.upsert.mockResolvedValue({ id: "persisted-evidence-1" });
+
+    await syncManualEvidenceItemsForWorkItem("work-item-1");
+
+    expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledTimes(2);
+    expect(prismaMock.evidenceItem.upsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceId_externalId: expect.objectContaining({
+            sourceId: "source-description",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("persists the work item description as a real evidence item", async () => {
+    prismaMock.workItem.findUniqueOrThrow.mockResolvedValue({
+      id: "work-item-1",
+      description: "Built Workbase, a full-stack app for verified career content.",
+      sources: [],
+    });
+    prismaMock.source.create.mockResolvedValue({
+      id: "source-description",
+    });
+    prismaMock.evidenceItem.findMany.mockResolvedValue([]);
+    prismaMock.evidenceItem.upsert.mockResolvedValue({ id: "persisted-description-evidence" });
+
+    await syncWorkItemDescriptionEvidenceForWorkItem("work-item-1");
+
+    expect(prismaMock.source.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workItemId: "work-item-1",
+        type: "manual_note",
+        label: "Work Item description",
+        externalId: "work-item-1:work-item-description-source",
+      }),
+    });
+    expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          sourceId_externalId: {
+            sourceId: "source-description",
+            externalId: "work-item-1:work-item-description",
+          },
+        },
+        create: expect.objectContaining({
+          title: "Work Item description",
+          content: "Built Workbase, a full-stack app for verified career content.",
+        }),
+      }),
+    );
   });
 });

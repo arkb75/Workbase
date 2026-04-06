@@ -22,6 +22,7 @@ import { buildArtifactFromApprovedClaims, buildClaimGenerationDrafts } from "@/s
 import {
   createHighlightWithRelations,
   syncManualEvidenceItemsForWorkItem,
+  syncWorkItemDescriptionEvidenceForWorkItem,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
@@ -437,6 +438,8 @@ export async function createWorkItemAction(formData: FormData) {
     },
   });
 
+  await syncWorkItemDescriptionEvidenceForWorkItem(workItem.id);
+
   if (attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName) {
     try {
       await importGitHubRepositoryIntoWorkItem({
@@ -624,6 +627,7 @@ export async function reclusterEvidenceAction(formData: FormData) {
 export async function generateClaimsAction(workItemId: string) {
   const demoUser = await ensureDemoUser();
   await syncManualEvidenceItemsForWorkItem(workItemId);
+  await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
   const workItem = await getWorkItemGenerationContext(demoUser.id, workItemId);
   const includedEvidenceItems = workItem.evidenceItems
     .map(mapEvidenceItemSnapshot)
@@ -811,6 +815,8 @@ export async function generateArtifactAction(formData: FormData) {
   if (!parsed.success) {
     redirect(`/work-items/${formData.get("workItemId")}/artifacts/new?error=invalid`);
   }
+
+  await syncWorkItemDescriptionEvidenceForWorkItem(parsed.data.workItemId);
 
   const workItem = await prisma.workItem.findFirstOrThrow({
     where: {

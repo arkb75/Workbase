@@ -22,7 +22,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
-import { syncManualEvidenceItemsForWorkItem } from "@/src/lib/evidence-persistence";
+import {
+  isWorkItemDescriptionSourceMetadata,
+  syncManualEvidenceItemsForWorkItem,
+  syncWorkItemDescriptionEvidenceForWorkItem,
+} from "@/src/lib/evidence-persistence";
 import { formatDateRange, formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
 import type { GitHubRepositorySummary } from "@/src/services/types";
@@ -243,6 +247,7 @@ export default async function WorkItemDetailPage({
   const user = await getDemoUser();
 
   await syncManualEvidenceItemsForWorkItem(id);
+  await syncWorkItemDescriptionEvidenceForWorkItem(id);
 
   const [workItem, githubConnection] = await Promise.all([
     getWorkItemForUser(user.id, id),
@@ -275,9 +280,12 @@ export default async function WorkItemDetailPage({
   const rejectedHighlightCount = workItem.highlights.filter(
     (highlight) => highlight.verificationStatus === "rejected",
   ).length;
+  const visibleSources = workItem.sources.filter(
+    (source) => !isWorkItemDescriptionSourceMetadata(source.metadata),
+  );
   const includedEvidenceItems = workItem.evidenceItems.filter((item) => item.included);
   const excludedEvidenceItems = workItem.evidenceItems.filter((item) => !item.included);
-  const githubSources = workItem.sources.filter((source) => source.type === "github_repo");
+  const githubSources = visibleSources.filter((source) => source.type === "github_repo");
   const attachedRepoIds = new Set(
     githubSources
       .map((source) => source.externalId)
@@ -331,10 +339,10 @@ export default async function WorkItemDetailPage({
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="font-display text-4xl font-semibold tracking-[-0.05em] text-[color:var(--ink-strong)]">
-              {workItem.sources.length}
+              {visibleSources.length}
             </p>
             <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-              {githubSources.length} GitHub source{githubSources.length === 1 ? "" : "s"}, {workItem.sources.length - githubSources.length} manual
+              {githubSources.length} GitHub source{githubSources.length === 1 ? "" : "s"}, {visibleSources.length - githubSources.length} manual
             </p>
           </CardContent>
         </Card>
@@ -374,11 +382,11 @@ export default async function WorkItemDetailPage({
         <CollapsibleCard
           title="Attached sources"
           description="Manual notes and imported GitHub repositories are the upstream source records for this Work Item."
-          meta={<Badge>{workItem.sources.length} attached</Badge>}
+          meta={<Badge>{visibleSources.length} attached</Badge>}
           bodyClassName="space-y-4"
         >
-          {workItem.sources.length ? (
-            workItem.sources.map((source) => {
+          {visibleSources.length ? (
+            visibleSources.map((source) => {
               const importedAt = getSourceImportedAt(source.metadata);
               const repositoryFullName = getRepositoryFullName(source.metadata);
 

@@ -115,7 +115,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
     const highlights = [];
 
     for (const batch of batches) {
-      const sourceCatalog = buildResearchSourceCatalog(workItem, batch.evidenceItems);
+      const sourceCatalog = buildResearchSourceCatalog(batch.evidenceItems);
       const allowedEvidenceIds = new Set(
         sourceCatalog.map((sourceRef) => sourceRef.evidenceItemId),
       );
