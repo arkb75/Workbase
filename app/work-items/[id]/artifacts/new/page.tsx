@@ -1,4 +1,5 @@
 import { generateArtifactAction } from "@/app/actions";
+import { ArtifactFallbackToast } from "@/components/artifacts/artifact-fallback-toast";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Badge } from "@/components/ui/badge";
@@ -153,6 +154,7 @@ export default async function ArtifactGeneratorPage({
         <Card>
           <form action={generateArtifactAction}>
             <input type="hidden" name="workItemId" value={workItem.id} />
+            <ArtifactFallbackToast fallbackWillBeAttempted={approvedHighlights.length === 0} />
             <CardHeader>
               <CardTitle>Generator controls</CardTitle>
               <CardDescription>
