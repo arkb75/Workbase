@@ -32,6 +32,9 @@ export type EvidenceItemMinAggregateOutputType = {
   type: $Enums.EvidenceItemType | null
   title: string | null
   content: string | null
+  searchText: string | null
+  parentKind: string | null
+  parentKey: string | null
   included: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -45,6 +48,9 @@ export type EvidenceItemMaxAggregateOutputType = {
   type: $Enums.EvidenceItemType | null
   title: string | null
   content: string | null
+  searchText: string | null
+  parentKind: string | null
+  parentKey: string | null
   included: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -58,6 +64,9 @@ export type EvidenceItemCountAggregateOutputType = {
   type: number
   title: number
   content: number
+  searchText: number
+  parentKind: number
+  parentKey: number
   included: number
   metadata: number
   createdAt: number
@@ -74,6 +83,9 @@ export type EvidenceItemMinAggregateInputType = {
   type?: true
   title?: true
   content?: true
+  searchText?: true
+  parentKind?: true
+  parentKey?: true
   included?: true
   createdAt?: true
   updatedAt?: true
@@ -87,6 +99,9 @@ export type EvidenceItemMaxAggregateInputType = {
   type?: true
   title?: true
   content?: true
+  searchText?: true
+  parentKind?: true
+  parentKey?: true
   included?: true
   createdAt?: true
   updatedAt?: true
@@ -100,6 +115,9 @@ export type EvidenceItemCountAggregateInputType = {
   type?: true
   title?: true
   content?: true
+  searchText?: true
+  parentKind?: true
+  parentKey?: true
   included?: true
   metadata?: true
   createdAt?: true
@@ -187,6 +205,9 @@ export type EvidenceItemGroupByOutputType = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind: string | null
+  parentKey: string | null
   included: boolean
   metadata: runtime.JsonValue | null
   createdAt: Date
@@ -222,13 +243,17 @@ export type EvidenceItemWhereInput = {
   type?: Prisma.EnumEvidenceItemTypeFilter<"EvidenceItem"> | $Enums.EvidenceItemType
   title?: Prisma.StringFilter<"EvidenceItem"> | string
   content?: Prisma.StringFilter<"EvidenceItem"> | string
+  searchText?: Prisma.StringFilter<"EvidenceItem"> | string
+  parentKind?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
-  clusterItems?: Prisma.EvidenceClusterItemListRelationFilter
+  highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
+  tags?: Prisma.EvidenceTagListRelationFilter
 }
 
 export type EvidenceItemOrderByWithRelationInput = {
@@ -239,13 +264,17 @@ export type EvidenceItemOrderByWithRelationInput = {
   type?: Prisma.SortOrder
   title?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
+  parentKind?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentKey?: Prisma.SortOrderInput | Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   source?: Prisma.SourceOrderByWithRelationInput
-  clusterItems?: Prisma.EvidenceClusterItemOrderByRelationAggregateInput
+  highlightEvidence?: Prisma.HighlightEvidenceOrderByRelationAggregateInput
+  tags?: Prisma.EvidenceTagOrderByRelationAggregateInput
 }
 
 export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
@@ -260,13 +289,17 @@ export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
   type?: Prisma.EnumEvidenceItemTypeFilter<"EvidenceItem"> | $Enums.EvidenceItemType
   title?: Prisma.StringFilter<"EvidenceItem"> | string
   content?: Prisma.StringFilter<"EvidenceItem"> | string
+  searchText?: Prisma.StringFilter<"EvidenceItem"> | string
+  parentKind?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
-  clusterItems?: Prisma.EvidenceClusterItemListRelationFilter
+  highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
+  tags?: Prisma.EvidenceTagListRelationFilter
 }, "id" | "sourceId_externalId">
 
 export type EvidenceItemOrderByWithAggregationInput = {
@@ -277,6 +310,9 @@ export type EvidenceItemOrderByWithAggregationInput = {
   type?: Prisma.SortOrder
   title?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
+  parentKind?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentKey?: Prisma.SortOrderInput | Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -297,6 +333,9 @@ export type EvidenceItemScalarWhereWithAggregatesInput = {
   type?: Prisma.EnumEvidenceItemTypeWithAggregatesFilter<"EvidenceItem"> | $Enums.EvidenceItemType
   title?: Prisma.StringWithAggregatesFilter<"EvidenceItem"> | string
   content?: Prisma.StringWithAggregatesFilter<"EvidenceItem"> | string
+  searchText?: Prisma.StringWithAggregatesFilter<"EvidenceItem"> | string
+  parentKind?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
+  parentKey?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolWithAggregatesFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableWithAggregatesFilter<"EvidenceItem">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"EvidenceItem"> | Date | string
@@ -309,13 +348,17 @@ export type EvidenceItemCreateInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
-  clusterItems?: Prisma.EvidenceClusterItemCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateInput = {
@@ -326,11 +369,15 @@ export type EvidenceItemUncheckedCreateInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUpdateInput = {
@@ -339,13 +386,17 @@ export type EvidenceItemUpdateInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
-  clusterItems?: Prisma.EvidenceClusterItemUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateInput = {
@@ -356,11 +407,15 @@ export type EvidenceItemUncheckedUpdateInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyInput = {
@@ -371,6 +426,9 @@ export type EvidenceItemCreateManyInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
@@ -383,6 +441,9 @@ export type EvidenceItemUpdateManyMutationInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -397,6 +458,9 @@ export type EvidenceItemUncheckedUpdateManyInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -426,6 +490,9 @@ export type EvidenceItemCountOrderByAggregateInput = {
   type?: Prisma.SortOrder
   title?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
+  parentKind?: Prisma.SortOrder
+  parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -440,6 +507,9 @@ export type EvidenceItemMaxOrderByAggregateInput = {
   type?: Prisma.SortOrder
   title?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
+  parentKind?: Prisma.SortOrder
+  parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -453,6 +523,9 @@ export type EvidenceItemMinOrderByAggregateInput = {
   type?: Prisma.SortOrder
   title?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
+  parentKind?: Prisma.SortOrder
+  parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -555,18 +628,32 @@ export type BoolFieldUpdateOperationsInput = {
   set?: boolean
 }
 
-export type EvidenceItemCreateNestedOneWithoutClusterItemsInput = {
-  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutClusterItemsInput>
-  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutClusterItemsInput
+export type EvidenceItemCreateNestedOneWithoutTagsInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutTagsInput, Prisma.EvidenceItemUncheckedCreateWithoutTagsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutTagsInput
   connect?: Prisma.EvidenceItemWhereUniqueInput
 }
 
-export type EvidenceItemUpdateOneRequiredWithoutClusterItemsNestedInput = {
-  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutClusterItemsInput>
-  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutClusterItemsInput
-  upsert?: Prisma.EvidenceItemUpsertWithoutClusterItemsInput
+export type EvidenceItemUpdateOneRequiredWithoutTagsNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutTagsInput, Prisma.EvidenceItemUncheckedCreateWithoutTagsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutTagsInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutTagsInput
   connect?: Prisma.EvidenceItemWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutClusterItemsInput, Prisma.EvidenceItemUpdateWithoutClusterItemsInput>, Prisma.EvidenceItemUncheckedUpdateWithoutClusterItemsInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutTagsInput, Prisma.EvidenceItemUpdateWithoutTagsInput>, Prisma.EvidenceItemUncheckedUpdateWithoutTagsInput>
+}
+
+export type EvidenceItemCreateNestedOneWithoutHighlightEvidenceInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+}
+
+export type EvidenceItemUpdateOneRequiredWithoutHighlightEvidenceNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutHighlightEvidenceInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutHighlightEvidenceInput, Prisma.EvidenceItemUpdateWithoutHighlightEvidenceInput>, Prisma.EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput>
 }
 
 export type EvidenceItemCreateWithoutWorkItemInput = {
@@ -575,12 +662,16 @@ export type EvidenceItemCreateWithoutWorkItemInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
-  clusterItems?: Prisma.EvidenceClusterItemCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
@@ -590,11 +681,15 @@ export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutWorkItemInput = {
@@ -634,6 +729,9 @@ export type EvidenceItemScalarWhereInput = {
   type?: Prisma.EnumEvidenceItemTypeFilter<"EvidenceItem"> | $Enums.EvidenceItemType
   title?: Prisma.StringFilter<"EvidenceItem"> | string
   content?: Prisma.StringFilter<"EvidenceItem"> | string
+  searchText?: Prisma.StringFilter<"EvidenceItem"> | string
+  parentKind?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
@@ -646,12 +744,16 @@ export type EvidenceItemCreateWithoutSourceInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
-  clusterItems?: Prisma.EvidenceClusterItemCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutSourceInput = {
@@ -661,11 +763,15 @@ export type EvidenceItemUncheckedCreateWithoutSourceInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedCreateNestedManyWithoutEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutSourceInput = {
@@ -694,21 +800,25 @@ export type EvidenceItemUpdateManyWithWhereWithoutSourceInput = {
   data: Prisma.XOR<Prisma.EvidenceItemUpdateManyMutationInput, Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceInput>
 }
 
-export type EvidenceItemCreateWithoutClusterItemsInput = {
+export type EvidenceItemCreateWithoutTagsInput = {
   id?: string
   externalId: string
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
 }
 
-export type EvidenceItemUncheckedCreateWithoutClusterItemsInput = {
+export type EvidenceItemUncheckedCreateWithoutTagsInput = {
   id?: string
   workItemId: string
   sourceId: string
@@ -716,43 +826,51 @@ export type EvidenceItemUncheckedCreateWithoutClusterItemsInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
-export type EvidenceItemCreateOrConnectWithoutClusterItemsInput = {
+export type EvidenceItemCreateOrConnectWithoutTagsInput = {
   where: Prisma.EvidenceItemWhereUniqueInput
-  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutClusterItemsInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutTagsInput, Prisma.EvidenceItemUncheckedCreateWithoutTagsInput>
 }
 
-export type EvidenceItemUpsertWithoutClusterItemsInput = {
-  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedUpdateWithoutClusterItemsInput>
-  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutClusterItemsInput>
+export type EvidenceItemUpsertWithoutTagsInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutTagsInput, Prisma.EvidenceItemUncheckedUpdateWithoutTagsInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutTagsInput, Prisma.EvidenceItemUncheckedCreateWithoutTagsInput>
   where?: Prisma.EvidenceItemWhereInput
 }
 
-export type EvidenceItemUpdateToOneWithWhereWithoutClusterItemsInput = {
+export type EvidenceItemUpdateToOneWithWhereWithoutTagsInput = {
   where?: Prisma.EvidenceItemWhereInput
-  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutClusterItemsInput, Prisma.EvidenceItemUncheckedUpdateWithoutClusterItemsInput>
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutTagsInput, Prisma.EvidenceItemUncheckedUpdateWithoutTagsInput>
 }
 
-export type EvidenceItemUpdateWithoutClusterItemsInput = {
+export type EvidenceItemUpdateWithoutTagsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   externalId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
 }
 
-export type EvidenceItemUncheckedUpdateWithoutClusterItemsInput = {
+export type EvidenceItemUncheckedUpdateWithoutTagsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   sourceId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -760,10 +878,102 @@ export type EvidenceItemUncheckedUpdateWithoutClusterItemsInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemCreateWithoutHighlightEvidenceInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput>
+}
+
+export type EvidenceItemUpsertWithoutHighlightEvidenceInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutHighlightEvidenceInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput>
+}
+
+export type EvidenceItemUpdateWithoutHighlightEvidenceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyWorkItemInput = {
@@ -773,6 +983,9 @@ export type EvidenceItemCreateManyWorkItemInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
@@ -785,12 +998,16 @@ export type EvidenceItemUpdateWithoutWorkItemInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
-  clusterItems?: Prisma.EvidenceClusterItemUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
@@ -800,11 +1017,15 @@ export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutWorkItemInput = {
@@ -814,6 +1035,9 @@ export type EvidenceItemUncheckedUpdateManyWithoutWorkItemInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -827,6 +1051,9 @@ export type EvidenceItemCreateManySourceInput = {
   type: $Enums.EvidenceItemType
   title: string
   content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
@@ -839,12 +1066,16 @@ export type EvidenceItemUpdateWithoutSourceInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
-  clusterItems?: Prisma.EvidenceClusterItemUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
@@ -854,11 +1085,15 @@ export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  clusterItems?: Prisma.EvidenceClusterItemUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
@@ -868,6 +1103,9 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
   type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
   title?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -880,11 +1118,13 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
  */
 
 export type EvidenceItemCountOutputType = {
-  clusterItems: number
+  highlightEvidence: number
+  tags: number
 }
 
 export type EvidenceItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  clusterItems?: boolean | EvidenceItemCountOutputTypeCountClusterItemsArgs
+  highlightEvidence?: boolean | EvidenceItemCountOutputTypeCountHighlightEvidenceArgs
+  tags?: boolean | EvidenceItemCountOutputTypeCountTagsArgs
 }
 
 /**
@@ -900,8 +1140,15 @@ export type EvidenceItemCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types
 /**
  * EvidenceItemCountOutputType without action
  */
-export type EvidenceItemCountOutputTypeCountClusterItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.EvidenceClusterItemWhereInput
+export type EvidenceItemCountOutputTypeCountHighlightEvidenceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.HighlightEvidenceWhereInput
+}
+
+/**
+ * EvidenceItemCountOutputType without action
+ */
+export type EvidenceItemCountOutputTypeCountTagsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.EvidenceTagWhereInput
 }
 
 
@@ -913,13 +1160,17 @@ export type EvidenceItemSelect<ExtArgs extends runtime.Types.Extensions.Internal
   type?: boolean
   title?: boolean
   content?: boolean
+  searchText?: boolean
+  parentKind?: boolean
+  parentKey?: boolean
   included?: boolean
   metadata?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
-  clusterItems?: boolean | Prisma.EvidenceItem$clusterItemsArgs<ExtArgs>
+  highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
+  tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceItem"]>
 
@@ -931,6 +1182,9 @@ export type EvidenceItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   type?: boolean
   title?: boolean
   content?: boolean
+  searchText?: boolean
+  parentKind?: boolean
+  parentKey?: boolean
   included?: boolean
   metadata?: boolean
   createdAt?: boolean
@@ -947,6 +1201,9 @@ export type EvidenceItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   type?: boolean
   title?: boolean
   content?: boolean
+  searchText?: boolean
+  parentKind?: boolean
+  parentKey?: boolean
   included?: boolean
   metadata?: boolean
   createdAt?: boolean
@@ -963,17 +1220,21 @@ export type EvidenceItemSelectScalar = {
   type?: boolean
   title?: boolean
   content?: boolean
+  searchText?: boolean
+  parentKind?: boolean
+  parentKey?: boolean
   included?: boolean
   metadata?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type EvidenceItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "sourceId" | "externalId" | "type" | "title" | "content" | "included" | "metadata" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceItem"]>
+export type EvidenceItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "sourceId" | "externalId" | "type" | "title" | "content" | "searchText" | "parentKind" | "parentKey" | "included" | "metadata" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceItem"]>
 export type EvidenceItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
-  clusterItems?: boolean | Prisma.EvidenceItem$clusterItemsArgs<ExtArgs>
+  highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
+  tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type EvidenceItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -990,7 +1251,8 @@ export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.Intern
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     source: Prisma.$SourcePayload<ExtArgs>
-    clusterItems: Prisma.$EvidenceClusterItemPayload<ExtArgs>[]
+    highlightEvidence: Prisma.$HighlightEvidencePayload<ExtArgs>[]
+    tags: Prisma.$EvidenceTagPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1000,6 +1262,9 @@ export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.Intern
     type: $Enums.EvidenceItemType
     title: string
     content: string
+    searchText: string
+    parentKind: string | null
+    parentKey: string | null
     included: boolean
     metadata: runtime.JsonValue | null
     createdAt: Date
@@ -1400,7 +1665,8 @@ export interface Prisma__EvidenceItemClient<T, Null = never, ExtArgs extends run
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   source<T extends Prisma.SourceDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.SourceDefaultArgs<ExtArgs>>): Prisma.Prisma__SourceClient<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
-  clusterItems<T extends Prisma.EvidenceItem$clusterItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$clusterItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceClusterItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  highlightEvidence<T extends Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  tags<T extends Prisma.EvidenceItem$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1437,6 +1703,9 @@ export interface EvidenceItemFieldRefs {
   readonly type: Prisma.FieldRef<"EvidenceItem", 'EvidenceItemType'>
   readonly title: Prisma.FieldRef<"EvidenceItem", 'String'>
   readonly content: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly searchText: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly parentKind: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly parentKey: Prisma.FieldRef<"EvidenceItem", 'String'>
   readonly included: Prisma.FieldRef<"EvidenceItem", 'Boolean'>
   readonly metadata: Prisma.FieldRef<"EvidenceItem", 'Json'>
   readonly createdAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
@@ -1842,27 +2111,51 @@ export type EvidenceItemDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
- * EvidenceItem.clusterItems
+ * EvidenceItem.highlightEvidence
  */
-export type EvidenceItem$clusterItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type EvidenceItem$highlightEvidenceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
-   * Select specific fields to fetch from the EvidenceClusterItem
+   * Select specific fields to fetch from the HighlightEvidence
    */
-  select?: Prisma.EvidenceClusterItemSelect<ExtArgs> | null
+  select?: Prisma.HighlightEvidenceSelect<ExtArgs> | null
   /**
-   * Omit specific fields from the EvidenceClusterItem
+   * Omit specific fields from the HighlightEvidence
    */
-  omit?: Prisma.EvidenceClusterItemOmit<ExtArgs> | null
+  omit?: Prisma.HighlightEvidenceOmit<ExtArgs> | null
   /**
    * Choose, which related nodes to fetch as well
    */
-  include?: Prisma.EvidenceClusterItemInclude<ExtArgs> | null
-  where?: Prisma.EvidenceClusterItemWhereInput
-  orderBy?: Prisma.EvidenceClusterItemOrderByWithRelationInput | Prisma.EvidenceClusterItemOrderByWithRelationInput[]
-  cursor?: Prisma.EvidenceClusterItemWhereUniqueInput
+  include?: Prisma.HighlightEvidenceInclude<ExtArgs> | null
+  where?: Prisma.HighlightEvidenceWhereInput
+  orderBy?: Prisma.HighlightEvidenceOrderByWithRelationInput | Prisma.HighlightEvidenceOrderByWithRelationInput[]
+  cursor?: Prisma.HighlightEvidenceWhereUniqueInput
   take?: number
   skip?: number
-  distinct?: Prisma.EvidenceClusterItemScalarFieldEnum | Prisma.EvidenceClusterItemScalarFieldEnum[]
+  distinct?: Prisma.HighlightEvidenceScalarFieldEnum | Prisma.HighlightEvidenceScalarFieldEnum[]
+}
+
+/**
+ * EvidenceItem.tags
+ */
+export type EvidenceItem$tagsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the EvidenceTag
+   */
+  select?: Prisma.EvidenceTagSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the EvidenceTag
+   */
+  omit?: Prisma.EvidenceTagOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.EvidenceTagInclude<ExtArgs> | null
+  where?: Prisma.EvidenceTagWhereInput
+  orderBy?: Prisma.EvidenceTagOrderByWithRelationInput | Prisma.EvidenceTagOrderByWithRelationInput[]
+  cursor?: Prisma.EvidenceTagWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.EvidenceTagScalarFieldEnum | Prisma.EvidenceTagScalarFieldEnum[]
 }
 
 /**

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  batchHighlightGenerationLlmOutputSchema,
   clusterClaimResearchLlmOutputSchema,
   claimResearchLlmOutputSchema,
   claimVerificationLlmOutputSchema,
   evidenceClusteringLlmOutputSchema,
+  highlightGenerationLlmOutputSchema,
 } from "@/src/lib/llm-output-schemas";
 
 describe("claimResearchLlmOutputSchema", () => {
@@ -63,6 +65,52 @@ describe("claimResearchLlmOutputSchema", () => {
 
     expect(parsed).toEqual({
       claims: [],
+    });
+  });
+});
+
+describe("highlightGenerationLlmOutputSchema", () => {
+  it("normalizes claim-shaped legacy payloads into highlight fields", () => {
+    const parsed = highlightGenerationLlmOutputSchema.parse({
+      claims: [
+        {
+          claimText: "Implemented role-aware filters for internal and public datasets.",
+          category: "backend",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
+          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          risksSummary: null,
+          missingInfo: null,
+          evidenceRefs: ["evidence-1", "evidence-2"],
+        },
+      ],
+    });
+
+    expect(parsed).toEqual({
+      highlights: [
+        {
+          text: "Implemented role-aware filters for internal and public datasets.",
+          category: "backend",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          summary: "Notes and repo evidence both point to role-aware filtering work.",
+          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
+          risksSummary: null,
+          missingInfo: null,
+          sourceRefs: ["evidence-1", "evidence-2"],
+        },
+      ],
+    });
+  });
+
+  it("allows empty batch-local highlight output when evidence is not highlight-worthy", () => {
+    const parsed = batchHighlightGenerationLlmOutputSchema.parse({
+      highlights: [],
+    });
+
+    expect(parsed).toEqual({
+      highlights: [],
     });
   });
 });

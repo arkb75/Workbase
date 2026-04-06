@@ -123,11 +123,24 @@ export const ArtifactTone = {
 export type ArtifactTone = (typeof ArtifactTone)[keyof typeof ArtifactTone]
 
 
+export const TagDimension = {
+  domain: 'domain',
+  competency: 'competency',
+  emphasis: 'emphasis',
+  audience_fit: 'audience_fit'
+} as const
+
+export type TagDimension = (typeof TagDimension)[keyof typeof TagDimension]
+
+
 export const GenerationKind = {
   claim_research: 'claim_research',
   claim_cluster_research: 'claim_cluster_research',
   claim_merge: 'claim_merge',
   claim_verification: 'claim_verification',
+  highlight_generation: 'highlight_generation',
+  highlight_verification: 'highlight_verification',
+  artifact_retrieval: 'artifact_retrieval',
   artifact_generation: 'artifact_generation',
   evidence_clustering: 'evidence_clustering'
 } as const

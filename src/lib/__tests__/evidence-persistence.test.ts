@@ -6,13 +6,22 @@ const prismaMock = vi.hoisted(() => ({
     upsert: vi.fn(),
     deleteMany: vi.fn(),
   },
-  evidenceClusterItem: {
+  evidenceTag: {
     deleteMany: vi.fn(),
+    createMany: vi.fn(),
+  },
+  highlight: {
+    create: vi.fn(),
+  },
+  highlightEvidence: {
+    createMany: vi.fn(),
+  },
+  highlightTag: {
+    createMany: vi.fn(),
   },
   source: {
     findMany: vi.fn(),
   },
-  $transaction: vi.fn(),
 }));
 
 vi.mock("@/src/lib/prisma", () => ({
@@ -20,7 +29,7 @@ vi.mock("@/src/lib/prisma", () => ({
 }));
 
 import {
-  persistEvidenceClusters,
+  createHighlightWithRelations,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
 
@@ -44,15 +53,20 @@ describe("evidence persistence", () => {
         included: true,
       },
     ]);
+    prismaMock.evidenceItem.upsert.mockResolvedValue({ id: "persisted-1" });
 
     await upsertEvidenceItemsForSource("source-1", [
       {
         workItemId: "work-item-1",
         sourceId: "source-1",
         externalId: "commit:sha-1",
+        sourceType: "github_repo",
         type: "github_commit",
         title: "Existing commit",
         content: "Updated content",
+        searchText: "Existing commit Updated content",
+        parentKind: "source",
+        parentKey: "source-1",
         included: true,
         metadata: null,
       },
@@ -60,24 +74,18 @@ describe("evidence persistence", () => {
         workItemId: "work-item-1",
         sourceId: "source-1",
         externalId: "pull:12",
+        sourceType: "github_repo",
         type: "github_pull_request",
         title: "New pull request",
         content: "PR content",
+        searchText: "New pull request PR content",
+        parentKind: "pull_request",
+        parentKey: "source-1:pull:12",
         included: true,
         metadata: null,
       },
     ]);
 
-    expect(prismaMock.evidenceClusterItem.deleteMany).toHaveBeenCalledWith({
-      where: {
-        evidenceItem: {
-          sourceId: "source-1",
-          externalId: {
-            notIn: ["commit:sha-1", "pull:12"],
-          },
-        },
-      },
-    });
     expect(prismaMock.evidenceItem.deleteMany).toHaveBeenCalledWith({
       where: {
         sourceId: "source-1",
@@ -93,74 +101,87 @@ describe("evidence persistence", () => {
       expect.objectContaining({
         update: expect.objectContaining({
           included: false,
+          searchText: "Existing commit Updated content",
+          parentKey: "source-1",
         }),
       }),
     );
-    expect(prismaMock.evidenceItem.upsert).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        create: expect.objectContaining({
-          externalId: "pull:12",
-        }),
-      }),
-    );
+    expect(prismaMock.evidenceTag.deleteMany).toHaveBeenCalledTimes(2);
   });
 
-  it("replaces persisted clusters and creates new memberships in one transaction", async () => {
+  it("creates a highlight with evidence and tag relations", async () => {
     const tx = {
-      evidenceCluster: {
-        deleteMany: vi.fn(),
-        create: vi.fn(),
+      highlight: {
+        create: vi.fn().mockResolvedValue({ id: "highlight-1" }),
       },
-    };
+      highlightEvidence: {
+        createMany: vi.fn(),
+      },
+      highlightTag: {
+        createMany: vi.fn(),
+      },
+    } as const;
 
-    prismaMock.$transaction.mockImplementation(async (callback: (value: typeof tx) => Promise<unknown>) =>
-      callback(tx),
-    );
-
-    await persistEvidenceClusters("work-item-1", [
-      {
-        title: "Import and pipeline work",
-        summary: "Commit history and pull request evidence both point to import pipeline work.",
-        theme: "data_pipeline",
+    await createHighlightWithRelations({
+      tx: tx as never,
+      workItemId: "work-item-1",
+      draft: {
+        text: "Built the highlight review flow.",
+        summary: "Grounded in evidence.",
         confidence: "medium",
-        metadata: {
-          strategy: "bedrock_structured",
-        },
-        items: [
-          {
-            evidenceItemId: "evidence-1",
-            relevanceScore: 0.92,
-          },
-        ],
-      },
-    ]);
-
-    expect(tx.evidenceCluster.deleteMany).toHaveBeenCalledWith({
-      where: {
-        workItemId: "work-item-1",
-      },
-    });
-    expect(tx.evidenceCluster.create).toHaveBeenCalledWith({
-      data: {
-        workItemId: "work-item-1",
-        title: "Import and pipeline work",
-        summary:
-          "Commit history and pull request evidence both point to import pipeline work.",
-        theme: "data_pipeline",
-        confidence: "medium",
-        metadata: {
-          strategy: "bedrock_structured",
-        },
-        items: {
-          create: [
+        ownershipClarity: "clear",
+        sensitivityFlag: false,
+        verificationStatus: "draft",
+        visibility: "resume_safe",
+        risksSummary: null,
+        missingInfo: null,
+        rejectionReason: null,
+        verificationNotes: "Verified against attached evidence.",
+        metadata: null,
+        evidence: {
+          summary: "Grounded in evidence.",
+          verificationNotes: "Verified against attached evidence.",
+          sourceRefs: [
             {
               evidenceItemId: "evidence-1",
-              relevanceScore: 0.92,
+              sourceId: "source-1",
+              sourceLabel: "Manual notes",
+              sourceType: "manual_note",
+              excerpt: "Built the highlight review flow.",
             },
           ],
         },
+        tags: [
+          {
+            dimension: "domain",
+            tag: "full_stack",
+            score: 0.8,
+          },
+        ],
       },
+    });
+
+    expect(tx.highlight.create).toHaveBeenCalled();
+    expect(tx.highlightEvidence.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          highlightId: "highlight-1",
+          evidenceItemId: "evidence-1",
+          relevanceScore: null,
+        },
+      ],
+      skipDuplicates: true,
+    });
+    expect(tx.highlightTag.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          highlightId: "highlight-1",
+          dimension: "domain",
+          tag: "full_stack",
+          score: 0.8,
+        },
+      ],
+      skipDuplicates: true,
     });
   });
 });

@@ -30,7 +30,7 @@ function buildWorkItemDescriptionFromRepo(input: {
     return repoDescription;
   }
 
-  return `Imported from GitHub repository ${input.fullName}. Add the specific technical surface and ownership details before generating claims.`;
+  return `Imported from GitHub repository ${input.fullName}. Add the specific technical surface and ownership details before generating highlights.`;
 }
 
 export default async function NewWorkItemPage({
@@ -121,7 +121,7 @@ export default async function NewWorkItemPage({
       <PageHeader
         eyebrow="New Work Item"
         title="Capture a project or experience."
-        description="Keep the first draft short and concrete. The notes and claim review flow will add the detail later."
+        description="Keep the first draft short and concrete. Sources and highlight review will add the detail later."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(440px,520px)] lg:items-start">
@@ -142,7 +142,7 @@ export default async function NewWorkItemPage({
               <CardHeader>
                 <CardTitle>Work Item details</CardTitle>
                 <CardDescription>
-                  Start with the core metadata. Sources and claims come next. Keep the
+                  Start with the core metadata. Sources and highlight review come next. Keep the
                   description concrete enough to explain the technical surface and the work you
                   actually did.
                 </CardDescription>

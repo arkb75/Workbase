@@ -296,6 +296,87 @@ export const clusterClaimResearchLlmOutputSchema = buildClaimResearchLlmOutputSc
   maxClaims: 2,
 });
 
+function buildHighlightGenerationLlmOutputSchema(params: {
+  minHighlights: number;
+  maxHighlights: number;
+}) {
+  return z.preprocess(
+    (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+      }
+
+      const input = value as Record<string, unknown>;
+      const highlights = Array.isArray(input.highlights)
+        ? input.highlights
+        : Array.isArray(input.claims)
+          ? input.claims
+          : input.highlights;
+
+      return {
+        ...input,
+        highlights: Array.isArray(highlights)
+          ? highlights.map((highlight) => {
+              if (!highlight || typeof highlight !== "object" || Array.isArray(highlight)) {
+                return highlight;
+              }
+
+              const highlightRecord = highlight as Record<string, unknown>;
+
+              return {
+                ...highlightRecord,
+                text:
+                  toTrimmedString(highlightRecord.text) ??
+                  toTrimmedString(highlightRecord.highlightText) ??
+                  toTrimmedString(highlightRecord.claimText) ??
+                  toTrimmedString(highlightRecord.claim),
+                confidence: toTrimmedString(highlightRecord.confidence)?.toLowerCase(),
+                ownershipClarity: toTrimmedString(highlightRecord.ownershipClarity)?.toLowerCase(),
+                summary:
+                  toTrimmedString(highlightRecord.summary) ??
+                  toTrimmedString(highlightRecord.evidenceSummary),
+                rationaleSummary: toTrimmedString(highlightRecord.rationaleSummary),
+                sourceRefs: Array.isArray(highlightRecord.sourceRefs)
+                  ? highlightRecord.sourceRefs
+                  : Array.isArray(highlightRecord.evidenceRefs)
+                    ? highlightRecord.evidenceRefs
+                    : highlightRecord.sourceRefs,
+              };
+            })
+          : highlights,
+      };
+    },
+    z.object({
+      highlights: z
+        .array(
+          z.object({
+            text: z.string().min(10).max(240),
+            category: z.string().trim().min(1).max(64),
+            confidence: confidenceEnum,
+            ownershipClarity: ownershipClarityEnum,
+            summary: z.string().min(16).max(500),
+            rationaleSummary: z.string().min(16).max(500),
+            risksSummary: z.string().trim().max(500).nullable(),
+            missingInfo: z.string().trim().max(500).nullable(),
+            sourceRefs: z.array(evidenceSourceRefInputSchema).min(1).max(4),
+          }),
+        )
+        .min(params.minHighlights)
+        .max(params.maxHighlights),
+    }),
+  );
+}
+
+export const highlightGenerationLlmOutputSchema = buildHighlightGenerationLlmOutputSchema({
+  minHighlights: 1,
+  maxHighlights: 24,
+});
+
+export const batchHighlightGenerationLlmOutputSchema = buildHighlightGenerationLlmOutputSchema({
+  minHighlights: 0,
+  maxHighlights: 2,
+});
+
 export const claimVerificationLlmOutputSchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -355,7 +436,8 @@ export const claimVerificationLlmOutputSchema = z.preprocess(
 
 export const artifactGenerationLlmOutputSchema = z.object({
   content: z.string().min(20).max(4000),
-  usedClaimIds: z.array(z.string().min(1)).min(1).max(3),
+  usedHighlightIds: z.array(z.string().min(1)).min(1).max(8),
+  supportingEvidenceItemIds: z.array(z.string().min(1)).max(12),
 });
 
 export const evidenceClusteringLlmOutputSchema = z.preprocess(

@@ -1,12 +1,12 @@
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { targetAngleKeywordMap } from "@/src/lib/options";
 
-function scoreClaim(text: string, category: string | null | undefined, angle: string) {
+function scoreHighlight(text: string, angle: string) {
   if (angle === "general") {
     return 1;
   }
 
-  let score = category === angle ? 4 : 0;
+  let score = 0;
 
   for (const keyword of targetAngleKeywordMap[angle as keyof typeof targetAngleKeywordMap] ?? []) {
     if (text.toLowerCase().includes(keyword)) {
@@ -29,15 +29,15 @@ function compareConfidence(value: string) {
   return 1;
 }
 
-function selectClaims(
-  claims: Parameters<ArtifactGenerationService["generate"]>[0]["claims"],
+function selectHighlights(
+  highlights: Parameters<ArtifactGenerationService["generate"]>[0]["highlights"],
   angle: string,
 ) {
-  return [...claims]
+  return [...highlights]
     .sort((left, right) => {
       const scoreDelta =
-        scoreClaim(right.text, right.category, angle) -
-        scoreClaim(left.text, left.category, angle);
+        scoreHighlight(right.text, angle) -
+        scoreHighlight(left.text, angle);
 
       if (scoreDelta !== 0) {
         return scoreDelta;
@@ -63,20 +63,20 @@ function toResumeBullet(text: string, tone: string) {
 }
 
 export const mockArtifactGenerationService: ArtifactGenerationService = {
-  async generate({ request, claims }) {
-    const selectedClaims = selectClaims(claims, request.targetAngle);
+  async generate({ request, highlights, supportingEvidence }) {
+    const selectedHighlights = selectHighlights(highlights, request.targetAngle);
 
-    if (!selectedClaims.length) {
+    if (!selectedHighlights.length) {
       throw new Error(
-        "No approved claims match the current artifact visibility and sensitivity rules.",
+        "No approved highlights match the current artifact visibility and sensitivity rules.",
       );
     }
 
     let content = "";
 
     if (request.type === "resume_bullets") {
-      content = selectedClaims
-        .map((claim) => toResumeBullet(claim.text, request.tone))
+      content = selectedHighlights
+        .map((highlight) => toResumeBullet(highlight.text, request.tone))
         .join("\n");
     }
 
@@ -90,7 +90,7 @@ export const mockArtifactGenerationService: ArtifactGenerationService = {
 
       content = [
         intro,
-        ...selectedClaims.map((claim) => claim.text.replace(/\.$/, ".")),
+        ...selectedHighlights.map((highlight) => highlight.text.replace(/\.$/, ".")),
       ].join(" ");
     }
 
@@ -106,8 +106,8 @@ export const mockArtifactGenerationService: ArtifactGenerationService = {
                 ? "This project highlights the full-stack workflow from interface to data."
                 : "This project highlights a concise, evidence-backed technical story.";
 
-      content = `${opening} ${selectedClaims
-        .map((claim) => claim.text.replace(/\.$/, "."))
+      content = `${opening} ${selectedHighlights
+        .map((highlight) => highlight.text.replace(/\.$/, "."))
         .join(" ")}`;
     }
 
@@ -116,7 +116,8 @@ export const mockArtifactGenerationService: ArtifactGenerationService = {
       targetAngle: request.targetAngle,
       tone: request.tone,
       content,
-      usedClaimIds: selectedClaims.map((claim) => claim.id),
+      usedHighlightIds: selectedHighlights.map((highlight) => highlight.id),
+      supportingEvidenceItemIds: supportingEvidence.slice(0, 4).map((item) => item.id),
     };
   },
 };

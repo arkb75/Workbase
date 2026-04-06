@@ -1,3 +1,5 @@
+"use client";
+
 import { updateClaimAction } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -39,20 +41,20 @@ function summarizeSignal(claim: {
   verificationStatus: string;
   risksSummary: string | null;
   missingInfo: string | null;
-  evidenceCard: { evidenceSummary: string } | null;
+  summary: string;
 }) {
   if (claim.verificationStatus === "approved") {
-    return "Approved and available for artifact generation when visibility allows it.";
+    return "Approved and available for retrieval-driven artifact generation when visibility allows it.";
   }
 
   if (claim.verificationStatus === "rejected") {
-    return claim.risksSummary ?? "Rejected claims stay hidden from the main workflow but still guide future generations.";
+    return claim.risksSummary ?? "Rejected highlights stay hidden from the main workflow but still guide future generations.";
   }
 
   return (
     claim.risksSummary ??
     claim.missingInfo ??
-    claim.evidenceCard?.evidenceSummary ??
+    claim.summary ??
     "Review the evidence and decide whether this wording should survive."
   );
 }
@@ -97,7 +99,7 @@ export function ClaimCard({
     id: string;
     workItemId: string;
     text: string;
-    category: string | null;
+    summary: string;
     confidence: string;
     ownershipClarity: string;
     sensitivityFlag: boolean;
@@ -106,18 +108,24 @@ export function ClaimCard({
     risksSummary: string | null;
     missingInfo: string | null;
     rejectionReason: string | null;
-    evidenceCard: {
-      evidenceSummary: string;
-      rationaleSummary: string;
+    verificationNotes: string | null;
+    evidence: {
+      summary: string;
       verificationNotes: string | null;
       sourceRefs: unknown;
-    } | null;
+    };
+    tags: Array<{
+      dimension: string;
+      tag: string;
+      score: number | null;
+    }>;
   };
   defaultOpen?: boolean;
 }) {
   const action = updateClaimAction.bind(null, claim.id);
-  const sourceRefs = Array.isArray(claim.evidenceCard?.sourceRefs)
-    ? claim.evidenceCard?.sourceRefs
+  const sensitivityInputId = `highlight-sensitive-${claim.id}`;
+  const sourceRefs = Array.isArray(claim.evidence?.sourceRefs)
+    ? claim.evidence?.sourceRefs
     : [];
   const isApproved = claim.verificationStatus === "approved";
   const isRejected = claim.verificationStatus === "rejected";
@@ -125,6 +133,7 @@ export function ClaimCard({
     claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
   const summaryCopy = summarizeSignal(claim);
   const compactSourceRefs = sourceRefs.slice(0, 3);
+  const compactTags = claim.tags.slice(0, 4);
 
   return (
     <details
@@ -152,7 +161,11 @@ export function ClaimCard({
               </Badge>
               <Badge>{titleCase(claim.visibility)}</Badge>
               <Badge>{titleCase(claim.ownershipClarity)} ownership</Badge>
-              {claim.category ? <Badge>{titleCase(claim.category)}</Badge> : null}
+              {compactTags.map((tag) => (
+                <Badge key={`${claim.id}-${tag.dimension}-${tag.tag}`}>
+                  {titleCase(tag.tag)}
+                </Badge>
+              ))}
               {claim.sensitivityFlag ? (
                 <Badge tone="danger">
                   <ShieldAlert className="mr-1 h-3.5 w-3.5" />
@@ -184,7 +197,7 @@ export function ClaimCard({
         <div className="grid gap-4 p-5 sm:p-6 xl:grid-cols-[1.1fr_0.9fr]">
           <section className="space-y-4">
             <div className="space-y-2">
-              <FieldLabel label="Claim text" />
+              <FieldLabel label="Highlight text" />
               <Textarea name="text" defaultValue={claim.text} className="min-h-28 bg-white" />
             </div>
 
@@ -204,16 +217,20 @@ export function ClaimCard({
                 </Select>
               </label>
 
-              <label className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white px-3 py-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white px-3 py-2">
                 <input
+                  id={sensitivityInputId}
                   type="checkbox"
                   name="sensitivityFlag"
                   defaultChecked={claim.sensitivityFlag}
                   className="h-4 w-4 rounded border-black/20 text-[color:var(--accent)]"
                 />
-                <span className="text-sm font-medium text-[color:var(--ink-strong)]">
+                <label
+                  htmlFor={sensitivityInputId}
+                  className="text-sm font-medium text-[color:var(--ink-strong)]"
+                >
                   Sensitive
-                </span>
+                </label>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -225,20 +242,20 @@ export function ClaimCard({
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    <p>Keep this claim out of public artifacts until you are confident it is safe to share.</p>
+                    <p>Keep this highlight out of public artifacts until you are confident it is safe to share.</p>
                   </TooltipContent>
                 </Tooltip>
-              </label>
+              </div>
             </div>
 
             <section className="grid gap-2 rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
               <FieldLabel
                 label="Review notes"
-                tooltip="Short reviewer context for this claim. Keep only what helps the next decision."
+                tooltip="Short reviewer context for this highlight. Keep only what helps the next decision."
               />
               <Textarea
                 name="verificationNotes"
-                defaultValue={claim.evidenceCard?.verificationNotes ?? ""}
+                defaultValue={claim.verificationNotes ?? ""}
                 className="min-h-24 bg-white"
               />
             </section>
@@ -246,7 +263,7 @@ export function ClaimCard({
             <section className="grid gap-2 rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
               <FieldLabel
                 label="Rejection reason"
-                tooltip="Optional. Stored rejected claims use this as future negative guidance."
+                tooltip="Optional. Stored rejected highlights use this as future negative guidance."
               />
               <Textarea
                 name="rejectionReason"
@@ -261,14 +278,14 @@ export function ClaimCard({
             <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
               <FieldLabel label="Evidence summary" />
               <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
-                {claim.evidenceCard?.evidenceSummary ?? "No evidence attached."}
+                {claim.evidence?.summary ?? "No evidence attached."}
               </p>
             </div>
 
             <div className="rounded-[24px] border border-black/8 bg-[color:var(--surface)] p-4">
-              <FieldLabel label="Rationale summary" />
+              <FieldLabel label="Verification notes" />
               <p className="mt-2 text-sm leading-6 text-[color:var(--ink-strong)]">
-                {claim.evidenceCard?.rationaleSummary ?? "No rationale attached."}
+                {claim.verificationNotes ?? "No verification notes attached."}
               </p>
             </div>
 
@@ -325,7 +342,7 @@ export function ClaimCard({
             <>
               <label className="grid min-w-[15rem] gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-                  Rejected claim action
+                  Rejected highlight action
                 </span>
                 <Select
                   name="intent"
@@ -333,7 +350,7 @@ export function ClaimCard({
                   className="h-10 min-w-[12rem] rounded-full bg-white"
                 >
                   <option value="save">Save edits</option>
-                  <option value="approve">Approve claim</option>
+                  <option value="approve">Approve highlight</option>
                   <option value="restore">Restore to review</option>
                 </Select>
               </label>
@@ -344,7 +361,7 @@ export function ClaimCard({
                 Apply action
               </button>
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                Rejected claims stay off artifacts but remain useful as guidance.
+                Rejected highlights stay off artifacts but remain useful as guidance.
               </p>
             </>
           ) : (
@@ -364,7 +381,7 @@ export function ClaimCard({
                 value="approve"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white transition hover:bg-[color:var(--accent-strong)] [color:white]"
               >
-                Approve claim
+                Approve highlight
               </button>
               ) : null}
               <button
@@ -373,7 +390,7 @@ export function ClaimCard({
                 value="reject"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
               >
-                {isApproved ? "Move to rejected" : "Reject claim"}
+                {isApproved ? "Move to rejected" : "Reject highlight"}
               </button>
             </>
           )}

@@ -7,6 +7,9 @@ export interface GenerationRunMetadata {
     | "claim_cluster_research"
     | "claim_merge"
     | "claim_verification"
+    | "highlight_generation"
+    | "highlight_verification"
+    | "artifact_retrieval"
     | "artifact_generation"
     | "evidence_clustering";
 }

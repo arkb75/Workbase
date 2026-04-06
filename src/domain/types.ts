@@ -12,6 +12,10 @@ import type {
   SourceType,
   CareerStage,
 } from "@/src/lib/options";
+import type {
+  HighlightTagDimension,
+  HighlightTagValue,
+} from "@/src/lib/highlight-taxonomy";
 
 export type JsonValue =
   | string
@@ -72,36 +76,21 @@ export interface EvidenceItemSnapshot {
   type: EvidenceItemType;
   title: string;
   content: string;
+  searchText: string;
+  parentKind: string | null;
+  parentKey: string | null;
   included: boolean;
   metadata: JsonValue | null;
   source: Pick<SourceSnapshot, "id" | "label" | "type" | "externalId">;
+  tags?: HighlightTagAssignment[];
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-export interface EvidenceClusterItemSnapshot {
-  id: string;
-  clusterId: string;
-  evidenceItemId: string;
-  relevanceScore: number | null;
-  createdAt?: Date;
-}
-
-export interface EvidenceClusterSnapshot {
-  id: string;
-  workItemId: string;
-  title: string;
-  summary: string;
-  theme: string;
-  confidence: ClaimConfidence;
-  metadata: JsonValue | null;
-  items: Array<{
-    id: string;
-    evidenceItemId: string;
-    relevanceScore: number | null;
-  }>;
-  createdAt?: Date;
-  updatedAt?: Date;
+export interface HighlightTagAssignment {
+  dimension: HighlightTagDimension;
+  tag: HighlightTagValue;
+  score?: number | null;
 }
 
 export interface EvidenceSourceReference {
@@ -114,15 +103,13 @@ export interface EvidenceSourceReference {
 }
 
 export interface EvidenceCardDraft {
-  evidenceSummary: string;
-  rationaleSummary: string;
-  sourceRefs: EvidenceSourceReference[];
+  summary: string;
   verificationNotes?: string | null;
+  sourceRefs: EvidenceSourceReference[];
 }
 
-export interface ClaimDraft {
+export interface HighlightDraft {
   text: string;
-  category?: string | null;
   confidence: ClaimConfidence;
   ownershipClarity: OwnershipClarity;
   sensitivityFlag: boolean;
@@ -131,15 +118,22 @@ export interface ClaimDraft {
   risksSummary?: string | null;
   missingInfo?: string | null;
   rejectionReason?: string | null;
-  evidenceCard: EvidenceCardDraft;
+  summary: string;
+  verificationNotes?: string | null;
+  metadata?: JsonValue | null;
+  evidence: EvidenceCardDraft;
+  tags: HighlightTagAssignment[];
 }
 
-export interface ClaimSnapshot extends ClaimDraft {
+export interface HighlightSnapshot extends HighlightDraft {
   id: string;
   workItemId: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+export type ClaimDraft = HighlightDraft;
+export type ClaimSnapshot = HighlightSnapshot;
 
 export interface ArtifactRequest {
   userId: string;
@@ -154,7 +148,8 @@ export interface GeneratedArtifact {
   targetAngle: TargetAngle;
   tone: ArtifactTone;
   content: string;
-  usedClaimIds: string[];
+  usedHighlightIds: string[];
+  supportingEvidenceItemIds: string[];
 }
 
 export interface NormalizedEvidenceItem {
@@ -163,21 +158,13 @@ export interface NormalizedEvidenceItem {
   label: string;
   type: SourceType;
   evidenceType: EvidenceItemType;
+  searchText: string;
+  parentKind: string | null;
+  parentKey: string | null;
   body: string;
   excerpts: string[];
   metadata: JsonValue | null;
-}
-
-export interface EvidenceClusterDraft {
-  title: string;
-  summary: string;
-  theme: string;
-  confidence: ClaimConfidence;
-  metadata: JsonValue | null;
-  items: Array<{
-    evidenceItemId: string;
-    relevanceScore: number | null;
-  }>;
+  tags?: HighlightTagAssignment[];
 }
 
 export interface GenerationTraceSnapshot {
@@ -188,6 +175,9 @@ export interface GenerationTraceSnapshot {
     | "claim_cluster_research"
     | "claim_merge"
     | "claim_verification"
+    | "highlight_generation"
+    | "highlight_verification"
+    | "artifact_retrieval"
     | "artifact_generation"
     | "evidence_clustering";
   status: "success" | "provider_error" | "parse_error" | "validation_error";

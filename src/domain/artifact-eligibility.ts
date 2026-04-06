@@ -1,9 +1,9 @@
-import type { ClaimSnapshot } from "@/src/domain/types";
+import type { HighlightSnapshot } from "@/src/domain/types";
 import type { ArtifactType } from "@/src/lib/options";
 import { publicArtifactVisibilityRules } from "@/src/lib/options";
 
 export function getEligibleClaimsForArtifact(
-  claims: ClaimSnapshot[],
+  claims: HighlightSnapshot[],
   artifactType: ArtifactType,
 ) {
   const allowedVisibilities = publicArtifactVisibilityRules[artifactType];

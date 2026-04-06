@@ -20,6 +20,9 @@ export const sourceIngestionService: SourceIngestionService = {
         label: evidenceItem.title,
         type: evidenceItem.source.type,
         evidenceType: evidenceItem.type,
+        searchText: evidenceItem.searchText,
+        parentKind: evidenceItem.parentKind,
+        parentKey: evidenceItem.parentKey,
         body: promptExcerpt,
         excerpts: [promptExcerpt],
         metadata: {
@@ -33,6 +36,7 @@ export const sourceIngestionService: SourceIngestionService = {
           promptExcerptLength: promptExcerpt.length,
           rawContentLength: normalizeWhitespace(evidenceItem.content).length,
         },
+        tags: evidenceItem.tags ?? [],
       });
     }
 

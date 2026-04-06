@@ -6,7 +6,7 @@ export async function listWorkItemsForUser(userId: string) {
       userId,
     },
     include: {
-      claims: true,
+      highlights: true,
       sources: true,
     },
     orderBy: {
@@ -27,9 +27,18 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           createdAt: "asc",
         },
       },
-      claims: {
+      highlights: {
         include: {
-          evidenceCard: true,
+          evidence: {
+            include: {
+              evidenceItem: {
+                include: {
+                  source: true,
+                },
+              },
+            },
+          },
+          tags: true,
         },
         orderBy: [
           {
@@ -43,6 +52,7 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
       evidenceItems: {
         include: {
           source: true,
+          tags: true,
         },
         orderBy: [
           {
@@ -52,18 +62,6 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
             updatedAt: "desc",
           },
         ],
-      },
-      evidenceClusters: {
-        include: {
-          items: {
-            orderBy: {
-              createdAt: "asc",
-            },
-          },
-        },
-        orderBy: {
-          updatedAt: "desc",
-        },
       },
       generationRuns: {
         orderBy: {

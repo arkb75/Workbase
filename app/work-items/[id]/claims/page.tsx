@@ -8,7 +8,7 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { titleCase } from "@/src/lib/utils";
-import { ChevronDown, Eye, ShieldAlert, Sparkles, Stamp, Target } from "lucide-react";
+import { Eye, ShieldAlert, Sparkles, Stamp, Target } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -17,46 +17,67 @@ function ClaimSection({
   description,
   count,
   tone,
-  defaultOpen = false,
   children,
 }: {
   title: string;
   description: string;
   count: number;
   tone: "warning" | "success" | "danger" | "neutral";
-  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <details
-      open={defaultOpen}
-      className="group rounded-[30px] border border-black/8 bg-white/88 shadow-[0_16px_48px_rgba(15,23,42,0.05)]"
-    >
-      <summary className="list-none cursor-pointer px-5 py-5 sm:px-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
-                {title}
-              </h2>
-              <Badge tone={tone}>{count} claims</Badge>
-            </div>
-            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">{description}</p>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2 rounded-full border border-black/8 bg-[color:var(--panel-muted)] px-3 py-2 text-xs font-medium uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-            Toggle
-            <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
-          </div>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CardTitle>{title}</CardTitle>
+          <Badge tone={tone}>{count} highlights</Badge>
         </div>
-      </summary>
-
-      <div className="border-t border-black/6 p-5 pt-4 sm:p-6">{children}</div>
-    </details>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }
 
-export default async function ClaimReviewPage({
+function mapHighlightForCard(
+  workItemId: string,
+  highlight: Awaited<ReturnType<typeof getWorkItemForUser>>["highlights"][number],
+) {
+  return {
+    id: highlight.id,
+    workItemId,
+    text: highlight.text,
+    summary: highlight.summary,
+    confidence: highlight.confidence,
+    ownershipClarity: highlight.ownershipClarity,
+    sensitivityFlag: highlight.sensitivityFlag,
+    verificationStatus: highlight.verificationStatus,
+    visibility: highlight.visibility,
+    risksSummary: highlight.risksSummary,
+    missingInfo: highlight.missingInfo,
+    rejectionReason: highlight.rejectionReason,
+    verificationNotes: highlight.verificationNotes,
+    evidence: {
+      summary: highlight.summary,
+      verificationNotes: highlight.verificationNotes,
+      sourceRefs: highlight.evidence.map((entry) => ({
+        evidenceItemId: entry.evidenceItemId,
+        sourceId: entry.evidenceItem.sourceId,
+        sourceLabel: entry.evidenceItem.source.label,
+        sourceType: entry.evidenceItem.source.type,
+        title: entry.evidenceItem.title,
+        excerpt: entry.evidenceItem.content,
+      })),
+    },
+    tags: highlight.tags.map((tag) => ({
+      dimension: tag.dimension,
+      tag: tag.tag,
+      score: tag.score,
+    })),
+  };
+}
+
+export default async function HighlightReviewPage({
   params,
   searchParams,
 }: {
@@ -67,58 +88,57 @@ export default async function ClaimReviewPage({
   const { error, result } = await searchParams;
   const user = await getDemoUser();
   const workItem = await getWorkItemForUser(user.id, id);
-  const generateClaims = generateClaimsAction.bind(null, workItem.id);
+  const generateHighlights = generateClaimsAction.bind(null, workItem.id);
 
-  const pendingClaims = workItem.claims.filter(
-    (claim) =>
-      claim.verificationStatus === "draft" || claim.verificationStatus === "flagged",
+  const pendingHighlights = workItem.highlights.filter(
+    (highlight) =>
+      highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
   );
-  const approvedClaims = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "approved",
+  const approvedHighlights = workItem.highlights.filter(
+    (highlight) => highlight.verificationStatus === "approved",
   );
-  const rejectedClaims = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "rejected",
+  const rejectedHighlights = workItem.highlights.filter(
+    (highlight) => highlight.verificationStatus === "rejected",
   );
-  const sensitiveClaims = workItem.claims.filter((claim) => claim.sensitivityFlag);
-  const claimGenerationTraces = workItem.generationRuns.filter(
+  const sensitiveHighlights = workItem.highlights.filter((highlight) => highlight.sensitivityFlag);
+  const generationTraces = workItem.generationRuns.filter(
     (run) =>
-      run.kind === "claim_research" ||
-      run.kind === "claim_cluster_research" ||
-      run.kind === "claim_merge" ||
-      run.kind === "claim_verification" ||
-      run.kind === "evidence_clustering",
+      run.kind === "highlight_generation" ||
+      run.kind === "highlight_verification" ||
+      run.kind === "artifact_retrieval" ||
+      run.kind === "artifact_generation",
   );
 
   return (
     <WorkbaseFrame>
       <PageHeader
-        eyebrow="Claim review"
-        title={`Review claims for ${workItem.title}`}
-        description="This should feel like an operating surface, not a document dump. Scan the claim groups, open only the claims you need, and keep approved material clearly separated from everything still under review."
+        eyebrow="Highlight review"
+        title={`Review highlights for ${workItem.title}`}
+        description="Scan the highlight groups, edit only what needs intervention, and keep approved material clearly separated from everything still under review."
         actions={
-          <form action={generateClaims}>
-            <SubmitButton pendingLabel="Refreshing claims..." variant="primary">
-              Regenerate pending claims
+          <form action={generateHighlights}>
+            <SubmitButton pendingLabel="Refreshing highlights..." variant="primary">
+              Regenerate pending highlights
             </SubmitButton>
           </form>
         }
       />
 
-      {error === "invalid-claim" ? (
+      {error === "invalid-claim" || error === "invalid-highlight" ? (
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              Workbase could not save that claim. The submitted form data did not pass validation.
+              Workbase could not save that highlight. The submitted form data did not pass validation.
             </p>
           </CardContent>
         </Card>
       ) : null}
 
-      {error === "claim-generation-failed" ? (
+      {error === "claim-generation-failed" || error === "highlight-generation-failed" ? (
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              Workbase could not generate claims from the current sources. The trace section below has the provider or validation details.
+              Workbase could not generate highlights from the current sources. The trace section below has the provider or validation details.
             </p>
           </CardContent>
         </Card>
@@ -129,12 +149,12 @@ export default async function ClaimReviewPage({
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-emerald-900">
               {result === "approved"
-                ? "Claim approved. It has moved into the approved section."
+                ? "Highlight approved. It has moved into the approved section."
                 : result === "rejected"
-                  ? "Claim rejected. It has moved into the hidden rejected section."
+                  ? "Highlight rejected. It has moved into the hidden rejected section."
                   : result === "restored"
-                    ? "Claim restored to pending review."
-                    : "Claim changes saved."}
+                    ? "Highlight restored to pending review."
+                    : "Highlight changes saved."}
             </p>
           </CardContent>
         </Card>
@@ -144,52 +164,45 @@ export default async function ClaimReviewPage({
         <div className="space-y-4">
           <ClaimSection
             title="Pending review"
-            description="These are the active claims that still need a human decision."
-            count={pendingClaims.length}
+            description="These are the active highlights that still need a human decision."
+            count={pendingHighlights.length}
             tone="warning"
-            defaultOpen
           >
-            {pendingClaims.length ? (
+            {pendingHighlights.length ? (
               <div className="space-y-4">
-                {pendingClaims.map((claim, index) => (
+                {pendingHighlights.map((highlight, index) => (
                   <ClaimCard
-                    key={claim.id}
+                    key={highlight.id}
                     defaultOpen={index === 0}
-                    claim={{
-                      ...claim,
-                      workItemId: workItem.id,
-                    }}
+                    claim={mapHighlightForCard(workItem.id, highlight)}
                   />
                 ))}
               </div>
             ) : (
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No pending claims right now.
+                No pending highlights right now.
               </p>
             )}
           </ClaimSection>
 
           <ClaimSection
             title="Approved"
-            description="Approved claims remain compact here until you need to edit or remove one."
-            count={approvedClaims.length}
+            description="Approved highlights remain compact here until you need to edit or remove one."
+            count={approvedHighlights.length}
             tone="success"
           >
-            {approvedClaims.length ? (
+            {approvedHighlights.length ? (
               <div className="space-y-4">
-                {approvedClaims.map((claim) => (
+                {approvedHighlights.map((highlight) => (
                   <ClaimCard
-                    key={claim.id}
-                    claim={{
-                      ...claim,
-                      workItemId: workItem.id,
-                    }}
+                    key={highlight.id}
+                    claim={mapHighlightForCard(workItem.id, highlight)}
                   />
                 ))}
               </div>
             ) : (
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No approved claims yet.
+                No approved highlights yet.
               </p>
             )}
           </ClaimSection>
@@ -197,36 +210,33 @@ export default async function ClaimReviewPage({
           <ClaimSection
             title="Rejected"
             description="Hidden by default, but still stored so future generations can avoid repeating the same bad framing."
-            count={rejectedClaims.length}
+            count={rejectedHighlights.length}
             tone="danger"
           >
-            {rejectedClaims.length ? (
+            {rejectedHighlights.length ? (
               <div className="space-y-4">
-                {rejectedClaims.map((claim) => (
+                {rejectedHighlights.map((highlight) => (
                   <ClaimCard
-                    key={claim.id}
-                    claim={{
-                      ...claim,
-                      workItemId: workItem.id,
-                    }}
+                    key={highlight.id}
+                    claim={mapHighlightForCard(workItem.id, highlight)}
                   />
                 ))}
               </div>
             ) : (
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No rejected claims for this Work Item.
+                No rejected highlights for this Work Item.
               </p>
             )}
           </ClaimSection>
 
           <ClaimSection
             title="Generation traces"
-            description="Internal records for claim research and verification runs."
-            count={claimGenerationTraces.length}
+            description="Internal records for highlight generation, verification, retrieval, and artifact runs."
+            count={generationTraces.length}
             tone="neutral"
           >
             <GenerationTracePanel
-              traces={claimGenerationTraces}
+              traces={generationTraces}
               title="Generation traces"
               description="Provider responses, parsed payloads, validation failures, and persisted result refs."
             />
@@ -238,7 +248,7 @@ export default async function ClaimReviewPage({
             <CardHeader>
               <CardTitle className="text-white">Review summary</CardTitle>
               <CardDescription className="text-white/72">
-                Keep the workflow tight: scan, decide, and only open the claims that need deeper edits.
+                Keep the workflow tight: scan, decide, and only open the highlights that need deeper edits.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
@@ -246,20 +256,20 @@ export default async function ClaimReviewPage({
                 <div className="rounded-[24px] bg-white/8 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-white/60">Pending</p>
                   <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em]">
-                    {pendingClaims.length}
+                    {pendingHighlights.length}
                   </p>
                 </div>
                 <div className="rounded-[24px] bg-white/8 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-white/60">Approved</p>
                   <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em]">
-                    {approvedClaims.length}
+                    {approvedHighlights.length}
                   </p>
                 </div>
               </div>
               <div className="rounded-[24px] bg-white/8 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/60">Sensitive</p>
                 <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em]">
-                  {sensitiveClaims.length}
+                  {sensitiveHighlights.length}
                 </p>
               </div>
             </CardContent>
@@ -275,15 +285,15 @@ export default async function ClaimReviewPage({
             <CardContent className="space-y-4 text-sm leading-6 text-[color:var(--ink-soft)]">
               <div className="flex gap-3">
                 <Stamp className="mt-1 h-4 w-4 shrink-0 text-[color:var(--accent)]" />
-                <p>Pending claims are where the real work happens. Approved claims should stay comparatively quiet.</p>
+                <p>Pending highlights are where the real work happens. Approved highlights should stay comparatively quiet.</p>
               </div>
               <div className="flex gap-3">
                 <ShieldAlert className="mt-1 h-4 w-4 shrink-0 text-[color:var(--danger)]" />
-                <p>Sensitive claims should default toward caution. The visibility control stays in the claim, not buried in another page.</p>
+                <p>Sensitive highlights should default toward caution. The visibility control stays on the highlight, not buried in another page.</p>
               </div>
               <div className="flex gap-3">
                 <Eye className="mt-1 h-4 w-4 shrink-0 text-[color:var(--accent)]" />
-                <p>Rejected claims are hidden, not deleted. They still help the system avoid regenerating the same weak framing.</p>
+                <p>Rejected highlights are hidden, not deleted. They still help the system avoid regenerating the same weak framing.</p>
               </div>
               <div className="flex gap-3">
                 <Sparkles className="mt-1 h-4 w-4 shrink-0 text-[color:var(--accent)]" />
@@ -296,7 +306,7 @@ export default async function ClaimReviewPage({
             <CardHeader>
               <CardTitle>Work Item context</CardTitle>
               <CardDescription>
-                The claims on this screen are grounded in the current Work Item and its attached sources.
+                The highlights on this screen are grounded in the current Work Item and its attached sources.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

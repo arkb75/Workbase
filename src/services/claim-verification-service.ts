@@ -3,6 +3,7 @@ import type {
   JsonValue,
   NormalizedEvidenceItem,
 } from "@/src/domain/types";
+import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
@@ -22,12 +23,15 @@ import type { ClaimVerificationService } from "@/src/services/types";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimVerificationService } from "@/src/services/mock-claim-verification-service";
 
+const MAX_VERIFICATION_BATCH_SIZE = 6;
+
 function isRejectedGuidanceSource(source: NormalizedEvidenceItem) {
   return (
     typeof source.metadata === "object" &&
     source.metadata &&
     "kind" in source.metadata &&
-    source.metadata.kind === "rejected_claim_context"
+    (source.metadata.kind === "rejected_highlight_context" ||
+      source.metadata.kind === "rejected_claim_context")
   );
 }
 
@@ -81,269 +85,381 @@ function buildVerificationInputSummary(params: {
   };
 }
 
+function chunkHighlights<T>(items: T[], chunkSize: number) {
+  const batches: T[][] = [];
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    batches.push(items.slice(index, index + chunkSize));
+  }
+
+  return batches;
+}
+
+function mapSupportingEvidence(source: NormalizedEvidenceItem) {
+  return {
+    evidenceItemId: source.id,
+    sourceId: source.sourceId,
+    sourceLabel:
+      typeof source.metadata === "object" &&
+      source.metadata &&
+      "sourceLabel" in source.metadata &&
+      typeof source.metadata.sourceLabel === "string"
+        ? source.metadata.sourceLabel
+        : source.label,
+    title: source.label,
+    sourceType: source.type,
+    evidenceType: source.evidenceType,
+    excerpts: source.excerpts.length ? source.excerpts : [source.body],
+  };
+}
+
 const bedrockClaimVerificationService: ClaimVerificationService = {
-  async verify({ workItem, evidenceItems, clusters, claims }) {
+  async verify({ workItem, evidenceItems, highlights }) {
     const structuredClient = getBedrockStructuredLlmClient();
     const rejectedGuidance = evidenceItems
       .filter(isRejectedGuidanceSource)
       .map((source) => source.body)
       .join("\n\n");
-    const supportingEvidence = evidenceItems
-      .filter((source) => !isRejectedGuidanceSource(source))
-      .map((source) => ({
-        evidenceItemId: source.id,
-        sourceId: source.sourceId,
-        sourceLabel:
-          typeof source.metadata === "object" &&
-          source.metadata &&
-          "sourceLabel" in source.metadata &&
-          typeof source.metadata.sourceLabel === "string"
-            ? source.metadata.sourceLabel
-            : source.label,
-        title: source.label,
-        sourceType: source.type,
-        evidenceType: source.evidenceType,
-        excerpts: source.excerpts.length ? source.excerpts : [source.body],
-      }));
+    const baseEvidence = evidenceItems.filter((source) => !isRejectedGuidanceSource(source));
+    const indexedHighlights = highlights.map((highlight, index) => ({
+      highlight,
+      originalIndex: index,
+    }));
+    const highlightBatches = chunkHighlights(
+      indexedHighlights,
+      MAX_VERIFICATION_BATCH_SIZE,
+    );
     const systemPrompt = [
-      "You verify Workbase candidate claims against provided evidence.",
+      "You verify Workbase candidate highlights against provided evidence.",
       "Return JSON that matches the provided schema exactly.",
       "Do not decide final application rules such as artifact eligibility or state transitions.",
     ].join(" ");
-    const userPrompt = formatTaggedSections([
-      {
-        tag: "task",
-        content:
-          "Review each candidate claim and return exactly one verification result per claim.",
-      },
-      {
-        tag: "rules",
-        content: [
-          "Return a top-level JSON object with a `results` array.",
-          "Each result object must include exactly these fields: claimIndex, revisedText, confidence, ownershipClarity, visibilitySuggestion, sensitivityWarning, shouldFlag, overstatementWarning, unsupportedImpactWarning, rationaleSummary, risksSummary, missingInfo, verificationNotes.",
-          "Preserve one result per input claim in the same indexing space.",
-          "Use null for revisedText, risksSummary, missingInfo, or verificationNotes only when the field should be empty.",
-        ].join("\n"),
-      },
-      {
-        tag: "output_schema",
-        content: JSON.stringify(claimVerificationJsonSchema, null, 2),
-      },
-      {
-        tag: "required_fields",
-        content: JSON.stringify(claimVerificationRequiredFields, null, 2),
-      },
-      {
-        tag: "example_output",
-        content: JSON.stringify(claimVerificationExampleOutput, null, 2),
-      },
-      {
-        tag: "work_item",
-        content: JSON.stringify(
-          {
-            id: workItem.id,
-            title: workItem.title,
-            type: workItem.type,
-            description: workItem.description,
-          },
-          null,
-          2,
-        ),
-      },
-      {
-        tag: "clusters",
-        content: JSON.stringify(
-          clusters.map((cluster) => ({
-            clusterId: cluster.id,
-            title: cluster.title,
-            summary: cluster.summary,
-            theme: cluster.theme,
-            confidence: cluster.confidence,
-            evidenceItemIds: cluster.items.map((item) => item.evidenceItemId),
-          })),
-          null,
-          2,
-        ),
-      },
-      {
-        tag: "rejected_claim_guidance",
-        content: rejectedGuidance || "null",
-      },
-      {
-        tag: "evidence_items",
-        content: JSON.stringify(supportingEvidence, null, 2),
-      },
-      {
-        tag: "claims",
-        content: JSON.stringify(
-          claims.map((claim, index) => ({
-            claimIndex: index,
-            text: claim.text,
-            category: claim.category,
-            confidence: claim.confidence,
-            ownershipClarity: claim.ownershipClarity,
-            evidenceSummary: claim.evidenceCard.evidenceSummary,
-            rationaleSummary: claim.evidenceCard.rationaleSummary,
-            sourceRefs: claim.evidenceCard.sourceRefs,
-            risksSummary: claim.risksSummary,
-            missingInfo: claim.missingInfo,
-          })),
-          null,
-          2,
-        ),
-      },
-    ]);
-    const baseInputSummary = buildVerificationInputSummary({
-      workItemId: workItem.id,
-      workItemTitle: workItem.title,
-      systemPrompt,
-      userPrompt,
-      claimCount: claims.length,
-      clusterCount: clusters.length,
-      evidenceCount: supportingEvidence.length,
-    });
+    const aggregateAttempts: Array<Record<string, unknown>> = [];
+    const aggregateRawOutputs: Array<{ batchIndex: number; rawOutput: string | null }> = [];
+    const aggregateParsedResults: Array<Record<string, unknown>> = [];
+    const aggregateTokenUsage: Array<{
+      batchIndex: number;
+      tokenUsage: JsonValue | null;
+    }> = [];
+    const verifiedClaims = [...highlights];
+    let aggregateTransportMode: string | null = null;
+    let aggregateProvider = "bedrock";
+    let aggregateModelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured";
+    let aggregateEvidenceCount = 0;
 
     try {
-      const result = await structuredClient.generateStructured({
-        systemPrompt,
-        userPrompt,
-        schema: claimVerificationLlmOutputSchema,
-        schemaName: claimVerificationSchemaName,
-        schemaDescription: claimVerificationSchemaDescription,
-        jsonSchema: claimVerificationJsonSchema,
-        exampleOutput: claimVerificationExampleOutput,
-        requiredFieldPaths: claimVerificationRequiredFields,
-        repairMappings: claimVerificationRepairMappings,
-        maxTokens: 2600,
-        extraValidation: (value) => {
-          const errors: string[] = [];
-          const seenIndexes = new Set<number>();
+      for (const [batchIndex, batch] of highlightBatches.entries()) {
+        const referencedEvidenceIds = new Set(
+          batch.flatMap(({ highlight }) =>
+            highlight.evidence.sourceRefs.flatMap((sourceRef) =>
+              sourceRef.evidenceItemId ? [sourceRef.evidenceItemId] : [],
+            ),
+          ),
+        );
+        const batchEvidenceItems = (
+          referencedEvidenceIds.size
+            ? baseEvidence.filter((item) => referencedEvidenceIds.has(item.id))
+            : baseEvidence
+        ).map(mapSupportingEvidence);
+        const supportingEvidence = batchEvidenceItems.length
+          ? batchEvidenceItems
+          : baseEvidence.map(mapSupportingEvidence);
+        const userPrompt = formatTaggedSections([
+          {
+            tag: "task",
+            content:
+              "Review each candidate highlight and return exactly one verification result per highlight.",
+          },
+          {
+            tag: "rules",
+            content: [
+              "Return a top-level JSON object with a `results` array.",
+              "Each result object must include exactly these fields: claimIndex, revisedText, confidence, ownershipClarity, visibilitySuggestion, sensitivityWarning, shouldFlag, overstatementWarning, unsupportedImpactWarning, rationaleSummary, risksSummary, missingInfo, verificationNotes.",
+              "Preserve one result per input highlight in the same indexing space.",
+              "Use null for revisedText, risksSummary, missingInfo, or verificationNotes only when the field should be empty.",
+            ].join("\n"),
+          },
+          {
+            tag: "output_schema",
+            content: JSON.stringify(claimVerificationJsonSchema, null, 2),
+          },
+          {
+            tag: "required_fields",
+            content: JSON.stringify(claimVerificationRequiredFields, null, 2),
+          },
+          {
+            tag: "example_output",
+            content: JSON.stringify(claimVerificationExampleOutput, null, 2),
+          },
+          {
+            tag: "work_item",
+            content: JSON.stringify(
+              {
+                id: workItem.id,
+                title: workItem.title,
+                type: workItem.type,
+                description: workItem.description,
+              },
+              null,
+              2,
+            ),
+          },
+          {
+            tag: "rejected_claim_guidance",
+            content: rejectedGuidance || "null",
+          },
+          {
+            tag: "evidence_items",
+            content: JSON.stringify(supportingEvidence, null, 2),
+          },
+          {
+            tag: "highlights",
+            content: JSON.stringify(
+              batch.map(({ highlight }, localIndex) => ({
+                claimIndex: localIndex,
+                text: highlight.text,
+                confidence: highlight.confidence,
+                ownershipClarity: highlight.ownershipClarity,
+                evidenceSummary: highlight.summary,
+                rationaleSummary: highlight.verificationNotes,
+                sourceRefs: highlight.evidence.sourceRefs,
+                risksSummary: highlight.risksSummary,
+                missingInfo: highlight.missingInfo,
+              })),
+              null,
+              2,
+            ),
+          },
+        ]);
 
-          if (value.results.length !== claims.length) {
-            errors.push("Verification output must include exactly one result per input claim.");
-          }
+        const result = await structuredClient.generateStructured({
+          systemPrompt,
+          userPrompt,
+          schema: claimVerificationLlmOutputSchema,
+          schemaName: claimVerificationSchemaName,
+          schemaDescription: claimVerificationSchemaDescription,
+          jsonSchema: claimVerificationJsonSchema,
+          exampleOutput: claimVerificationExampleOutput,
+          requiredFieldPaths: claimVerificationRequiredFields,
+          repairMappings: claimVerificationRepairMappings,
+          maxTokens: 3200,
+          extraValidation: (value) => {
+            const errors: string[] = [];
+            const seenIndexes = new Set<number>();
 
-          value.results.forEach((item, index) => {
-            if (item.claimIndex < 0 || item.claimIndex >= claims.length) {
-              errors.push(`results[${index}] has an out-of-range claimIndex.`);
+            if (value.results.length !== batch.length) {
+              errors.push("Verification output must include exactly one result per input highlight.");
             }
 
-            if (seenIndexes.has(item.claimIndex)) {
-              errors.push(`results[${index}] repeats claimIndex ${item.claimIndex}.`);
-            }
+            value.results.forEach((item, index) => {
+              if (item.claimIndex < 0 || item.claimIndex >= batch.length) {
+                errors.push(`results[${index}] has an out-of-range claimIndex.`);
+              }
 
-            seenIndexes.add(item.claimIndex);
-          });
+              if (seenIndexes.has(item.claimIndex)) {
+                errors.push(`results[${index}] repeats claimIndex ${item.claimIndex}.`);
+              }
 
-          return errors;
-        },
-      });
+              seenIndexes.add(item.claimIndex);
+            });
 
-      const sourceMentionsSensitivity = supportingEvidence.some((item) =>
-        item.excerpts.some((excerpt) =>
-          /sensitive|confidential|internal|private dataset|customer/i.test(excerpt),
-        ),
-      );
+            return errors;
+          },
+        });
 
-      const verifiedClaims = claims.map((claim, index) => {
-        const verification = result.data.results.find(
-          (item) => item.claimIndex === index,
+        aggregateProvider = result.provider;
+        aggregateModelId = result.modelId;
+        aggregateTransportMode =
+          aggregateTransportMode == null || aggregateTransportMode === result.transportMode
+            ? result.transportMode
+            : "batched";
+        aggregateEvidenceCount += supportingEvidence.length;
+        aggregateAttempts.push({
+          batchIndex,
+          transportMode: result.transportMode,
+          attempts: JSON.parse(JSON.stringify(result.attempts)) as JsonValue,
+        });
+        aggregateRawOutputs.push({
+          batchIndex,
+          rawOutput: result.rawOutput,
+        });
+        aggregateTokenUsage.push({
+          batchIndex,
+          tokenUsage: (result.tokenUsage as JsonValue | null) ?? null,
+        });
+
+        const sourceMentionsSensitivity = supportingEvidence.some((item) =>
+          item.excerpts.some((excerpt) =>
+            /sensitive|confidential|internal|private dataset|customer/i.test(excerpt),
+          ),
         );
 
-        if (!verification) {
-          return claim;
-        }
+        for (const { highlight, originalIndex } of batch) {
+          const localIndex = batch.findIndex((entry) => entry.originalIndex === originalIndex);
+          const verification = result.data.results.find(
+            (item) => item.claimIndex === localIndex,
+          );
 
-        const risks = [claim.risksSummary, verification.risksSummary].filter(Boolean);
-        let verificationStatus = claim.verificationStatus;
-        let visibility = verification.visibilitySuggestion;
-        const sensitivityFlag =
-          claim.sensitivityFlag || verification.sensitivityWarning || sourceMentionsSensitivity;
-        let confidence = verification.confidence;
-        const ownershipClarity = verification.ownershipClarity;
+          if (!verification) {
+            continue;
+          }
 
-        if (verification.shouldFlag || verification.overstatementWarning) {
-          verificationStatus = "flagged";
-          confidence = downgradeConfidence(confidence);
-          risks.push("Wording may overstate impact relative to the available evidence.");
-        }
+          aggregateParsedResults.push({
+            ...verification,
+            claimIndex: originalIndex,
+          });
 
-        if (verification.unsupportedImpactWarning) {
-          verificationStatus = "flagged";
-          confidence = downgradeConfidence(confidence);
-          risks.push("Claim impact needs stronger evidence before approval.");
-        }
+          const risks = [highlight.risksSummary, verification.risksSummary].filter(Boolean);
+          let verificationStatus = highlight.verificationStatus;
+          let visibility = verification.visibilitySuggestion;
+          const sensitivityFlag =
+            highlight.sensitivityFlag ||
+            verification.sensitivityWarning ||
+            sourceMentionsSensitivity;
+          let confidence = verification.confidence;
+          const ownershipClarity = verification.ownershipClarity;
 
-        if (ownershipClarity !== "clear") {
-          risks.push("Clarify individual ownership before using in a public artifact.");
-        }
+          if (verification.shouldFlag || verification.overstatementWarning) {
+            verificationStatus = "flagged";
+            confidence = downgradeConfidence(confidence);
+            risks.push("Wording may overstate impact relative to the available evidence.");
+          }
 
-        if (sensitivityFlag) {
-          verificationStatus = "flagged";
-          visibility = "private";
-          risks.push("Potentially sensitive material should stay private until reviewed.");
-        }
+          if (verification.unsupportedImpactWarning) {
+            verificationStatus = "flagged";
+            confidence = downgradeConfidence(confidence);
+            risks.push("Claim impact needs stronger evidence before approval.");
+          }
 
-        if (!claim.evidenceCard.sourceRefs.length) {
-          verificationStatus = "flagged";
-          confidence = "low";
-          risks.push("No source reference is attached to this claim.");
-        }
+          if (ownershipClarity !== "clear") {
+            risks.push("Clarify individual ownership before using in a public artifact.");
+          }
 
-        return {
-          ...claim,
-          text: resolveVerifiedClaimText(claim.text, verification.revisedText),
-          confidence,
-          ownershipClarity,
-          verificationStatus,
-          visibility,
-          sensitivityFlag,
-          rejectionReason: null,
-          risksSummary: risks.join(" ").trim() || null,
-          missingInfo: verification.missingInfo ?? claim.missingInfo ?? null,
-          evidenceCard: {
-            ...claim.evidenceCard,
-            rationaleSummary: verification.rationaleSummary,
+          if (sensitivityFlag) {
+            verificationStatus = "flagged";
+            visibility = "private";
+            risks.push("Potentially sensitive material should stay private until reviewed.");
+          }
+
+          if (!highlight.evidence.sourceRefs.length) {
+            verificationStatus = "flagged";
+            confidence = "low";
+            risks.push("No source reference is attached to this highlight.");
+          }
+
+          verifiedClaims[originalIndex] = {
+            ...highlight,
+            text: resolveVerifiedClaimText(highlight.text, verification.revisedText),
+            confidence,
+            ownershipClarity,
+            verificationStatus,
+            visibility,
+            sensitivityFlag,
+            rejectionReason: null,
+            risksSummary: risks.join(" ").trim() || null,
+            missingInfo: verification.missingInfo ?? highlight.missingInfo ?? null,
+            summary: highlight.summary,
             verificationNotes:
-              [claim.evidenceCard.verificationNotes, verification.verificationNotes]
+              [highlight.verificationNotes, verification.verificationNotes, verification.rationaleSummary]
                 .filter(Boolean)
                 .join(" ")
                 .trim() || null,
-          },
-        };
+            metadata: {
+              ...(typeof highlight.metadata === "object" &&
+              highlight.metadata &&
+              !Array.isArray(highlight.metadata)
+                ? highlight.metadata
+                : {}),
+              rationaleSummary: verification.rationaleSummary,
+            },
+            evidence: {
+              ...highlight.evidence,
+              summary: highlight.summary,
+              verificationNotes:
+                [highlight.verificationNotes, verification.verificationNotes]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim() || null,
+            },
+            tags: inferHighlightTags({
+              text: resolveVerifiedClaimText(highlight.text, verification.revisedText),
+              summary: highlight.summary,
+              verificationNotes:
+                [verification.verificationNotes, verification.rationaleSummary, verification.risksSummary]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim() || null,
+            }),
+          };
+        }
+      }
+
+      const baseInputSummary = buildVerificationInputSummary({
+        workItemId: workItem.id,
+        workItemTitle: workItem.title,
+        systemPrompt,
+        userPrompt: `Batched highlight verification across ${highlightBatches.length} batches.`,
+        claimCount: highlights.length,
+        clusterCount: 0,
+        evidenceCount: aggregateEvidenceCount,
+        transportMode: aggregateTransportMode,
+        attempts: aggregateAttempts as JsonValue,
       });
 
       const generationRun = await createGenerationRun({
         workItemId: workItem.id,
-        kind: "claim_verification",
+        kind: "highlight_verification",
         status: "success",
-        provider: result.provider,
-        modelId: result.modelId,
+        provider: aggregateProvider,
+        modelId: aggregateModelId,
         inputSummary: {
           ...baseInputSummary,
-          transportMode: result.transportMode,
-          transportAttempts: JSON.parse(
-            JSON.stringify(result.attempts),
-          ) as Prisma.InputJsonValue,
+          transportMode: aggregateTransportMode,
+          transportAttempts: aggregateAttempts as Prisma.InputJsonValue,
         } as Prisma.InputJsonValue,
-        rawOutput: result.rawOutput,
-        parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
+        rawOutput: JSON.stringify(aggregateRawOutputs, null, 2),
+        parsedOutput: {
+          results: aggregateParsedResults,
+        } as Prisma.InputJsonValue,
         validationErrors: null,
         resultRefs: null,
-        tokenUsage: (result.tokenUsage as Prisma.InputJsonValue | null) ?? null,
-        estimatedCostUsd: result.estimatedCostUsd,
+        tokenUsage: {
+          batches: aggregateTokenUsage,
+        } as Prisma.InputJsonValue,
+        estimatedCostUsd: null,
       });
 
       return attachGenerationRunMetadata(verifiedClaims, {
         id: generationRun.id,
-        kind: "claim_verification",
+        kind: "highlight_verification",
       });
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
+      const baseInputSummary = buildVerificationInputSummary({
+        workItemId: workItem.id,
+        workItemTitle: workItem.title,
+        systemPrompt,
+        userPrompt: `Batched highlight verification across ${highlightBatches.length} batches.`,
+        claimCount: highlights.length,
+        clusterCount: 0,
+        evidenceCount: baseEvidence.length,
+        transportMode: failure?.transportMode ?? null,
+        attempts:
+          failure?.attempts == null
+            ? (aggregateAttempts as JsonValue)
+            : ([
+                ...aggregateAttempts,
+                {
+                  batchIndex: aggregateAttempts.length,
+                  transportMode: failure.transportMode,
+                  attempts: JSON.parse(JSON.stringify(failure.attempts)) as JsonValue,
+                },
+              ] as JsonValue),
+      });
 
       await createGenerationRun({
         workItemId: workItem.id,
-        kind: "claim_verification",
+        kind: "highlight_verification",
         status: failure?.status ?? "provider_error",
         provider: "bedrock",
         modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",

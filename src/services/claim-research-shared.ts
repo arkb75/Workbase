@@ -1,4 +1,9 @@
-import type { ClaimDraft, NormalizedEvidenceItem, WorkItemSnapshot } from "@/src/domain/types";
+import type {
+  HighlightDraft,
+  NormalizedEvidenceItem,
+  WorkItemSnapshot,
+} from "@/src/domain/types";
+import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { toSentence } from "@/src/lib/utils";
 
 export function isRejectedGuidanceSource(source: NormalizedEvidenceItem) {
@@ -6,7 +11,8 @@ export function isRejectedGuidanceSource(source: NormalizedEvidenceItem) {
     typeof source.metadata === "object" &&
     source.metadata &&
     "kind" in source.metadata &&
-    source.metadata.kind === "rejected_claim_context"
+    (source.metadata.kind === "rejected_highlight_context" ||
+      source.metadata.kind === "rejected_claim_context")
   );
 }
 
@@ -119,7 +125,33 @@ export function readResearchRefSourceId(
 
 export function normalizeResearchDrafts(
   output: {
-    claims: Array<{
+    highlights?: Array<{
+      text?: string;
+      claimText?: string;
+      category: string;
+      confidence: "low" | "medium" | "high";
+      ownershipClarity: "unclear" | "partial" | "clear";
+      summary?: string;
+      evidenceSummary?: string;
+      rationaleSummary: string;
+      risksSummary?: string | null;
+      missingInfo?: string | null;
+      sourceRefs: Array<
+        | {
+            evidenceItemId?: string;
+            sourceId: string;
+            sourceLabel: string;
+            sourceType: "manual_note" | "github_repo";
+            title?: string;
+            excerpt: string;
+          }
+        | { evidenceItemId: string }
+        | { id: string }
+        | { sourceId: string }
+        | string
+      >;
+    }>;
+    claims?: Array<{
       claimText: string;
       category: string;
       confidence: "low" | "medium" | "high";
@@ -159,21 +191,43 @@ export function normalizeResearchDrafts(
     }
   }
 
-  return output.claims.map<ClaimDraft>((claim) => ({
-    text: toSentence(claim.claimText),
-    category: claim.category,
-    confidence: claim.confidence,
-    ownershipClarity: claim.ownershipClarity,
-    sensitivityFlag: false,
-    verificationStatus: "draft",
-    visibility: "resume_safe",
-    risksSummary: claim.risksSummary ?? null,
-    missingInfo: claim.missingInfo ?? null,
-    rejectionReason: null,
-    evidenceCard: {
-      evidenceSummary: claim.evidenceSummary,
-      rationaleSummary: claim.rationaleSummary,
-      sourceRefs: claim.sourceRefs.flatMap((sourceRef) => {
+  const drafts = output.highlights ?? output.claims ?? [];
+
+  return drafts.map<HighlightDraft>((highlight) => {
+    const text =
+      ("text" in highlight && typeof highlight.text === "string" ? highlight.text : null) ??
+      highlight.claimText ??
+      "";
+    const summary =
+      ("summary" in highlight && typeof highlight.summary === "string"
+        ? highlight.summary
+        : null) ??
+      highlight.evidenceSummary ??
+      "";
+
+    return {
+      text: toSentence(text),
+      confidence: highlight.confidence,
+      ownershipClarity: highlight.ownershipClarity,
+      sensitivityFlag: false,
+      verificationStatus: "draft",
+      visibility: "resume_safe",
+      risksSummary: highlight.risksSummary ?? null,
+      missingInfo: highlight.missingInfo ?? null,
+      rejectionReason: null,
+      summary,
+      verificationNotes:
+        [highlight.rationaleSummary, highlight.missingInfo, highlight.risksSummary]
+          .filter(Boolean)
+          .join(" ")
+          .trim() || null,
+      metadata: {
+        legacyCategory: highlight.category,
+        rationaleSummary: highlight.rationaleSummary,
+      },
+      evidence: {
+        summary,
+        sourceRefs: highlight.sourceRefs.flatMap((sourceRef) => {
         const evidenceItemId = readResearchRefEvidenceItemId(sourceRef);
         const sourceId = readResearchRefSourceId(sourceRef);
         const catalogRef =
@@ -219,9 +273,16 @@ export function normalizeResearchDrafts(
           },
         ];
       }),
-      verificationNotes:
-        [claim.missingInfo, claim.risksSummary].filter(Boolean).join(" ").trim() ||
-        "Review wording against the cited source excerpts before approval.",
-    },
-  }));
+      },
+      tags: inferHighlightTags({
+        text: toSentence(text),
+        summary,
+        verificationNotes:
+          [highlight.rationaleSummary, highlight.missingInfo, highlight.risksSummary]
+            .filter(Boolean)
+            .join(" ")
+            .trim(),
+      }),
+    };
+  });
 }

@@ -154,6 +154,86 @@ export function buildClaimResearchJsonSchema(params: {
   } satisfies JsonSchemaObject;
 }
 
+export function buildHighlightGenerationJsonSchema(params: {
+  minHighlights: number;
+  maxHighlights: number;
+}) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["highlights"],
+    properties: {
+      highlights: {
+        type: "array",
+        minItems: params.minHighlights,
+        maxItems: params.maxHighlights,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "text",
+            "category",
+            "confidence",
+            "ownershipClarity",
+            "summary",
+            "rationaleSummary",
+            "sourceRefs",
+            "risksSummary",
+            "missingInfo",
+          ],
+          properties: {
+            text: {
+              type: "string",
+              minLength: 10,
+              maxLength: 240,
+            },
+            category: {
+              type: "string",
+              enum: [...claimCategoryEnum],
+            },
+            confidence: {
+              type: "string",
+              enum: [...confidenceEnum],
+            },
+            ownershipClarity: {
+              type: "string",
+              enum: [...ownershipClarityEnum],
+            },
+            summary: {
+              type: "string",
+              minLength: 16,
+              maxLength: 500,
+            },
+            rationaleSummary: {
+              type: "string",
+              minLength: 16,
+              maxLength: 500,
+            },
+            risksSummary: nullableString(500),
+            missingInfo: nullableString(500),
+            sourceRefs: {
+              type: "array",
+              minItems: 1,
+              maxItems: 4,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["evidenceItemId"],
+                properties: {
+                  evidenceItemId: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  } satisfies JsonSchemaObject;
+}
+
 export const claimResearchSchemaName = "workbase_claim_research";
 export const claimResearchSchemaDescription =
   "Structured Workbase claim drafts grounded in provided evidence references.";
@@ -200,6 +280,54 @@ export const claimResearchRepairMappings = [
   "Map evidenceRefs to sourceRefs.",
   "If description contains evidence grounding and evidenceSummary is missing, map description to evidenceSummary.",
   "Do not invent missing claimText, evidenceSummary, or rationaleSummary. If they cannot be recovered from the original output, keep the repair faithful and let validation fail.",
+] as const;
+
+export const highlightGenerationSchemaName = "workbase_highlight_generation";
+export const highlightGenerationSchemaDescription =
+  "Structured reusable Workbase highlights grounded in provided evidence references.";
+export const highlightGenerationExampleOutput = {
+  highlights: [
+    {
+      text:
+        "Implemented a trainable feed ranking model using investor interaction signals.",
+      category: "ai_ml",
+      confidence: "high",
+      ownershipClarity: "partial",
+      summary:
+        "README and commit evidence point to logistic regression feed ranking and investor-interaction training data.",
+      rationaleSummary:
+        "The evidence explicitly references the ranking model, training pipeline, and behavioral signals without claiming unsupported impact.",
+      risksSummary:
+        "Clarify whether model design decisions were made independently or in collaboration.",
+      missingInfo: null,
+      sourceRefs: [
+        {
+          evidenceItemId: "ev_01",
+        },
+        {
+          evidenceItemId: "ev_02",
+        },
+      ],
+    },
+  ],
+} satisfies JsonValue;
+export const highlightGenerationRequiredFields = [
+  "highlights",
+  "highlights[].text",
+  "highlights[].category",
+  "highlights[].confidence",
+  "highlights[].ownershipClarity",
+  "highlights[].summary",
+  "highlights[].rationaleSummary",
+  "highlights[].sourceRefs",
+  "highlights[].risksSummary",
+  "highlights[].missingInfo",
+] as const;
+export const highlightGenerationRepairMappings = [
+  "Map claimText, title, claim, or highlightText to text.",
+  "Map evidenceRefs to sourceRefs.",
+  "Map evidenceSummary or description to summary only if summary is missing.",
+  "Do not invent missing text, summary, or rationaleSummary. If they cannot be recovered from the original output, keep the repair faithful and let validation fail.",
 ] as const;
 
 export const claimVerificationJsonSchema = {
@@ -438,17 +566,26 @@ export const evidenceClusteringRequiredFields = [
 export const artifactGenerationJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["content", "usedClaimIds"],
+  required: ["content", "usedHighlightIds", "supportingEvidenceItemIds"],
   properties: {
     content: {
       type: "string",
       minLength: 20,
       maxLength: 4000,
     },
-    usedClaimIds: {
+    usedHighlightIds: {
       type: "array",
       minItems: 1,
-      maxItems: 3,
+      maxItems: 8,
+      items: {
+        type: "string",
+        minLength: 1,
+      },
+    },
+    supportingEvidenceItemIds: {
+      type: "array",
+      minItems: 0,
+      maxItems: 12,
       items: {
         type: "string",
         minLength: 1,
@@ -459,13 +596,15 @@ export const artifactGenerationJsonSchema = {
 
 export const artifactGenerationSchemaName = "workbase_artifact_generation";
 export const artifactGenerationSchemaDescription =
-  "Structured artifact draft content grounded only in approved Workbase claims.";
+  "Structured artifact draft content grounded only in approved Workbase highlights and bounded supporting evidence.";
 export const artifactGenerationExampleOutput = {
   content:
     "- Implemented a trainable feed ranking model using investor interaction signals and deterministic fallbacks.",
-  usedClaimIds: ["claim-01"],
+  usedHighlightIds: ["highlight-01"],
+  supportingEvidenceItemIds: ["ev-01"],
 } satisfies JsonValue;
 export const artifactGenerationRequiredFields = [
   "content",
-  "usedClaimIds",
+  "usedHighlightIds",
+  "supportingEvidenceItemIds",
 ] as const;

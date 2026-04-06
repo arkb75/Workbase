@@ -15,25 +15,23 @@ import {
   githubRepoImportSchema,
   manualSourceSchema,
   onboardingSchema,
-  reclusterEvidenceSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
-import { getEligibleClaimsForArtifact } from "@/src/domain/artifact-eligibility";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { buildArtifactFromApprovedClaims, buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
-import { evidenceClustersAreStale } from "@/src/lib/evidence-items";
 import {
-  persistEvidenceClusters,
+  createHighlightWithRelations,
   syncManualEvidenceItemsForWorkItem,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
+import { coerceHighlightTagAssignments } from "@/src/lib/highlight-tags";
 import { artifactGenerationService } from "@/src/services/artifact-generation-service";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
-import { evidenceClusteringService } from "@/src/services/evidence-clustering-service";
 import { githubRepoImportService } from "@/src/services/github-repo-import-service";
+import { highlightRetrievalService } from "@/src/services/highlight-retrieval-service";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
 
 function toRepositorySummaryJsonValue(repository: {
@@ -91,9 +89,13 @@ async function importGitHubRepositoryIntoWorkItem(input: {
       workItemId: item.workItemId,
       sourceId: item.sourceId,
       externalId: item.externalId,
+      sourceType: item.source.type,
       type: item.type,
       title: item.title,
       content: item.content,
+      searchText: item.searchText,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
       included: item.included,
       metadata: item.metadata,
     })),
@@ -185,6 +187,9 @@ function mapEvidenceItemSnapshot(item: {
     | "github_release";
   title: string;
   content: string;
+  searchText: string;
+  parentKind: string | null;
+  parentKey: string | null;
   included: boolean;
   metadata: unknown;
   createdAt: Date;
@@ -195,6 +200,11 @@ function mapEvidenceItemSnapshot(item: {
     type: "manual_note" | "github_repo";
     externalId: string | null;
   };
+  tags?: Array<{
+    dimension: "domain" | "competency" | "emphasis" | "audience_fit";
+    tag: string;
+    score: number | null;
+  }>;
 }) {
   return {
     id: item.id,
@@ -204,6 +214,9 @@ function mapEvidenceItemSnapshot(item: {
     type: item.type,
     title: item.title,
     content: item.content,
+    searchText: item.searchText,
+    parentKind: item.parentKind,
+    parentKey: item.parentKey,
     included: item.included,
     metadata: (item.metadata as JsonValue | null) ?? null,
     source: {
@@ -212,42 +225,15 @@ function mapEvidenceItemSnapshot(item: {
       type: item.source.type,
       externalId: item.source.externalId,
     },
+    tags: coerceHighlightTagAssignments(
+      item.tags?.map((tag) => ({
+        dimension: tag.dimension,
+        tag: tag.tag,
+        score: tag.score,
+      })) ?? [],
+    ),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-  };
-}
-
-function mapEvidenceClusterSnapshot(cluster: {
-  id: string;
-  workItemId: string;
-  title: string;
-  summary: string;
-  theme: string;
-  confidence: "low" | "medium" | "high";
-  metadata: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-  items: Array<{
-    id: string;
-    evidenceItemId: string;
-    relevanceScore: number | null;
-  }>;
-}) {
-  return {
-    id: cluster.id,
-    workItemId: cluster.workItemId,
-    title: cluster.title,
-    summary: cluster.summary,
-    theme: cluster.theme,
-    confidence: cluster.confidence,
-    metadata: (cluster.metadata as JsonValue | null) ?? null,
-    items: cluster.items.map((item) => ({
-      id: item.id,
-      evidenceItemId: item.evidenceItemId,
-      relevanceScore: item.relevanceScore,
-    })),
-    createdAt: cluster.createdAt,
-    updatedAt: cluster.updatedAt,
   };
 }
 
@@ -266,87 +252,38 @@ async function getWorkItemGenerationContext(userId: string, workItemId: string) 
       evidenceItems: {
         include: {
           source: true,
+          tags: true,
         },
         orderBy: {
           createdAt: "asc",
         },
       },
-      evidenceClusters: {
+      highlights: {
         include: {
-          items: {
-            orderBy: {
-              createdAt: "asc",
+          evidence: {
+            include: {
+              evidenceItem: {
+                include: {
+                  source: true,
+                },
+              },
             },
           },
+          tags: true,
         },
         orderBy: {
           updatedAt: "desc",
         },
       },
-      claims: {
-        include: {
-          evidenceCard: true,
-        },
-      },
     },
   });
 }
-
-async function ensureFreshEvidenceClusters(input: {
-  userId: string;
-  workItemId: string;
-}) {
-  await syncManualEvidenceItemsForWorkItem(input.workItemId);
-  const workItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
-  const includedEvidenceItems = workItem.evidenceItems
-    .map(mapEvidenceItemSnapshot)
-    .filter((item) => item.included);
-  const latestClusterUpdatedAt = workItem.evidenceClusters[0]?.updatedAt ?? null;
-
-  if (!includedEvidenceItems.length) {
-    return {
-      workItem,
-      didRecluster: false,
-      clusteringGenerationRunId: null as string | null,
-    };
-  }
-
-  if (!evidenceClustersAreStale(includedEvidenceItems, latestClusterUpdatedAt)) {
-    return {
-      workItem,
-      didRecluster: false,
-      clusteringGenerationRunId: null as string | null,
-    };
-  }
-
-  const clusteringResult = await evidenceClusteringService.cluster({
-    workItem: mapWorkItemSnapshot(workItem),
-    evidenceItems: includedEvidenceItems,
-  });
-
-  await persistEvidenceClusters(workItem.id, clusteringResult.clusters);
-
-  const refreshedWorkItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
-
-  if (clusteringResult.generationRunId) {
-    await updateGenerationRunResultRefs(clusteringResult.generationRunId, {
-      persistedClusterIds: refreshedWorkItem.evidenceClusters.map((cluster) => cluster.id),
-      includedEvidenceItemIds: includedEvidenceItems.map((item) => item.id),
-    } as Prisma.InputJsonValue);
-  }
-
-  return {
-    workItem: refreshedWorkItem,
-    didRecluster: true,
-    clusteringGenerationRunId: clusteringResult.generationRunId,
-  };
-}
-
 function mapClaimSnapshot(claim: {
   id: string;
   workItemId: string;
   text: string;
-  category: string | null;
+  summary: string;
+  searchText: string;
   confidence: "low" | "medium" | "high";
   ownershipClarity: "unclear" | "partial" | "clear";
   sensitivityFlag: boolean;
@@ -355,18 +292,36 @@ function mapClaimSnapshot(claim: {
   risksSummary: string | null;
   missingInfo: string | null;
   rejectionReason: string | null;
-  evidenceCard: {
-    evidenceSummary: string;
-    rationaleSummary: string;
-    sourceRefs: unknown;
-    verificationNotes: string | null;
-  } | null;
+  verificationNotes: string | null;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  evidence: Array<{
+    evidenceItemId: string;
+    relevanceScore: number | null;
+    evidenceItem: {
+      id: string;
+      sourceId: string;
+      title: string;
+      content: string;
+      source: {
+        label: string;
+        type: "manual_note" | "github_repo";
+      };
+    };
+  }>;
+  tags: Array<{
+    dimension: "domain" | "competency" | "emphasis" | "audience_fit";
+    tag: string;
+    score: number | null;
+  }>;
 }) {
   return {
     id: claim.id,
     workItemId: claim.workItemId,
     text: claim.text,
-    category: claim.category,
+    summary: claim.summary,
+    searchText: claim.searchText,
     confidence: claim.confidence,
     ownershipClarity: claim.ownershipClarity,
     sensitivityFlag: claim.sensitivityFlag,
@@ -375,14 +330,29 @@ function mapClaimSnapshot(claim: {
     risksSummary: claim.risksSummary,
     missingInfo: claim.missingInfo,
     rejectionReason: claim.rejectionReason,
-    evidenceCard: {
-      evidenceSummary: claim.evidenceCard?.evidenceSummary ?? "",
-      rationaleSummary: claim.evidenceCard?.rationaleSummary ?? "",
-      sourceRefs: Array.isArray(claim.evidenceCard?.sourceRefs)
-        ? (claim.evidenceCard?.sourceRefs as [])
-        : [],
-      verificationNotes: claim.evidenceCard?.verificationNotes ?? null,
+    verificationNotes: claim.verificationNotes ?? null,
+    metadata: (claim.metadata as JsonValue | null) ?? null,
+    createdAt: claim.createdAt,
+    updatedAt: claim.updatedAt,
+    evidence: {
+      summary: claim.summary,
+      sourceRefs: claim.evidence.map((item) => ({
+        evidenceItemId: item.evidenceItemId,
+        sourceId: item.evidenceItem.sourceId,
+        sourceLabel: item.evidenceItem.source.label,
+        sourceType: item.evidenceItem.source.type,
+        title: item.evidenceItem.title,
+        excerpt: item.evidenceItem.content,
+      })),
+      verificationNotes: claim.verificationNotes ?? null,
     },
+    tags: coerceHighlightTagAssignments(
+      claim.tags.map((tag) => ({
+        dimension: tag.dimension,
+        tag: tag.tag,
+        score: tag.score,
+      })),
+    ),
   };
 }
 
@@ -646,55 +616,21 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
 }
 
 export async function reclusterEvidenceAction(formData: FormData) {
-  const demoUser = await ensureDemoUser();
-  const parsed = reclusterEvidenceSchema.safeParse({
-    workItemId: formData.get("workItemId"),
-  });
-
-  if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}?error=invalid-cluster`);
-  }
-
-  let workItemState;
-
-  try {
-    workItemState = await ensureFreshEvidenceClusters({
-      userId: demoUser.id,
-      workItemId: parsed.data.workItemId,
-    });
-  } catch {
-    redirect(`/work-items/${parsed.data.workItemId}?error=clustering-failed`);
-  }
-
-  revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-  redirect(
-    `/work-items/${parsed.data.workItemId}?result=${
-      workItemState.didRecluster ? "reclustered" : "clusters-current"
-    }`,
-  );
+  const workItemId = String(formData.get("workItemId") ?? "");
+  revalidatePath(`/work-items/${workItemId}`);
+  redirect(`/work-items/${workItemId}?result=clusters-current`);
 }
 
 export async function generateClaimsAction(workItemId: string) {
   const demoUser = await ensureDemoUser();
-  let workItemState;
-
-  try {
-    workItemState = await ensureFreshEvidenceClusters({
-      userId: demoUser.id,
-      workItemId,
-    });
-  } catch {
-    redirect(`/work-items/${workItemId}/claims?error=claim-generation-failed`);
-  }
-
-  const workItem = workItemState.workItem;
+  await syncManualEvidenceItemsForWorkItem(workItemId);
+  const workItem = await getWorkItemGenerationContext(demoUser.id, workItemId);
   const includedEvidenceItems = workItem.evidenceItems
     .map(mapEvidenceItemSnapshot)
     .filter((item) => item.included);
 
   if (!includedEvidenceItems.length) {
-    redirect(`/work-items/${workItem.id}/claims?error=claim-generation-failed`);
+    redirect(`/work-items/${workItem.id}/claims?error=highlight-generation-failed`);
   }
 
   let claimPlan;
@@ -704,20 +640,19 @@ export async function generateClaimsAction(workItemId: string) {
       workItem: mapWorkItemSnapshot(workItem),
       sources: workItem.sources.map(mapSourceSnapshot),
       evidenceItems: includedEvidenceItems,
-      clusters: workItem.evidenceClusters.map(mapEvidenceClusterSnapshot),
-      existingClaims: workItem.claims.map(mapClaimSnapshot),
+      existingClaims: workItem.highlights.map(mapClaimSnapshot),
       sourceIngestionService,
       claimResearchService,
       claimVerificationService,
     });
   } catch {
-    redirect(`/work-items/${workItem.id}/claims?error=claim-generation-failed`);
+    redirect(`/work-items/${workItem.id}/claims?error=highlight-generation-failed`);
   }
 
-  const createdClaimIds: string[] = [];
+  const createdHighlightIds: string[] = [];
   await prisma.$transaction(async (tx) => {
     if (claimPlan.replaceableClaims.length) {
-      await tx.claim.deleteMany({
+      await tx.highlight.deleteMany({
         where: {
           id: {
             in: claimPlan.replaceableClaims.map((claim) => claim.id),
@@ -727,46 +662,26 @@ export async function generateClaimsAction(workItemId: string) {
     }
 
     for (const draft of claimPlan.drafts) {
-      const createdClaim = await tx.claim.create({
-        data: {
-          workItemId: workItem.id,
-          text: draft.text,
-          category: draft.category ?? null,
-          confidence: draft.confidence,
-          ownershipClarity: draft.ownershipClarity,
-          sensitivityFlag: draft.sensitivityFlag,
-          verificationStatus: draft.verificationStatus,
-          visibility: draft.visibility,
-          risksSummary: draft.risksSummary ?? null,
-          missingInfo: draft.missingInfo ?? null,
-          rejectionReason: draft.rejectionReason ?? null,
-          evidenceCard: {
-            create: {
-              evidenceSummary: draft.evidenceCard.evidenceSummary,
-              rationaleSummary: draft.evidenceCard.rationaleSummary,
-              sourceRefs:
-                draft.evidenceCard.sourceRefs as unknown as Prisma.InputJsonValue,
-              verificationNotes: draft.evidenceCard.verificationNotes ?? null,
-            },
-          },
-        },
+      const createdHighlight = await createHighlightWithRelations({
+        tx,
+        workItemId: workItem.id,
+        draft,
       });
 
-      createdClaimIds.push(createdClaim.id);
+      createdHighlightIds.push(createdHighlight.id);
     }
   });
 
   await Promise.allSettled(
     [
-      ...claimPlan.generationRunIds.clusterResearch,
-      claimPlan.generationRunIds.merge,
+      ...claimPlan.generationRunIds.generation,
       claimPlan.generationRunIds.verification,
     ]
       .filter(Boolean)
       .map((generationRunId) =>
         updateGenerationRunResultRefs(generationRunId!, {
-          persistedClaimIds: createdClaimIds,
-          preservedClaimIds: claimPlan.preservedClaims.map((claim) => claim.id),
+          persistedHighlightIds: createdHighlightIds,
+          preservedHighlightIds: claimPlan.preservedClaims.map((claim) => claim.id),
         } as Prisma.InputJsonValue),
       ),
   );
@@ -778,7 +693,7 @@ export async function generateClaimsAction(workItemId: string) {
 
 export async function updateClaimAction(claimId: string, formData: FormData) {
   const demoUser = await ensureDemoUser();
-  const claim = await prisma.claim.findFirstOrThrow({
+  const claim = await prisma.highlight.findFirstOrThrow({
     where: {
       id: claimId,
       workItem: {
@@ -786,7 +701,16 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       },
     },
     include: {
-      evidenceCard: true,
+      evidence: {
+        include: {
+          evidenceItem: {
+            include: {
+              source: true,
+            },
+          },
+        },
+      },
+      tags: true,
     },
   });
 
@@ -801,7 +725,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${claim.workItemId}/claims?error=invalid-claim`);
+    redirect(`/work-items/${claim.workItemId}/claims?error=invalid-highlight`);
   }
 
   const nextStatus = transitionClaimStatus(
@@ -813,7 +737,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       ? parsed.data.rejectionReason?.trim() || null
       : null;
 
-  await prisma.claim.update({
+  await prisma.highlight.update({
     where: {
       id: claim.id,
     },
@@ -823,13 +747,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       sensitivityFlag: parsed.data.sensitivityFlag,
       verificationStatus: nextStatus,
       rejectionReason: nextRejectionReason,
-      evidenceCard: claim.evidenceCard
-        ? {
-            update: {
-              verificationNotes: parsed.data.verificationNotes ?? null,
-            },
-          }
-        : undefined,
+      verificationNotes: parsed.data.verificationNotes ?? null,
     },
   });
 
@@ -866,20 +784,37 @@ export async function generateArtifactAction(formData: FormData) {
       userId: demoUser.id,
     },
     include: {
-      claims: {
+      highlights: {
         include: {
-          evidenceCard: true,
+          evidence: {
+            include: {
+              evidenceItem: {
+                include: {
+                  source: true,
+                },
+              },
+            },
+          },
+          tags: true,
+        },
+      },
+      evidenceItems: {
+        include: {
+          source: true,
+          tags: true,
         },
       },
     },
   });
-  const eligibleClaims = getEligibleClaimsForArtifact(
-    workItem.claims.map(mapClaimSnapshot),
-    parsed.data.type,
-  );
+  const eligibleClaims = workItem.highlights
+    .map(mapClaimSnapshot)
+    .filter(
+      (highlight) =>
+        highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
+    );
 
   if (!eligibleClaims.length) {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-claims`);
+    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-highlights`);
   }
 
   let artifactDraft;
@@ -893,11 +828,18 @@ export async function generateArtifactAction(formData: FormData) {
         targetAngle: parsed.data.targetAngle,
         tone: parsed.data.tone,
       },
-      claims: workItem.claims.map(mapClaimSnapshot),
+      workItem: mapWorkItemSnapshot(workItem),
+      highlights: workItem.highlights.map(mapClaimSnapshot),
+      evidenceItems: workItem.evidenceItems.map(mapEvidenceItemSnapshot),
+      highlightRetrievalService,
       artifactGenerationService,
     });
   } catch {
     redirect(`/work-items/${workItem.id}/artifacts/new?error=artifact-generation-failed`);
+  }
+
+  if (!artifactDraft.retrieval.highlights.length) {
+    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-highlights`);
   }
 
   const artifact = await prisma.artifact.create({
@@ -914,7 +856,16 @@ export async function generateArtifactAction(formData: FormData) {
   if (artifactDraft.generationRunId) {
     await updateGenerationRunResultRefs(artifactDraft.generationRunId, {
       artifactId: artifact.id,
-      usedClaimIds: artifactDraft.artifactDraft.usedClaimIds,
+      usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
+      supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
+    } as Prisma.InputJsonValue);
+  }
+
+  if (artifactDraft.retrieval.generationRunId) {
+    await updateGenerationRunResultRefs(artifactDraft.retrieval.generationRunId, {
+      artifactId: artifact.id,
+      usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
+      supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
     } as Prisma.InputJsonValue);
   }
 

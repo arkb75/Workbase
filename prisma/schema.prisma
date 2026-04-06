@@ -85,11 +85,21 @@ enum ArtifactTone {
   recruiter_friendly
 }
 
+enum TagDimension {
+  domain
+  competency
+  emphasis
+  audience_fit
+}
+
 enum GenerationKind {
   claim_research
   claim_cluster_research
   claim_merge
   claim_verification
+  highlight_generation
+  highlight_verification
+  artifact_retrieval
   artifact_generation
   evidence_clustering
 }
@@ -116,36 +126,35 @@ model User {
 }
 
 model WorkItem {
-  id              String            @id @default(cuid())
-  userId          String
-  title           String
-  type            WorkItemType
-  description     String
-  startDate       DateTime?
-  endDate         DateTime?
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sources         Source[]
-  evidenceItems   EvidenceItem[]
-  evidenceClusters EvidenceCluster[]
-  claims          Claim[]
-  artifacts       Artifact[]
-  generationRuns  GenerationRun[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id             String         @id @default(cuid())
+  userId         String
+  title          String
+  type           WorkItemType
+  description    String
+  startDate      DateTime?
+  endDate        DateTime?
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources        Source[]
+  evidenceItems  EvidenceItem[]
+  highlights     Highlight[]
+  artifacts      Artifact[]
+  generationRuns GenerationRun[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 }
 
 model Source {
-  id           String         @id @default(cuid())
-  workItemId   String
-  type         SourceType
-  label        String
-  externalId   String?
-  rawContent   String?
-  metadata     Json?
-  workItem     WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  workItemId    String
+  type          SourceType
+  label         String
+  externalId    String?
+  rawContent    String?
+  metadata      Json?
+  workItem      WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidenceItems EvidenceItem[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@unique([workItemId, type, externalId])
 }
@@ -163,82 +172,91 @@ model GitHubConnection {
 }
 
 model EvidenceItem {
-  id           String           @id @default(cuid())
-  workItemId   String
-  sourceId     String
-  externalId   String
-  type         EvidenceItemType
-  title        String
-  content      String
-  included     Boolean          @default(true)
-  metadata     Json?
-  workItem     WorkItem         @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  source       Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  clusterItems EvidenceClusterItem[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  workItemId        String
+  sourceId          String
+  externalId        String
+  type              EvidenceItemType
+  title             String
+  content           String
+  searchText        String
+  parentKind        String?
+  parentKey         String?
+  included          Boolean          @default(true)
+  metadata          Json?
+  workItem          WorkItem         @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  source            Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  highlightEvidence HighlightEvidence[]
+  tags              EvidenceTag[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@unique([sourceId, externalId])
   @@index([workItemId, included, updatedAt])
+  @@index([workItemId, parentKind, parentKey])
 }
 
-model EvidenceCluster {
-  id         String                @id @default(cuid())
-  workItemId String
-  title      String
-  summary    String
-  theme      String
-  confidence ClaimConfidence
-  metadata   Json?
-  workItem   WorkItem              @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  items      EvidenceClusterItem[]
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
-
-  @@index([workItemId, updatedAt])
-}
-
-model EvidenceClusterItem {
-  id            String          @id @default(cuid())
-  clusterId     String
+model EvidenceTag {
+  id             String       @id @default(cuid())
   evidenceItemId String
-  relevanceScore Float?
-  cluster       EvidenceCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
-  evidenceItem  EvidenceItem    @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
-  createdAt     DateTime        @default(now())
+  dimension      TagDimension
+  tag            String
+  score          Float?
+  evidenceItem   EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
 
-  @@unique([clusterId, evidenceItemId])
+  @@unique([evidenceItemId, dimension, tag])
+  @@index([dimension, tag])
 }
 
-model Claim {
-  id                String              @id @default(cuid())
+model Highlight {
+  id                String             @id @default(cuid())
   workItemId        String
   text              String
-  category          String?
+  summary           String
+  searchText        String
   confidence        ClaimConfidence
   ownershipClarity  OwnershipClarity
-  sensitivityFlag   Boolean             @default(false)
+  sensitivityFlag   Boolean            @default(false)
   verificationStatus VerificationStatus
   visibility        VisibilityLevel
   risksSummary      String?
   missingInfo       String?
   rejectionReason   String?
-  workItem          WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  evidenceCard      EvidenceCard?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  verificationNotes String?
+  metadata          Json?
+  workItem          WorkItem           @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  evidence          HighlightEvidence[]
+  tags              HighlightTag[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@map("Claim")
 }
 
-model EvidenceCard {
-  id                String   @id @default(cuid())
-  claimId           String   @unique
-  evidenceSummary   String
-  rationaleSummary  String
-  sourceRefs        Json
-  verificationNotes String?
-  claim             Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+model HighlightEvidence {
+  id             String       @id @default(cuid())
+  highlightId    String
+  evidenceItemId String
+  relevanceScore Float?
+  highlight      Highlight    @relation(fields: [highlightId], references: [id], onDelete: Cascade)
+  evidenceItem   EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([highlightId, evidenceItemId])
+}
+
+model HighlightTag {
+  id          String       @id @default(cuid())
+  highlightId String
+  dimension   TagDimension
+  tag         String
+  score       Float?
+  highlight   Highlight    @relation(fields: [highlightId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+
+  @@unique([highlightId, dimension, tag])
+  @@index([dimension, tag])
 }
 
 model Artifact {

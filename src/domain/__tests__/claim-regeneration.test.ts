@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { filterDuplicateClaimDrafts } from "@/src/domain/claim-regeneration";
 import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import type {
   ClaimDraft,
   ClaimSnapshot,
-  EvidenceClusterSnapshot,
   EvidenceItemSnapshot,
   NormalizedEvidenceItem,
   SourceSnapshot,
@@ -36,7 +36,7 @@ const sources: SourceSnapshot[] = [
     type: "manual_note",
     label: "Manual notes",
     rawContent:
-      "Built the first claim review screen. Built the first claim review screen. Collaborated with a teammate on wording.",
+      "Built the first highlight review screen. Built the first highlight review screen. Collaborated with a teammate on wording.",
     metadata: null,
   },
 ];
@@ -51,8 +51,12 @@ const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource
   type: item.type,
   title: item.title,
   content: item.content,
+  searchText: item.searchText,
+  parentKind: item.parentKind,
+  parentKey: item.parentKey,
   included: item.included,
   metadata: item.metadata,
+  tags: [],
   source: {
     id: sources[0].id,
     label: sources[0].label,
@@ -60,23 +64,6 @@ const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource
     externalId: sources[0].externalId ?? null,
   },
 }));
-
-const clusters: EvidenceClusterSnapshot[] = [
-  {
-    id: "cluster-1",
-    workItemId: workItem.id,
-    title: "Manual note implementation work",
-    summary: "Claim review screen implementation and collaboration notes.",
-    theme: "full_stack",
-    confidence: "medium",
-    metadata: null,
-    items: evidenceItems.map((item, index) => ({
-      id: `cluster-item-${index + 1}`,
-      evidenceItemId: item.id,
-      relevanceScore: 0.8,
-    })),
-  },
-];
 
 function makeExistingClaim(
   id: string,
@@ -87,7 +74,7 @@ function makeExistingClaim(
     id,
     workItemId: "work-item-1",
     text,
-    category: "full_stack",
+    summary: "Existing evidence",
     confidence: "medium",
     ownershipClarity: "clear",
     sensitivityFlag: false,
@@ -96,35 +83,104 @@ function makeExistingClaim(
     risksSummary: null,
     missingInfo: null,
     rejectionReason: status === "rejected" ? "Too vague for approval." : null,
-    evidenceCard: {
-      evidenceSummary: "Existing evidence",
-      rationaleSummary: "Existing rationale",
+    verificationNotes: "Existing rationale",
+    metadata: null,
+    evidence: {
+      summary: "Existing evidence",
+      verificationNotes: "Existing rationale",
       sourceRefs: [],
-      verificationNotes: null,
     },
+    tags: [],
   };
 }
 
 describe("claim regeneration behavior", () => {
-  it("preserves approved and rejected claims while replacing pending ones", async () => {
+  it("suppresses near-duplicate highlights that point at the same evidence", () => {
+    const filtered = filterDuplicateClaimDrafts(
+      [
+        {
+          text: "Built investor-founder messaging feature including product like and commit actions, UI components, and API routes in a full-stack web application.",
+          summary: "Grounded in PR #3.",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          sensitivityFlag: false,
+          verificationStatus: "draft",
+          visibility: "resume_safe",
+          risksSummary: null,
+          missingInfo: null,
+          rejectionReason: null,
+          verificationNotes: null,
+          metadata: null,
+          evidence: {
+            summary: "Grounded in PR #3.",
+            verificationNotes: null,
+            sourceRefs: [
+              {
+                evidenceItemId: "pr-3",
+                sourceId: "github-source",
+                sourceLabel: "arkb75/Backer",
+                sourceType: "github_repo",
+                excerpt:
+                  "PR #3: feat: Implement investor-founder messaging, product like/commit actions, and related UI components and API routes",
+              },
+            ],
+          },
+          tags: [],
+        },
+        {
+          text: "Implemented investor-founder messaging and product like/commit actions, including UI components and API routes, in a full-stack web application.",
+          summary: "Also grounded in PR #3.",
+          confidence: "medium",
+          ownershipClarity: "partial",
+          sensitivityFlag: false,
+          verificationStatus: "draft",
+          visibility: "resume_safe",
+          risksSummary: null,
+          missingInfo: null,
+          rejectionReason: null,
+          verificationNotes: null,
+          metadata: null,
+          evidence: {
+            summary: "Also grounded in PR #3.",
+            verificationNotes: null,
+            sourceRefs: [
+              {
+                evidenceItemId: "pr-3",
+                sourceId: "github-source",
+                sourceLabel: "arkb75/Backer",
+                sourceType: "github_repo",
+                excerpt:
+                  "PR #3: feat: Implement investor-founder messaging, product like/commit actions, and related UI components and API routes",
+              },
+            ],
+          },
+          tags: [],
+        },
+      ],
+      [],
+    );
+
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("preserves approved and rejected highlights while replacing pending ones", async () => {
     const result = await buildClaimGenerationDrafts({
       workItem,
       sources,
       evidenceItems,
-      clusters,
       existingClaims: [
         makeExistingClaim(
           "approved-1",
           "approved",
-          "Built the first claim review screen.",
+          "Built the first highlight review screen.",
         ),
         makeExistingClaim(
           "rejected-1",
           "rejected",
-          "Claim that should keep steering future generations away.",
+          "Highlight that should keep steering future generations away.",
         ),
-        makeExistingClaim("draft-1", "draft", "Outdated pending claim."),
-        makeExistingClaim("flagged-1", "flagged", "Potentially sensitive pending claim."),
+        makeExistingClaim("draft-1", "draft", "Outdated pending highlight."),
+        makeExistingClaim("flagged-1", "flagged", "Potentially sensitive pending highlight."),
       ],
       sourceIngestionService,
       claimResearchService,
@@ -141,17 +197,16 @@ describe("claim regeneration behavior", () => {
     ]);
   });
 
-  it("skips duplicate drafts against preserved claims and within the new draft set", async () => {
+  it("skips duplicate drafts against preserved highlights and within the new draft set", async () => {
     const result = await buildClaimGenerationDrafts({
       workItem,
       sources,
       evidenceItems,
-      clusters,
       existingClaims: [
         makeExistingClaim(
           "approved-1",
           "approved",
-          "Built the first claim review screen.",
+          "Built the first highlight review screen.",
         ),
         makeExistingClaim(
           "rejected-1",
@@ -167,11 +222,11 @@ describe("claim regeneration behavior", () => {
     const draftTexts = result.drafts.map((draft) => draft.text);
     const uniqueDraftTexts = new Set(draftTexts);
 
-    expect(draftTexts).not.toContain("Built the first claim review screen.");
+    expect(draftTexts).not.toContain("Built the first highlight review screen.");
     expect(uniqueDraftTexts.size).toBe(draftTexts.length);
   });
 
-  it("includes rejected claim reasons in the generation context assembly", async () => {
+  it("includes rejected highlight reasons in the generation context assembly", async () => {
     let capturedEvidenceItems: NormalizedEvidenceItem[] = [];
 
     const capturingSourceIngestionService: SourceIngestionService = {
@@ -184,8 +239,8 @@ describe("claim regeneration behavior", () => {
         capturedEvidenceItems = normalizedEvidenceItems;
 
         const draft: ClaimDraft = {
-          text: "Built the first claim review screen.",
-          category: "full_stack",
+          text: "Built the first highlight review screen.",
+          summary: "Grounded in the attached source.",
           confidence: "medium",
           ownershipClarity: "clear",
           sensitivityFlag: false,
@@ -194,33 +249,35 @@ describe("claim regeneration behavior", () => {
           risksSummary: null,
           missingInfo: null,
           rejectionReason: null,
-          evidenceCard: {
-            evidenceSummary: "Grounded in the attached source.",
-            rationaleSummary: "Matches the note closely.",
+          verificationNotes: "Matches the note closely.",
+          metadata: null,
+          evidence: {
+            summary: "Grounded in the attached source.",
             sourceRefs: [
               {
                 sourceId: "source-1",
                 sourceLabel: "Manual notes",
                 sourceType: "manual_note",
-                excerpt: "Built the first claim review screen.",
+                excerpt: "Built the first highlight review screen.",
               },
             ],
             verificationNotes: null,
           },
+          tags: [],
         };
 
         return {
-          claims: [draft],
+          highlights: [draft],
           generationRunIds: {
-            clusterResearch: [],
-            merge: null,
+            generation: [],
+            verification: null,
           },
         };
       },
     };
     const passthroughVerificationService: ClaimVerificationService = {
-      async verify({ claims }) {
-        return claims;
+      async verify({ highlights }) {
+        return highlights;
       },
     };
 
@@ -228,12 +285,11 @@ describe("claim regeneration behavior", () => {
       workItem,
       sources,
       evidenceItems,
-      clusters,
       existingClaims: [
         makeExistingClaim(
           "rejected-1",
           "rejected",
-          "Claim that should not be regenerated.",
+          "Highlight that should not be regenerated.",
         ),
       ],
       sourceIngestionService: capturingSourceIngestionService,
@@ -246,10 +302,11 @@ describe("claim regeneration behavior", () => {
         typeof evidenceItem.metadata === "object" &&
         evidenceItem.metadata &&
         "kind" in evidenceItem.metadata &&
-        evidenceItem.metadata.kind === "rejected_claim_context",
+        evidenceItem.metadata.kind === "rejected_highlight_context",
     );
 
-    expect(rejectedContext?.body).toContain("Claim that should not be regenerated.");
+    expect(rejectedContext?.body).toContain("Highlight that should not be regenerated.");
     expect(rejectedContext?.body).toContain("Too vague for approval.");
+    expect(rejectedContext?.searchText).toContain("Too vague for approval.");
   });
 });

@@ -56,10 +56,10 @@ export const ModelName = {
   Source: 'Source',
   GitHubConnection: 'GitHubConnection',
   EvidenceItem: 'EvidenceItem',
-  EvidenceCluster: 'EvidenceCluster',
-  EvidenceClusterItem: 'EvidenceClusterItem',
-  Claim: 'Claim',
-  EvidenceCard: 'EvidenceCard',
+  EvidenceTag: 'EvidenceTag',
+  Highlight: 'Highlight',
+  HighlightEvidence: 'HighlightEvidence',
+  HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
   GenerationRun: 'GenerationRun'
 } as const
@@ -146,6 +146,9 @@ export const EvidenceItemScalarFieldEnum = {
   type: 'type',
   title: 'title',
   content: 'content',
+  searchText: 'searchText',
+  parentKind: 'parentKind',
+  parentKey: 'parentKey',
   included: 'included',
   metadata: 'metadata',
   createdAt: 'createdAt',
@@ -155,37 +158,24 @@ export const EvidenceItemScalarFieldEnum = {
 export type EvidenceItemScalarFieldEnum = (typeof EvidenceItemScalarFieldEnum)[keyof typeof EvidenceItemScalarFieldEnum]
 
 
-export const EvidenceClusterScalarFieldEnum = {
+export const EvidenceTagScalarFieldEnum = {
   id: 'id',
-  workItemId: 'workItemId',
-  title: 'title',
-  summary: 'summary',
-  theme: 'theme',
-  confidence: 'confidence',
-  metadata: 'metadata',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type EvidenceClusterScalarFieldEnum = (typeof EvidenceClusterScalarFieldEnum)[keyof typeof EvidenceClusterScalarFieldEnum]
-
-
-export const EvidenceClusterItemScalarFieldEnum = {
-  id: 'id',
-  clusterId: 'clusterId',
   evidenceItemId: 'evidenceItemId',
-  relevanceScore: 'relevanceScore',
+  dimension: 'dimension',
+  tag: 'tag',
+  score: 'score',
   createdAt: 'createdAt'
 } as const
 
-export type EvidenceClusterItemScalarFieldEnum = (typeof EvidenceClusterItemScalarFieldEnum)[keyof typeof EvidenceClusterItemScalarFieldEnum]
+export type EvidenceTagScalarFieldEnum = (typeof EvidenceTagScalarFieldEnum)[keyof typeof EvidenceTagScalarFieldEnum]
 
 
-export const ClaimScalarFieldEnum = {
+export const HighlightScalarFieldEnum = {
   id: 'id',
   workItemId: 'workItemId',
   text: 'text',
-  category: 'category',
+  summary: 'summary',
+  searchText: 'searchText',
   confidence: 'confidence',
   ownershipClarity: 'ownershipClarity',
   sensitivityFlag: 'sensitivityFlag',
@@ -194,25 +184,36 @@ export const ClaimScalarFieldEnum = {
   risksSummary: 'risksSummary',
   missingInfo: 'missingInfo',
   rejectionReason: 'rejectionReason',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type ClaimScalarFieldEnum = (typeof ClaimScalarFieldEnum)[keyof typeof ClaimScalarFieldEnum]
-
-
-export const EvidenceCardScalarFieldEnum = {
-  id: 'id',
-  claimId: 'claimId',
-  evidenceSummary: 'evidenceSummary',
-  rationaleSummary: 'rationaleSummary',
-  sourceRefs: 'sourceRefs',
   verificationNotes: 'verificationNotes',
+  metadata: 'metadata',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
-export type EvidenceCardScalarFieldEnum = (typeof EvidenceCardScalarFieldEnum)[keyof typeof EvidenceCardScalarFieldEnum]
+export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof typeof HighlightScalarFieldEnum]
+
+
+export const HighlightEvidenceScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  evidenceItemId: 'evidenceItemId',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type HighlightEvidenceScalarFieldEnum = (typeof HighlightEvidenceScalarFieldEnum)[keyof typeof HighlightEvidenceScalarFieldEnum]
+
+
+export const HighlightTagScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  dimension: 'dimension',
+  tag: 'tag',
+  score: 'score',
+  createdAt: 'createdAt'
+} as const
+
+export type HighlightTagScalarFieldEnum = (typeof HighlightTagScalarFieldEnum)[keyof typeof HighlightTagScalarFieldEnum]
 
 
 export const ArtifactScalarFieldEnum = {

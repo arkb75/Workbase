@@ -21,7 +21,8 @@ function buildArtifactInputSummary(params: {
   artifactType: string;
   targetAngle: string;
   tone: string;
-  claimCount: number;
+  highlightCount: number;
+  supportingEvidenceCount: number;
   transportMode?: string | null;
   attempts?: unknown;
   systemPrompt: string;
@@ -32,7 +33,8 @@ function buildArtifactInputSummary(params: {
     artifactType: params.artifactType,
     targetAngle: params.targetAngle,
     tone: params.tone,
-    claimCount: params.claimCount,
+    highlightCount: params.highlightCount,
+    supportingEvidenceCount: params.supportingEvidenceCount,
     transportMode: params.transportMode ?? null,
     transportAttempts: params.attempts ?? null,
     systemPrompt: params.systemPrompt,
@@ -55,19 +57,22 @@ function buildArtifactContentInstructions(
 }
 
 const bedrockArtifactGenerationService: ArtifactGenerationService = {
-  async generate({ request, claims }) {
-    if (!claims.length) {
+  async generate({ request, highlights, supportingEvidence }) {
+    if (!highlights.length) {
       throw new Error(
-        "No approved claims match the current artifact visibility and sensitivity rules.",
+        "No approved highlights match the current artifact visibility and sensitivity rules.",
       );
     }
 
     const structuredClient = getBedrockStructuredLlmClient();
-    const allowedClaimIds = new Set(claims.map((claim) => claim.id));
+    const allowedHighlightIds = new Set(highlights.map((highlight) => highlight.id));
+    const allowedEvidenceItemIds = new Set(
+      supportingEvidence.map((item) => item.id),
+    );
     const systemPrompt = [
-      "You draft Workbase artifacts from already-approved claims.",
+      "You draft Workbase artifacts from already-approved highlights.",
       "Return JSON that matches the provided schema exactly.",
-      "Only use the provided approved claims.",
+      "Only use the provided approved highlights and supporting evidence.",
     ].join(" ");
     const userPrompt = formatTaggedSections([
       {
@@ -77,9 +82,10 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       {
         tag: "rules",
         content: [
-          "Return a top-level JSON object with `content` and `usedClaimIds`.",
+          "Return a top-level JSON object with `content`, `usedHighlightIds`, and `supportingEvidenceItemIds`.",
           "Never invent work, metrics, outcomes, scope, or technologies.",
-          "Only cite claim IDs that were provided in the approvedClaims input.",
+          "Only cite highlight IDs that were provided in the approvedHighlights input.",
+          "Only cite supportingEvidenceItemIds that were provided in the supportingEvidence input.",
           buildArtifactContentInstructions(request.type),
         ].join("\n"),
       },
@@ -108,14 +114,28 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         ),
       },
       {
-        tag: "approved_claims",
+        tag: "approved_highlights",
         content: JSON.stringify(
-          claims.map((claim) => ({
-            id: claim.id,
-            text: claim.text,
-            category: claim.category,
-            confidence: claim.confidence,
-            ownershipClarity: claim.ownershipClarity,
+          highlights.map((highlight) => ({
+            id: highlight.id,
+            text: highlight.text,
+            summary: highlight.summary,
+            confidence: highlight.confidence,
+            ownershipClarity: highlight.ownershipClarity,
+            tags: highlight.tags,
+          })),
+          null,
+          2,
+        ),
+      },
+      {
+        tag: "supporting_evidence",
+        content: JSON.stringify(
+          supportingEvidence.map((item) => ({
+            id: item.id,
+            title: item.title,
+            excerpt: item.content,
+            tags: item.tags ?? [],
           })),
           null,
           2,
@@ -127,7 +147,8 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       artifactType: request.type,
       targetAngle: request.targetAngle,
       tone: request.tone,
-      claimCount: claims.length,
+      highlightCount: highlights.length,
+      supportingEvidenceCount: supportingEvidence.length,
       systemPrompt,
       userPrompt,
     });
@@ -146,14 +167,29 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         extraValidation: (value) => {
           const errors: string[] = [];
 
-          value.usedClaimIds.forEach((claimId, index) => {
-            if (!allowedClaimIds.has(claimId)) {
-              errors.push(`usedClaimIds[${index}] references an unknown claimId.`);
+          value.usedHighlightIds.forEach((highlightId, index) => {
+            if (!allowedHighlightIds.has(highlightId)) {
+              errors.push(`usedHighlightIds[${index}] references an unknown highlightId.`);
             }
           });
 
-          if (new Set(value.usedClaimIds).size !== value.usedClaimIds.length) {
-            errors.push("usedClaimIds must not contain duplicates.");
+          value.supportingEvidenceItemIds.forEach((evidenceItemId, index) => {
+            if (!allowedEvidenceItemIds.has(evidenceItemId)) {
+              errors.push(
+                `supportingEvidenceItemIds[${index}] references an unknown evidenceItemId.`,
+              );
+            }
+          });
+
+          if (new Set(value.usedHighlightIds).size !== value.usedHighlightIds.length) {
+            errors.push("usedHighlightIds must not contain duplicates.");
+          }
+
+          if (
+            new Set(value.supportingEvidenceItemIds).size !==
+            value.supportingEvidenceItemIds.length
+          ) {
+            errors.push("supportingEvidenceItemIds must not contain duplicates.");
           }
 
           return errors;
@@ -165,7 +201,8 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         targetAngle: request.targetAngle,
         tone: request.tone,
         content: result.data.content.trim(),
-        usedClaimIds: result.data.usedClaimIds,
+        usedHighlightIds: result.data.usedHighlightIds,
+        supportingEvidenceItemIds: result.data.supportingEvidenceItemIds,
       };
       const generationRun = await createGenerationRun({
         workItemId: request.workItemId,
@@ -184,7 +221,8 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
         resultRefs: {
-          usedClaimIds: artifact.usedClaimIds,
+          usedHighlightIds: artifact.usedHighlightIds,
+          supportingEvidenceItemIds: artifact.supportingEvidenceItemIds,
         } as Prisma.InputJsonValue,
         tokenUsage: (result.tokenUsage as Prisma.InputJsonValue | null) ?? null,
         estimatedCostUsd: result.estimatedCostUsd,

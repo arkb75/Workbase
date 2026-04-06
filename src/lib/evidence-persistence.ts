@@ -1,5 +1,10 @@
-import type { Prisma } from "@/src/generated/prisma/client";
-import type { EvidenceClusterDraft, JsonValue, SourceSnapshot } from "@/src/domain/types";
+import { Prisma } from "@/src/generated/prisma/client";
+import type {
+  HighlightDraft,
+  JsonValue,
+  SourceSnapshot,
+} from "@/src/domain/types";
+import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-tags";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { prisma } from "@/src/lib/prisma";
 
@@ -7,6 +12,7 @@ type EvidenceItemWrite = {
   workItemId: string;
   sourceId: string;
   externalId: string;
+  sourceType?: "manual_note" | "github_repo";
   type:
     | "manual_note_excerpt"
     | "github_readme"
@@ -16,6 +22,9 @@ type EvidenceItemWrite = {
     | "github_release";
   title: string;
   content: string;
+  searchText?: string;
+  parentKind?: string | null;
+  parentKey?: string | null;
   included: boolean;
   metadata: JsonValue | null;
 };
@@ -35,17 +44,6 @@ export async function upsertEvidenceItemsForSource(
   const nextExternalIds = evidenceItems.map((item) => item.externalId);
 
   if (existingItems.length) {
-    await prisma.evidenceClusterItem.deleteMany({
-      where: {
-        evidenceItem: {
-          sourceId,
-          externalId: {
-            notIn: nextExternalIds.length ? nextExternalIds : [""],
-          },
-        },
-      },
-    });
-
     await prisma.evidenceItem.deleteMany({
       where: {
         sourceId,
@@ -58,8 +56,15 @@ export async function upsertEvidenceItemsForSource(
 
   for (const item of evidenceItems) {
     const existing = existingByExternalId.get(item.externalId);
+    const searchText =
+      item.searchText ??
+      buildEvidenceSearchText({
+        title: item.title,
+        content: item.content,
+        metadata: item.metadata,
+      });
 
-    await prisma.evidenceItem.upsert({
+    const persisted = await prisma.evidenceItem.upsert({
       where: {
         sourceId_externalId: {
           sourceId,
@@ -73,6 +78,9 @@ export async function upsertEvidenceItemsForSource(
         type: item.type,
         title: item.title,
         content: item.content,
+        searchText,
+        parentKind: item.parentKind ?? null,
+        parentKey: item.parentKey ?? null,
         included: item.included,
         metadata: item.metadata as Prisma.InputJsonValue,
       },
@@ -80,10 +88,37 @@ export async function upsertEvidenceItemsForSource(
         title: item.title,
         content: item.content,
         type: item.type,
+        searchText,
+        parentKind: item.parentKind ?? null,
+        parentKey: item.parentKey ?? null,
         included: existing?.included ?? item.included,
         metadata: item.metadata as Prisma.InputJsonValue,
       },
     });
+
+    const tags = inferEvidenceTags({
+      title: item.title,
+      content: item.content,
+      sourceType: item.sourceType ?? "github_repo",
+      evidenceType: item.type,
+    });
+
+    await prisma.evidenceTag.deleteMany({
+      where: {
+        evidenceItemId: persisted.id,
+      },
+    });
+
+    if (tags.length) {
+      await prisma.evidenceTag.createMany({
+        data: tags.map((tag) => ({
+          evidenceItemId: persisted.id,
+          dimension: tag.dimension,
+          tag: tag.tag,
+          score: tag.score ?? null,
+        })),
+      });
+    }
   }
 }
 
@@ -118,34 +153,63 @@ export async function syncManualEvidenceItemsForWorkItem(workItemId: string) {
   }
 }
 
-export async function persistEvidenceClusters(
-  workItemId: string,
-  clusters: EvidenceClusterDraft[],
-) {
-  await prisma.$transaction(async (tx) => {
-    await tx.evidenceCluster.deleteMany({
-      where: {
-        workItemId,
-      },
-    });
-
-    for (const cluster of clusters) {
-      await tx.evidenceCluster.create({
-        data: {
-          workItemId,
-          title: cluster.title,
-          summary: cluster.summary,
-          theme: cluster.theme,
-          confidence: cluster.confidence,
-          metadata: cluster.metadata as Prisma.InputJsonValue,
-          items: {
-            create: cluster.items.map((item) => ({
-              evidenceItemId: item.evidenceItemId,
-              relevanceScore: item.relevanceScore ?? null,
-            })),
-          },
-        },
-      });
-    }
+export async function createHighlightWithRelations(params: {
+  tx: Prisma.TransactionClient;
+  workItemId: string;
+  draft: HighlightDraft;
+}) {
+  const highlight = await params.tx.highlight.create({
+    data: {
+      workItemId: params.workItemId,
+      text: params.draft.text,
+      summary: params.draft.summary,
+      searchText: [params.draft.text, params.draft.summary, params.draft.verificationNotes ?? ""]
+        .filter(Boolean)
+        .join(" "),
+      confidence: params.draft.confidence,
+      ownershipClarity: params.draft.ownershipClarity,
+      sensitivityFlag: params.draft.sensitivityFlag,
+      verificationStatus: params.draft.verificationStatus,
+      visibility: params.draft.visibility,
+      risksSummary: params.draft.risksSummary ?? null,
+      missingInfo: params.draft.missingInfo ?? null,
+      rejectionReason: params.draft.rejectionReason ?? null,
+      verificationNotes: params.draft.verificationNotes ?? null,
+      metadata:
+        params.draft.metadata == null
+          ? Prisma.JsonNull
+          : (params.draft.metadata as Prisma.InputJsonValue),
+    },
   });
+
+  if (params.draft.evidence.sourceRefs.length) {
+    await params.tx.highlightEvidence.createMany({
+      data: params.draft.evidence.sourceRefs.flatMap((ref) =>
+        ref.evidenceItemId
+          ? [
+              {
+                highlightId: highlight.id,
+                evidenceItemId: ref.evidenceItemId,
+                relevanceScore: null,
+              },
+            ]
+          : [],
+      ),
+      skipDuplicates: true,
+    });
+  }
+
+  if (params.draft.tags.length) {
+    await params.tx.highlightTag.createMany({
+      data: params.draft.tags.map((tag) => ({
+        highlightId: highlight.id,
+        dimension: tag.dimension,
+        tag: tag.tag,
+        score: tag.score ?? null,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  return highlight;
 }

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { getEligibleClaimsForArtifact } from "@/src/domain/artifact-eligibility";
-import type { ClaimSnapshot } from "@/src/domain/types";
+import type { HighlightSnapshot } from "@/src/domain/types";
 
-function makeClaim(overrides: Partial<ClaimSnapshot> = {}): ClaimSnapshot {
+function makeHighlight(overrides: Partial<HighlightSnapshot> = {}): HighlightSnapshot {
   return {
-    id: overrides.id ?? "claim-1",
+    id: overrides.id ?? "highlight-1",
     workItemId: overrides.workItemId ?? "work-item-1",
     text: overrides.text ?? "Built a review workflow for project evidence.",
-    category: overrides.category ?? "backend",
+    summary: overrides.summary ?? "Grounded in the source note.",
     confidence: overrides.confidence ?? "medium",
     ownershipClarity: overrides.ownershipClarity ?? "clear",
     sensitivityFlag: overrides.sensitivityFlag ?? false,
@@ -17,23 +17,25 @@ function makeClaim(overrides: Partial<ClaimSnapshot> = {}): ClaimSnapshot {
     risksSummary: overrides.risksSummary ?? null,
     missingInfo: overrides.missingInfo ?? null,
     rejectionReason: overrides.rejectionReason ?? null,
-    evidenceCard: overrides.evidenceCard ?? {
-      evidenceSummary: "Grounded in the source note.",
-      rationaleSummary: "Implementation language matches the evidence.",
-      sourceRefs: [],
+    verificationNotes: overrides.verificationNotes ?? null,
+    metadata: overrides.metadata ?? null,
+    evidence: overrides.evidence ?? {
+      summary: "Grounded in the source note.",
       verificationNotes: null,
+      sourceRefs: [],
     },
+    tags: overrides.tags ?? [],
   };
 }
 
 describe("claim status transitions", () => {
-  it("allows draft, flagged, and rejected claims to become approved", () => {
+  it("allows draft, flagged, and rejected highlights to become approved", () => {
     expect(transitionClaimStatus("draft", "approve")).toBe("approved");
     expect(transitionClaimStatus("flagged", "approve")).toBe("approved");
     expect(transitionClaimStatus("rejected", "approve")).toBe("approved");
   });
 
-  it("moves claims into rejected and can restore rejected claims to flagged", () => {
+  it("moves highlights into rejected and can restore rejected highlights to flagged", () => {
     expect(transitionClaimStatus("draft", "reject")).toBe("rejected");
     expect(transitionClaimStatus("approved", "reject")).toBe("rejected");
     expect(transitionClaimStatus("rejected", "restore")).toBe("flagged");
@@ -41,52 +43,52 @@ describe("claim status transitions", () => {
 });
 
 describe("artifact eligibility", () => {
-  const claims = [
-    makeClaim({
+  const highlights = [
+    makeHighlight({
       id: "approved-resume",
       verificationStatus: "approved",
       visibility: "resume_safe",
     }),
-    makeClaim({
+    makeHighlight({
       id: "approved-linkedin",
       verificationStatus: "approved",
       visibility: "linkedin_safe",
     }),
-    makeClaim({
+    makeHighlight({
       id: "approved-public",
       verificationStatus: "approved",
       visibility: "public_safe",
     }),
-    makeClaim({
+    makeHighlight({
       id: "sensitive-approved",
       verificationStatus: "approved",
       visibility: "public_safe",
       sensitivityFlag: true,
     }),
-    makeClaim({
-      id: "rejected-claim",
+    makeHighlight({
+      id: "rejected-highlight",
       verificationStatus: "rejected",
       visibility: "public_safe",
     }),
   ];
 
-  it("filters resume bullets to approved, non-sensitive claims only", () => {
+  it("filters resume bullets to approved, non-sensitive highlights only", () => {
     expect(
-      getEligibleClaimsForArtifact(claims, "resume_bullets").map((claim) => claim.id),
+      getEligibleClaimsForArtifact(highlights, "resume_bullets").map((highlight) => highlight.id),
     ).toEqual(["approved-resume", "approved-linkedin", "approved-public"]);
   });
 
-  it("filters linkedin artifacts to linkedin-safe and public-safe claims", () => {
+  it("filters linkedin artifacts to linkedin-safe and public-safe highlights", () => {
     expect(
-      getEligibleClaimsForArtifact(claims, "linkedin_experience").map(
-        (claim) => claim.id,
+      getEligibleClaimsForArtifact(highlights, "linkedin_experience").map(
+        (highlight) => highlight.id,
       ),
     ).toEqual(["approved-linkedin", "approved-public"]);
   });
 
-  it("filters project summaries to public-safe claims", () => {
+  it("filters project summaries to public-safe highlights", () => {
     expect(
-      getEligibleClaimsForArtifact(claims, "project_summary").map((claim) => claim.id),
+      getEligibleClaimsForArtifact(highlights, "project_summary").map((highlight) => highlight.id),
     ).toEqual(["approved-public"]);
   });
 });

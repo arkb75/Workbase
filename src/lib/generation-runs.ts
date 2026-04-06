@@ -8,6 +8,9 @@ type GenerationRunWriteInput = {
     | "claim_cluster_research"
     | "claim_merge"
     | "claim_verification"
+    | "highlight_generation"
+    | "highlight_verification"
+    | "artifact_retrieval"
     | "artifact_generation"
     | "evidence_clustering";
   status: "success" | "provider_error" | "parse_error" | "validation_error";

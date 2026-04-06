@@ -1,17 +1,9 @@
 import Link from "next/link";
-import {
-  ArrowRight,
-  ChevronDown,
-  FolderGit2,
-  ListChecks,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, FolderGit2, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
 import {
   attachGithubRepoAction,
   createManualSourceAction,
   generateClaimsAction,
-  reclusterEvidenceAction,
   toggleEvidenceInclusionAction,
 } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
@@ -30,7 +22,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
-import { evidenceClustersAreStale } from "@/src/lib/evidence-items";
 import { syncManualEvidenceItemsForWorkItem } from "@/src/lib/evidence-persistence";
 import { formatDateRange, formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
@@ -81,35 +72,40 @@ function buildStatusMessage(error?: string, result?: string) {
   if (error === "invalid-repo") {
     return {
       tone: "error" as const,
-      message: "Workbase could not import that repository selection. Try selecting a repo from the connected list again.",
+      message:
+        "Workbase could not import that repository selection. Try selecting a repo from the connected list again.",
     };
   }
 
   if (error === "github-config") {
     return {
       tone: "error" as const,
-      message: "GitHub integration is not configured yet. Add the GitHub OAuth environment variables before connecting.",
+      message:
+        "GitHub integration is not configured yet. Add the GitHub OAuth environment variables before connecting.",
     };
   }
 
   if (error === "github-state") {
     return {
       tone: "error" as const,
-      message: "Workbase could not verify the GitHub callback state. Start the GitHub connection flow again.",
+      message:
+        "Workbase could not verify the GitHub callback state. Start the GitHub connection flow again.",
     };
   }
 
   if (error === "github-connect-failed") {
     return {
       tone: "error" as const,
-      message: "Workbase could not complete the GitHub connection. The OAuth exchange or token storage failed.",
+      message:
+        "Workbase could not complete the GitHub connection. The OAuth exchange or token storage failed.",
     };
   }
 
   if (error === "github-import-failed") {
     return {
       tone: "error" as const,
-      message: "Workbase could not import bounded GitHub evidence from that repository. Existing evidence was left unchanged.",
+      message:
+        "Workbase could not import bounded GitHub evidence from that repository. Existing evidence was left unchanged.",
     };
   }
 
@@ -120,59 +116,35 @@ function buildStatusMessage(error?: string, result?: string) {
     };
   }
 
-  if (error === "invalid-cluster") {
-    return {
-      tone: "error" as const,
-      message: "Workbase could not start reclustering because the request was invalid.",
-    };
-  }
-
-  if (error === "clustering-failed") {
-    return {
-      tone: "error" as const,
-      message: "Workbase could not cluster the included evidence. Claims and existing clusters were left unchanged.",
-    };
-  }
-
   if (result === "github-connected") {
     return {
       tone: "success" as const,
-      message: "GitHub connected. You can now search accessible repositories and import bounded evidence into this Work Item.",
+      message:
+        "GitHub connected. You can now search accessible repositories and import bounded evidence into this Work Item.",
     };
   }
 
   if (result === "github-imported") {
     return {
       tone: "success" as const,
-      message: "GitHub repository imported. The latest README, commits, pull requests, issues, and releases are now in the evidence pool.",
+      message:
+        "GitHub repository imported. The latest README, commits, pull requests, issues, and releases are now in the evidence pool.",
     };
   }
 
   if (result === "evidence-included") {
     return {
       tone: "success" as const,
-      message: "Evidence included. It will participate in clustering and future claim generation.",
+      message:
+        "Evidence included. It can now participate in highlight generation and artifact retrieval.",
     };
   }
 
   if (result === "evidence-excluded") {
     return {
       tone: "success" as const,
-      message: "Evidence excluded. It will stay out of clustering and future claim generation.",
-    };
-  }
-
-  if (result === "reclustered") {
-    return {
-      tone: "success" as const,
-      message: "Evidence reclustered. Claim generation will now use the latest included evidence themes.",
-    };
-  }
-
-  if (result === "clusters-current") {
-    return {
-      tone: "success" as const,
-      message: "Clusters were already current, so Workbase kept the latest cluster set.",
+      message:
+        "Evidence excluded. It stays persisted, but Workbase will keep it out of highlight generation and artifact retrieval.",
     };
   }
 
@@ -189,7 +161,13 @@ function StatusBanner({ error, result }: { error?: string; result?: string }) {
   const isError = status.tone === "error";
 
   return (
-    <Card className={isError ? "border-amber-200 bg-amber-50 shadow-none" : "border-emerald-200 bg-emerald-50 shadow-none"}>
+    <Card
+      className={
+        isError
+          ? "border-amber-200 bg-amber-50 shadow-none"
+          : "border-emerald-200 bg-emerald-50 shadow-none"
+      }
+    >
       <CardContent className="py-4">
         <p className={isError ? "text-sm leading-6 text-amber-900" : "text-sm leading-6 text-emerald-900"}>
           {status.message}
@@ -270,8 +248,7 @@ export default async function WorkItemDetailPage({
     getWorkItemForUser(user.id, id),
     githubAuthService.getConnection(user.id),
   ]);
-  const generateClaims = generateClaimsAction.bind(null, workItem.id);
-  const reclusterEvidence = reclusterEvidenceAction.bind(null);
+  const generateHighlights = generateClaimsAction.bind(null, workItem.id);
 
   let repositories: GitHubRepositorySummary[] = [];
   let repositoryLookupFailed = false;
@@ -287,42 +264,19 @@ export default async function WorkItemDetailPage({
     }
   }
 
-  const approvedClaimCount = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "approved",
+  const approvedHighlightCount = workItem.highlights.filter(
+    (highlight) => highlight.verificationStatus === "approved",
   ).length;
-  const pendingClaimCount = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "draft" || claim.verificationStatus === "flagged",
+  const pendingHighlightCount = workItem.highlights.filter(
+    (highlight) =>
+      highlight.verificationStatus === "draft" ||
+      highlight.verificationStatus === "flagged",
   ).length;
-  const rejectedClaimCount = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "rejected",
+  const rejectedHighlightCount = workItem.highlights.filter(
+    (highlight) => highlight.verificationStatus === "rejected",
   ).length;
   const includedEvidenceItems = workItem.evidenceItems.filter((item) => item.included);
   const excludedEvidenceItems = workItem.evidenceItems.filter((item) => !item.included);
-  const latestClusterUpdatedAt = workItem.evidenceClusters[0]?.updatedAt ?? null;
-  const clustersStale =
-    includedEvidenceItems.length > 0 &&
-    evidenceClustersAreStale(
-      includedEvidenceItems.map((item) => ({
-        id: item.id,
-        workItemId: item.workItemId,
-        sourceId: item.sourceId,
-        externalId: item.externalId,
-        type: item.type,
-        title: item.title,
-        content: item.content,
-        included: item.included,
-        metadata: item.metadata as never,
-        source: {
-          id: item.source.id,
-          label: item.source.label,
-          type: item.source.type,
-          externalId: item.source.externalId ?? null,
-        },
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })),
-      latestClusterUpdatedAt,
-    );
   const githubSources = workItem.sources.filter((source) => source.type === "github_repo");
   const attachedRepoIds = new Set(
     githubSources
@@ -343,7 +297,7 @@ export default async function WorkItemDetailPage({
               href={`/work-items/${workItem.id}/claims`}
               className="inline-flex h-11 items-center gap-2 rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/8"
             >
-              Claim review
+              Highlight review
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
@@ -401,15 +355,15 @@ export default async function WorkItemDetailPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Claim pipeline</CardTitle>
+            <CardTitle>Highlight pipeline</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-              {approvedClaimCount} approved, {pendingClaimCount} pending, {rejectedClaimCount} rejected
+              {approvedHighlightCount} approved, {pendingHighlightCount} pending, {rejectedHighlightCount} rejected
             </p>
-            <form action={generateClaims}>
-              <SubmitButton pendingLabel="Generating claims..." variant="secondary">
-                Generate candidate claims
+            <form action={generateHighlights}>
+              <SubmitButton pendingLabel="Generating highlights..." variant="secondary">
+                Generate highlights
               </SubmitButton>
             </form>
           </CardContent>
@@ -463,7 +417,7 @@ export default async function WorkItemDetailPage({
               <CardHeader>
                 <CardTitle>Add manual notes</CardTitle>
                 <CardDescription>
-                  Notes still land in the same evidence pool, but now they are materialized into evidence items before clustering and claim generation.
+                  Notes land in the same evidence pool as imported GitHub material and stay directly retrievable.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4">
@@ -493,136 +447,88 @@ export default async function WorkItemDetailPage({
             <CardHeader>
               <CardTitle>GitHub import</CardTitle>
               <CardDescription>
-                Connect GitHub, list accessible repositories, and import bounded evidence into the existing review flow.
+                Connect GitHub, list accessible repositories, and import bounded evidence into the same review flow.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <details className="source-panel">
-                <summary className="source-panel__summary">
-                  <div className="flex min-w-0 items-start gap-4">
-                    <div className="source-panel__icon source-panel__icon--github">
-                      <FolderGit2 className="h-5 w-5" />
+            <CardContent className="space-y-4">
+              {githubConnection ? (
+                <>
+                  <div className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="success">Connected</Badge>
+                      <Badge>@{githubConnection.login}</Badge>
                     </div>
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-[color:var(--ink-strong)]">
-                          GitHub repositories
-                        </p>
-                        <span className="rounded-full bg-black/4 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
-                          Bounded import
-                        </span>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
-                            githubConnection
-                              ? "bg-[rgba(15,118,110,0.08)] text-[color:var(--accent)]"
-                              : "bg-[rgba(16,33,43,0.05)] text-[color:var(--ink-muted)]"
-                          }`}
-                        >
-                          {githubConnection
-                            ? `Connected as @${githubConnection.login}`
-                            : "Not connected"}
-                        </span>
-                      </div>
+                    <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
+                      Search the connected account’s repositories and attach one to this Work Item.
+                    </p>
+                  </div>
+
+                  <form method="GET" className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <div className="grid gap-2">
+                      <label
+                        htmlFor="repoQuery"
+                        className="text-sm font-medium text-[color:var(--ink-strong)]"
+                      >
+                        Search repositories
+                      </label>
+                      <Input
+                        id="repoQuery"
+                        name="repoQuery"
+                        defaultValue={repoQuery}
+                        placeholder="Filter by owner, repo, or description"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--panel-muted)]"
+                    >
+                      Refresh list
+                    </button>
+                  </form>
+
+                  {repositoryLookupFailed ? (
+                    <p className="text-sm leading-6 text-[color:var(--danger)]">
+                      Workbase could not list repositories for the current GitHub connection.
+                    </p>
+                  ) : repositories.length ? (
+                    <div className="grid gap-3">
+                      {repositories.map((repository) => (
+                        <GitHubRepoRow
+                          key={repository.id}
+                          repository={repository}
+                          workItemId={workItem.id}
+                          attached={attachedRepoIds.has(repository.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                      No repositories matched this filter.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="grid gap-4 rounded-[24px] border border-dashed border-black/10 bg-white p-5">
+                  <div className="flex items-start gap-3">
+                    <FolderGit2 className="mt-0.5 h-5 w-5 text-[color:var(--accent)]" />
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                        GitHub is not connected yet
+                      </p>
                       <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                        Search accessible repositories and attach one without expanding the full evidence surface.
+                        Connect the demo user’s GitHub account to list accessible repositories and import bounded evidence.
                       </p>
                     </div>
                   </div>
-                  <div className="source-panel__meta">
-                    <span className="source-panel__chevron" aria-hidden="true">
-                      <ChevronDown className="h-4 w-4" />
-                    </span>
-                  </div>
-                </summary>
-
-                <div className="source-panel__body">
-                  <div className="source-panel__inner">
-                    <div className="grid gap-4 border-t border-black/6 bg-[color:var(--panel-muted)] px-4 py-4">
-                      {githubConnection ? (
-                        <>
-                          <div className="rounded-[24px] border border-black/8 bg-white p-4">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge tone="success">Connected</Badge>
-                              <Badge>@{githubConnection.login}</Badge>
-                            </div>
-                            <p className="mt-3 text-sm leading-6 text-[color:var(--ink-soft)]">
-                              Search the connected account’s repositories and attach one to this Work Item.
-                            </p>
-                          </div>
-
-                          <form
-                            method="GET"
-                            className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
-                          >
-                            <div className="grid gap-2">
-                              <label
-                                htmlFor="repoQuery"
-                                className="text-sm font-medium text-[color:var(--ink-strong)]"
-                              >
-                                Search repositories
-                              </label>
-                              <Input
-                                id="repoQuery"
-                                name="repoQuery"
-                                defaultValue={repoQuery}
-                                placeholder="Filter by owner, repo, or description"
-                              />
-                            </div>
-                            <button
-                              type="submit"
-                              className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--panel-muted)]"
-                            >
-                              Refresh list
-                            </button>
-                          </form>
-
-                          {repositoryLookupFailed ? (
-                            <p className="text-sm leading-6 text-[color:var(--danger)]">
-                              Workbase could not list repositories for the current GitHub connection.
-                            </p>
-                          ) : repositories.length ? (
-                            <div className="grid gap-3">
-                              {repositories.map((repository) => (
-                                <GitHubRepoRow
-                                  key={repository.id}
-                                  repository={repository}
-                                  workItemId={workItem.id}
-                                  attached={attachedRepoIds.has(repository.id)}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                              No repositories matched this filter.
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <div className="grid gap-4 rounded-[24px] border border-dashed border-black/10 bg-white p-5">
-                          <div className="flex items-start gap-3">
-                            <FolderGit2 className="mt-0.5 h-5 w-5 text-[color:var(--accent)]" />
-                            <div className="space-y-2">
-                              <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                                GitHub is not connected yet
-                              </p>
-                              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                                Connect the demo user’s GitHub account to list accessible repositories and import bounded evidence.
-                              </p>
-                            </div>
-                          </div>
-                          <Link
-                            href={`/api/github/connect?returnTo=${encodeURIComponent(`/work-items/${workItem.id}`)}`}
-                            className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)]"
-                          >
-                            <FolderGit2 className="h-4 w-4" />
-                            Connect GitHub
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <Link
+                    href={`/api/github/connect?returnTo=${encodeURIComponent(`/work-items/${workItem.id}`)}`}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white shadow-[0_16px_36px_rgba(15,118,110,0.24)] transition hover:bg-[color:var(--accent-strong)]"
+                  >
+                    <FolderGit2 className="h-4 w-4" />
+                    Connect GitHub
+                  </Link>
                 </div>
-              </details>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -631,7 +537,7 @@ export default async function WorkItemDetailPage({
       <section className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
         <CollapsibleCard
           title="Evidence review"
-          description="Included evidence feeds clustering and claim generation. Excluded evidence stays persisted but out of both steps."
+          description="Included evidence can be used for highlight generation and retrieval. Excluded evidence stays persisted but out of both steps."
           meta={
             <>
               <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
@@ -640,191 +546,150 @@ export default async function WorkItemDetailPage({
           }
           bodyClassName="grid gap-4"
         >
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
-              <Badge>{excludedEvidenceItems.length} excluded</Badge>
-              {Object.entries(evidenceTypeCounts).map(([type, count]) => (
-                <Badge key={type}>
-                  {count} {titleCase(type)}
-                </Badge>
-              ))}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
+            <Badge>{excludedEvidenceItems.length} excluded</Badge>
+            {Object.entries(evidenceTypeCounts).map(([type, count]) => (
+              <Badge key={type}>
+                {count} {titleCase(type)}
+              </Badge>
+            ))}
+          </div>
 
-            {workItem.evidenceItems.length ? (
-              <div className="grid gap-3">
-                {workItem.evidenceItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-[24px] border border-black/8 bg-white p-4"
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge tone={item.included ? "success" : "neutral"}>
-                            {item.included ? "Included" : "Excluded"}
+          {workItem.evidenceItems.length ? (
+            <div className="grid gap-3">
+              {workItem.evidenceItems.map((item) => (
+                <div key={item.id} className="rounded-[24px] border border-black/8 bg-white p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={item.included ? "success" : "neutral"}>
+                          {item.included ? "Included" : "Excluded"}
+                        </Badge>
+                        <Badge>{titleCase(item.type)}</Badge>
+                        <Badge>{item.source.label}</Badge>
+                        <Badge>{formatDateTime(item.updatedAt)}</Badge>
+                        {item.tags.slice(0, 3).map((tag) => (
+                          <Badge key={`${item.id}-${tag.dimension}-${tag.tag}`}>
+                            {titleCase(tag.tag)}
                           </Badge>
-                          <Badge>{titleCase(item.type)}</Badge>
-                          <Badge>{item.source.label}</Badge>
-                          <Badge>{formatDateTime(item.updatedAt)}</Badge>
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                            {item.title}
-                          </p>
-                          <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                            {item.content}
-                          </p>
-                        </div>
+                        ))}
                       </div>
 
-                      <form action={toggleEvidenceInclusionAction} className="shrink-0">
-                        <input type="hidden" name="workItemId" value={workItem.id} />
-                        <input type="hidden" name="evidenceItemId" value={item.id} />
-                        <input
-                          type="hidden"
-                          name="included"
-                          value={item.included ? "false" : "true"}
-                        />
-                        <SubmitButton
-                          pendingLabel={item.included ? "Excluding..." : "Including..."}
-                          variant={item.included ? "secondary" : "primary"}
-                          size="sm"
-                        >
-                          {item.included ? "Exclude from pipeline" : "Include in pipeline"}
-                        </SubmitButton>
-                      </form>
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                          {item.title}
+                        </p>
+                        <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                          {item.content}
+                        </p>
+                      </div>
                     </div>
+
+                    <form action={toggleEvidenceInclusionAction} className="shrink-0">
+                      <input type="hidden" name="workItemId" value={workItem.id} />
+                      <input type="hidden" name="evidenceItemId" value={item.id} />
+                      <input
+                        type="hidden"
+                        name="included"
+                        value={item.included ? "false" : "true"}
+                      />
+                      <SubmitButton
+                        pendingLabel={item.included ? "Excluding..." : "Including..."}
+                        variant={item.included ? "secondary" : "primary"}
+                        size="sm"
+                      >
+                        {item.included ? "Exclude from pipeline" : "Include in pipeline"}
+                      </SubmitButton>
+                    </form>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No evidence items have been materialized for this Work Item yet.
-              </p>
-            )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+              No evidence items have been materialized for this Work Item yet.
+            </p>
+          )}
         </CollapsibleCard>
 
         <div className="grid gap-4">
           <CollapsibleCard
-            title="Evidence clusters"
-            description="Persisted work themes keep claim generation from seeing a flat pile of notes and GitHub records."
-            meta={
-              <>
-                <Badge>{workItem.evidenceClusters.length} clusters</Badge>
-                <Badge tone={clustersStale ? "neutral" : "success"}>
-                  {includedEvidenceItems.length === 0
-                    ? "No included evidence"
-                    : clustersStale
-                      ? "Stale"
-                      : "Current"}
-                </Badge>
-              </>
-            }
+            title="Highlight pipeline"
+            description="Highlights replace the older claim-first flow. Approved highlights are the reusable units artifacts pull from."
+            meta={<Badge>{workItem.highlights.length} highlights</Badge>}
             bodyClassName="grid gap-4"
           >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <KeyValue label="Clusters" value={workItem.evidenceClusters.length} />
-                <KeyValue
-                  label="Status"
-                  value={
-                    includedEvidenceItems.length === 0
-                      ? "No included evidence"
-                      : clustersStale
-                        ? "Stale"
-                        : "Current"
-                  }
-                />
-              </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <KeyValue label="Approved" value={approvedHighlightCount} />
+              <KeyValue label="Pending" value={pendingHighlightCount} />
+              <KeyValue label="Rejected" value={rejectedHighlightCount} />
+            </div>
 
-              <form action={reclusterEvidence}>
-                <input type="hidden" name="workItemId" value={workItem.id} />
-                <SubmitButton pendingLabel="Reclustering evidence..." variant="secondary">
-                  Recluster evidence
-                </SubmitButton>
-              </form>
+            <form action={generateHighlights}>
+              <SubmitButton pendingLabel="Generating highlights..." variant="secondary">
+                Regenerate pending highlights
+              </SubmitButton>
+            </form>
 
-              {workItem.evidenceClusters.length ? (
-                <div className="grid gap-3">
-                  {workItem.evidenceClusters.map((cluster) => (
-                    <div
-                      key={cluster.id}
-                      className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="accent">{cluster.theme}</Badge>
-                        <Badge>{cluster.confidence}</Badge>
-                        <Badge>{cluster.items.length} evidence items</Badge>
-                      </div>
-                      <p className="mt-3 text-sm font-medium text-[color:var(--ink-strong)]">
-                        {cluster.title}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-                        {cluster.summary}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  No clusters persisted yet. Workbase will cluster included evidence before the next claim-generation run.
-                </p>
-              )}
+            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+              Workbase preserves approved and rejected highlights across reruns, and only replaces draft or flagged material.
+            </p>
           </CollapsibleCard>
 
           <CollapsibleCard
             title="Pipeline"
-            description="The business rules stay the same even with GitHub import and clustering layered in."
+            description="The review bar stays local even though retrieval is now more dynamic."
             meta={<Badge>4 rules</Badge>}
             bodyClassName="grid gap-4"
           >
-              <div className="flex gap-3">
-                <FolderGit2 className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                    Bounded GitHub evidence
-                  </p>
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    Repo metadata, README, recent commits, PRs, issues, and releases are imported without cloning or deep code parsing.
-                  </p>
-                </div>
+            <div className="flex gap-3">
+              <FolderGit2 className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Atomic evidence
+                </p>
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  GitHub imports and manual notes stay as direct evidence records instead of being hidden behind persisted clusters.
+                </p>
               </div>
+            </div>
 
-              <div className="flex gap-3">
-                <Sparkles className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                    Clustering before claims
-                  </p>
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    Included evidence is grouped into coherent work themes before claim research runs.
-                  </p>
-                </div>
+            <div className="flex gap-3">
+              <Sparkles className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Highlight generation
+                </p>
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  Included evidence becomes reusable highlights with tags, ownership, sensitivity, and verification notes.
+                </p>
               </div>
+            </div>
 
-              <div className="flex gap-3">
-                <ListChecks className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                    Claim review unchanged
-                  </p>
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    Approved and rejected claims are still preserved across regeneration, while draft and flagged claims can be replaced.
-                  </p>
-                </div>
+            <div className="flex gap-3">
+              <ListChecks className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Retrieval before artifacts
+                </p>
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  Artifacts retrieve approved highlights first, then add bounded supporting evidence without inventing new accomplishments.
+                </p>
               </div>
+            </div>
 
-              <div className="flex gap-3">
-                <ShieldCheck className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                    Hard rules stay local
-                  </p>
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    Approval, sensitivity, visibility, and artifact eligibility are still enforced in application code, not delegated to the model.
-                  </p>
-                </div>
+            <div className="flex gap-3">
+              <ShieldCheck className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  Hard rules stay local
+                </p>
+                <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                  Approval, sensitivity, visibility, and artifact eligibility are still enforced in application code, not delegated to the model.
+                </p>
               </div>
+            </div>
           </CollapsibleCard>
         </div>
       </section>

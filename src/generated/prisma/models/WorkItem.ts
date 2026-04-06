@@ -217,8 +217,7 @@ export type WorkItemWhereInput = {
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   sources?: Prisma.SourceListRelationFilter
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
-  evidenceClusters?: Prisma.EvidenceClusterListRelationFilter
-  claims?: Prisma.ClaimListRelationFilter
+  highlights?: Prisma.HighlightListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
   generationRuns?: Prisma.GenerationRunListRelationFilter
 }
@@ -236,8 +235,7 @@ export type WorkItemOrderByWithRelationInput = {
   user?: Prisma.UserOrderByWithRelationInput
   sources?: Prisma.SourceOrderByRelationAggregateInput
   evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
-  evidenceClusters?: Prisma.EvidenceClusterOrderByRelationAggregateInput
-  claims?: Prisma.ClaimOrderByRelationAggregateInput
+  highlights?: Prisma.HighlightOrderByRelationAggregateInput
   artifacts?: Prisma.ArtifactOrderByRelationAggregateInput
   generationRuns?: Prisma.GenerationRunOrderByRelationAggregateInput
 }
@@ -258,8 +256,7 @@ export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   sources?: Prisma.SourceListRelationFilter
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
-  evidenceClusters?: Prisma.EvidenceClusterListRelationFilter
-  claims?: Prisma.ClaimListRelationFilter
+  highlights?: Prisma.HighlightListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
   generationRuns?: Prisma.GenerationRunListRelationFilter
 }, "id">
@@ -306,8 +303,7 @@ export type WorkItemCreateInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
@@ -324,8 +320,7 @@ export type WorkItemUncheckedCreateInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -342,8 +337,7 @@ export type WorkItemUpdateInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
@@ -360,8 +354,7 @@ export type WorkItemUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -535,32 +528,18 @@ export type WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutEvidenceItemsInput, Prisma.WorkItemUpdateWithoutEvidenceItemsInput>, Prisma.WorkItemUncheckedUpdateWithoutEvidenceItemsInput>
 }
 
-export type WorkItemCreateNestedOneWithoutEvidenceClustersInput = {
-  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedCreateWithoutEvidenceClustersInput>
-  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutEvidenceClustersInput
+export type WorkItemCreateNestedOneWithoutHighlightsInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutHighlightsInput, Prisma.WorkItemUncheckedCreateWithoutHighlightsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutHighlightsInput
   connect?: Prisma.WorkItemWhereUniqueInput
 }
 
-export type WorkItemUpdateOneRequiredWithoutEvidenceClustersNestedInput = {
-  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedCreateWithoutEvidenceClustersInput>
-  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutEvidenceClustersInput
-  upsert?: Prisma.WorkItemUpsertWithoutEvidenceClustersInput
+export type WorkItemUpdateOneRequiredWithoutHighlightsNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutHighlightsInput, Prisma.WorkItemUncheckedCreateWithoutHighlightsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutHighlightsInput
+  upsert?: Prisma.WorkItemUpsertWithoutHighlightsInput
   connect?: Prisma.WorkItemWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutEvidenceClustersInput, Prisma.WorkItemUpdateWithoutEvidenceClustersInput>, Prisma.WorkItemUncheckedUpdateWithoutEvidenceClustersInput>
-}
-
-export type WorkItemCreateNestedOneWithoutClaimsInput = {
-  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutClaimsInput, Prisma.WorkItemUncheckedCreateWithoutClaimsInput>
-  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutClaimsInput
-  connect?: Prisma.WorkItemWhereUniqueInput
-}
-
-export type WorkItemUpdateOneRequiredWithoutClaimsNestedInput = {
-  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutClaimsInput, Prisma.WorkItemUncheckedCreateWithoutClaimsInput>
-  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutClaimsInput
-  upsert?: Prisma.WorkItemUpsertWithoutClaimsInput
-  connect?: Prisma.WorkItemWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutClaimsInput, Prisma.WorkItemUpdateWithoutClaimsInput>, Prisma.WorkItemUncheckedUpdateWithoutClaimsInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutHighlightsInput, Prisma.WorkItemUpdateWithoutHighlightsInput>, Prisma.WorkItemUncheckedUpdateWithoutHighlightsInput>
 }
 
 export type WorkItemCreateNestedOneWithoutArtifactsInput = {
@@ -604,8 +583,7 @@ export type WorkItemCreateWithoutUserInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
@@ -621,8 +599,7 @@ export type WorkItemUncheckedCreateWithoutUserInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -679,8 +656,7 @@ export type WorkItemCreateWithoutSourcesInput = {
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
@@ -696,8 +672,7 @@ export type WorkItemUncheckedCreateWithoutSourcesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -729,8 +704,7 @@ export type WorkItemUpdateWithoutSourcesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
@@ -746,8 +720,7 @@ export type WorkItemUncheckedUpdateWithoutSourcesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -763,8 +736,7 @@ export type WorkItemCreateWithoutEvidenceItemsInput = {
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
@@ -780,8 +752,7 @@ export type WorkItemUncheckedCreateWithoutEvidenceItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -813,8 +784,7 @@ export type WorkItemUpdateWithoutEvidenceItemsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
@@ -830,13 +800,12 @@ export type WorkItemUncheckedUpdateWithoutEvidenceItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
-export type WorkItemCreateWithoutEvidenceClustersInput = {
+export type WorkItemCreateWithoutHighlightsInput = {
   id?: string
   title: string
   type: $Enums.WorkItemType
@@ -848,12 +817,11 @@ export type WorkItemCreateWithoutEvidenceClustersInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
-export type WorkItemUncheckedCreateWithoutEvidenceClustersInput = {
+export type WorkItemUncheckedCreateWithoutHighlightsInput = {
   id?: string
   userId: string
   title: string
@@ -865,28 +833,27 @@ export type WorkItemUncheckedCreateWithoutEvidenceClustersInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
-export type WorkItemCreateOrConnectWithoutEvidenceClustersInput = {
+export type WorkItemCreateOrConnectWithoutHighlightsInput = {
   where: Prisma.WorkItemWhereUniqueInput
-  create: Prisma.XOR<Prisma.WorkItemCreateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedCreateWithoutEvidenceClustersInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutHighlightsInput, Prisma.WorkItemUncheckedCreateWithoutHighlightsInput>
 }
 
-export type WorkItemUpsertWithoutEvidenceClustersInput = {
-  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedUpdateWithoutEvidenceClustersInput>
-  create: Prisma.XOR<Prisma.WorkItemCreateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedCreateWithoutEvidenceClustersInput>
+export type WorkItemUpsertWithoutHighlightsInput = {
+  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutHighlightsInput, Prisma.WorkItemUncheckedUpdateWithoutHighlightsInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutHighlightsInput, Prisma.WorkItemUncheckedCreateWithoutHighlightsInput>
   where?: Prisma.WorkItemWhereInput
 }
 
-export type WorkItemUpdateToOneWithWhereWithoutEvidenceClustersInput = {
+export type WorkItemUpdateToOneWithWhereWithoutHighlightsInput = {
   where?: Prisma.WorkItemWhereInput
-  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutEvidenceClustersInput, Prisma.WorkItemUncheckedUpdateWithoutEvidenceClustersInput>
+  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutHighlightsInput, Prisma.WorkItemUncheckedUpdateWithoutHighlightsInput>
 }
 
-export type WorkItemUpdateWithoutEvidenceClustersInput = {
+export type WorkItemUpdateWithoutHighlightsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
@@ -898,12 +865,11 @@ export type WorkItemUpdateWithoutEvidenceClustersInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
-export type WorkItemUncheckedUpdateWithoutEvidenceClustersInput = {
+export type WorkItemUncheckedUpdateWithoutHighlightsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -915,91 +881,6 @@ export type WorkItemUncheckedUpdateWithoutEvidenceClustersInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
-  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
-  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
-}
-
-export type WorkItemCreateWithoutClaimsInput = {
-  id?: string
-  title: string
-  type: $Enums.WorkItemType
-  description: string
-  startDate?: Date | string | null
-  endDate?: Date | string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
-  sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
-  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
-  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
-}
-
-export type WorkItemUncheckedCreateWithoutClaimsInput = {
-  id?: string
-  userId: string
-  title: string
-  type: $Enums.WorkItemType
-  description: string
-  startDate?: Date | string | null
-  endDate?: Date | string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
-  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
-}
-
-export type WorkItemCreateOrConnectWithoutClaimsInput = {
-  where: Prisma.WorkItemWhereUniqueInput
-  create: Prisma.XOR<Prisma.WorkItemCreateWithoutClaimsInput, Prisma.WorkItemUncheckedCreateWithoutClaimsInput>
-}
-
-export type WorkItemUpsertWithoutClaimsInput = {
-  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutClaimsInput, Prisma.WorkItemUncheckedUpdateWithoutClaimsInput>
-  create: Prisma.XOR<Prisma.WorkItemCreateWithoutClaimsInput, Prisma.WorkItemUncheckedCreateWithoutClaimsInput>
-  where?: Prisma.WorkItemWhereInput
-}
-
-export type WorkItemUpdateToOneWithWhereWithoutClaimsInput = {
-  where?: Prisma.WorkItemWhereInput
-  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutClaimsInput, Prisma.WorkItemUncheckedUpdateWithoutClaimsInput>
-}
-
-export type WorkItemUpdateWithoutClaimsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  title?: Prisma.StringFieldUpdateOperationsInput | string
-  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
-  description?: Prisma.StringFieldUpdateOperationsInput | string
-  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
-  sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
-  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
-  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
-}
-
-export type WorkItemUncheckedUpdateWithoutClaimsInput = {
-  id?: Prisma.StringFieldUpdateOperationsInput | string
-  userId?: Prisma.StringFieldUpdateOperationsInput | string
-  title?: Prisma.StringFieldUpdateOperationsInput | string
-  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
-  description?: Prisma.StringFieldUpdateOperationsInput | string
-  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -1016,8 +897,7 @@ export type WorkItemCreateWithoutArtifactsInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
 }
 
@@ -1033,8 +913,7 @@ export type WorkItemUncheckedCreateWithoutArtifactsInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
@@ -1066,8 +945,7 @@ export type WorkItemUpdateWithoutArtifactsInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
 
@@ -1083,8 +961,7 @@ export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
@@ -1100,8 +977,7 @@ export type WorkItemCreateWithoutGenerationRunsInput = {
   user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
   sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
 }
 
@@ -1117,8 +993,7 @@ export type WorkItemUncheckedCreateWithoutGenerationRunsInput = {
   updatedAt?: Date | string
   sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedCreateNestedManyWithoutWorkItemInput
-  claims?: Prisma.ClaimUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
@@ -1150,8 +1025,7 @@ export type WorkItemUpdateWithoutGenerationRunsInput = {
   user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
 }
 
@@ -1167,8 +1041,7 @@ export type WorkItemUncheckedUpdateWithoutGenerationRunsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
@@ -1194,8 +1067,7 @@ export type WorkItemUpdateWithoutUserInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
 }
@@ -1211,8 +1083,7 @@ export type WorkItemUncheckedUpdateWithoutUserInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
-  evidenceClusters?: Prisma.EvidenceClusterUncheckedUpdateManyWithoutWorkItemNestedInput
-  claims?: Prisma.ClaimUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -1236,8 +1107,7 @@ export type WorkItemUncheckedUpdateManyWithoutUserInput = {
 export type WorkItemCountOutputType = {
   sources: number
   evidenceItems: number
-  evidenceClusters: number
-  claims: number
+  highlights: number
   artifacts: number
   generationRuns: number
 }
@@ -1245,8 +1115,7 @@ export type WorkItemCountOutputType = {
 export type WorkItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   sources?: boolean | WorkItemCountOutputTypeCountSourcesArgs
   evidenceItems?: boolean | WorkItemCountOutputTypeCountEvidenceItemsArgs
-  evidenceClusters?: boolean | WorkItemCountOutputTypeCountEvidenceClustersArgs
-  claims?: boolean | WorkItemCountOutputTypeCountClaimsArgs
+  highlights?: boolean | WorkItemCountOutputTypeCountHighlightsArgs
   artifacts?: boolean | WorkItemCountOutputTypeCountArtifactsArgs
   generationRuns?: boolean | WorkItemCountOutputTypeCountGenerationRunsArgs
 }
@@ -1278,15 +1147,8 @@ export type WorkItemCountOutputTypeCountEvidenceItemsArgs<ExtArgs extends runtim
 /**
  * WorkItemCountOutputType without action
  */
-export type WorkItemCountOutputTypeCountEvidenceClustersArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.EvidenceClusterWhereInput
-}
-
-/**
- * WorkItemCountOutputType without action
- */
-export type WorkItemCountOutputTypeCountClaimsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.ClaimWhereInput
+export type WorkItemCountOutputTypeCountHighlightsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.HighlightWhereInput
 }
 
 /**
@@ -1317,8 +1179,7 @@ export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   sources?: boolean | Prisma.WorkItem$sourcesArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.WorkItem$evidenceItemsArgs<ExtArgs>
-  evidenceClusters?: boolean | Prisma.WorkItem$evidenceClustersArgs<ExtArgs>
-  claims?: boolean | Prisma.WorkItem$claimsArgs<ExtArgs>
+  highlights?: boolean | Prisma.WorkItem$highlightsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
   generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
@@ -1367,8 +1228,7 @@ export type WorkItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArg
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   sources?: boolean | Prisma.WorkItem$sourcesArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.WorkItem$evidenceItemsArgs<ExtArgs>
-  evidenceClusters?: boolean | Prisma.WorkItem$evidenceClustersArgs<ExtArgs>
-  claims?: boolean | Prisma.WorkItem$claimsArgs<ExtArgs>
+  highlights?: boolean | Prisma.WorkItem$highlightsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
   generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
@@ -1386,8 +1246,7 @@ export type $WorkItemPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     user: Prisma.$UserPayload<ExtArgs>
     sources: Prisma.$SourcePayload<ExtArgs>[]
     evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
-    evidenceClusters: Prisma.$EvidenceClusterPayload<ExtArgs>[]
-    claims: Prisma.$ClaimPayload<ExtArgs>[]
+    highlights: Prisma.$HighlightPayload<ExtArgs>[]
     artifacts: Prisma.$ArtifactPayload<ExtArgs>[]
     generationRuns: Prisma.$GenerationRunPayload<ExtArgs>[]
   }
@@ -1798,8 +1657,7 @@ export interface Prisma__WorkItemClient<T, Null = never, ExtArgs extends runtime
   user<T extends Prisma.UserDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.UserDefaultArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   sources<T extends Prisma.WorkItem$sourcesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$sourcesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evidenceItems<T extends Prisma.WorkItem$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  evidenceClusters<T extends Prisma.WorkItem$evidenceClustersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$evidenceClustersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceClusterPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  claims<T extends Prisma.WorkItem$claimsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$claimsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ClaimPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  highlights<T extends Prisma.WorkItem$highlightsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$highlightsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifacts<T extends Prisma.WorkItem$artifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   generationRuns<T extends Prisma.WorkItem$generationRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$generationRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GenerationRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -2289,51 +2147,27 @@ export type WorkItem$evidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
- * WorkItem.evidenceClusters
+ * WorkItem.highlights
  */
-export type WorkItem$evidenceClustersArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type WorkItem$highlightsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
-   * Select specific fields to fetch from the EvidenceCluster
+   * Select specific fields to fetch from the Highlight
    */
-  select?: Prisma.EvidenceClusterSelect<ExtArgs> | null
+  select?: Prisma.HighlightSelect<ExtArgs> | null
   /**
-   * Omit specific fields from the EvidenceCluster
+   * Omit specific fields from the Highlight
    */
-  omit?: Prisma.EvidenceClusterOmit<ExtArgs> | null
+  omit?: Prisma.HighlightOmit<ExtArgs> | null
   /**
    * Choose, which related nodes to fetch as well
    */
-  include?: Prisma.EvidenceClusterInclude<ExtArgs> | null
-  where?: Prisma.EvidenceClusterWhereInput
-  orderBy?: Prisma.EvidenceClusterOrderByWithRelationInput | Prisma.EvidenceClusterOrderByWithRelationInput[]
-  cursor?: Prisma.EvidenceClusterWhereUniqueInput
+  include?: Prisma.HighlightInclude<ExtArgs> | null
+  where?: Prisma.HighlightWhereInput
+  orderBy?: Prisma.HighlightOrderByWithRelationInput | Prisma.HighlightOrderByWithRelationInput[]
+  cursor?: Prisma.HighlightWhereUniqueInput
   take?: number
   skip?: number
-  distinct?: Prisma.EvidenceClusterScalarFieldEnum | Prisma.EvidenceClusterScalarFieldEnum[]
-}
-
-/**
- * WorkItem.claims
- */
-export type WorkItem$claimsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  /**
-   * Select specific fields to fetch from the Claim
-   */
-  select?: Prisma.ClaimSelect<ExtArgs> | null
-  /**
-   * Omit specific fields from the Claim
-   */
-  omit?: Prisma.ClaimOmit<ExtArgs> | null
-  /**
-   * Choose, which related nodes to fetch as well
-   */
-  include?: Prisma.ClaimInclude<ExtArgs> | null
-  where?: Prisma.ClaimWhereInput
-  orderBy?: Prisma.ClaimOrderByWithRelationInput | Prisma.ClaimOrderByWithRelationInput[]
-  cursor?: Prisma.ClaimWhereUniqueInput
-  take?: number
-  skip?: number
-  distinct?: Prisma.ClaimScalarFieldEnum | Prisma.ClaimScalarFieldEnum[]
+  distinct?: Prisma.HighlightScalarFieldEnum | Prisma.HighlightScalarFieldEnum[]
 }
 
 /**

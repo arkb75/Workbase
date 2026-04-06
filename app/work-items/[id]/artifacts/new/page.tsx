@@ -27,9 +27,18 @@ function readArtifactResultRefs(value: unknown) {
     typeof objectValue.artifactId === "string" && objectValue.artifactId.length
       ? objectValue.artifactId
       : null;
-  const usedClaimIds = Array.isArray(objectValue.usedClaimIds)
-    ? objectValue.usedClaimIds.filter(
-        (claimId: unknown): claimId is string => typeof claimId === "string",
+  const usedHighlightIds = Array.isArray(objectValue.usedHighlightIds)
+    ? objectValue.usedHighlightIds.filter(
+        (highlightId: unknown): highlightId is string => typeof highlightId === "string",
+      )
+    : Array.isArray(objectValue.usedClaimIds)
+      ? objectValue.usedClaimIds.filter(
+          (highlightId: unknown): highlightId is string => typeof highlightId === "string",
+        )
+      : [];
+  const supportingEvidenceItemIds = Array.isArray(objectValue.supportingEvidenceItemIds)
+    ? objectValue.supportingEvidenceItemIds.filter(
+        (evidenceItemId: unknown): evidenceItemId is string => typeof evidenceItemId === "string",
       )
     : [];
 
@@ -39,7 +48,8 @@ function readArtifactResultRefs(value: unknown) {
 
   return {
     artifactId,
-    usedClaimIds,
+    usedHighlightIds,
+    supportingEvidenceItemIds,
   };
 }
 
@@ -54,14 +64,14 @@ export default async function ArtifactGeneratorPage({
   const { artifactId, error } = await searchParams;
   const user = await getDemoUser();
   const workItem = await getWorkItemForUser(user.id, id);
-  const approvedClaims = workItem.claims.filter(
-    (claim) => claim.verificationStatus === "approved" && !claim.sensitivityFlag,
+  const approvedHighlights = workItem.highlights.filter(
+    (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
   );
-  const artifactGenerationTraces = workItem.generationRuns.filter(
-    (run) => run.kind === "artifact_generation",
+  const artifactTraces = workItem.generationRuns.filter(
+    (run) => run.kind === "artifact_retrieval" || run.kind === "artifact_generation",
   );
   const artifactTraceById = new Map(
-    artifactGenerationTraces
+    artifactTraces
       .map((trace) => {
         const resultRefs = readArtifactResultRefs(trace.resultRefs);
 
@@ -71,26 +81,34 @@ export default async function ArtifactGeneratorPage({
 
         return [resultRefs.artifactId, trace] as const;
       })
-      .filter((entry): entry is readonly [string, (typeof artifactGenerationTraces)[number]] => Boolean(entry)),
+      .filter((entry): entry is readonly [string, (typeof artifactTraces)[number]] => Boolean(entry)),
   );
   const selectedArtifact =
     workItem.artifacts.find((artifact) => artifact.id === artifactId) ?? workItem.artifacts[0] ?? null;
   const selectedArtifactTrace = selectedArtifact
     ? artifactTraceById.get(selectedArtifact.id) ?? null
     : null;
-  const selectedUsedClaimIds: string[] = selectedArtifactTrace
-    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.usedClaimIds ?? []
+  const selectedUsedHighlightIds: string[] = selectedArtifactTrace
+    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.usedHighlightIds ?? []
     : [];
-  const selectedUsedClaims = selectedUsedClaimIds
-    .map((claimId: string) => workItem.claims.find((claim) => claim.id === claimId))
-    .filter((claim): claim is (typeof workItem.claims)[number] => Boolean(claim));
+  const selectedSupportingEvidenceItemIds: string[] = selectedArtifactTrace
+    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.supportingEvidenceItemIds ?? []
+    : [];
+  const selectedUsedHighlights = selectedUsedHighlightIds
+    .map((highlightId) => workItem.highlights.find((highlight) => highlight.id === highlightId))
+    .filter((highlight): highlight is (typeof workItem.highlights)[number] => Boolean(highlight));
+  const selectedSupportingEvidence = selectedSupportingEvidenceItemIds
+    .map((evidenceItemId) =>
+      workItem.evidenceItems.find((item) => item.id === evidenceItemId),
+    )
+    .filter((item): item is (typeof workItem.evidenceItems)[number] => Boolean(item));
 
   return (
     <WorkbaseFrame>
       <PageHeader
         eyebrow="Artifact generator"
-        title="Generate from approved claims only"
-        description="Choose the artifact type, Target Angle, and tone. Workbase persists the output and keeps it constrained to approved, eligible claims."
+        title="Generate from approved highlights"
+        description="Choose the artifact type, target angle, and tone. Workbase retrieves the best approved highlights first, then adds bounded supporting evidence when needed."
       />
 
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
@@ -100,7 +118,7 @@ export default async function ArtifactGeneratorPage({
             <CardHeader>
               <CardTitle>Generator controls</CardTitle>
               <CardDescription>
-                Targeting can reframe and prioritize claims, but it cannot invent work or metrics.
+                Targeting can reprioritize highlights, but it cannot invent work, metrics, or scope.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5">
@@ -119,7 +137,7 @@ export default async function ArtifactGeneratorPage({
 
               <label className="grid gap-2">
                 <span className="text-sm font-medium text-[color:var(--ink-strong)]">
-                  Target Angle
+                  Target angle
                 </span>
                 <Select name="targetAngle" defaultValue="general">
                   {targetAngleOptions.map((option) => (
@@ -144,47 +162,55 @@ export default async function ArtifactGeneratorPage({
               </label>
 
               <SubmitButton pendingLabel="Generating artifact...">
-                Generate Artifact
+                Generate artifact
               </SubmitButton>
             </CardContent>
           </form>
         </Card>
 
         <CollapsibleCard
-          title="Eligible approved claims"
-          description="Sensitive claims stay out. Visibility is checked at generation time."
-          meta={<Badge tone="success">{approvedClaims.length} eligible</Badge>}
+          title="Approved highlights available for retrieval"
+          description="Sensitive highlights stay out. Visibility is checked at generation time."
+          meta={<Badge tone="success">{approvedHighlights.length} approved</Badge>}
           bodyClassName="space-y-4"
         >
-            {approvedClaims.length ? (
-              approvedClaims.map((claim) => (
-                <div
-                  key={claim.id}
-                  className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone="success">Approved</Badge>
-                    <Badge>{claim.visibility.replace("_", " ")}</Badge>
-                    <Badge>{claim.confidence}</Badge>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
-                    {claim.text}
-                  </p>
+          {approvedHighlights.length ? (
+            approvedHighlights.map((highlight) => (
+              <div
+                key={highlight.id}
+                className="rounded-[24px] border border-black/8 bg-[color:var(--panel-muted)] p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="success">Approved</Badge>
+                  <Badge>{highlight.visibility.replace("_", " ")}</Badge>
+                  <Badge>{highlight.confidence}</Badge>
+                  {highlight.tags.slice(0, 3).map((tag) => (
+                    <Badge key={`${highlight.id}-${tag.dimension}-${tag.tag}`}>
+                      {tag.tag.replace(/_/g, " ")}
+                    </Badge>
+                  ))}
                 </div>
-              ))
-            ) : (
-              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                No approved, non-sensitive claims are available yet.
-              </p>
-            )}
+                <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
+                  {highlight.text}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                  {highlight.summary}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+              No approved, non-sensitive highlights are available yet.
+            </p>
+          )}
         </CollapsibleCard>
       </section>
 
-      {error === "no-eligible-claims" ? (
+      {error === "no-eligible-claims" || error === "no-eligible-highlights" ? (
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              No approved, non-sensitive claims match the current visibility rules for that Artifact.
+              No approved, non-sensitive highlights match the current visibility rules for that artifact.
             </p>
           </CardContent>
         </Card>
@@ -194,8 +220,7 @@ export default async function ArtifactGeneratorPage({
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              Workbase could not generate that Artifact. The generation trace panel below has the
-              provider and validation details.
+              Workbase could not generate that artifact. The generation trace panel below has the provider and validation details.
             </p>
           </CardContent>
         </Card>
@@ -205,7 +230,7 @@ export default async function ArtifactGeneratorPage({
         <CardHeader>
           <CardTitle>Artifact history</CardTitle>
           <CardDescription>
-            Persisted outputs for this Work Item. Open any saved Artifact to inspect the content and the claims it used.
+            Persisted outputs for this Work Item. Open any saved artifact to inspect the content, the highlights it used, and the supporting evidence that shaped it.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
@@ -257,7 +282,8 @@ export default async function ArtifactGeneratorPage({
                   <Badge>{selectedArtifact.targetAngle.replace("_", " ")}</Badge>
                   <Badge>{selectedArtifact.tone.replace("_", " ")}</Badge>
                   <Badge>{formatDateTime(selectedArtifact.createdAt)}</Badge>
-                  <Badge>{selectedUsedClaims.length} claims used</Badge>
+                  <Badge>{selectedUsedHighlights.length} highlights used</Badge>
+                  <Badge>{selectedSupportingEvidence.length} evidence refs</Badge>
                 </div>
 
                 <pre className="whitespace-pre-wrap rounded-[24px] bg-white p-5 font-sans text-sm leading-7 text-[color:var(--ink-strong)]">
@@ -267,45 +293,85 @@ export default async function ArtifactGeneratorPage({
                 <div className="grid gap-4">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-                      Claims used
+                      Highlights used
                     </p>
                     <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      Workbase records the approved claim set used for each generated Artifact when trace data is available.
+                      Workbase records the approved highlight set used for each generated artifact when trace data is available.
                     </p>
                   </div>
 
-                  {selectedUsedClaims.length ? (
+                  {selectedUsedHighlights.length ? (
                     <div className="grid gap-3">
-                      {selectedUsedClaims.map((claim) => (
+                      {selectedUsedHighlights.map((highlight) => (
                         <div
-                          key={claim.id}
+                          key={highlight.id}
                           className="rounded-[22px] border border-black/8 bg-white p-4"
                         >
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge tone="success">Approved</Badge>
-                            <Badge>{claim.visibility.replace("_", " ")}</Badge>
-                            <Badge>{claim.confidence}</Badge>
+                            <Badge>{highlight.visibility.replace("_", " ")}</Badge>
+                            <Badge>{highlight.confidence}</Badge>
                           </div>
                           <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
-                            {claim.text}
+                            {highlight.text}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                            {highlight.summary}
                           </p>
                         </div>
                       ))}
                     </div>
                   ) : selectedArtifactTrace ? (
                     <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                      This Artifact has trace data, but Workbase could not resolve the recorded claims in the current workspace.
+                      This artifact has trace data, but Workbase could not resolve the recorded highlights in the current workspace.
                     </p>
                   ) : (
                     <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                      This Artifact was saved without a linked claim trace, so Workbase cannot show its claim lineage here.
+                      This artifact was saved without a linked highlight trace, so Workbase cannot show its highlight lineage here.
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+                      Supporting evidence
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                      Supporting evidence expands context around the selected approved highlights without introducing brand-new unreviewed accomplishments.
+                    </p>
+                  </div>
+
+                  {selectedSupportingEvidence.length ? (
+                    <div className="grid gap-3">
+                      {selectedSupportingEvidence.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-[22px] border border-black/8 bg-white p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge>{item.type.replace(/_/g, " ")}</Badge>
+                            <Badge>{item.source.label}</Badge>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
+                            {item.title}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                            {item.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                      No supporting evidence was recorded for this artifact run.
                     </p>
                   )}
                 </div>
               </div>
             ) : (
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                Generate an Artifact to start building a saved history for this Work Item.
+                Generate an artifact to start building a saved history for this Work Item.
               </p>
             )}
           </div>
@@ -313,9 +379,9 @@ export default async function ArtifactGeneratorPage({
       </Card>
 
       <GenerationTracePanel
-        traces={artifactGenerationTraces}
+        traces={artifactTraces}
         title="Generation traces"
-        description="Internal trace records for Artifact generation runs."
+        description="Internal trace records for artifact retrieval and generation runs."
       />
     </WorkbaseFrame>
   );

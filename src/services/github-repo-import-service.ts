@@ -1,5 +1,6 @@
 import type { JsonValue, SourceSnapshot } from "@/src/domain/types";
 import { githubImportLimits } from "@/src/lib/github-config";
+import { buildEvidenceSearchText } from "@/src/lib/highlight-tags";
 import { prisma } from "@/src/lib/prisma";
 import type { GitHubRepoImportService } from "@/src/services/types";
 import {
@@ -172,65 +173,86 @@ export const githubRepoImportService: GitHubRepoImportService = {
     const importedEvidenceItems = [
       ...(readme?.content
         ? [
-            {
-              workItemId: workItem.id,
-              sourceId: source.id,
-              externalId: `readme:${readme.path}`,
-              type: "github_readme" as const,
-              title: `${repository.name} README`,
-              content: Buffer.from(readme.content, readme.encoding === "base64" ? "base64" : "utf8")
+            (() => {
+              const content = Buffer.from(
+                readme.content,
+                readme.encoding === "base64" ? "base64" : "utf8",
+              )
                 .toString("utf8")
-                .slice(0, githubImportLimits.readmeChars),
-              included: true,
-              metadata: {
+                .slice(0, githubImportLimits.readmeChars);
+              const metadata = {
                 htmlUrl: readme.html_url ?? repository.html_url,
                 path: readme.path,
                 importedAt,
-              },
-              source: {
-                id: source.id,
-                label: source.label,
-                type: source.type,
-                externalId: source.externalId,
-              },
-            },
+              };
+
+              return {
+                workItemId: workItem.id,
+                sourceId: source.id,
+                externalId: `readme:${readme.path}`,
+                sourceType: source.type,
+                type: "github_readme" as const,
+                title: `${repository.name} README`,
+                content,
+                searchText: buildEvidenceSearchText({
+                  title: `${repository.name} README`,
+                  content,
+                  metadata,
+                }),
+                parentKind: "source",
+                parentKey: source.id,
+                included: true,
+                metadata,
+                source: {
+                  id: source.id,
+                  label: source.label,
+                  type: source.type,
+                  externalId: source.externalId,
+                },
+              };
+            })(),
           ]
         : []),
-      ...commits.map((commit) => ({
-        workItemId: workItem.id,
-        sourceId: source.id,
-        externalId: `commit:${commit.sha}`,
-        type: "github_commit" as const,
-        title: commit.commit.message.split("\n")[0],
-        content: summarizeEvidenceContent(commit.commit.message, 1200),
-        included: true,
-        metadata: {
+      ...commits.map((commit) => {
+        const title = commit.commit.message.split("\n")[0];
+        const content = summarizeEvidenceContent(commit.commit.message, 1200);
+        const metadata = {
           sha: commit.sha,
           htmlUrl: commit.html_url ?? null,
           author: commit.commit.author?.name ?? null,
           authoredAt: commit.commit.author?.date ?? null,
           changedFiles: commitChangedFiles.get(commit.sha) ?? [],
           importedAt,
-        },
-        source: {
-          id: source.id,
-          label: source.label,
-          type: source.type,
-          externalId: source.externalId,
-        },
-      })),
-      ...pulls.map((pull) => ({
-        workItemId: workItem.id,
-        sourceId: source.id,
-        externalId: `pull:${pull.id}`,
-        type: "github_pull_request" as const,
-        title: `PR #${pull.number}: ${pull.title}`,
-        content: summarizeEvidenceContent(
+        };
+
+        return {
+          workItemId: workItem.id,
+          sourceId: source.id,
+          externalId: `commit:${commit.sha}`,
+          sourceType: source.type,
+          type: "github_commit" as const,
+          title,
+          content,
+          searchText: buildEvidenceSearchText({ title, content, metadata }),
+          parentKind: "source",
+          parentKey: source.id,
+          included: true,
+          metadata,
+          source: {
+            id: source.id,
+            label: source.label,
+            type: source.type,
+            externalId: source.externalId,
+          },
+        };
+      }),
+      ...pulls.map((pull) => {
+        const title = `PR #${pull.number}: ${pull.title}`;
+        const content = summarizeEvidenceContent(
           [pull.title, pull.body ?? ""].filter(Boolean).join("\n\n"),
           1800,
-        ),
-        included: true,
-        metadata: {
+        );
+        const metadata = {
           number: pull.number,
           htmlUrl: pull.html_url,
           state: pull.state,
@@ -239,66 +261,101 @@ export const githubRepoImportService: GitHubRepoImportService = {
           updatedAt: pull.updated_at ?? null,
           changedFiles: pullChangedFiles.get(pull.id) ?? [],
           importedAt,
-        },
-        source: {
-          id: source.id,
-          label: source.label,
-          type: source.type,
-          externalId: source.externalId,
-        },
-      })),
-      ...issues.map((issue) => ({
-        workItemId: workItem.id,
-        sourceId: source.id,
-        externalId: `issue:${issue.id}`,
-        type: "github_issue" as const,
-        title: `Issue #${issue.number}: ${issue.title}`,
-        content: summarizeEvidenceContent(
+        };
+
+        return {
+          workItemId: workItem.id,
+          sourceId: source.id,
+          externalId: `pull:${pull.id}`,
+          sourceType: source.type,
+          type: "github_pull_request" as const,
+          title,
+          content,
+          searchText: buildEvidenceSearchText({ title, content, metadata }),
+          parentKind: "pull_request",
+          parentKey: `${source.id}:pull:${pull.number}`,
+          included: true,
+          metadata,
+          source: {
+            id: source.id,
+            label: source.label,
+            type: source.type,
+            externalId: source.externalId,
+          },
+        };
+      }),
+      ...issues.map((issue) => {
+        const title = `Issue #${issue.number}: ${issue.title}`;
+        const content = summarizeEvidenceContent(
           [issue.title, issue.body ?? ""].filter(Boolean).join("\n\n"),
           1600,
-        ),
-        included: true,
-        metadata: {
+        );
+        const metadata = {
           number: issue.number,
           htmlUrl: issue.html_url,
           state: issue.state,
           author: issue.user?.login ?? null,
           updatedAt: issue.updated_at ?? null,
           importedAt,
-        },
-        source: {
-          id: source.id,
-          label: source.label,
-          type: source.type,
-          externalId: source.externalId,
-        },
-      })),
-      ...releases.map((release) => ({
-        workItemId: workItem.id,
-        sourceId: source.id,
-        externalId: `release:${release.id}`,
-        type: "github_release" as const,
-        title: release.name?.trim() || release.tag_name,
-        content: summarizeEvidenceContent(
+        };
+
+        return {
+          workItemId: workItem.id,
+          sourceId: source.id,
+          externalId: `issue:${issue.id}`,
+          sourceType: source.type,
+          type: "github_issue" as const,
+          title,
+          content,
+          searchText: buildEvidenceSearchText({ title, content, metadata }),
+          parentKind: "issue",
+          parentKey: `${source.id}:issue:${issue.number}`,
+          included: true,
+          metadata,
+          source: {
+            id: source.id,
+            label: source.label,
+            type: source.type,
+            externalId: source.externalId,
+          },
+        };
+      }),
+      ...releases.map((release) => {
+        const title = release.name?.trim() || release.tag_name;
+        const content = summarizeEvidenceContent(
           [release.name ?? release.tag_name, release.body ?? ""].filter(Boolean).join("\n\n"),
           1800,
-        ),
-        included: true,
-        metadata: {
+        );
+        const metadata = {
           htmlUrl: release.html_url,
           tagName: release.tag_name,
           publishedAt: release.published_at ?? null,
           draft: release.draft,
           prerelease: release.prerelease,
           importedAt,
-        },
-        source: {
-          id: source.id,
-          label: source.label,
-          type: source.type,
-          externalId: source.externalId,
-        },
-      })),
+        };
+
+        return {
+          workItemId: workItem.id,
+          sourceId: source.id,
+          externalId: `release:${release.id}`,
+          sourceType: source.type,
+          type: "github_release" as const,
+          title,
+          content,
+          searchText: buildEvidenceSearchText({ title, content, metadata }),
+          parentKind: "release",
+          parentKey: `${source.id}:release:${release.tag_name}`,
+          included: true,
+          metadata,
+          source: {
+            id: source.id,
+            label: source.label,
+            type: source.type,
+            externalId: source.externalId,
+          },
+        };
+      }),
     ];
 
     return {

@@ -1,4 +1,5 @@
-import type { ClaimDraft } from "@/src/domain/types";
+import type { HighlightDraft } from "@/src/domain/types";
+import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import type { ClaimResearchService } from "@/src/services/types";
 import { targetAngleKeywordMap } from "@/src/lib/options";
 import { normalizeWhitespace, toSentence } from "@/src/lib/utils";
@@ -104,14 +105,13 @@ function createClaimDraft(params: {
   sourceType: "manual_note" | "github_repo";
   claimText: string;
   supportingExcerpt: string;
-}): ClaimDraft {
+}): HighlightDraft {
   const text = toSentence(params.claimText);
   const risksSummary = inferRisks(text) || null;
   const missingInfo = inferMissingInfo(text) || null;
 
   return {
     text,
-    category: inferClaimCategory(text),
     confidence: inferConfidence(text),
     ownershipClarity: inferOwnershipClarity(text),
     sensitivityFlag: false,
@@ -120,12 +120,20 @@ function createClaimDraft(params: {
     risksSummary,
     missingInfo,
     rejectionReason: null,
-    evidenceCard: {
-      evidenceSummary: `Grounded in ${params.sourceLabel.toLowerCase()}: "${toSentence(
+    summary: `Grounded in ${params.sourceLabel.toLowerCase()}: "${toSentence(
         params.supportingExcerpt,
       )}".`,
-      rationaleSummary:
-        "The claim is phrased as implementation work directly supported by the attached source.",
+    verificationNotes:
+      missingInfo || risksSummary
+        ? [missingInfo, risksSummary].filter(Boolean).join(" ")
+        : "Check wording against the exact scope of the work before approval.",
+    metadata: {
+      legacyCategory: inferClaimCategory(text),
+    },
+    evidence: {
+      summary: `Grounded in ${params.sourceLabel.toLowerCase()}: "${toSentence(
+        params.supportingExcerpt,
+      )}".`,
       sourceRefs: [
         {
           sourceId: params.sourceId,
@@ -134,17 +142,23 @@ function createClaimDraft(params: {
           excerpt: toSentence(params.supportingExcerpt),
         },
       ],
+    },
+    tags: inferHighlightTags({
+      text,
+      summary: `Grounded in ${params.sourceLabel.toLowerCase()}: "${toSentence(
+        params.supportingExcerpt,
+      )}".`,
       verificationNotes:
         missingInfo || risksSummary
           ? [missingInfo, risksSummary].filter(Boolean).join(" ")
           : "Check wording against the exact scope of the work before approval.",
-    },
+    }),
   };
 }
 
 export const mockClaimResearchService: ClaimResearchService = {
   async generate({ workItem, evidenceItems }) {
-    const drafts: ClaimDraft[] = [
+    const drafts: HighlightDraft[] = [
       createClaimDraft({
         sourceId: `${workItem.id}-description`,
         sourceLabel: "Work Item description",
@@ -162,7 +176,8 @@ export const mockClaimResearchService: ClaimResearchService = {
         typeof source.metadata === "object" &&
         source.metadata &&
         "kind" in source.metadata &&
-        source.metadata.kind === "rejected_claim_context";
+        (source.metadata.kind === "rejected_highlight_context" ||
+          source.metadata.kind === "rejected_claim_context");
 
       if (isRejectedGuidance) {
         continue;
@@ -198,10 +213,10 @@ export const mockClaimResearchService: ClaimResearchService = {
     }
 
     return {
-      claims: drafts.slice(0, 6),
+      highlights: drafts.slice(0, 16),
       generationRunIds: {
-        clusterResearch: [],
-        merge: null,
+        generation: [],
+        verification: null,
       },
     };
   },

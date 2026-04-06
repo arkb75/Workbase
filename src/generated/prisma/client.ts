@@ -67,25 +67,25 @@ export type GitHubConnection = Prisma.GitHubConnectionModel
  */
 export type EvidenceItem = Prisma.EvidenceItemModel
 /**
- * Model EvidenceCluster
+ * Model EvidenceTag
  * 
  */
-export type EvidenceCluster = Prisma.EvidenceClusterModel
+export type EvidenceTag = Prisma.EvidenceTagModel
 /**
- * Model EvidenceClusterItem
+ * Model Highlight
  * 
  */
-export type EvidenceClusterItem = Prisma.EvidenceClusterItemModel
+export type Highlight = Prisma.HighlightModel
 /**
- * Model Claim
+ * Model HighlightEvidence
  * 
  */
-export type Claim = Prisma.ClaimModel
+export type HighlightEvidence = Prisma.HighlightEvidenceModel
 /**
- * Model EvidenceCard
+ * Model HighlightTag
  * 
  */
-export type EvidenceCard = Prisma.EvidenceCardModel
+export type HighlightTag = Prisma.HighlightTagModel
 /**
  * Model Artifact
  * 

@@ -5,7 +5,6 @@ import {
   toClaimSnapshot,
 } from "@/src/domain/workbase-workflows";
 import type {
-  EvidenceClusterSnapshot,
   EvidenceItemSnapshot,
   SourceSnapshot,
   WorkItemSnapshot,
@@ -19,10 +18,11 @@ import { sourceIngestionService } from "@/src/services/source-ingestion-service"
 import type {
   ClaimResearchService,
   ClaimVerificationService,
+  HighlightRetrievalService,
 } from "@/src/services/types";
 
 describe("workbase workflow", () => {
-  it("creates claims from notes, approves one, and generates an artifact from approved claims only", async () => {
+  it("creates highlights from notes, approves one, and generates an artifact from approved highlights only", async () => {
     const workItem: WorkItemSnapshot = {
       id: "work-item-1",
       userId: "user-1",
@@ -55,8 +55,12 @@ describe("workbase workflow", () => {
       type: item.type,
       title: item.title,
       content: item.content,
+      searchText: item.searchText,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
       included: item.included,
       metadata: item.metadata,
+      tags: [],
       source: {
         id: sources[0].id,
         label: sources[0].label,
@@ -64,28 +68,11 @@ describe("workbase workflow", () => {
         externalId: sources[0].externalId ?? null,
       },
     }));
-    const clusters: EvidenceClusterSnapshot[] = [
-      {
-        id: "cluster-1",
-        workItemId: workItem.id,
-        title: "Incident review and filters",
-        summary: "Console UI, filters, and internal-review wording.",
-        theme: "backend",
-        confidence: "medium",
-        metadata: null,
-        items: evidenceItems.map((item, index) => ({
-          id: `cluster-item-${index + 1}`,
-          evidenceItemId: item.id,
-          relevanceScore: 0.8,
-        })),
-      },
-    ];
 
     const claimPlan = await buildClaimGenerationDrafts({
       workItem,
       sources,
       evidenceItems,
-      clusters,
       existingClaims: [],
       sourceIngestionService,
       claimResearchService,
@@ -94,8 +81,8 @@ describe("workbase workflow", () => {
 
     expect(claimPlan.drafts.length).toBeGreaterThan(0);
 
-    const approvedClaim = {
-      ...toClaimSnapshot(workItem.id, "claim-approved", claimPlan.drafts[0]),
+    const approvedHighlight = {
+      ...toClaimSnapshot(workItem.id, "highlight-approved", claimPlan.drafts[0]),
       verificationStatus: transitionClaimStatus(
         claimPlan.drafts[0].verificationStatus,
         "approve",
@@ -103,6 +90,15 @@ describe("workbase workflow", () => {
       visibility: "resume_safe" as const,
       sensitivityFlag: false,
       rejectionReason: null,
+    };
+    const retrievalService: HighlightRetrievalService = {
+      async retrieve() {
+        return {
+          highlights: [approvedHighlight],
+          supportingEvidence: evidenceItems.slice(0, 2),
+          generationRunId: null,
+        };
+      },
     };
     const artifact = await buildArtifactFromApprovedClaims({
       request: {
@@ -112,23 +108,26 @@ describe("workbase workflow", () => {
         targetAngle: "backend",
         tone: "concise",
       },
-      claims: [approvedClaim],
+      workItem,
+      highlights: [approvedHighlight],
+      evidenceItems,
+      highlightRetrievalService: retrievalService,
       artifactGenerationService,
     });
 
     expect(artifact.artifactDraft.content).toContain(
-      approvedClaim.text.replace(/\.$/, ""),
+      approvedHighlight.text.replace(/\.$/, ""),
     );
-    expect(artifact.artifactDraft.usedClaimIds).toEqual(["claim-approved"]);
+    expect(artifact.artifactDraft.usedHighlightIds).toEqual(["highlight-approved"]);
   });
 
-  it("passes reviewed evidence items and persisted clusters into claim generation", async () => {
+  it("passes reviewed evidence items into highlight generation", async () => {
     const workItem: WorkItemSnapshot = {
       id: "work-item-2",
       userId: "user-1",
-      title: "Clustered claims flow",
+      title: "Highlight generation flow",
       type: "project",
-      description: "Uses evidence clusters before claim generation.",
+      description: "Uses evidence retrieval before artifact generation.",
       startDate: null,
       endDate: null,
     };
@@ -146,15 +145,19 @@ describe("workbase workflow", () => {
     const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource(
       sources[0],
     ).map((item, index) => ({
-      id: `cluster-evidence-${index + 1}`,
+      id: `highlight-evidence-${index + 1}`,
       workItemId: item.workItemId,
       sourceId: item.sourceId,
       externalId: item.externalId,
       type: item.type,
       title: item.title,
       content: item.content,
+      searchText: item.searchText,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
       included: item.included,
       metadata: item.metadata,
+      tags: [],
       source: {
         id: sources[0].id,
         label: sources[0].label,
@@ -162,34 +165,17 @@ describe("workbase workflow", () => {
         externalId: sources[0].externalId ?? null,
       },
     }));
-    const clusters = [
-      {
-        id: "cluster-1",
-        workItemId: workItem.id,
-        title: "Dashboard and imports",
-        summary: "UI and pipeline work grouped together.",
-        theme: "full_stack",
-        confidence: "medium" as const,
-        metadata: null,
-        items: evidenceItems.map((item, index) => ({
-          id: `cluster-item-${index + 1}`,
-          evidenceItemId: item.id,
-          relevanceScore: 0.8,
-        })),
-      },
-    ];
     let researchEvidenceIds: string[] = [];
-    let verificationClusterIds: string[] = [];
 
     const capturingResearchService: ClaimResearchService = {
       async generate(input) {
         researchEvidenceIds = input.evidenceItems.map((item) => item.id);
 
         return {
-          claims: [
+          highlights: [
             {
               text: "Built a dashboard and import workflow.",
-              category: "full_stack",
+              summary: "Grounded in evidence items.",
               confidence: "medium",
               ownershipClarity: "clear",
               sensitivityFlag: false,
@@ -198,25 +184,26 @@ describe("workbase workflow", () => {
               risksSummary: null,
               missingInfo: null,
               rejectionReason: null,
-              evidenceCard: {
-                evidenceSummary: "Grounded in evidence items.",
-                rationaleSummary: "Grouped by cluster.",
+              verificationNotes: "Generated from normalized evidence.",
+              metadata: null,
+              evidence: {
+                summary: "Grounded in evidence items.",
                 sourceRefs: [],
                 verificationNotes: null,
               },
+              tags: [],
             },
           ],
           generationRunIds: {
-            clusterResearch: [],
-            merge: null,
+            generation: [],
+            verification: null,
           },
         };
       },
     };
     const capturingVerificationService: ClaimVerificationService = {
       async verify(input) {
-        verificationClusterIds = input.clusters.map((cluster) => cluster.id);
-        return input.claims;
+        return input.highlights;
       },
     };
 
@@ -224,7 +211,6 @@ describe("workbase workflow", () => {
       workItem,
       sources,
       evidenceItems,
-      clusters,
       existingClaims: [],
       sourceIngestionService,
       claimResearchService: capturingResearchService,
@@ -232,6 +218,5 @@ describe("workbase workflow", () => {
     });
 
     expect(researchEvidenceIds).toEqual(evidenceItems.map((item) => item.id));
-    expect(verificationClusterIds).toEqual(["cluster-1"]);
   });
 });

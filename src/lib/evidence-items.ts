@@ -1,7 +1,7 @@
 import type {
-  EvidenceItemSnapshot,
   SourceSnapshot,
 } from "@/src/domain/types";
+import { buildEvidenceSearchText } from "@/src/lib/highlight-tags";
 import { normalizeWhitespace, toSentence } from "@/src/lib/utils";
 
 export function splitManualNoteIntoEvidenceContent(value: string) {
@@ -23,9 +23,19 @@ export function buildManualEvidenceItemsFromSource(source: SourceSnapshot) {
     workItemId: source.workItemId,
     sourceId: source.id,
     externalId: buildManualEvidenceExternalId(source.id, index),
+    sourceType: source.type,
     type: "manual_note_excerpt" as const,
     title: `${source.label} excerpt ${index + 1}`,
     content: excerpt,
+    searchText: buildEvidenceSearchText({
+      title: `${source.label} excerpt ${index + 1}`,
+      content: excerpt,
+      metadata: {
+        sourceType: source.type,
+      },
+    }),
+    parentKind: "source",
+    parentKey: source.id,
     included: true,
     metadata: {
       lineIndex: index,
@@ -42,27 +52,4 @@ export function summarizeEvidenceContent(value: string, maxLength = 360) {
   }
 
   return `${normalized.slice(0, maxLength - 1).trim()}…`;
-}
-
-export function evidenceClustersAreStale(
-  evidenceItems: EvidenceItemSnapshot[],
-  clusterUpdatedAt: Date | string | null | undefined,
-) {
-  if (!evidenceItems.length) {
-    return false;
-  }
-
-  if (!clusterUpdatedAt) {
-    return true;
-  }
-
-  const clusterTime = new Date(clusterUpdatedAt).getTime();
-
-  return evidenceItems.some((item) => {
-    if (!item.included || !item.updatedAt) {
-      return false;
-    }
-
-    return new Date(item.updatedAt).getTime() > clusterTime;
-  });
 }

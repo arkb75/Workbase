@@ -26,8 +26,8 @@ export default async function OnboardingPage() {
                 Verified evidence first. Career content second.
               </h1>
               <p className="max-w-lg text-base leading-7 text-white/72">
-                Workbase turns projects and early experience into claim-by-claim
-                content that you can inspect, edit, and approve before it becomes
+                Workbase turns projects and early experience into evidence-backed
+                highlights that you can inspect, edit, and approve before they become
                 a resume bullet or LinkedIn entry.
               </p>
             </div>
@@ -38,7 +38,7 @@ export default async function OnboardingPage() {
               <ShieldCheck className="h-5 w-5 text-cyan-300" />
               <p className="text-sm font-medium">Authenticity stays visible</p>
               <p className="text-sm leading-6 text-white/65">
-                Claims always keep evidence, risks, and uncertainty attached.
+                Highlights always keep evidence, risks, and uncertainty attached.
               </p>
             </div>
             <div className="space-y-3">

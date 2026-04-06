@@ -9,22 +9,22 @@ function downgradeConfidence(value: "low" | "medium" | "high") {
 }
 
 export const mockClaimVerificationService: ClaimVerificationService = {
-  async verify({ claims, evidenceItems }) {
-    return claims.map((claim) => {
-      const risks = [claim.risksSummary].filter(Boolean);
-      let verificationStatus = claim.verificationStatus;
-      let visibility = claim.visibility;
-      let sensitivityFlag = claim.sensitivityFlag;
-      let confidence = claim.confidence;
-      let ownershipClarity = claim.ownershipClarity;
+  async verify({ highlights, evidenceItems }) {
+    return highlights.map((highlight) => {
+      const risks = [highlight.risksSummary].filter(Boolean);
+      let verificationStatus = highlight.verificationStatus;
+      let visibility = highlight.visibility;
+      let sensitivityFlag = highlight.sensitivityFlag;
+      let confidence = highlight.confidence;
+      let ownershipClarity = highlight.ownershipClarity;
 
-      if (/\b(10x|100%|single-handedly|owned the entire|revolutionized)\b/i.test(claim.text)) {
+      if (/\b(10x|100%|single-handedly|owned the entire|revolutionized)\b/i.test(highlight.text)) {
         verificationStatus = "flagged";
         confidence = downgradeConfidence(confidence);
         risks.push("Wording may overstate impact relative to the available evidence.");
       }
 
-      if (/\b(team|paired|collaborated|supported)\b/i.test(claim.text)) {
+      if (/\b(team|paired|collaborated|supported)\b/i.test(highlight.text)) {
         ownershipClarity =
           ownershipClarity === "clear" ? "partial" : ownershipClarity;
         risks.push("Clarify individual ownership before using in a public artifact.");
@@ -35,7 +35,7 @@ export const mockClaimVerificationService: ClaimVerificationService = {
       );
 
       if (
-        /\b(customer data|internal|confidential|sensitive)\b/i.test(claim.text) ||
+        /\b(customer data|internal|confidential|sensitive)\b/i.test(highlight.text) ||
         sourceMentionsSensitivity
       ) {
         sensitivityFlag = true;
@@ -44,14 +44,14 @@ export const mockClaimVerificationService: ClaimVerificationService = {
         risks.push("Potentially sensitive material should stay private until reviewed.");
       }
 
-      if (!claim.evidenceCard.sourceRefs.length) {
+      if (!highlight.evidence.sourceRefs.length) {
         verificationStatus = "flagged";
         confidence = "low";
-        risks.push("No source reference is attached to this claim.");
+        risks.push("No source reference is attached to this highlight.");
       }
 
       return {
-        ...claim,
+        ...highlight,
         confidence,
         ownershipClarity,
         verificationStatus,
@@ -59,10 +59,15 @@ export const mockClaimVerificationService: ClaimVerificationService = {
         sensitivityFlag,
         rejectionReason: null,
         risksSummary: risks.join(" "),
-        evidenceCard: {
-          ...claim.evidenceCard,
+        verificationNotes:
+          [highlight.verificationNotes, ...risks]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || null,
+        evidence: {
+          ...highlight.evidence,
           verificationNotes:
-            [claim.evidenceCard.verificationNotes, ...risks]
+            [highlight.evidence.verificationNotes, ...risks]
               .filter(Boolean)
               .join(" ")
               .trim() || null,

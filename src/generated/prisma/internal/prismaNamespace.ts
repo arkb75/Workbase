@@ -389,10 +389,10 @@ export const ModelName = {
   Source: 'Source',
   GitHubConnection: 'GitHubConnection',
   EvidenceItem: 'EvidenceItem',
-  EvidenceCluster: 'EvidenceCluster',
-  EvidenceClusterItem: 'EvidenceClusterItem',
-  Claim: 'Claim',
-  EvidenceCard: 'EvidenceCard',
+  EvidenceTag: 'EvidenceTag',
+  Highlight: 'Highlight',
+  HighlightEvidence: 'HighlightEvidence',
+  HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
   GenerationRun: 'GenerationRun'
 } as const
@@ -410,7 +410,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceCluster" | "evidenceClusterItem" | "claim" | "evidenceCard" | "artifact" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEvidence" | "highlightTag" | "artifact" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -784,299 +784,299 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
-    EvidenceCluster: {
-      payload: Prisma.$EvidenceClusterPayload<ExtArgs>
-      fields: Prisma.EvidenceClusterFieldRefs
+    EvidenceTag: {
+      payload: Prisma.$EvidenceTagPayload<ExtArgs>
+      fields: Prisma.EvidenceTagFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.EvidenceClusterFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload> | null
+          args: Prisma.EvidenceTagFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.EvidenceClusterFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         findFirst: {
-          args: Prisma.EvidenceClusterFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload> | null
+          args: Prisma.EvidenceTagFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.EvidenceClusterFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         findMany: {
-          args: Prisma.EvidenceClusterFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+          args: Prisma.EvidenceTagFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>[]
         }
         create: {
-          args: Prisma.EvidenceClusterCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         createMany: {
-          args: Prisma.EvidenceClusterCreateManyArgs<ExtArgs>
+          args: Prisma.EvidenceTagCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.EvidenceClusterCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+          args: Prisma.EvidenceTagCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>[]
         }
         delete: {
-          args: Prisma.EvidenceClusterDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         update: {
-          args: Prisma.EvidenceClusterUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         deleteMany: {
-          args: Prisma.EvidenceClusterDeleteManyArgs<ExtArgs>
+          args: Prisma.EvidenceTagDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.EvidenceClusterUpdateManyArgs<ExtArgs>
+          args: Prisma.EvidenceTagUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.EvidenceClusterUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>[]
+          args: Prisma.EvidenceTagUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>[]
         }
         upsert: {
-          args: Prisma.EvidenceClusterUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterPayload>
+          args: Prisma.EvidenceTagUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceTagPayload>
         }
         aggregate: {
-          args: Prisma.EvidenceClusterAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceCluster>
+          args: Prisma.EvidenceTagAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceTag>
         }
         groupBy: {
-          args: Prisma.EvidenceClusterGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterGroupByOutputType>[]
+          args: Prisma.EvidenceTagGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceTagGroupByOutputType>[]
         }
         count: {
-          args: Prisma.EvidenceClusterCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterCountAggregateOutputType> | number
+          args: Prisma.EvidenceTagCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EvidenceTagCountAggregateOutputType> | number
         }
       }
     }
-    EvidenceClusterItem: {
-      payload: Prisma.$EvidenceClusterItemPayload<ExtArgs>
-      fields: Prisma.EvidenceClusterItemFieldRefs
+    Highlight: {
+      payload: Prisma.$HighlightPayload<ExtArgs>
+      fields: Prisma.HighlightFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.EvidenceClusterItemFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload> | null
+          args: Prisma.HighlightFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.EvidenceClusterItemFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         findFirst: {
-          args: Prisma.EvidenceClusterItemFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload> | null
+          args: Prisma.HighlightFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.EvidenceClusterItemFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         findMany: {
-          args: Prisma.EvidenceClusterItemFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+          args: Prisma.HighlightFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>[]
         }
         create: {
-          args: Prisma.EvidenceClusterItemCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         createMany: {
-          args: Prisma.EvidenceClusterItemCreateManyArgs<ExtArgs>
+          args: Prisma.HighlightCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.EvidenceClusterItemCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+          args: Prisma.HighlightCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>[]
         }
         delete: {
-          args: Prisma.EvidenceClusterItemDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         update: {
-          args: Prisma.EvidenceClusterItemUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         deleteMany: {
-          args: Prisma.EvidenceClusterItemDeleteManyArgs<ExtArgs>
+          args: Prisma.HighlightDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.EvidenceClusterItemUpdateManyArgs<ExtArgs>
+          args: Prisma.HighlightUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.EvidenceClusterItemUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>[]
+          args: Prisma.HighlightUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>[]
         }
         upsert: {
-          args: Prisma.EvidenceClusterItemUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceClusterItemPayload>
+          args: Prisma.HighlightUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightPayload>
         }
         aggregate: {
-          args: Prisma.EvidenceClusterItemAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceClusterItem>
+          args: Prisma.HighlightAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateHighlight>
         }
         groupBy: {
-          args: Prisma.EvidenceClusterItemGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterItemGroupByOutputType>[]
+          args: Prisma.HighlightGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightGroupByOutputType>[]
         }
         count: {
-          args: Prisma.EvidenceClusterItemCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceClusterItemCountAggregateOutputType> | number
+          args: Prisma.HighlightCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightCountAggregateOutputType> | number
         }
       }
     }
-    Claim: {
-      payload: Prisma.$ClaimPayload<ExtArgs>
-      fields: Prisma.ClaimFieldRefs
+    HighlightEvidence: {
+      payload: Prisma.$HighlightEvidencePayload<ExtArgs>
+      fields: Prisma.HighlightEvidenceFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.ClaimFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload> | null
+          args: Prisma.HighlightEvidenceFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.ClaimFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         findFirst: {
-          args: Prisma.ClaimFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload> | null
+          args: Prisma.HighlightEvidenceFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.ClaimFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         findMany: {
-          args: Prisma.ClaimFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>[]
+          args: Prisma.HighlightEvidenceFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>[]
         }
         create: {
-          args: Prisma.ClaimCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         createMany: {
-          args: Prisma.ClaimCreateManyArgs<ExtArgs>
+          args: Prisma.HighlightEvidenceCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.ClaimCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>[]
+          args: Prisma.HighlightEvidenceCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>[]
         }
         delete: {
-          args: Prisma.ClaimDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         update: {
-          args: Prisma.ClaimUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         deleteMany: {
-          args: Prisma.ClaimDeleteManyArgs<ExtArgs>
+          args: Prisma.HighlightEvidenceDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.ClaimUpdateManyArgs<ExtArgs>
+          args: Prisma.HighlightEvidenceUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.ClaimUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>[]
+          args: Prisma.HighlightEvidenceUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>[]
         }
         upsert: {
-          args: Prisma.ClaimUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$ClaimPayload>
+          args: Prisma.HighlightEvidenceUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEvidencePayload>
         }
         aggregate: {
-          args: Prisma.ClaimAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateClaim>
+          args: Prisma.HighlightEvidenceAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateHighlightEvidence>
         }
         groupBy: {
-          args: Prisma.ClaimGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.ClaimGroupByOutputType>[]
+          args: Prisma.HighlightEvidenceGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightEvidenceGroupByOutputType>[]
         }
         count: {
-          args: Prisma.ClaimCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.ClaimCountAggregateOutputType> | number
+          args: Prisma.HighlightEvidenceCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightEvidenceCountAggregateOutputType> | number
         }
       }
     }
-    EvidenceCard: {
-      payload: Prisma.$EvidenceCardPayload<ExtArgs>
-      fields: Prisma.EvidenceCardFieldRefs
+    HighlightTag: {
+      payload: Prisma.$HighlightTagPayload<ExtArgs>
+      fields: Prisma.HighlightTagFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.EvidenceCardFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload> | null
+          args: Prisma.HighlightTagFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.EvidenceCardFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         findFirst: {
-          args: Prisma.EvidenceCardFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload> | null
+          args: Prisma.HighlightTagFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.EvidenceCardFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         findMany: {
-          args: Prisma.EvidenceCardFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>[]
+          args: Prisma.HighlightTagFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>[]
         }
         create: {
-          args: Prisma.EvidenceCardCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         createMany: {
-          args: Prisma.EvidenceCardCreateManyArgs<ExtArgs>
+          args: Prisma.HighlightTagCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.EvidenceCardCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>[]
+          args: Prisma.HighlightTagCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>[]
         }
         delete: {
-          args: Prisma.EvidenceCardDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         update: {
-          args: Prisma.EvidenceCardUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         deleteMany: {
-          args: Prisma.EvidenceCardDeleteManyArgs<ExtArgs>
+          args: Prisma.HighlightTagDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.EvidenceCardUpdateManyArgs<ExtArgs>
+          args: Prisma.HighlightTagUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.EvidenceCardUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>[]
+          args: Prisma.HighlightTagUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>[]
         }
         upsert: {
-          args: Prisma.EvidenceCardUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$EvidenceCardPayload>
+          args: Prisma.HighlightTagUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightTagPayload>
         }
         aggregate: {
-          args: Prisma.EvidenceCardAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateEvidenceCard>
+          args: Prisma.HighlightTagAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateHighlightTag>
         }
         groupBy: {
-          args: Prisma.EvidenceCardGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceCardGroupByOutputType>[]
+          args: Prisma.HighlightTagGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightTagGroupByOutputType>[]
         }
         count: {
-          args: Prisma.EvidenceCardCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.EvidenceCardCountAggregateOutputType> | number
+          args: Prisma.HighlightTagCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightTagCountAggregateOutputType> | number
         }
       }
     }
@@ -1333,6 +1333,9 @@ export const EvidenceItemScalarFieldEnum = {
   type: 'type',
   title: 'title',
   content: 'content',
+  searchText: 'searchText',
+  parentKind: 'parentKind',
+  parentKey: 'parentKey',
   included: 'included',
   metadata: 'metadata',
   createdAt: 'createdAt',
@@ -1342,37 +1345,24 @@ export const EvidenceItemScalarFieldEnum = {
 export type EvidenceItemScalarFieldEnum = (typeof EvidenceItemScalarFieldEnum)[keyof typeof EvidenceItemScalarFieldEnum]
 
 
-export const EvidenceClusterScalarFieldEnum = {
+export const EvidenceTagScalarFieldEnum = {
   id: 'id',
-  workItemId: 'workItemId',
-  title: 'title',
-  summary: 'summary',
-  theme: 'theme',
-  confidence: 'confidence',
-  metadata: 'metadata',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type EvidenceClusterScalarFieldEnum = (typeof EvidenceClusterScalarFieldEnum)[keyof typeof EvidenceClusterScalarFieldEnum]
-
-
-export const EvidenceClusterItemScalarFieldEnum = {
-  id: 'id',
-  clusterId: 'clusterId',
   evidenceItemId: 'evidenceItemId',
-  relevanceScore: 'relevanceScore',
+  dimension: 'dimension',
+  tag: 'tag',
+  score: 'score',
   createdAt: 'createdAt'
 } as const
 
-export type EvidenceClusterItemScalarFieldEnum = (typeof EvidenceClusterItemScalarFieldEnum)[keyof typeof EvidenceClusterItemScalarFieldEnum]
+export type EvidenceTagScalarFieldEnum = (typeof EvidenceTagScalarFieldEnum)[keyof typeof EvidenceTagScalarFieldEnum]
 
 
-export const ClaimScalarFieldEnum = {
+export const HighlightScalarFieldEnum = {
   id: 'id',
   workItemId: 'workItemId',
   text: 'text',
-  category: 'category',
+  summary: 'summary',
+  searchText: 'searchText',
   confidence: 'confidence',
   ownershipClarity: 'ownershipClarity',
   sensitivityFlag: 'sensitivityFlag',
@@ -1381,25 +1371,36 @@ export const ClaimScalarFieldEnum = {
   risksSummary: 'risksSummary',
   missingInfo: 'missingInfo',
   rejectionReason: 'rejectionReason',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type ClaimScalarFieldEnum = (typeof ClaimScalarFieldEnum)[keyof typeof ClaimScalarFieldEnum]
-
-
-export const EvidenceCardScalarFieldEnum = {
-  id: 'id',
-  claimId: 'claimId',
-  evidenceSummary: 'evidenceSummary',
-  rationaleSummary: 'rationaleSummary',
-  sourceRefs: 'sourceRefs',
   verificationNotes: 'verificationNotes',
+  metadata: 'metadata',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
-export type EvidenceCardScalarFieldEnum = (typeof EvidenceCardScalarFieldEnum)[keyof typeof EvidenceCardScalarFieldEnum]
+export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof typeof HighlightScalarFieldEnum]
+
+
+export const HighlightEvidenceScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  evidenceItemId: 'evidenceItemId',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type HighlightEvidenceScalarFieldEnum = (typeof HighlightEvidenceScalarFieldEnum)[keyof typeof HighlightEvidenceScalarFieldEnum]
+
+
+export const HighlightTagScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  dimension: 'dimension',
+  tag: 'tag',
+  score: 'score',
+  createdAt: 'createdAt'
+} as const
+
+export type HighlightTagScalarFieldEnum = (typeof HighlightTagScalarFieldEnum)[keyof typeof HighlightTagScalarFieldEnum]
 
 
 export const ArtifactScalarFieldEnum = {
@@ -1612,16 +1613,16 @@ export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel,
 
 
 /**
- * Reference to a field of type 'ClaimConfidence'
+ * Reference to a field of type 'TagDimension'
  */
-export type EnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ClaimConfidence'>
+export type EnumTagDimensionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TagDimension'>
     
 
 
 /**
- * Reference to a field of type 'ClaimConfidence[]'
+ * Reference to a field of type 'TagDimension[]'
  */
-export type ListEnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ClaimConfidence[]'>
+export type ListEnumTagDimensionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TagDimension[]'>
     
 
 
@@ -1636,6 +1637,20 @@ export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, '
  * Reference to a field of type 'Float[]'
  */
 export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
+    
+
+
+/**
+ * Reference to a field of type 'ClaimConfidence'
+ */
+export type EnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ClaimConfidence'>
+    
+
+
+/**
+ * Reference to a field of type 'ClaimConfidence[]'
+ */
+export type ListEnumClaimConfidenceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ClaimConfidence[]'>
     
 
 
@@ -1864,10 +1879,10 @@ export type GlobalOmitConfig = {
   source?: Prisma.SourceOmit
   gitHubConnection?: Prisma.GitHubConnectionOmit
   evidenceItem?: Prisma.EvidenceItemOmit
-  evidenceCluster?: Prisma.EvidenceClusterOmit
-  evidenceClusterItem?: Prisma.EvidenceClusterItemOmit
-  claim?: Prisma.ClaimOmit
-  evidenceCard?: Prisma.EvidenceCardOmit
+  evidenceTag?: Prisma.EvidenceTagOmit
+  highlight?: Prisma.HighlightOmit
+  highlightEvidence?: Prisma.HighlightEvidenceOmit
+  highlightTag?: Prisma.HighlightTagOmit
   artifact?: Prisma.ArtifactOmit
   generationRun?: Prisma.GenerationRunOmit
 }

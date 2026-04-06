@@ -1,38 +1,43 @@
 import { filterDuplicateClaimDrafts, partitionClaimsByPersistence } from "@/src/domain/claim-regeneration";
-import { getEligibleClaimsForArtifact } from "@/src/domain/artifact-eligibility";
 import type {
   ArtifactRequest,
-  ClaimDraft,
+  HighlightDraft,
   ClaimSnapshot,
-  EvidenceClusterSnapshot,
   EvidenceItemSnapshot,
   NormalizedEvidenceItem,
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
 import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
+import { inferEvidenceTags } from "@/src/lib/highlight-tags";
 import type {
   ArtifactGenerationService,
   ClaimResearchService,
   ClaimVerificationService,
+  HighlightRetrievalService,
   SourceIngestionService,
 } from "@/src/services/types";
 
-function buildRejectedClaimGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
+function buildRejectedHighlightGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
   if (!rejectedClaims.length) {
     return null;
   }
 
   return {
-    id: "rejected-claim-guidance",
-    sourceId: "rejected-claim-guidance",
-    label: "Previously rejected claims",
+    id: "rejected-highlight-guidance",
+    sourceId: "rejected-highlight-guidance",
+    label: "Previously rejected highlights",
     type: "manual_note" as const,
     evidenceType: "manual_note_excerpt" as const,
+    searchText: rejectedClaims
+      .map((claim) => [claim.text, claim.rejectionReason ?? ""].join(" "))
+      .join(" "),
+    parentKind: "work_item" as const,
+    parentKey: rejectedClaims[0]?.workItemId ?? null,
     body: rejectedClaims
       .map((claim) =>
         [
-          `Rejected claim: ${claim.text}`,
+          `Rejected highlight: ${claim.text}`,
           claim.rejectionReason
             ? `Reason: ${claim.rejectionReason}`
             : "Reason: No rejection reason was provided.",
@@ -43,11 +48,19 @@ function buildRejectedClaimGuidanceSource(rejectedClaims: ClaimSnapshot[]) {
       claim.rejectionReason
         ? `${claim.text} Reason: ${claim.rejectionReason}`
         : claim.text,
-    ),
+      ),
     metadata: {
-      kind: "rejected_claim_context",
+      kind: "rejected_highlight_context",
       rejectedClaimIds: rejectedClaims.map((claim) => claim.id),
     } as const,
+    tags: inferEvidenceTags({
+      title: "Previously rejected highlights",
+      content: rejectedClaims
+        .map((claim) => [claim.text, claim.rejectionReason ?? ""].join(" "))
+        .join(" "),
+      sourceType: "manual_note",
+      evidenceType: "manual_note_excerpt",
+    }),
   };
 }
 
@@ -55,7 +68,6 @@ export async function buildClaimGenerationDrafts(params: {
   workItem: WorkItemSnapshot;
   sources: SourceSnapshot[];
   evidenceItems: EvidenceItemSnapshot[];
-  clusters: EvidenceClusterSnapshot[];
   existingClaims: ClaimSnapshot[];
   sourceIngestionService: SourceIngestionService;
   claimResearchService: ClaimResearchService;
@@ -69,7 +81,7 @@ export async function buildClaimGenerationDrafts(params: {
   const { preserved, replaceable } = partitionClaimsByPersistence(
     params.existingClaims,
   );
-  const rejectedGuidanceSource = buildRejectedClaimGuidanceSource(
+  const rejectedGuidanceSource = buildRejectedHighlightGuidanceSource(
     preserved.filter((claim) => claim.verificationStatus === "rejected"),
   );
   const researchEvidenceItems = rejectedGuidanceSource
@@ -78,13 +90,12 @@ export async function buildClaimGenerationDrafts(params: {
   const candidateClaims = await params.claimResearchService.generate({
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
-    clusters: params.clusters,
+    existingHighlights: preserved,
   });
   const verifiedClaims = await params.claimVerificationService.verify({
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
-    clusters: params.clusters,
-    claims: candidateClaims.claims,
+    highlights: candidateClaims.highlights,
   });
   const verificationRun = readGenerationRunMetadata(verifiedClaims);
 
@@ -94,8 +105,7 @@ export async function buildClaimGenerationDrafts(params: {
     replaceableClaims: replaceable,
     drafts: filterDuplicateClaimDrafts(verifiedClaims, preserved),
     generationRunIds: {
-      clusterResearch: candidateClaims.generationRunIds.clusterResearch,
-      merge: candidateClaims.generationRunIds.merge,
+      generation: candidateClaims.generationRunIds.generation,
       verification: verificationRun?.id ?? null,
     },
   };
@@ -103,21 +113,28 @@ export async function buildClaimGenerationDrafts(params: {
 
 export async function buildArtifactFromApprovedClaims(params: {
   request: ArtifactRequest;
-  claims: ClaimSnapshot[];
+  highlights: ClaimSnapshot[];
+  evidenceItems: EvidenceItemSnapshot[];
+  workItem: WorkItemSnapshot;
+  highlightRetrievalService: HighlightRetrievalService;
   artifactGenerationService: ArtifactGenerationService;
 }) {
-  const eligibleClaims = getEligibleClaimsForArtifact(
-    params.claims,
-    params.request.type,
-  );
+  const retrieval = await params.highlightRetrievalService.retrieve({
+    workItem: params.workItem,
+    request: params.request,
+    highlights: params.highlights,
+    evidenceItems: params.evidenceItems,
+  });
 
   const artifactDraft = await params.artifactGenerationService.generate({
     request: params.request,
-    claims: eligibleClaims,
+    highlights: retrieval.highlights,
+    supportingEvidence: retrieval.supportingEvidence,
   });
   const generationRun = readGenerationRunMetadata(artifactDraft);
 
   return {
+    retrieval,
     artifactDraft,
     generationRunId: generationRun?.id ?? null,
   };
@@ -134,7 +151,7 @@ export function countClaimsByStatus(claims: ClaimSnapshot[]) {
 export function toClaimSnapshot(
   workItemId: string,
   id: string,
-  claim: ClaimDraft,
+  claim: HighlightDraft,
 ): ClaimSnapshot {
   return {
     id,

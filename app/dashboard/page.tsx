@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, FileText, Layers3, NotebookPen, Plus, ShieldCheck } from "lucide-react";
+import { ArrowRight, FileText, NotebookPen, Plus, SearchCheck, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, KeyValue } from "@/components/ui/card";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
@@ -13,24 +13,24 @@ export default async function DashboardPage() {
   const user = await getDemoUser();
   const workItems = await listWorkItemsForUser(user.id);
 
-  const approvedClaims = workItems.reduce(
+  const approvedHighlights = workItems.reduce(
     (count, workItem) =>
       count +
-      workItem.claims.filter((claim) => claim.verificationStatus === "approved").length,
+      workItem.highlights.filter((highlight) => highlight.verificationStatus === "approved").length,
     0,
   );
-  const totalClaims = workItems.reduce(
-    (count, workItem) => count + workItem.claims.length,
+  const totalHighlights = workItems.reduce(
+    (count, workItem) => count + workItem.highlights.length,
     0,
   );
-  const pendingClaims = totalClaims - approvedClaims;
+  const pendingHighlights = totalHighlights - approvedHighlights;
 
   return (
     <WorkbaseFrame>
       <PageHeader
         eyebrow="Dashboard"
         title="Capture work. Review the evidence. Ship only what holds up."
-        description="This workspace is meant to stay operational. Add a Work Item, attach notes, review claims, and keep approved material separate from everything still under scrutiny."
+        description="This workspace is meant to stay operational. Add a Work Item, attach sources, review highlights, and keep approved material separate from everything still under scrutiny."
         actions={
           <Link
             href="/work-items/new"
@@ -59,34 +59,34 @@ export default async function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Approved claims</CardTitle>
+            <CardTitle>Approved highlights</CardTitle>
             <CardDescription>Only these are eligible for artifact generation.</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-[color:var(--ink-strong)]">
-              {approvedClaims}
+              {approvedHighlights}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle>Pending review</CardTitle>
-            <CardDescription>Claims still waiting on a decision.</CardDescription>
+            <CardDescription>Highlights still waiting on a decision.</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-[color:var(--ink-strong)]">
-              {pendingClaims}
+              {pendingHighlights}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Claim inventory</CardTitle>
-            <CardDescription>Current claims attached across the whole workspace.</CardDescription>
+            <CardTitle>Highlight inventory</CardTitle>
+            <CardDescription>Current reviewed material across the whole workspace.</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="font-display text-5xl font-semibold tracking-[-0.06em] text-[color:var(--ink-strong)]">
-              {totalClaims}
+              {totalHighlights}
             </p>
           </CardContent>
         </Card>
@@ -103,7 +103,7 @@ export default async function DashboardPage() {
                 Active Work Items
               </h2>
               <p className="max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
-                Treat this as the operating list. Add evidence, review claims, and move only the strong material toward artifacts.
+                Treat this as the operating list. Add evidence, review highlights, and move only the strong material toward artifacts.
               </p>
             </div>
             <Badge tone="accent">{workItems.length} items</Badge>
@@ -112,12 +112,12 @@ export default async function DashboardPage() {
           <div className="mt-6 space-y-3">
             {workItems.length ? (
               workItems.map((workItem) => {
-                const claimCount = workItem.claims.length;
+                const highlightCount = workItem.highlights.length;
                 const sourceCount = workItem.sources.length;
-                const pendingCount = workItem.claims.filter(
-                  (claim) =>
-                    claim.verificationStatus === "draft" ||
-                    claim.verificationStatus === "flagged",
+                const pendingCount = workItem.highlights.filter(
+                  (highlight) =>
+                    highlight.verificationStatus === "draft" ||
+                    highlight.verificationStatus === "flagged",
                 ).length;
 
                 return (
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
                       <KeyValue label="Sources" value={`${sourceCount} attached`} />
-                      <KeyValue label="Claims" value={`${claimCount} total`} />
+                      <KeyValue label="Highlights" value={`${highlightCount} total`} />
                       <KeyValue label="Pending" value={`${pendingCount} in review`} />
                     </div>
                   </Link>
@@ -151,7 +151,7 @@ export default async function DashboardPage() {
               })
             ) : (
               <div className="rounded-[28px] border border-dashed border-black/12 bg-[color:var(--panel-muted)] p-6 text-sm leading-6 text-[color:var(--ink-soft)]">
-                No Work Items yet. Create one to start the capture → verify → generate loop.
+                No Work Items yet. Create one to start the capture → review → generate loop.
               </div>
             )}
           </div>
@@ -170,18 +170,18 @@ export default async function DashboardPage() {
                   Capture sources
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Manual notes first, GitHub repo URLs second.
+                  Manual notes and bounded GitHub imports land in the same evidence pool.
                 </p>
               </div>
             </div>
             <div className="flex gap-3">
-              <Layers3 className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
+              <SearchCheck className="mt-1 h-5 w-5 text-[color:var(--accent)]" />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-[color:var(--ink-strong)]">
-                  Review claims
+                  Review highlights
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Every claim keeps evidence, rationale, risk, visibility, and sensitivity.
+                  Every highlight keeps evidence lineage, tags, visibility, and sensitivity.
                 </p>
               </div>
             </div>
@@ -192,7 +192,7 @@ export default async function DashboardPage() {
                   Keep the bar high
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Sensitive, weak, or overstated claims stay visible for review but separate from approved material.
+                  Sensitive, weak, or overstated highlights stay visible for review but separate from approved material.
                 </p>
               </div>
             </div>
@@ -203,7 +203,7 @@ export default async function DashboardPage() {
                   Generate artifacts
                 </p>
                 <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Resume bullets, LinkedIn entries, and summaries only use approved claims.
+                  Resume bullets, LinkedIn entries, and summaries retrieve approved highlights first, then bounded supporting evidence.
                 </p>
               </div>
             </div>
