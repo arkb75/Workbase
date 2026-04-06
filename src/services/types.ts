@@ -31,6 +31,7 @@ export interface HighlightGenerationService {
     workItem: WorkItemSnapshot;
     evidenceItems: NormalizedEvidenceItem[];
     existingHighlights: HighlightSnapshot[];
+    artifactRequest?: ArtifactRequest;
   }): Promise<ClaimResearchResult>;
 }
 
@@ -39,6 +40,7 @@ export interface ClaimResearchService {
     workItem: WorkItemSnapshot;
     evidenceItems: NormalizedEvidenceItem[];
     existingHighlights?: HighlightSnapshot[];
+    artifactRequest?: ArtifactRequest;
   }): Promise<ClaimResearchResult>;
 }
 

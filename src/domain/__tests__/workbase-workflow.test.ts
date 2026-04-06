@@ -113,12 +113,16 @@ describe("workbase workflow", () => {
       evidenceItems,
       highlightRetrievalService: retrievalService,
       artifactGenerationService,
+      sourceIngestionService,
+      claimResearchService,
+      claimVerificationService,
     });
 
-    expect(artifact.artifactDraft.content).toContain(
+    expect(artifact.artifactDraft).not.toBeNull();
+    expect(artifact.artifactDraft!.content).toContain(
       approvedHighlight.text.replace(/\.$/, ""),
     );
-    expect(artifact.artifactDraft.usedHighlightIds).toEqual(["highlight-approved"]);
+    expect(artifact.artifactDraft!.usedHighlightIds).toEqual(["highlight-approved"]);
   });
 
   it("passes reviewed evidence items into highlight generation", async () => {
@@ -218,5 +222,84 @@ describe("workbase workflow", () => {
     });
 
     expect(researchEvidenceIds).toEqual(evidenceItems.map((item) => item.id));
+  });
+
+  it("falls back to request-scoped unreviewed highlights when no approved highlights are retrievable", async () => {
+    const workItem: WorkItemSnapshot = {
+      id: "work-item-3",
+      userId: "user-1",
+      title: "Fallback artifact flow",
+      type: "project",
+      description: "Generate request-specific highlights if nothing is approved yet.",
+      startDate: null,
+      endDate: null,
+    };
+    const sources: SourceSnapshot[] = [
+      {
+        id: "source-3",
+        workItemId: workItem.id,
+        type: "manual_note",
+        label: "Manual notes",
+        rawContent:
+          "Implemented a ranking pipeline for feed personalization. Built a backend API for project summaries.",
+        metadata: null,
+      },
+    ];
+    const evidenceItems: EvidenceItemSnapshot[] = buildManualEvidenceItemsFromSource(
+      sources[0],
+    ).map((item, index) => ({
+      id: `fallback-evidence-${index + 1}`,
+      workItemId: item.workItemId,
+      sourceId: item.sourceId,
+      externalId: item.externalId,
+      type: item.type,
+      title: item.title,
+      content: item.content,
+      searchText: item.searchText,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
+      included: item.included,
+      metadata: item.metadata,
+      tags: [],
+      source: {
+        id: sources[0].id,
+        label: sources[0].label,
+        type: sources[0].type,
+        externalId: sources[0].externalId ?? null,
+      },
+    }));
+
+    const retrievalService: HighlightRetrievalService = {
+      async retrieve() {
+        return {
+          highlights: [],
+          supportingEvidence: [],
+          generationRunId: null,
+        };
+      },
+    };
+
+    const artifact = await buildArtifactFromApprovedClaims({
+      request: {
+        userId: "user-1",
+        workItemId: workItem.id,
+        type: "project_summary",
+        targetAngle: "general",
+        tone: "technical",
+      },
+      workItem,
+      highlights: [],
+      evidenceItems,
+      highlightRetrievalService: retrievalService,
+      artifactGenerationService,
+      sourceIngestionService,
+      claimResearchService,
+      claimVerificationService,
+    });
+
+    expect(artifact.fallback?.highlights.length).toBeGreaterThan(0);
+    expect(artifact.fallback?.note).toContain("not previously reviewed or approved");
+    expect(artifact.artifactDraft).not.toBeNull();
+    expect(artifact.artifactDraft?.usedHighlightIds[0]).toMatch(/^fallback-highlight-/);
   });
 });

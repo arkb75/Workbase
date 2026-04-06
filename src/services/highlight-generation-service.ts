@@ -107,7 +107,7 @@ function buildBatchInputSummary(params: {
 }
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
-  async generate({ workItem, evidenceItems }) {
+  async generate({ workItem, evidenceItems, artifactRequest }) {
     const structuredClient = getBedrockStructuredLlmClient();
     const rejectedHighlightGuidance = buildRejectedGuidance(evidenceItems);
     const batches = buildEvidenceBatches(evidenceItems);
@@ -175,6 +175,30 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             2,
           ),
         },
+        ...(artifactRequest
+          ? [
+              {
+                tag: "artifact_request",
+                content: JSON.stringify(
+                  {
+                    type: artifactRequest.type,
+                    targetAngle: artifactRequest.targetAngle,
+                    tone: artifactRequest.tone,
+                  },
+                  null,
+                  2,
+                ),
+              },
+              {
+                tag: "artifact_request_rules",
+                content: [
+                  "Prefer highlights that best support this artifact request.",
+                  "Do not invent accomplishments just to satisfy the request.",
+                  "It is better to return fewer highlights than to stretch the evidence.",
+                ].join("\n"),
+              },
+            ]
+          : []),
         {
           tag: "rejected_highlight_guidance",
           content: rejectedHighlightGuidance || "null",

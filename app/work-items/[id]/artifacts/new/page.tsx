@@ -41,6 +41,32 @@ function readArtifactResultRefs(value: unknown) {
         (evidenceItemId: unknown): evidenceItemId is string => typeof evidenceItemId === "string",
       )
     : [];
+  const fallbackUsed = objectValue.fallbackUsed === true;
+  const fallbackNote =
+    typeof objectValue.fallbackNote === "string" && objectValue.fallbackNote.length
+      ? objectValue.fallbackNote
+      : null;
+  const unreviewedFallbackHighlights = Array.isArray(objectValue.unreviewedFallbackHighlights)
+    ? objectValue.unreviewedFallbackHighlights.filter(
+        (
+          highlight,
+        ): highlight is {
+          id: string;
+          text: string;
+          summary: string;
+          confidence: string;
+          ownershipClarity: string;
+        } =>
+          Boolean(highlight) &&
+          typeof highlight === "object" &&
+          !Array.isArray(highlight) &&
+          typeof (highlight as Record<string, unknown>).id === "string" &&
+          typeof (highlight as Record<string, unknown>).text === "string" &&
+          typeof (highlight as Record<string, unknown>).summary === "string" &&
+          typeof (highlight as Record<string, unknown>).confidence === "string" &&
+          typeof (highlight as Record<string, unknown>).ownershipClarity === "string",
+      )
+    : [];
 
   if (!artifactId) {
     return null;
@@ -50,6 +76,9 @@ function readArtifactResultRefs(value: unknown) {
     artifactId,
     usedHighlightIds,
     supportingEvidenceItemIds,
+    fallbackUsed,
+    fallbackNote,
+    unreviewedFallbackHighlights,
   };
 }
 
@@ -94,6 +123,15 @@ export default async function ArtifactGeneratorPage({
   const selectedSupportingEvidenceItemIds: string[] = selectedArtifactTrace
     ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.supportingEvidenceItemIds ?? []
     : [];
+  const selectedFallbackUsed = selectedArtifactTrace
+    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.fallbackUsed ?? false
+    : false;
+  const selectedFallbackNote = selectedArtifactTrace
+    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.fallbackNote ?? null
+    : null;
+  const selectedFallbackHighlights = selectedArtifactTrace
+    ? readArtifactResultRefs(selectedArtifactTrace.resultRefs)?.unreviewedFallbackHighlights ?? []
+    : [];
   const selectedUsedHighlights = selectedUsedHighlightIds
     .map((highlightId) => workItem.highlights.find((highlight) => highlight.id === highlightId))
     .filter((highlight): highlight is (typeof workItem.highlights)[number] => Boolean(highlight));
@@ -108,7 +146,7 @@ export default async function ArtifactGeneratorPage({
       <PageHeader
         eyebrow="Artifact generator"
         title="Generate from approved highlights"
-        description="Choose the artifact type, target angle, and tone. Workbase retrieves the best approved highlights first, then adds bounded supporting evidence when needed."
+        description="Choose the artifact type, target angle, and tone. Workbase retrieves the best approved highlights first, then adds bounded supporting evidence when needed. If that pool is empty, it can generate request-specific unreviewed fallback highlights from evidence and label them clearly."
       />
 
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
@@ -206,11 +244,11 @@ export default async function ArtifactGeneratorPage({
         </CollapsibleCard>
       </section>
 
-      {error === "no-eligible-claims" || error === "no-eligible-highlights" ? (
+      {error === "no-eligible-claims" || error === "no-eligible-highlights" || error === "no-artifact-context" ? (
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              No approved, non-sensitive highlights match the current visibility rules for that artifact.
+              Workbase could not assemble enough approved or request-specific fallback context to generate that artifact.
             </p>
           </CardContent>
         </Card>
@@ -282,9 +320,22 @@ export default async function ArtifactGeneratorPage({
                   <Badge>{selectedArtifact.targetAngle.replace("_", " ")}</Badge>
                   <Badge>{selectedArtifact.tone.replace("_", " ")}</Badge>
                   <Badge>{formatDateTime(selectedArtifact.createdAt)}</Badge>
-                  <Badge>{selectedUsedHighlights.length} highlights used</Badge>
+                  <Badge>
+                    {selectedUsedHighlights.length || selectedFallbackHighlights.length} highlights used
+                  </Badge>
                   <Badge>{selectedSupportingEvidence.length} evidence refs</Badge>
+                  {selectedFallbackUsed ? <Badge tone="warning">unreviewed fallback used</Badge> : null}
                 </div>
+
+                {selectedFallbackUsed && selectedFallbackNote ? (
+                  <Card className="border-amber-200 bg-amber-50 shadow-none">
+                    <CardContent className="py-4">
+                      <p className="text-sm leading-6 text-amber-900">
+                        {selectedFallbackNote}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : null}
 
                 <pre className="whitespace-pre-wrap rounded-[24px] bg-white p-5 font-sans text-sm leading-7 text-[color:var(--ink-strong)]">
                   {selectedArtifact.content}
@@ -321,6 +372,27 @@ export default async function ArtifactGeneratorPage({
                         </div>
                       ))}
                     </div>
+                  ) : selectedFallbackHighlights.length ? (
+                    <div className="grid gap-3">
+                      {selectedFallbackHighlights.map((highlight) => (
+                        <div
+                          key={highlight.id}
+                          className="rounded-[22px] border border-amber-200 bg-amber-50 p-4"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone="warning">Unreviewed fallback</Badge>
+                            <Badge>{highlight.confidence}</Badge>
+                            <Badge>{highlight.ownershipClarity.replace("_", " ")}</Badge>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
+                            {highlight.text}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                            {highlight.summary}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   ) : selectedArtifactTrace ? (
                     <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
                       This artifact has trace data, but Workbase could not resolve the recorded highlights in the current workspace.
@@ -338,7 +410,7 @@ export default async function ArtifactGeneratorPage({
                       Supporting evidence
                     </p>
                     <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      Supporting evidence expands context around the selected approved highlights without introducing brand-new unreviewed accomplishments.
+                      Supporting evidence expands context around the selected approved highlights or labeled fallback highlights without silently introducing hidden accomplishments.
                     </p>
                   </div>
 

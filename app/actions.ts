@@ -840,17 +840,6 @@ export async function generateArtifactAction(formData: FormData) {
       },
     },
   });
-  const eligibleClaims = workItem.highlights
-    .map(mapClaimSnapshot)
-    .filter(
-      (highlight) =>
-        highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
-    );
-
-  if (!eligibleClaims.length) {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-highlights`);
-  }
-
   let artifactDraft;
 
   try {
@@ -867,13 +856,16 @@ export async function generateArtifactAction(formData: FormData) {
       evidenceItems: workItem.evidenceItems.map(mapEvidenceItemSnapshot),
       highlightRetrievalService,
       artifactGenerationService,
+      sourceIngestionService,
+      claimResearchService,
+      claimVerificationService,
     });
   } catch {
     redirect(`/work-items/${workItem.id}/artifacts/new?error=artifact-generation-failed`);
   }
 
-  if (!artifactDraft.retrieval.highlights.length) {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-eligible-highlights`);
+  if (!artifactDraft.artifactDraft) {
+    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-artifact-context`);
   }
 
   const artifact = await prisma.artifact.create({
@@ -892,6 +884,16 @@ export async function generateArtifactAction(formData: FormData) {
       artifactId: artifact.id,
       usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
       supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
+      fallbackUsed: Boolean(artifactDraft.fallback?.highlights.length),
+      fallbackNote: artifactDraft.fallback?.note ?? null,
+      unreviewedFallbackHighlights:
+        artifactDraft.fallback?.highlights.map((highlight) => ({
+          id: highlight.id,
+          text: highlight.text,
+          summary: highlight.summary,
+          confidence: highlight.confidence,
+          ownershipClarity: highlight.ownershipClarity,
+        })) ?? [],
     } as Prisma.InputJsonValue);
   }
 
@@ -900,8 +902,42 @@ export async function generateArtifactAction(formData: FormData) {
       artifactId: artifact.id,
       usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
       supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
+      fallbackUsed: Boolean(artifactDraft.fallback?.highlights.length),
+      fallbackNote: artifactDraft.fallback?.note ?? null,
+      unreviewedFallbackHighlights:
+        artifactDraft.fallback?.highlights.map((highlight) => ({
+          id: highlight.id,
+          text: highlight.text,
+          summary: highlight.summary,
+          confidence: highlight.confidence,
+          ownershipClarity: highlight.ownershipClarity,
+        })) ?? [],
     } as Prisma.InputJsonValue);
   }
+
+  await Promise.allSettled(
+    [
+      ...(artifactDraft.fallback?.generationRunIds.generation ?? []),
+      artifactDraft.fallback?.generationRunIds.verification ?? null,
+    ]
+      .filter(Boolean)
+      .map((generationRunId) =>
+        updateGenerationRunResultRefs(generationRunId!, {
+          artifactId: artifact.id,
+          fallbackUsed: true,
+          fallbackNote: artifactDraft.fallback?.note ?? null,
+          unreviewedFallbackHighlights:
+            artifactDraft.fallback?.highlights.map((highlight) => ({
+              id: highlight.id,
+              text: highlight.text,
+              summary: highlight.summary,
+              confidence: highlight.confidence,
+              ownershipClarity: highlight.ownershipClarity,
+            })) ?? [],
+          supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
+        } as Prisma.InputJsonValue),
+      ),
+  );
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/artifacts/new`);

@@ -7,6 +7,7 @@ export const claimResearchService: ClaimResearchService = {
       workItem: input.workItem,
       evidenceItems: input.evidenceItems,
       existingHighlights: input.existingHighlights ?? [],
+      artifactRequest: input.artifactRequest,
     });
 
     return {
