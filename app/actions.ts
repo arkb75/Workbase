@@ -691,6 +691,40 @@ export async function generateClaimsAction(workItemId: string) {
   redirect(`/work-items/${workItem.id}/claims`);
 }
 
+export async function approveAllPendingHighlightsAction(formData: FormData) {
+  const demoUser = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+
+  if (!workItemId) {
+    redirect("/dashboard");
+  }
+
+  const workItem = await prisma.workItem.findFirstOrThrow({
+    where: {
+      id: workItemId,
+      userId: demoUser.id,
+    },
+  });
+
+  await prisma.highlight.updateMany({
+    where: {
+      workItemId: workItem.id,
+      verificationStatus: {
+        in: ["draft", "flagged"],
+      },
+    },
+    data: {
+      verificationStatus: "approved",
+      rejectionReason: null,
+    },
+  });
+
+  revalidatePath(`/work-items/${workItem.id}`);
+  revalidatePath(`/work-items/${workItem.id}/claims`);
+  revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
+  redirect(`/work-items/${workItem.id}/claims?result=approved-all`);
+}
+
 export async function updateClaimAction(claimId: string, formData: FormData) {
   const demoUser = await ensureDemoUser();
   const claim = await prisma.highlight.findFirstOrThrow({

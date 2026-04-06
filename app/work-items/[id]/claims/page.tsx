@@ -1,4 +1,4 @@
-import { generateClaimsAction } from "@/app/actions";
+import { approveAllPendingHighlightsAction, generateClaimsAction } from "@/app/actions";
 import { ClaimCard } from "@/components/claims/claim-card";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
@@ -89,6 +89,7 @@ export default async function HighlightReviewPage({
   const user = await getDemoUser();
   const workItem = await getWorkItemForUser(user.id, id);
   const generateHighlights = generateClaimsAction.bind(null, workItem.id);
+  const approveAllPendingHighlights = approveAllPendingHighlightsAction;
 
   const pendingHighlights = workItem.highlights.filter(
     (highlight) =>
@@ -116,11 +117,21 @@ export default async function HighlightReviewPage({
         title={`Review highlights for ${workItem.title}`}
         description="Scan the highlight groups, edit only what needs intervention, and keep approved material clearly separated from everything still under review."
         actions={
-          <form action={generateHighlights}>
-            <SubmitButton pendingLabel="Refreshing highlights..." variant="primary">
-              Regenerate pending highlights
-            </SubmitButton>
-          </form>
+          <div className="flex flex-wrap items-center gap-3">
+            {pendingHighlights.length ? (
+              <form action={approveAllPendingHighlights}>
+                <input type="hidden" name="workItemId" value={workItem.id} />
+                <SubmitButton pendingLabel="Approving highlights..." variant="secondary">
+                  Accept all pending highlights
+                </SubmitButton>
+              </form>
+            ) : null}
+            <form action={generateHighlights}>
+              <SubmitButton pendingLabel="Refreshing highlights..." variant="primary">
+                Regenerate pending highlights
+              </SubmitButton>
+            </form>
+          </div>
         }
       />
 
@@ -150,6 +161,8 @@ export default async function HighlightReviewPage({
             <p className="text-sm leading-6 text-emerald-900">
               {result === "approved"
                 ? "Highlight approved. It has moved into the approved section."
+                : result === "approved-all"
+                  ? "All pending highlights were approved."
                 : result === "rejected"
                   ? "Highlight rejected. It has moved into the hidden rejected section."
                   : result === "restored"
