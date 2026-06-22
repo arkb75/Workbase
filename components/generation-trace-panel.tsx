@@ -52,10 +52,7 @@ export function GenerationTracePanel({
       <summary className="list-none cursor-pointer">
         <Card className="border-dashed border-black/10 shadow-none transition group-open:border-[color:var(--accent)]">
           <CardHeader>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle>{title}</CardTitle>
-              <Badge>{traces.length} runs</Badge>
-            </div>
+            <CardTitle>{title}</CardTitle>
             <CardDescription>{description}</CardDescription>
           </CardHeader>
         </Card>

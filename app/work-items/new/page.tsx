@@ -300,9 +300,6 @@ export default async function NewWorkItemPage({
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-[color:var(--ink-strong)]">GitHub</p>
-                        <span className="rounded-full bg-black/4 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
-                          Repo source
-                        </span>
                         <span className="rounded-full bg-[rgba(15,118,110,0.08)] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--accent)]">
                           {githubConnection
                             ? selectedRepository
@@ -434,9 +431,6 @@ export default async function NewWorkItemPage({
                         <p className="text-sm font-semibold text-[color:var(--ink-strong)]">
                           Manual notes
                         </p>
-                        <span className="rounded-full bg-black/4 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
-                          Typed source
-                        </span>
                         <span className="rounded-full bg-[rgba(16,33,43,0.05)] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
                           {manualNotes?.trim() ? "Included on create" : "Optional"}
                         </span>

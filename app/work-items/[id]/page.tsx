@@ -648,7 +648,6 @@ export default async function WorkItemDetailPage({
           <CollapsibleCard
             title="Pipeline"
             description="The review bar stays local even though retrieval is now more dynamic."
-            meta={<Badge>4 rules</Badge>}
             bodyClassName="grid gap-4"
           >
             <div className="flex gap-3">
