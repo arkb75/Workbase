@@ -3,7 +3,6 @@
 import { type CSSProperties, useMemo, useState } from "react";
 import { Clock3, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatDateTime } from "@/src/lib/utils";
 
@@ -86,18 +85,6 @@ export function ArtifactHistoryPanel({
             <Clock3 className="h-4 w-4 text-[color:var(--accent)]" />
             {entries.length} saved
           </div>
-          {entries.length ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={() => setIsLibraryOpen((open) => !open)}
-              className="gap-2"
-            >
-              {isLibraryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-              {isLibraryOpen ? "Hide saved artifacts" : "Browse saved artifacts"}
-            </Button>
-          ) : null}
         </div>
       </CardHeader>
 
@@ -112,64 +99,58 @@ export function ArtifactHistoryPanel({
           <section
             aria-hidden={!isLibraryOpen}
             className={cn(
-              "min-w-0 overflow-hidden rounded-[26px] border border-black/8 bg-[color:var(--panel-muted)]/65 transition-[max-height,max-width,opacity,transform,padding,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              "flex min-w-0 self-stretch overflow-hidden rounded-[26px] border border-black/8 bg-[color:var(--panel-muted)]/65 transition-[max-width,opacity,transform,padding,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
               isLibraryOpen
-                ? "max-h-[46rem] translate-x-0 p-4 opacity-100 xl:max-h-none xl:max-w-[var(--artifact-library-width)]"
+                ? "translate-x-0 p-4 opacity-100 xl:max-w-[var(--artifact-library-width)]"
                 : "max-h-0 -translate-x-3 border-transparent p-0 opacity-0 xl:max-h-none xl:max-w-0",
             )}
           >
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
+            <div className="flex min-h-0 w-full flex-col">
+              <div className="mb-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
                   Saved artifacts
                 </p>
-                <p className="mt-1 text-sm leading-6 text-[color:var(--ink-soft)]">
-                  Compact history rail with local selection and bounded scrolling.
-                </p>
               </div>
-              <div className="rounded-full bg-white px-3 py-1 text-xs uppercase tracking-[0.16em] text-[color:var(--ink-muted)] ring-1 ring-black/8">
-                Scrollable
-              </div>
-            </div>
-            <div className="grid max-h-[42rem] gap-3 overflow-y-auto pr-1">
-              {entries.map((entry) => {
-                const isSelected = selectedEntry?.id === entry.id;
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+                {entries.map((entry) => {
+                  const isSelected = selectedEntry?.id === entry.id;
 
-                return (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    tabIndex={isLibraryOpen ? 0 : -1}
-                    onClick={() => setSelectedArtifactId(entry.id)}
-                    className={cn(
-                      "rounded-[22px] border p-4 text-left transition",
-                      isSelected
-                        ? "border-[color:var(--accent)] bg-white shadow-[0_18px_36px_rgba(19,120,111,0.12)]"
-                        : "border-black/8 bg-white/82 hover:border-[color:var(--accent)]/45 hover:bg-white",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={isSelected ? "accent" : "neutral"}>
-                        {entry.type.replace(/_/g, " ")}
-                      </Badge>
-                      <Badge>{entry.targetAngle.replace(/_/g, " ")}</Badge>
-                      <Badge>{entry.tone.replace(/_/g, " ")}</Badge>
-                      {entry.fallbackUsed ? <Badge tone="warning">fallback</Badge> : null}
-                    </div>
-                    <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-                      {formatDateTime(entry.createdAt)}
-                    </p>
-                    <p className="mt-3 line-clamp-3 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      {entry.content}
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
-                      <span>{entry.highlightCount} highlights</span>
-                      <span>•</span>
-                      <span>{entry.evidenceCount} evidence refs</span>
-                    </div>
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      tabIndex={isLibraryOpen ? 0 : -1}
+                      onClick={() => setSelectedArtifactId(entry.id)}
+                      className={cn(
+                        "rounded-[22px] border p-4 text-left transition",
+                        isSelected
+                          ? "border-[color:var(--accent)] bg-white shadow-[0_18px_36px_rgba(19,120,111,0.12)]"
+                          : "border-black/8 bg-white/82 hover:border-[color:var(--accent)]/45 hover:bg-white",
+                      )}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={isSelected ? "accent" : "neutral"}>
+                          {entry.type.replace(/_/g, " ")}
+                        </Badge>
+                        <Badge>{entry.targetAngle.replace(/_/g, " ")}</Badge>
+                        <Badge>{entry.tone.replace(/_/g, " ")}</Badge>
+                        {entry.fallbackUsed ? <Badge tone="warning">fallback</Badge> : null}
+                      </div>
+                      <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+                        {formatDateTime(entry.createdAt)}
+                      </p>
+                      <p className="mt-3 line-clamp-3 text-sm leading-6 text-[color:var(--ink-soft)]">
+                        {entry.content}
+                      </p>
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
+                        <span>{entry.highlightCount} highlights</span>
+                        <span>•</span>
+                        <span>{entry.evidenceCount} evidence refs</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </section>
         ) : null}
