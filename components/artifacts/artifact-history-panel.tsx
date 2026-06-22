@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { Clock3, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,10 @@ export function ArtifactHistoryPanel({
     () => entries.find((entry) => entry.id === selectedArtifactId) ?? entries[0] ?? null,
     [entries, selectedArtifactId],
   );
+  const libraryMotionStyle = {
+    "--artifact-library-width": entries.length && isLibraryOpen ? "32rem" : "0rem",
+    "--artifact-library-gap": entries.length && isLibraryOpen ? "1.5rem" : "0rem",
+  } as CSSProperties;
 
   return (
     <Card className="overflow-hidden">
@@ -99,12 +103,21 @@ export function ArtifactHistoryPanel({
 
       <CardContent
         className={cn(
-          "grid gap-6 p-6 transition-[grid-template-columns] duration-300",
-          entries.length && isLibraryOpen ? "xl:grid-cols-[0.78fr_1.22fr]" : "grid-cols-1",
+          "flex flex-col p-6 transition-[gap] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] xl:flex-row",
+          entries.length ? "gap-6 xl:gap-[var(--artifact-library-gap)]" : "gap-0",
         )}
+        style={libraryMotionStyle}
       >
-        {entries.length && isLibraryOpen ? (
-          <section className="min-w-0 rounded-[26px] border border-black/8 bg-[color:var(--panel-muted)]/65 p-4">
+        {entries.length ? (
+          <section
+            aria-hidden={!isLibraryOpen}
+            className={cn(
+              "min-w-0 overflow-hidden rounded-[26px] border border-black/8 bg-[color:var(--panel-muted)]/65 transition-[max-height,max-width,opacity,transform,padding,border-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              isLibraryOpen
+                ? "max-h-[46rem] translate-x-0 p-4 opacity-100 xl:max-h-none xl:max-w-[var(--artifact-library-width)]"
+                : "max-h-0 -translate-x-3 border-transparent p-0 opacity-0 xl:max-h-none xl:max-w-0",
+            )}
+          >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
@@ -126,6 +139,7 @@ export function ArtifactHistoryPanel({
                   <button
                     key={entry.id}
                     type="button"
+                    tabIndex={isLibraryOpen ? 0 : -1}
                     onClick={() => setSelectedArtifactId(entry.id)}
                     className={cn(
                       "rounded-[22px] border p-4 text-left transition",
@@ -160,10 +174,26 @@ export function ArtifactHistoryPanel({
           </section>
         ) : null}
 
-        <section className="min-w-0">
+        <section className="min-w-0 flex-1 transition-[flex-basis] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]">
           {selectedEntry ? (
-            <div className="grid gap-5 rounded-[30px] border border-black/8 bg-[linear-gradient(180deg,rgba(248,250,249,0.98),rgba(240,246,244,0.96))] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="relative grid gap-5 rounded-[30px] border border-black/8 bg-[linear-gradient(180deg,rgba(248,250,249,0.98),rgba(240,246,244,0.96))] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+              {entries.length ? (
+                <button
+                  type="button"
+                  onClick={() => setIsLibraryOpen((open) => !open)}
+                  aria-label={isLibraryOpen ? "Collapse artifact library" : "Expand artifact library"}
+                  title={isLibraryOpen ? "Collapse artifact library" : "Expand artifact library"}
+                  className="absolute right-6 top-6 inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/8 bg-white text-[color:var(--ink-muted)] shadow-[0_12px_28px_rgba(15,23,42,0.06)] transition hover:border-[color:var(--accent)] hover:text-[color:var(--ink-strong)]"
+                >
+                  {isLibraryOpen ? (
+                    <PanelLeftClose className="h-4 w-4" />
+                  ) : (
+                    <PanelLeftOpen className="h-4 w-4" />
+                  )}
+                </button>
+              ) : null}
+
+              <div className="flex flex-wrap items-start justify-between gap-4 pr-12">
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="accent">{selectedEntry.type.replace(/_/g, " ")}</Badge>
@@ -188,21 +218,6 @@ export function ArtifactHistoryPanel({
                   <div className="rounded-full border border-black/8 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
                     {selectedEntry.evidenceCount} evidence refs
                   </div>
-                  {entries.length ? (
-                    <button
-                      type="button"
-                      onClick={() => setIsLibraryOpen((open) => !open)}
-                      aria-label={isLibraryOpen ? "Collapse artifact library" : "Expand artifact library"}
-                      title={isLibraryOpen ? "Collapse artifact library" : "Expand artifact library"}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/8 bg-white text-[color:var(--ink-muted)] transition hover:border-[color:var(--accent)] hover:text-[color:var(--ink-strong)]"
-                    >
-                      {isLibraryOpen ? (
-                        <PanelLeftClose className="h-4 w-4" />
-                      ) : (
-                        <PanelLeftOpen className="h-4 w-4" />
-                      )}
-                    </button>
-                  ) : null}
                 </div>
               </div>
 
