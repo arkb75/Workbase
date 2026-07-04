@@ -26,7 +26,7 @@ import { getDemoUser } from "@/src/lib/demo-user";
 import {
   isWorkItemDescriptionSourceMetadata,
 } from "@/src/lib/evidence-persistence";
-import { formatDateRange, formatDateTime, titleCase } from "@/src/lib/utils";
+import { formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
 import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
 import type { GitHubRepositorySummary } from "@/src/services/types";
@@ -391,18 +391,7 @@ export default async function WorkItemDetailPage({
         highlightSuggestions={highlightSuggestions}
       />
 
-      <section className="grid gap-4 lg:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Timeline</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-              {formatDateRange(workItem.startDate, workItem.endDate)}
-            </p>
-          </CardContent>
-        </Card>
-
+      <section className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Sources</CardTitle>
