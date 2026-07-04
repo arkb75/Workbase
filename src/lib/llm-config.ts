@@ -28,3 +28,16 @@ export function resolveBedrockConfig() {
     profile: process.env.WORKBASE_AWS_PROFILE || undefined,
   };
 }
+
+export function resolveBedrockEmbeddingConfig() {
+  return {
+    provider: "bedrock" as const,
+    region: process.env.WORKBASE_BEDROCK_REGION ?? "us-east-1",
+    modelId:
+      process.env.WORKBASE_BEDROCK_EMBEDDING_MODEL_ID ??
+      "amazon.titan-embed-text-v2:0",
+    profile: process.env.WORKBASE_AWS_PROFILE || undefined,
+    dimensions: 512,
+    normalize: true,
+  };
+}

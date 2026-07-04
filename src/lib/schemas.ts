@@ -95,6 +95,12 @@ export const claimUpdateSchema = z.object({
   intent: z.enum(["save", "approve", "reject", "restore"]),
 });
 
+export const highlightSuggestionActionSchema = z.object({
+  suggestionId: z.string().trim().min(1),
+  workItemId: z.string().trim().min(1),
+  text: z.string().trim().min(10).max(240).optional(),
+});
+
 export const artifactGenerationSchema = z.object({
   workItemId: z.string().trim().min(1),
   type: z.enum(artifactTypeValues),

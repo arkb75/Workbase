@@ -6,11 +6,13 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { listWorkItemsForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { formatDateRange } from "@/src/lib/utils";
+import { ensureHighlightsForZeroHighlightWorkItems } from "@/src/services/highlight-bootstrap-service";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await getDemoUser();
+  await ensureHighlightsForZeroHighlightWorkItems(user.id);
   const workItems = await listWorkItemsForUser(user.id);
 
   const approvedHighlights = workItems.reduce(

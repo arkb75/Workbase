@@ -391,6 +391,8 @@ export const ModelName = {
   EvidenceItem: 'EvidenceItem',
   EvidenceTag: 'EvidenceTag',
   Highlight: 'Highlight',
+  HighlightEmbedding: 'HighlightEmbedding',
+  HighlightSuggestion: 'HighlightSuggestion',
   HighlightEvidence: 'HighlightEvidence',
   HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
@@ -410,7 +412,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEvidence" | "highlightTag" | "artifact" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -932,6 +934,138 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    HighlightEmbedding: {
+      payload: Prisma.$HighlightEmbeddingPayload<ExtArgs>
+      fields: Prisma.HighlightEmbeddingFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.HighlightEmbeddingFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.HighlightEmbeddingFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>
+        }
+        findFirst: {
+          args: Prisma.HighlightEmbeddingFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.HighlightEmbeddingFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>
+        }
+        findMany: {
+          args: Prisma.HighlightEmbeddingFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>[]
+        }
+        delete: {
+          args: Prisma.HighlightEmbeddingDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>
+        }
+        update: {
+          args: Prisma.HighlightEmbeddingUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>
+        }
+        deleteMany: {
+          args: Prisma.HighlightEmbeddingDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.HighlightEmbeddingUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.HighlightEmbeddingUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightEmbeddingPayload>[]
+        }
+        aggregate: {
+          args: Prisma.HighlightEmbeddingAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateHighlightEmbedding>
+        }
+        groupBy: {
+          args: Prisma.HighlightEmbeddingGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightEmbeddingGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.HighlightEmbeddingCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightEmbeddingCountAggregateOutputType> | number
+        }
+      }
+    }
+    HighlightSuggestion: {
+      payload: Prisma.$HighlightSuggestionPayload<ExtArgs>
+      fields: Prisma.HighlightSuggestionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.HighlightSuggestionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.HighlightSuggestionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        findFirst: {
+          args: Prisma.HighlightSuggestionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.HighlightSuggestionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        findMany: {
+          args: Prisma.HighlightSuggestionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>[]
+        }
+        create: {
+          args: Prisma.HighlightSuggestionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        createMany: {
+          args: Prisma.HighlightSuggestionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.HighlightSuggestionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>[]
+        }
+        delete: {
+          args: Prisma.HighlightSuggestionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        update: {
+          args: Prisma.HighlightSuggestionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        deleteMany: {
+          args: Prisma.HighlightSuggestionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.HighlightSuggestionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.HighlightSuggestionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>[]
+        }
+        upsert: {
+          args: Prisma.HighlightSuggestionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$HighlightSuggestionPayload>
+        }
+        aggregate: {
+          args: Prisma.HighlightSuggestionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateHighlightSuggestion>
+        }
+        groupBy: {
+          args: Prisma.HighlightSuggestionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightSuggestionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.HighlightSuggestionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.HighlightSuggestionCountAggregateOutputType> | number
+        }
+      }
+    }
     HighlightEvidence: {
       payload: Prisma.$HighlightEvidencePayload<ExtArgs>
       fields: Prisma.HighlightEvidenceFieldRefs
@@ -1380,6 +1514,39 @@ export const HighlightScalarFieldEnum = {
 export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof typeof HighlightScalarFieldEnum]
 
 
+export const HighlightEmbeddingScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type HighlightEmbeddingScalarFieldEnum = (typeof HighlightEmbeddingScalarFieldEnum)[keyof typeof HighlightEmbeddingScalarFieldEnum]
+
+
+export const HighlightSuggestionScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  sourceHighlightId: 'sourceHighlightId',
+  status: 'status',
+  suggestionType: 'suggestionType',
+  currentSnapshot: 'currentSnapshot',
+  suggestedDraft: 'suggestedDraft',
+  matchReason: 'matchReason',
+  cosineDistance: 'cosineDistance',
+  sourceEvidenceIds: 'sourceEvidenceIds',
+  generationRunIds: 'generationRunIds',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type HighlightSuggestionScalarFieldEnum = (typeof HighlightSuggestionScalarFieldEnum)[keyof typeof HighlightSuggestionScalarFieldEnum]
+
+
 export const HighlightEvidenceScalarFieldEnum = {
   id: 'id',
   highlightId: 'highlightId',
@@ -1697,6 +1864,34 @@ export type ListEnumVisibilityLevelFieldRefInput<$PrismaModel> = FieldRefInputTy
 
 
 /**
+ * Reference to a field of type 'Int'
+ */
+export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
+    
+
+
+/**
+ * Reference to a field of type 'Int[]'
+ */
+export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
+    
+
+
+/**
+ * Reference to a field of type 'HighlightSuggestionStatus'
+ */
+export type EnumHighlightSuggestionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'HighlightSuggestionStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'HighlightSuggestionStatus[]'
+ */
+export type ListEnumHighlightSuggestionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'HighlightSuggestionStatus[]'>
+    
+
+
+/**
  * Reference to a field of type 'ArtifactType'
  */
 export type EnumArtifactTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ArtifactType'>
@@ -1763,20 +1958,6 @@ export type EnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<
  * Reference to a field of type 'GenerationStatus[]'
  */
 export type ListEnumGenerationStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GenerationStatus[]'>
-    
-
-
-/**
- * Reference to a field of type 'Int'
- */
-export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
-    
-
-
-/**
- * Reference to a field of type 'Int[]'
- */
-export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
     
 
 /**
@@ -1881,6 +2062,8 @@ export type GlobalOmitConfig = {
   evidenceItem?: Prisma.EvidenceItemOmit
   evidenceTag?: Prisma.EvidenceTagOmit
   highlight?: Prisma.HighlightOmit
+  highlightEmbedding?: Prisma.HighlightEmbeddingOmit
+  highlightSuggestion?: Prisma.HighlightSuggestionOmit
   highlightEvidence?: Prisma.HighlightEvidenceOmit
   highlightTag?: Prisma.HighlightTagOmit
   artifact?: Prisma.ArtifactOmit

@@ -60,9 +60,21 @@ describe("evidence persistence", () => {
         included: true,
       },
     ]);
-    prismaMock.evidenceItem.upsert.mockResolvedValue({ id: "persisted-1" });
+    prismaMock.evidenceItem.upsert
+      .mockResolvedValueOnce({
+        id: "persisted-1",
+        externalId: "commit:sha-1",
+        type: "github_commit",
+        included: false,
+      })
+      .mockResolvedValueOnce({
+        id: "persisted-2",
+        externalId: "pull:12",
+        type: "github_pull_request",
+        included: true,
+      });
 
-    await upsertEvidenceItemsForSource("source-1", [
+    const persistedItems = await upsertEvidenceItemsForSource("source-1", [
       {
         workItemId: "work-item-1",
         sourceId: "source-1",
@@ -103,6 +115,22 @@ describe("evidence persistence", () => {
     });
 
     expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledTimes(2);
+    expect(persistedItems).toEqual([
+      {
+        id: "persisted-1",
+        externalId: "commit:sha-1",
+        type: "github_commit",
+        included: false,
+        wasExisting: true,
+      },
+      {
+        id: "persisted-2",
+        externalId: "pull:12",
+        type: "github_pull_request",
+        included: true,
+        wasExisting: false,
+      },
+    ]);
     expect(prismaMock.evidenceItem.upsert).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({

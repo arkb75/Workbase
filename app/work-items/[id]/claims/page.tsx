@@ -1,5 +1,6 @@
 import { approveAllPendingHighlightsAction, generateClaimsAction } from "@/app/actions";
 import { ClaimCard } from "@/components/claims/claim-card";
+import { HighlightSuggestionCard } from "@/components/claims/highlight-suggestion-card";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { titleCase } from "@/src/lib/utils";
+import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
 import { Eye, ShieldAlert, Sparkles, Stamp, Target } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +89,10 @@ export default async function HighlightReviewPage({
   const { id } = await params;
   const { error, result } = await searchParams;
   const user = await getDemoUser();
+  await ensureHighlightsForWorkItem({
+    userId: user.id,
+    workItemId: id,
+  });
   const workItem = await getWorkItemForUser(user.id, id);
   const generateHighlights = generateClaimsAction.bind(null, workItem.id);
   const approveAllPendingHighlights = approveAllPendingHighlightsAction;
@@ -101,6 +107,7 @@ export default async function HighlightReviewPage({
   const rejectedHighlights = workItem.highlights.filter(
     (highlight) => highlight.verificationStatus === "rejected",
   );
+  const pendingSuggestions = workItem.highlightSuggestions;
   const sensitiveHighlights = workItem.highlights.filter((highlight) => highlight.sensitivityFlag);
   const generationTraces = workItem.generationRuns.filter(
     (run) =>
@@ -145,6 +152,16 @@ export default async function HighlightReviewPage({
         </Card>
       ) : null}
 
+      {error === "invalid-suggestion" ? (
+        <Card className="border-amber-200 bg-amber-50 shadow-none">
+          <CardContent className="py-4">
+            <p className="text-sm leading-6 text-amber-900">
+              Workbase could not apply that suggested update. Reload the page and try again.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {error === "claim-generation-failed" || error === "highlight-generation-failed" ? (
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
@@ -165,8 +182,12 @@ export default async function HighlightReviewPage({
                   ? "All pending highlights were approved."
                 : result === "rejected"
                   ? "Highlight rejected. It has moved into the hidden rejected section."
-                  : result === "restored"
-                    ? "Highlight restored to pending review."
+                : result === "restored"
+                  ? "Highlight restored to pending review."
+                  : result === "suggestion-accepted"
+                    ? "Suggested update accepted. The source highlight was updated in place."
+                    : result === "suggestion-dismissed"
+                      ? "Suggested update dismissed. The source highlight was left unchanged."
                     : "Highlight changes saved."}
             </p>
           </CardContent>
@@ -175,6 +196,30 @@ export default async function HighlightReviewPage({
 
       <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-4">
+          {pendingSuggestions.length ? (
+            <Card id="suggested-updates">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CardTitle>Suggested updates</CardTitle>
+                  <Badge tone="accent">{pendingSuggestions.length} pending</Badge>
+                </div>
+                <CardDescription>
+                  Review proposed revisions from new import evidence before approved highlights change.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {pendingSuggestions.map((suggestion) => (
+                    <HighlightSuggestionCard
+                      key={suggestion.id}
+                      suggestion={suggestion}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <ClaimSection
             title="Pending review"
             description="These are the active highlights that still need a human decision."

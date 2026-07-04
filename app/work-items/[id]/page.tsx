@@ -6,6 +6,7 @@ import {
   generateClaimsAction,
   toggleEvidenceInclusionAction,
 } from "@/app/actions";
+import { HighlightSuggestionToast } from "@/components/claims/highlight-suggestion-toast";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
@@ -24,11 +25,10 @@ import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import {
   isWorkItemDescriptionSourceMetadata,
-  syncManualEvidenceItemsForWorkItem,
-  syncWorkItemDescriptionEvidenceForWorkItem,
 } from "@/src/lib/evidence-persistence";
 import { formatDateRange, formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
+import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
 import type { GitHubRepositorySummary } from "@/src/services/types";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +65,14 @@ function getEvidenceTypeCounts(
   }, {});
 }
 
-function buildStatusMessage(error?: string, result?: string) {
+function buildStatusMessage(params: {
+  error?: string;
+  result?: string;
+  generatedHighlights?: string;
+  updatedHighlights?: string;
+  highlightSuggestions?: string;
+}) {
+  const { error, result, generatedHighlights, updatedHighlights, highlightSuggestions } = params;
   if (error === "invalid-note") {
     return {
       tone: "error" as const,
@@ -120,6 +127,14 @@ function buildStatusMessage(error?: string, result?: string) {
     };
   }
 
+  if (error === "highlight-automation-failed") {
+    return {
+      tone: "error" as const,
+      message:
+        "Evidence was saved, but automatic highlight generation failed. Check the generation traces or database migration state before retrying.",
+    };
+  }
+
   if (result === "github-connected") {
     return {
       tone: "success" as const,
@@ -129,10 +144,25 @@ function buildStatusMessage(error?: string, result?: string) {
   }
 
   if (result === "github-imported") {
+    const generatedCount = Number(generatedHighlights ?? 0);
+    const updatedCount = Number(updatedHighlights ?? 0);
+    const suggestionCount = Number(highlightSuggestions ?? 0);
+    const automationSummary = [
+      generatedCount ? `${generatedCount} new highlight${generatedCount === 1 ? "" : "s"}` : null,
+      updatedCount ? `${updatedCount} draft update${updatedCount === 1 ? "" : "s"}` : null,
+      suggestionCount
+        ? `${suggestionCount} suggested update${suggestionCount === 1 ? "" : "s"}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
     return {
       tone: "success" as const,
       message:
-        "GitHub repository imported. The latest README, commits, pull requests, issues, and releases are now in the evidence pool.",
+        automationSummary
+          ? `GitHub repository imported. Workbase also prepared ${automationSummary}.`
+          : "GitHub repository imported. The latest README, commits, pull requests, issues, and releases are now in the evidence pool.",
     };
   }
 
@@ -155,8 +185,26 @@ function buildStatusMessage(error?: string, result?: string) {
   return null;
 }
 
-function StatusBanner({ error, result }: { error?: string; result?: string }) {
-  const status = buildStatusMessage(error, result);
+function StatusBanner({
+  error,
+  result,
+  generatedHighlights,
+  updatedHighlights,
+  highlightSuggestions,
+}: {
+  error?: string;
+  result?: string;
+  generatedHighlights?: string;
+  updatedHighlights?: string;
+  highlightSuggestions?: string;
+}) {
+  const status = buildStatusMessage({
+    error,
+    result,
+    generatedHighlights,
+    updatedHighlights,
+    highlightSuggestions,
+  });
 
   if (!status) {
     return null;
@@ -240,14 +288,26 @@ export default async function WorkItemDetailPage({
     error?: string;
     result?: string;
     repoQuery?: string;
+    generatedHighlights?: string;
+    updatedHighlights?: string;
+    highlightSuggestions?: string;
   }>;
 }) {
   const { id } = await params;
-  const { error, result, repoQuery = "" } = await searchParams;
+  const {
+    error,
+    result,
+    repoQuery = "",
+    generatedHighlights,
+    updatedHighlights,
+    highlightSuggestions,
+  } = await searchParams;
   const user = await getDemoUser();
 
-  await syncManualEvidenceItemsForWorkItem(id);
-  await syncWorkItemDescriptionEvidenceForWorkItem(id);
+  await ensureHighlightsForWorkItem({
+    userId: user.id,
+    workItemId: id,
+  });
 
   const [workItem, githubConnection] = await Promise.all([
     getWorkItemForUser(user.id, id),
@@ -295,6 +355,10 @@ export default async function WorkItemDetailPage({
 
   return (
     <WorkbaseFrame>
+      <HighlightSuggestionToast
+        workItemId={workItem.id}
+        suggestionCount={Number(highlightSuggestions ?? 0)}
+      />
       <PageHeader
         eyebrow={workItem.type === "project" ? "Project" : "Experience"}
         title={workItem.title}
@@ -319,7 +383,13 @@ export default async function WorkItemDetailPage({
         }
       />
 
-      <StatusBanner error={error} result={result} />
+      <StatusBanner
+        error={error}
+        result={result}
+        generatedHighlights={generatedHighlights}
+        updatedHighlights={updatedHighlights}
+        highlightSuggestions={highlightSuggestions}
+      />
 
       <section className="grid gap-4 lg:grid-cols-4">
         <Card>

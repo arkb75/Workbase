@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Info, X, TriangleAlert } from "lucide-react";
@@ -12,6 +13,10 @@ type ToastInput = {
   description?: string;
   tone?: ToastTone;
   durationMs?: number;
+  action?: {
+    label: string;
+    href: string;
+  };
 };
 
 type ToastRecord = ToastInput & {
@@ -115,6 +120,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     <p className="text-sm font-semibold">{toast.title}</p>
                     {toast.description ? (
                       <p className="mt-1 text-sm leading-6 opacity-85">{toast.description}</p>
+                    ) : null}
+                    {toast.action ? (
+                      <Link
+                        href={toast.action.href}
+                        className="mt-3 inline-flex h-9 items-center rounded-full bg-white/85 px-3 text-xs font-semibold text-current shadow-sm transition hover:bg-white"
+                        onClick={() => dismissToast(toast.id)}
+                      >
+                        {toast.action.label}
+                      </Link>
                     ) : null}
                   </div>
                   <button

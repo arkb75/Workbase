@@ -107,7 +107,7 @@ function buildBatchInputSummary(params: {
 }
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
-  async generate({ workItem, evidenceItems, artifactRequest }) {
+  async generate({ workItem, evidenceItems, existingHighlights, artifactRequest }) {
     const structuredClient = getBedrockStructuredLlmClient();
     const rejectedHighlightGuidance = buildRejectedGuidance(evidenceItems);
     const batches = buildEvidenceBatches(evidenceItems);
@@ -142,6 +142,9 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             "Use `text`, not `claimText`, `title`, or `claim`.",
             "Only cite provided evidenceItemId values.",
             "It is valid to return an empty array if this evidence batch does not support a defensible highlight.",
+            "Classify candidates mentally against existing highlights as new, revision, or skip.",
+            "Return new highlights and meaningful revisions only; skip candidates that mostly restate an approved or rejected highlight.",
+            "If a candidate improves an existing draft or flagged highlight, write it as a replacement-quality highlight.",
           ].join("\n"),
         },
         {
@@ -202,6 +205,23 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         {
           tag: "rejected_highlight_guidance",
           content: rejectedHighlightGuidance || "null",
+        },
+        {
+          tag: "existing_highlights",
+          content: JSON.stringify(
+            existingHighlights.slice(0, 20).map((highlight) => ({
+              id: highlight.id,
+              status: highlight.verificationStatus,
+              text: highlight.text,
+              summary: highlight.summary,
+              evidenceItemIds: highlight.evidence.sourceRefs.flatMap((sourceRef) =>
+                sourceRef.evidenceItemId ? [sourceRef.evidenceItemId] : [],
+              ),
+              tags: highlight.tags.map((tag) => `${tag.dimension}:${tag.tag}`),
+            })),
+            null,
+            2,
+          ),
         },
         {
           tag: "evidence_refs",

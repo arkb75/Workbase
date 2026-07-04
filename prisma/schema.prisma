@@ -111,6 +111,12 @@ enum GenerationStatus {
   validation_error
 }
 
+enum HighlightSuggestionStatus {
+  pending
+  accepted
+  dismissed
+}
+
 model User {
   id              String           @id @default(cuid())
   email           String           @unique
@@ -137,6 +143,7 @@ model WorkItem {
   sources        Source[]
   evidenceItems  EvidenceItem[]
   highlights     Highlight[]
+  highlightSuggestions HighlightSuggestion[]
   artifacts      Artifact[]
   generationRuns GenerationRun[]
   createdAt      DateTime       @default(now())
@@ -228,10 +235,48 @@ model Highlight {
   workItem          WorkItem           @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidence          HighlightEvidence[]
   tags              HighlightTag[]
+  embedding         HighlightEmbedding?
+  suggestions       HighlightSuggestion[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
   @@map("Claim")
+}
+
+model HighlightEmbedding {
+  id          String   @id @default(cuid())
+  highlightId String   @unique
+  modelId     String
+  dimensions  Int
+  inputHash   String
+  inputText   String
+  embedding   Unsupported("vector(512)")
+  highlight   Highlight @relation(fields: [highlightId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([highlightId])
+}
+
+model HighlightSuggestion {
+  id                String                    @id @default(cuid())
+  workItemId        String
+  sourceHighlightId String
+  status            HighlightSuggestionStatus @default(pending)
+  suggestionType    String
+  currentSnapshot   Json
+  suggestedDraft    Json
+  matchReason       String
+  cosineDistance    Float?
+  sourceEvidenceIds Json
+  generationRunIds  Json?
+  workItem          WorkItem                  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  sourceHighlight   Highlight                 @relation(fields: [sourceHighlightId], references: [id], onDelete: Cascade)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([workItemId, status, createdAt])
+  @@index([sourceHighlightId, status])
 }
 
 model HighlightEvidence {

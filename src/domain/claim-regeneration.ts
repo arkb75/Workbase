@@ -44,6 +44,21 @@ function jaccardSimilarity(left: Set<string>, right: Set<string>) {
   return intersection / (left.size + right.size - intersection);
 }
 
+export const STRONG_HIGHLIGHT_SIMILARITY_THRESHOLD = 0.86;
+export const POSSIBLE_HIGHLIGHT_SIMILARITY_THRESHOLD = 0.78;
+
+export function collectHighlightEvidenceIds(draft: ClaimDraft | ClaimSnapshot) {
+  return new Set(
+    draft.evidence.sourceRefs.flatMap((sourceRef) =>
+      sourceRef.evidenceItemId ? [sourceRef.evidenceItemId] : [],
+    ),
+  );
+}
+
+export function collectHighlightTagKeys(draft: ClaimDraft | ClaimSnapshot) {
+  return new Set(draft.tags.map((tag) => `${tag.dimension}:${tag.tag}`));
+}
+
 function buildEvidenceFingerprint(draft: ClaimDraft | ClaimSnapshot) {
   return draft.evidence.sourceRefs
     .map((sourceRef) => sourceRef.evidenceItemId ?? `${sourceRef.sourceId}:${sourceRef.excerpt}`)
@@ -51,7 +66,59 @@ function buildEvidenceFingerprint(draft: ClaimDraft | ClaimSnapshot) {
     .join("|");
 }
 
-function areNearDuplicateHighlights(
+export function haveEvidenceOrTagOverlap(
+  left: ClaimDraft | ClaimSnapshot,
+  right: ClaimDraft | ClaimSnapshot,
+) {
+  const leftEvidenceIds = collectHighlightEvidenceIds(left);
+  const rightEvidenceIds = collectHighlightEvidenceIds(right);
+
+  for (const evidenceId of leftEvidenceIds) {
+    if (rightEvidenceIds.has(evidenceId)) {
+      return true;
+    }
+  }
+
+  const leftTagKeys = collectHighlightTagKeys(left);
+  const rightTagKeys = collectHighlightTagKeys(right);
+
+  for (const tagKey of leftTagKeys) {
+    if (rightTagKeys.has(tagKey)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function classifyHighlightSimilarity(params: {
+  cosineSimilarity: number | null;
+  evidenceOrTagOverlap: boolean;
+  deterministicDuplicate?: boolean;
+}) {
+  if (params.deterministicDuplicate) {
+    return "strong" as const;
+  }
+
+  if (params.cosineSimilarity == null) {
+    return "none" as const;
+  }
+
+  if (params.cosineSimilarity >= STRONG_HIGHLIGHT_SIMILARITY_THRESHOLD) {
+    return "strong" as const;
+  }
+
+  if (
+    params.cosineSimilarity >= POSSIBLE_HIGHLIGHT_SIMILARITY_THRESHOLD &&
+    params.evidenceOrTagOverlap
+  ) {
+    return "possible" as const;
+  }
+
+  return "none" as const;
+}
+
+export function areNearDuplicateHighlights(
   left: ClaimDraft | ClaimSnapshot,
   right: ClaimDraft | ClaimSnapshot,
 ) {

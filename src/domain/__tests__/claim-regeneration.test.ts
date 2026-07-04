@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { filterDuplicateClaimDrafts } from "@/src/domain/claim-regeneration";
+import {
+  classifyHighlightSimilarity,
+  filterDuplicateClaimDrafts,
+} from "@/src/domain/claim-regeneration";
 import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import type {
   ClaimDraft,
@@ -95,6 +98,34 @@ function makeExistingClaim(
 }
 
 describe("claim regeneration behavior", () => {
+  it("classifies embedding similarity using strong and possible gates", () => {
+    expect(
+      classifyHighlightSimilarity({
+        cosineSimilarity: 0.87,
+        evidenceOrTagOverlap: false,
+      }),
+    ).toBe("strong");
+    expect(
+      classifyHighlightSimilarity({
+        cosineSimilarity: 0.8,
+        evidenceOrTagOverlap: true,
+      }),
+    ).toBe("possible");
+    expect(
+      classifyHighlightSimilarity({
+        cosineSimilarity: 0.8,
+        evidenceOrTagOverlap: false,
+      }),
+    ).toBe("none");
+    expect(
+      classifyHighlightSimilarity({
+        cosineSimilarity: null,
+        evidenceOrTagOverlap: false,
+        deterministicDuplicate: true,
+      }),
+    ).toBe("strong");
+  });
+
   it("suppresses near-duplicate highlights that point at the same evidence", () => {
     const filtered = filterDuplicateClaimDrafts(
       [

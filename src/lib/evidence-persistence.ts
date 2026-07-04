@@ -31,6 +31,14 @@ type EvidenceItemWrite = {
   metadata: JsonValue | null;
 };
 
+export type PersistedEvidenceItemWriteResult = {
+  id: string;
+  externalId: string;
+  type: EvidenceItemWrite["type"];
+  included: boolean;
+  wasExisting: boolean;
+};
+
 function readMetadataRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -65,6 +73,7 @@ export async function upsertEvidenceItemsForSource(
     existingItems.map((item) => [item.externalId, item]),
   );
   const nextExternalIds = evidenceItems.map((item) => item.externalId);
+  const persistedItems: PersistedEvidenceItemWriteResult[] = [];
 
   if (existingItems.length) {
     await prisma.evidenceItem.deleteMany({
@@ -140,9 +149,20 @@ export async function upsertEvidenceItemsForSource(
           tag: tag.tag,
           score: tag.score ?? null,
         })),
+        skipDuplicates: true,
       });
     }
+
+    persistedItems.push({
+      id: persisted.id,
+      externalId: persisted.externalId,
+      type: persisted.type,
+      included: persisted.included,
+      wasExisting: Boolean(existing),
+    });
   }
+
+  return persistedItems;
 }
 
 export async function syncManualEvidenceItemsForWorkItem(workItemId: string) {

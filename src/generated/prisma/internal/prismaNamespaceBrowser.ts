@@ -58,6 +58,8 @@ export const ModelName = {
   EvidenceItem: 'EvidenceItem',
   EvidenceTag: 'EvidenceTag',
   Highlight: 'Highlight',
+  HighlightEmbedding: 'HighlightEmbedding',
+  HighlightSuggestion: 'HighlightSuggestion',
   HighlightEvidence: 'HighlightEvidence',
   HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
@@ -191,6 +193,39 @@ export const HighlightScalarFieldEnum = {
 } as const
 
 export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof typeof HighlightScalarFieldEnum]
+
+
+export const HighlightEmbeddingScalarFieldEnum = {
+  id: 'id',
+  highlightId: 'highlightId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type HighlightEmbeddingScalarFieldEnum = (typeof HighlightEmbeddingScalarFieldEnum)[keyof typeof HighlightEmbeddingScalarFieldEnum]
+
+
+export const HighlightSuggestionScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  sourceHighlightId: 'sourceHighlightId',
+  status: 'status',
+  suggestionType: 'suggestionType',
+  currentSnapshot: 'currentSnapshot',
+  suggestedDraft: 'suggestedDraft',
+  matchReason: 'matchReason',
+  cosineDistance: 'cosineDistance',
+  sourceEvidenceIds: 'sourceEvidenceIds',
+  generationRunIds: 'generationRunIds',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type HighlightSuggestionScalarFieldEnum = (typeof HighlightSuggestionScalarFieldEnum)[keyof typeof HighlightSuggestionScalarFieldEnum]
 
 
 export const HighlightEvidenceScalarFieldEnum = {

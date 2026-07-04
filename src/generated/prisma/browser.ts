@@ -53,6 +53,16 @@ export type EvidenceTag = Prisma.EvidenceTagModel
  */
 export type Highlight = Prisma.HighlightModel
 /**
+ * Model HighlightEmbedding
+ * 
+ */
+export type HighlightEmbedding = Prisma.HighlightEmbeddingModel
+/**
+ * Model HighlightSuggestion
+ * 
+ */
+export type HighlightSuggestion = Prisma.HighlightSuggestionModel
+/**
  * Model HighlightEvidence
  * 
  */

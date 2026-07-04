@@ -49,6 +49,30 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           },
         ],
       },
+      highlightSuggestions: {
+        where: {
+          status: "pending",
+        },
+        include: {
+          sourceHighlight: {
+            include: {
+              evidence: {
+                include: {
+                  evidenceItem: {
+                    include: {
+                      source: true,
+                    },
+                  },
+                },
+              },
+              tags: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
       evidenceItems: {
         include: {
           source: true,

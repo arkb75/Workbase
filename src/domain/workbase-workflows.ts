@@ -113,6 +113,75 @@ export async function buildClaimGenerationDrafts(params: {
   };
 }
 
+export async function buildIncrementalClaimGenerationDrafts(params: {
+  workItem: WorkItemSnapshot;
+  sources: SourceSnapshot[];
+  evidenceItems: EvidenceItemSnapshot[];
+  incrementalEvidenceItemIds: string[];
+  existingClaims: ClaimSnapshot[];
+  sourceIngestionService: SourceIngestionService;
+  claimResearchService: ClaimResearchService;
+  claimVerificationService: ClaimVerificationService;
+}) {
+  const incrementalEvidenceIds = new Set(params.incrementalEvidenceItemIds);
+  const normalizedEvidenceItems = await params.sourceIngestionService.normalize({
+    workItem: params.workItem,
+    sources: params.sources,
+    evidenceItems: params.evidenceItems,
+  });
+  const selectedEvidenceItems = normalizedEvidenceItems.filter((item) =>
+    incrementalEvidenceIds.has(item.id),
+  );
+
+  if (!selectedEvidenceItems.length) {
+    return {
+      normalizedEvidenceItems,
+      drafts: [] as HighlightDraft[],
+      generationRunIds: {
+        generation: [] as string[],
+        verification: null as string | null,
+      },
+    };
+  }
+
+  const selectedSourceIds = new Set(selectedEvidenceItems.map((item) => item.sourceId));
+  const contextEvidenceItems = normalizedEvidenceItems
+    .filter(
+      (item) =>
+        !incrementalEvidenceIds.has(item.id) &&
+        (item.evidenceType === "github_readme" ||
+          (item.evidenceType === "manual_note_excerpt" && item.parentKind === "work_item") ||
+          selectedSourceIds.has(item.sourceId)),
+    )
+    .slice(0, 6);
+  const rejectedGuidanceSource = buildRejectedHighlightGuidanceSource(
+    params.existingClaims.filter((claim) => claim.verificationStatus === "rejected"),
+  );
+  const researchEvidenceItems = rejectedGuidanceSource
+    ? [...selectedEvidenceItems, ...contextEvidenceItems, rejectedGuidanceSource]
+    : [...selectedEvidenceItems, ...contextEvidenceItems];
+  const candidateClaims = await params.claimResearchService.generate({
+    workItem: params.workItem,
+    evidenceItems: researchEvidenceItems,
+    existingHighlights: params.existingClaims,
+  });
+  const verifiedClaims = await params.claimVerificationService.verify({
+    workItem: params.workItem,
+    evidenceItems: researchEvidenceItems,
+    highlights: candidateClaims.highlights,
+  });
+  const verificationRun = readGenerationRunMetadata(verifiedClaims);
+
+  return {
+    normalizedEvidenceItems,
+    drafts: filterDuplicateClaimDrafts(verifiedClaims, []),
+    generationRunIds: {
+      generation: candidateClaims.generationRunIds.generation,
+      verification: verificationRun?.id ?? null,
+    },
+  };
+}
+
 function buildArtifactQueryText(params: {
   workItem: WorkItemSnapshot;
   request: ArtifactRequest;

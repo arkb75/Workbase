@@ -156,3 +156,12 @@ export const GenerationStatus = {
 } as const
 
 export type GenerationStatus = (typeof GenerationStatus)[keyof typeof GenerationStatus]
+
+
+export const HighlightSuggestionStatus = {
+  pending: 'pending',
+  accepted: 'accepted',
+  dismissed: 'dismissed'
+} as const
+
+export type HighlightSuggestionStatus = (typeof HighlightSuggestionStatus)[keyof typeof HighlightSuggestionStatus]

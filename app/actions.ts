@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@/src/generated/prisma/client";
-import type { JsonValue } from "@/src/domain/types";
+import type { ClaimDraft, ClaimSnapshot, JsonValue } from "@/src/domain/types";
 import { prisma } from "@/src/lib/prisma";
 import { ensureDemoUser } from "@/src/lib/demo-user";
 import {
@@ -13,12 +13,23 @@ import {
   formDataToBoolean,
   githubSourceSchema,
   githubRepoImportSchema,
+  highlightSuggestionActionSchema,
   manualSourceSchema,
   onboardingSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
-import { buildArtifactFromApprovedClaims, buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
+import {
+  buildArtifactFromApprovedClaims,
+  buildClaimGenerationDrafts,
+  buildIncrementalClaimGenerationDrafts,
+} from "@/src/domain/workbase-workflows";
+import {
+  areNearDuplicateHighlights,
+  collectHighlightEvidenceIds,
+  classifyHighlightSimilarity,
+  haveEvidenceOrTagOverlap,
+} from "@/src/domain/claim-regeneration";
 import {
   createHighlightWithRelations,
   syncManualEvidenceItemsForWorkItem,
@@ -32,6 +43,18 @@ import { artifactGenerationService } from "@/src/services/artifact-generation-se
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
 import { githubRepoImportService } from "@/src/services/github-repo-import-service";
+import {
+  buildHighlightEmbeddingText,
+  ensureHighlightEmbeddings,
+  findNearestHighlightEmbedding,
+  upsertHighlightEmbedding,
+} from "@/src/services/highlight-embedding-service";
+import {
+  applyDraftToHighlight,
+  coerceStoredHighlightDraft,
+  createOrUpdateHighlightSuggestion,
+  refreshHighlightEmbeddingFromDraft,
+} from "@/src/services/highlight-suggestion-service";
 import { highlightRetrievalService } from "@/src/services/highlight-retrieval-service";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
 
@@ -84,7 +107,7 @@ async function importGitHubRepositoryIntoWorkItem(input: {
     repositoryFullName: input.repositoryFullName,
   });
 
-  await upsertEvidenceItemsForSource(
+  const persistedEvidenceItems = await upsertEvidenceItemsForSource(
     imported.source.id,
     imported.importedEvidenceItems.map((item) => ({
       workItemId: item.workItemId,
@@ -115,6 +138,15 @@ async function importGitHubRepositoryIntoWorkItem(input: {
       },
     },
   });
+
+  return {
+    sourceId: imported.source.id,
+    newCommitEvidenceItemIds: persistedEvidenceItems.flatMap((item) =>
+      item.type === "github_commit" && !item.wasExisting && item.included
+        ? [item.id]
+        : [],
+    ),
+  };
 }
 
 function appendFieldErrors(
@@ -357,6 +389,375 @@ function mapClaimSnapshot(claim: {
   };
 }
 
+async function persistGeneratedHighlightPlan(params: {
+  workItemId: string;
+  claimPlan: Awaited<ReturnType<typeof buildClaimGenerationDrafts>>;
+}) {
+  const createdHighlights: Array<{ id: string; draft: ClaimDraft }> = [];
+
+  await prisma.$transaction(async (tx) => {
+    if (params.claimPlan.replaceableClaims.length) {
+      await tx.highlight.deleteMany({
+        where: {
+          id: {
+            in: params.claimPlan.replaceableClaims.map((claim) => claim.id),
+          },
+        },
+      });
+    }
+
+    for (const draft of params.claimPlan.drafts) {
+      const createdHighlight = await createHighlightWithRelations({
+        tx,
+        workItemId: params.workItemId,
+        draft,
+      });
+
+      createdHighlights.push({
+        id: createdHighlight.id,
+        draft,
+      });
+    }
+  });
+
+  await Promise.allSettled(
+    [
+      ...params.claimPlan.generationRunIds.generation,
+      params.claimPlan.generationRunIds.verification,
+    ]
+      .filter(Boolean)
+      .map((generationRunId) =>
+        updateGenerationRunResultRefs(generationRunId!, {
+          persistedHighlightIds: createdHighlights.map((highlight) => highlight.id),
+          preservedHighlightIds: params.claimPlan.preservedClaims.map((claim) => claim.id),
+        } as Prisma.InputJsonValue),
+      ),
+  );
+
+  await Promise.all(
+    createdHighlights.map((highlight) =>
+      upsertHighlightEmbedding({
+        highlightId: highlight.id,
+        inputText: buildHighlightEmbeddingText(highlight.draft),
+      }),
+    ),
+  );
+
+  return {
+    createdHighlightIds: createdHighlights.map((highlight) => highlight.id),
+  };
+}
+
+function collectGenerationRunIds(runIds: {
+  generation: string[];
+  verification: string | null;
+}) {
+  return [...runIds.generation, runIds.verification].filter(
+    (generationRunId): generationRunId is string => Boolean(generationRunId),
+  );
+}
+
+function findDeterministicMatch(
+  draft: ClaimDraft,
+  existingClaims: ClaimSnapshot[],
+) {
+  return existingClaims.find((claim) => areNearDuplicateHighlights(claim, draft)) ?? null;
+}
+
+async function findIncrementalMatch(params: {
+  workItemId: string;
+  draft: ClaimDraft;
+  existingClaims: ClaimSnapshot[];
+}) {
+  const deterministicMatch = findDeterministicMatch(
+    params.draft,
+    params.existingClaims,
+  );
+
+  if (deterministicMatch) {
+    return {
+      claim: deterministicMatch,
+      similarityClass: "strong" as const,
+      cosineDistance: null,
+      cosineSimilarity: null,
+      reason: "Deterministic duplicate based on text and evidence overlap.",
+    };
+  }
+
+  const nearest = (
+    await findNearestHighlightEmbedding({
+      workItemId: params.workItemId,
+      inputText: buildHighlightEmbeddingText(params.draft),
+      limit: 1,
+    })
+  )[0];
+  const nearestClaim = nearest
+    ? params.existingClaims.find((claim) => claim.id === nearest.highlightId) ?? null
+    : null;
+
+  if (!nearest || !nearestClaim) {
+    return null;
+  }
+
+  const evidenceOrTagOverlap = haveEvidenceOrTagOverlap(nearestClaim, params.draft);
+  const similarityClass = classifyHighlightSimilarity({
+    cosineSimilarity: nearest.cosineSimilarity,
+    evidenceOrTagOverlap,
+  });
+
+  if (similarityClass === "none") {
+    return null;
+  }
+
+  return {
+    claim: nearestClaim,
+    similarityClass,
+    cosineDistance: nearest.cosineDistance,
+    cosineSimilarity: nearest.cosineSimilarity,
+    reason:
+      similarityClass === "strong"
+        ? "Embedding similarity is above the strong match threshold."
+        : "Embedding similarity is in the possible match range and evidence or tags overlap.",
+  };
+}
+
+function coerceNewIncrementalDraft(draft: ClaimDraft): ClaimDraft {
+  return {
+    ...draft,
+    verificationStatus:
+      draft.verificationStatus === "approved" ? "draft" : draft.verificationStatus,
+  };
+}
+
+function isNoopApprovedMatch(match: ClaimSnapshot, draft: ClaimDraft) {
+  if (match.verificationStatus !== "approved") {
+    return false;
+  }
+
+  if (match.text.trim().toLowerCase() !== draft.text.trim().toLowerCase()) {
+    return false;
+  }
+
+  const existingEvidenceIds = collectHighlightEvidenceIds(match);
+  const draftEvidenceIds = collectHighlightEvidenceIds(draft);
+
+  for (const evidenceId of draftEvidenceIds) {
+    if (!existingEvidenceIds.has(evidenceId)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function runBootstrapHighlightGenerationIfNeeded(input: {
+  userId: string;
+  workItemId: string;
+}) {
+  const workItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
+
+  if (workItem.highlights.length) {
+    return {
+      created: 0,
+    };
+  }
+
+  const includedEvidenceItems = workItem.evidenceItems
+    .map(mapEvidenceItemSnapshot)
+    .filter((item) => item.included);
+
+  if (!includedEvidenceItems.length) {
+    return {
+      created: 0,
+    };
+  }
+
+  const claimPlan = await buildClaimGenerationDrafts({
+    workItem: mapWorkItemSnapshot(workItem),
+    sources: workItem.sources.map(mapSourceSnapshot),
+    evidenceItems: includedEvidenceItems,
+    existingClaims: [],
+    sourceIngestionService,
+    claimResearchService,
+    claimVerificationService,
+  });
+  const result = await persistGeneratedHighlightPlan({
+    workItemId: workItem.id,
+    claimPlan,
+  });
+
+  return {
+    created: result.createdHighlightIds.length,
+  };
+}
+
+async function runIncrementalHighlightGeneration(input: {
+  userId: string;
+  workItemId: string;
+  incrementalEvidenceItemIds: string[];
+}) {
+  if (!input.incrementalEvidenceItemIds.length) {
+    return {
+      created: 0,
+      updated: 0,
+      suggestions: 0,
+      suppressed: 0,
+    };
+  }
+
+  const workItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
+  const existingClaims = workItem.highlights.map(mapClaimSnapshot);
+
+  if (!existingClaims.length) {
+    const bootstrap = await runBootstrapHighlightGenerationIfNeeded(input);
+
+    return {
+      created: bootstrap.created,
+      updated: 0,
+      suggestions: 0,
+      suppressed: 0,
+    };
+  }
+
+  const includedEvidenceItems = workItem.evidenceItems
+    .map(mapEvidenceItemSnapshot)
+    .filter((item) => item.included);
+  const existingClaimsById = new Map(existingClaims.map((claim) => [claim.id, claim]));
+  const incrementalPlan = await buildIncrementalClaimGenerationDrafts({
+    workItem: mapWorkItemSnapshot(workItem),
+    sources: workItem.sources.map(mapSourceSnapshot),
+    evidenceItems: includedEvidenceItems,
+    incrementalEvidenceItemIds: input.incrementalEvidenceItemIds,
+    existingClaims,
+    sourceIngestionService,
+    claimResearchService,
+    claimVerificationService,
+  });
+  const generationRunIds = collectGenerationRunIds(incrementalPlan.generationRunIds);
+  const createdHighlights: Array<{ id: string; draft: ClaimDraft }> = [];
+  const updatedHighlightIds: string[] = [];
+  const suggestedHighlightIds: string[] = [];
+  let suppressed = 0;
+
+  await ensureHighlightEmbeddings(existingClaims);
+
+  for (const rawDraft of incrementalPlan.drafts) {
+    const draft = coerceNewIncrementalDraft(rawDraft);
+    const match = await findIncrementalMatch({
+      workItemId: workItem.id,
+      draft,
+      existingClaims: Array.from(existingClaimsById.values()),
+    });
+
+    if (!match) {
+      const createdHighlight = await prisma.$transaction((tx) =>
+        createHighlightWithRelations({
+          tx,
+          workItemId: workItem.id,
+          draft,
+        }),
+      );
+
+      createdHighlights.push({
+        id: createdHighlight.id,
+        draft,
+      });
+      continue;
+    }
+
+    if (match.claim.verificationStatus === "rejected") {
+      suppressed += 1;
+      continue;
+    }
+
+    if (isNoopApprovedMatch(match.claim, draft)) {
+      suppressed += 1;
+      continue;
+    }
+
+    if (match.claim.verificationStatus === "approved") {
+      const suggestion = await createOrUpdateHighlightSuggestion({
+        workItemId: workItem.id,
+        sourceHighlight: match.claim,
+        draft,
+        matchReason: match.reason,
+        cosineDistance: match.cosineDistance,
+        generationRunIds,
+      });
+
+      suggestedHighlightIds.push(suggestion.id);
+      continue;
+    }
+
+    await prisma.$transaction((tx) =>
+      applyDraftToHighlight({
+        tx,
+        highlightId: match.claim.id,
+        existingStatus: match.claim.verificationStatus,
+        draft,
+        mergeEvidence: false,
+      }),
+    );
+    await refreshHighlightEmbeddingFromDraft({
+      highlightId: match.claim.id,
+      draft,
+    });
+    updatedHighlightIds.push(match.claim.id);
+  }
+
+  await Promise.all(
+    createdHighlights.map((highlight) =>
+      upsertHighlightEmbedding({
+        highlightId: highlight.id,
+        inputText: buildHighlightEmbeddingText(highlight.draft),
+      }),
+    ),
+  );
+  await Promise.allSettled(
+    generationRunIds.map((generationRunId) =>
+      updateGenerationRunResultRefs(generationRunId, {
+        persistedHighlightIds: createdHighlights.map((highlight) => highlight.id),
+        updatedHighlightIds,
+        suggestedHighlightIds,
+        suppressedHighlightCount: suppressed,
+      } as Prisma.InputJsonValue),
+    ),
+  );
+
+  return {
+    created: createdHighlights.length,
+    updated: updatedHighlightIds.length,
+    suggestions: suggestedHighlightIds.length,
+    suppressed,
+  };
+}
+
+function appendHighlightAutomationParams(
+  searchParams: URLSearchParams,
+  result: {
+    created?: number;
+    updated?: number;
+    suggestions?: number;
+    suppressed?: number;
+  },
+) {
+  if (result.created) {
+    searchParams.set("generatedHighlights", String(result.created));
+  }
+
+  if (result.updated) {
+    searchParams.set("updatedHighlights", String(result.updated));
+  }
+
+  if (result.suggestions) {
+    searchParams.set("highlightSuggestions", String(result.suggestions));
+  }
+
+  if (result.suppressed) {
+    searchParams.set("suppressedHighlights", String(result.suppressed));
+  }
+}
+
 export async function updateOnboardingAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
   const parsed = onboardingSchema.safeParse({
@@ -395,6 +796,7 @@ export async function createWorkItemAction(formData: FormData) {
   const selectedRepositoryFullName = String(formData.get("repositoryFullName") ?? "");
   const attachRepositoryOnCreate = formDataToBoolean(formData.get("attachRepositoryOnCreate"));
   const parsed = workItemSchema.safeParse(submittedValues);
+  let githubImportResult: Awaited<ReturnType<typeof importGitHubRepositoryIntoWorkItem>> | null = null;
 
   if (!parsed.success) {
     const searchParams = new URLSearchParams({
@@ -442,7 +844,7 @@ export async function createWorkItemAction(formData: FormData) {
 
   if (attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName) {
     try {
-      await importGitHubRepositoryIntoWorkItem({
+      githubImportResult = await importGitHubRepositoryIntoWorkItem({
         userId: demoUser.id,
         workItem,
         repositoryId: selectedRepositoryId,
@@ -470,10 +872,34 @@ export async function createWorkItemAction(formData: FormData) {
     );
   }
 
+  const searchParams = new URLSearchParams();
+
+  if (attachRepositoryOnCreate && selectedRepositoryId) {
+    searchParams.set("result", "github-imported");
+  }
+
+  try {
+    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
+      userId: demoUser.id,
+      workItemId: workItem.id,
+    });
+
+    appendHighlightAutomationParams(searchParams, bootstrapResult);
+  } catch {
+    searchParams.set("error", "highlight-automation-failed");
+  }
+
+  if (githubImportResult?.newCommitEvidenceItemIds.length) {
+    searchParams.set(
+      "newCommits",
+      String(githubImportResult.newCommitEvidenceItemIds.length),
+    );
+  }
+
   revalidatePath("/dashboard");
   redirect(
     `/work-items/${workItem.id}${
-      attachRepositoryOnCreate && selectedRepositoryId ? "?result=github-imported" : ""
+      searchParams.size ? `?${searchParams.toString()}` : ""
     }`,
   );
 }
@@ -511,8 +937,25 @@ export async function createManualSourceAction(formData: FormData) {
     buildManualEvidenceItemsFromSource(mapSourceSnapshot(source)),
   );
 
+  const searchParams = new URLSearchParams();
+
+  try {
+    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
+      userId: demoUser.id,
+      workItemId: parsed.data.workItemId,
+    });
+
+    appendHighlightAutomationParams(searchParams, bootstrapResult);
+  } catch {
+    searchParams.set("error", "highlight-automation-failed");
+  }
+
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  redirect(`/work-items/${parsed.data.workItemId}`);
+  redirect(
+    `/work-items/${parsed.data.workItemId}${
+      searchParams.size ? `?${searchParams.toString()}` : ""
+    }`,
+  );
 }
 
 export async function createGithubSourceAction(formData: FormData) {
@@ -569,8 +1012,10 @@ export async function attachGithubRepoAction(formData: FormData) {
     },
   });
 
+  let githubImportResult: Awaited<ReturnType<typeof importGitHubRepositoryIntoWorkItem>>;
+
   try {
-    await importGitHubRepositoryIntoWorkItem({
+    githubImportResult = await importGitHubRepositoryIntoWorkItem({
       userId: demoUser.id,
       repositoryId: parsed.data.repositoryId,
       repositoryFullName: parsed.data.repositoryFullName,
@@ -580,8 +1025,40 @@ export async function attachGithubRepoAction(formData: FormData) {
     redirect(`/work-items/${workItem.id}?error=github-import-failed`);
   }
 
+  const searchParams = new URLSearchParams({
+    result: "github-imported",
+  });
+
+  try {
+    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
+      userId: demoUser.id,
+      workItemId: workItem.id,
+    });
+
+    appendHighlightAutomationParams(searchParams, bootstrapResult);
+
+    if (
+      !bootstrapResult.created &&
+      githubImportResult.newCommitEvidenceItemIds.length
+    ) {
+      const incrementalResult = await runIncrementalHighlightGeneration({
+        userId: demoUser.id,
+        workItemId: workItem.id,
+        incrementalEvidenceItemIds: githubImportResult.newCommitEvidenceItemIds,
+      });
+
+      appendHighlightAutomationParams(searchParams, incrementalResult);
+      searchParams.set(
+        "newCommits",
+        String(githubImportResult.newCommitEvidenceItemIds.length),
+      );
+    }
+  } catch {
+    searchParams.set("error", "highlight-automation-failed");
+  }
+
   revalidatePath(`/work-items/${workItem.id}`);
-  redirect(`/work-items/${workItem.id}?result=github-imported`);
+  redirect(`/work-items/${workItem.id}?${searchParams.toString()}`);
 }
 
 export async function toggleEvidenceInclusionAction(formData: FormData) {
@@ -653,42 +1130,10 @@ export async function generateClaimsAction(workItemId: string) {
     redirect(`/work-items/${workItem.id}/claims?error=highlight-generation-failed`);
   }
 
-  const createdHighlightIds: string[] = [];
-  await prisma.$transaction(async (tx) => {
-    if (claimPlan.replaceableClaims.length) {
-      await tx.highlight.deleteMany({
-        where: {
-          id: {
-            in: claimPlan.replaceableClaims.map((claim) => claim.id),
-          },
-        },
-      });
-    }
-
-    for (const draft of claimPlan.drafts) {
-      const createdHighlight = await createHighlightWithRelations({
-        tx,
-        workItemId: workItem.id,
-        draft,
-      });
-
-      createdHighlightIds.push(createdHighlight.id);
-    }
+  await persistGeneratedHighlightPlan({
+    workItemId: workItem.id,
+    claimPlan,
   });
-
-  await Promise.allSettled(
-    [
-      ...claimPlan.generationRunIds.generation,
-      claimPlan.generationRunIds.verification,
-    ]
-      .filter(Boolean)
-      .map((generationRunId) =>
-        updateGenerationRunResultRefs(generationRunId!, {
-          persistedHighlightIds: createdHighlightIds,
-          preservedHighlightIds: claimPlan.preservedClaims.map((claim) => claim.id),
-        } as Prisma.InputJsonValue),
-      ),
-  );
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/claims`);
@@ -801,6 +1246,98 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
             ? "restored"
             : "saved";
   redirect(`/work-items/${parsed.data.workItemId}/claims?result=${result}`);
+}
+
+export async function acceptHighlightSuggestionAction(formData: FormData) {
+  const demoUser = await ensureDemoUser();
+  const parsed = highlightSuggestionActionSchema.safeParse({
+    suggestionId: formData.get("suggestionId"),
+    workItemId: formData.get("workItemId"),
+    text: formData.get("text"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/work-items/${formData.get("workItemId")}/claims?error=invalid-suggestion`);
+  }
+
+  const suggestion = await prisma.highlightSuggestion.findFirstOrThrow({
+    where: {
+      id: parsed.data.suggestionId,
+      workItemId: parsed.data.workItemId,
+      status: "pending",
+      workItem: {
+        userId: demoUser.id,
+      },
+    },
+    include: {
+      sourceHighlight: true,
+    },
+  });
+  const draft = coerceStoredHighlightDraft(suggestion.suggestedDraft);
+
+  if (!draft) {
+    redirect(`/work-items/${parsed.data.workItemId}/claims?error=invalid-suggestion`);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await applyDraftToHighlight({
+      tx,
+      highlightId: suggestion.sourceHighlightId,
+      existingStatus: suggestion.sourceHighlight.verificationStatus,
+      draft,
+      overrideText: parsed.data.text,
+      mergeEvidence: true,
+    });
+
+    await tx.highlightSuggestion.update({
+      where: {
+        id: suggestion.id,
+      },
+      data: {
+        status: "accepted",
+      },
+    });
+  });
+  await refreshHighlightEmbeddingFromDraft({
+    highlightId: suggestion.sourceHighlightId,
+    draft,
+    overrideText: parsed.data.text,
+  });
+
+  revalidatePath(`/work-items/${parsed.data.workItemId}`);
+  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+  revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
+  redirect(`/work-items/${parsed.data.workItemId}/claims?result=suggestion-accepted`);
+}
+
+export async function dismissHighlightSuggestionAction(formData: FormData) {
+  const demoUser = await ensureDemoUser();
+  const parsed = highlightSuggestionActionSchema.safeParse({
+    suggestionId: formData.get("suggestionId"),
+    workItemId: formData.get("workItemId"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/work-items/${formData.get("workItemId")}/claims?error=invalid-suggestion`);
+  }
+
+  await prisma.highlightSuggestion.updateMany({
+    where: {
+      id: parsed.data.suggestionId,
+      workItemId: parsed.data.workItemId,
+      status: "pending",
+      workItem: {
+        userId: demoUser.id,
+      },
+    },
+    data: {
+      status: "dismissed",
+    },
+  });
+
+  revalidatePath(`/work-items/${parsed.data.workItemId}`);
+  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+  redirect(`/work-items/${parsed.data.workItemId}/claims?result=suggestion-dismissed`);
 }
 
 export async function generateArtifactAction(formData: FormData) {

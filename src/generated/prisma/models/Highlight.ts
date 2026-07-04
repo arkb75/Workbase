@@ -277,6 +277,8 @@ export type HighlightWhereInput = {
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.HighlightTagListRelationFilter
+  embedding?: Prisma.XOR<Prisma.HighlightEmbeddingNullableScalarRelationFilter, Prisma.HighlightEmbeddingWhereInput> | null
+  suggestions?: Prisma.HighlightSuggestionListRelationFilter
 }
 
 export type HighlightOrderByWithRelationInput = {
@@ -300,6 +302,8 @@ export type HighlightOrderByWithRelationInput = {
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   evidence?: Prisma.HighlightEvidenceOrderByRelationAggregateInput
   tags?: Prisma.HighlightTagOrderByRelationAggregateInput
+  embedding?: Prisma.HighlightEmbeddingOrderByWithRelationInput
+  suggestions?: Prisma.HighlightSuggestionOrderByRelationAggregateInput
 }
 
 export type HighlightWhereUniqueInput = Prisma.AtLeast<{
@@ -326,6 +330,8 @@ export type HighlightWhereUniqueInput = Prisma.AtLeast<{
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.HighlightTagListRelationFilter
+  embedding?: Prisma.XOR<Prisma.HighlightEmbeddingNullableScalarRelationFilter, Prisma.HighlightEmbeddingWhereInput> | null
+  suggestions?: Prisma.HighlightSuggestionListRelationFilter
 }, "id">
 
 export type HighlightOrderByWithAggregationInput = {
@@ -394,6 +400,8 @@ export type HighlightCreateInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightsInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightUncheckedCreateInput = {
@@ -416,6 +424,8 @@ export type HighlightUncheckedCreateInput = {
   updatedAt?: Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightUpdateInput = {
@@ -438,6 +448,8 @@ export type HighlightUpdateInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightsNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightUncheckedUpdateInput = {
@@ -460,6 +472,8 @@ export type HighlightUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightCreateManyInput = {
@@ -652,6 +666,28 @@ export type EnumVisibilityLevelFieldUpdateOperationsInput = {
   set?: $Enums.VisibilityLevel
 }
 
+export type HighlightUpdateOneRequiredWithoutEmbeddingNestedInput = {
+  create?: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
+  connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutEmbeddingInput
+  upsert?: Prisma.HighlightUpsertWithoutEmbeddingInput
+  connect?: Prisma.HighlightWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.HighlightUpdateWithoutEmbeddingInput>, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
+}
+
+export type HighlightCreateNestedOneWithoutSuggestionsInput = {
+  create?: Prisma.XOR<Prisma.HighlightCreateWithoutSuggestionsInput, Prisma.HighlightUncheckedCreateWithoutSuggestionsInput>
+  connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutSuggestionsInput
+  connect?: Prisma.HighlightWhereUniqueInput
+}
+
+export type HighlightUpdateOneRequiredWithoutSuggestionsNestedInput = {
+  create?: Prisma.XOR<Prisma.HighlightCreateWithoutSuggestionsInput, Prisma.HighlightUncheckedCreateWithoutSuggestionsInput>
+  connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutSuggestionsInput
+  upsert?: Prisma.HighlightUpsertWithoutSuggestionsInput
+  connect?: Prisma.HighlightWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightUpdateToOneWithWhereWithoutSuggestionsInput, Prisma.HighlightUpdateWithoutSuggestionsInput>, Prisma.HighlightUncheckedUpdateWithoutSuggestionsInput>
+}
+
 export type HighlightCreateNestedOneWithoutEvidenceInput = {
   create?: Prisma.XOR<Prisma.HighlightCreateWithoutEvidenceInput, Prisma.HighlightUncheckedCreateWithoutEvidenceInput>
   connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutEvidenceInput
@@ -699,6 +735,8 @@ export type HighlightCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightUncheckedCreateWithoutWorkItemInput = {
@@ -720,6 +758,8 @@ export type HighlightUncheckedCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightCreateOrConnectWithoutWorkItemInput = {
@@ -771,6 +811,222 @@ export type HighlightScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"Highlight"> | Date | string
 }
 
+export type HighlightCreateWithoutEmbeddingInput = {
+  id?: string
+  text: string
+  summary: string
+  searchText: string
+  confidence: $Enums.ClaimConfidence
+  ownershipClarity: $Enums.OwnershipClarity
+  sensitivityFlag?: boolean
+  verificationStatus: $Enums.VerificationStatus
+  visibility: $Enums.VisibilityLevel
+  risksSummary?: string | null
+  missingInfo?: string | null
+  rejectionReason?: string | null
+  verificationNotes?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightsInput
+  evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
+  tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
+}
+
+export type HighlightUncheckedCreateWithoutEmbeddingInput = {
+  id?: string
+  workItemId: string
+  text: string
+  summary: string
+  searchText: string
+  confidence: $Enums.ClaimConfidence
+  ownershipClarity: $Enums.OwnershipClarity
+  sensitivityFlag?: boolean
+  verificationStatus: $Enums.VerificationStatus
+  visibility: $Enums.VisibilityLevel
+  risksSummary?: string | null
+  missingInfo?: string | null
+  rejectionReason?: string | null
+  verificationNotes?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
+  tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
+}
+
+export type HighlightCreateOrConnectWithoutEmbeddingInput = {
+  where: Prisma.HighlightWhereUniqueInput
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
+}
+
+export type HighlightUpsertWithoutEmbeddingInput = {
+  update: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
+  where?: Prisma.HighlightWhereInput
+}
+
+export type HighlightUpdateToOneWithWhereWithoutEmbeddingInput = {
+  where?: Prisma.HighlightWhereInput
+  data: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
+}
+
+export type HighlightUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  ownershipClarity?: Prisma.EnumOwnershipClarityFieldUpdateOperationsInput | $Enums.OwnershipClarity
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  verificationStatus?: Prisma.EnumVerificationStatusFieldUpdateOperationsInput | $Enums.VerificationStatus
+  visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
+  risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verificationNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightsNestedInput
+  evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
+  tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
+}
+
+export type HighlightUncheckedUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  ownershipClarity?: Prisma.EnumOwnershipClarityFieldUpdateOperationsInput | $Enums.OwnershipClarity
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  verificationStatus?: Prisma.EnumVerificationStatusFieldUpdateOperationsInput | $Enums.VerificationStatus
+  visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
+  risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verificationNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
+  tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
+}
+
+export type HighlightCreateWithoutSuggestionsInput = {
+  id?: string
+  text: string
+  summary: string
+  searchText: string
+  confidence: $Enums.ClaimConfidence
+  ownershipClarity: $Enums.OwnershipClarity
+  sensitivityFlag?: boolean
+  verificationStatus: $Enums.VerificationStatus
+  visibility: $Enums.VisibilityLevel
+  risksSummary?: string | null
+  missingInfo?: string | null
+  rejectionReason?: string | null
+  verificationNotes?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightsInput
+  evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
+  tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+}
+
+export type HighlightUncheckedCreateWithoutSuggestionsInput = {
+  id?: string
+  workItemId: string
+  text: string
+  summary: string
+  searchText: string
+  confidence: $Enums.ClaimConfidence
+  ownershipClarity: $Enums.OwnershipClarity
+  sensitivityFlag?: boolean
+  verificationStatus: $Enums.VerificationStatus
+  visibility: $Enums.VisibilityLevel
+  risksSummary?: string | null
+  missingInfo?: string | null
+  rejectionReason?: string | null
+  verificationNotes?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
+  tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+}
+
+export type HighlightCreateOrConnectWithoutSuggestionsInput = {
+  where: Prisma.HighlightWhereUniqueInput
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutSuggestionsInput, Prisma.HighlightUncheckedCreateWithoutSuggestionsInput>
+}
+
+export type HighlightUpsertWithoutSuggestionsInput = {
+  update: Prisma.XOR<Prisma.HighlightUpdateWithoutSuggestionsInput, Prisma.HighlightUncheckedUpdateWithoutSuggestionsInput>
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutSuggestionsInput, Prisma.HighlightUncheckedCreateWithoutSuggestionsInput>
+  where?: Prisma.HighlightWhereInput
+}
+
+export type HighlightUpdateToOneWithWhereWithoutSuggestionsInput = {
+  where?: Prisma.HighlightWhereInput
+  data: Prisma.XOR<Prisma.HighlightUpdateWithoutSuggestionsInput, Prisma.HighlightUncheckedUpdateWithoutSuggestionsInput>
+}
+
+export type HighlightUpdateWithoutSuggestionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  ownershipClarity?: Prisma.EnumOwnershipClarityFieldUpdateOperationsInput | $Enums.OwnershipClarity
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  verificationStatus?: Prisma.EnumVerificationStatusFieldUpdateOperationsInput | $Enums.VerificationStatus
+  visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
+  risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verificationNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightsNestedInput
+  evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
+  tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+}
+
+export type HighlightUncheckedUpdateWithoutSuggestionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  ownershipClarity?: Prisma.EnumOwnershipClarityFieldUpdateOperationsInput | $Enums.OwnershipClarity
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  verificationStatus?: Prisma.EnumVerificationStatusFieldUpdateOperationsInput | $Enums.VerificationStatus
+  visibility?: Prisma.EnumVisibilityLevelFieldUpdateOperationsInput | $Enums.VisibilityLevel
+  risksSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  missingInfo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verificationNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
+  tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+}
+
 export type HighlightCreateWithoutEvidenceInput = {
   id?: string
   text: string
@@ -790,6 +1046,8 @@ export type HighlightCreateWithoutEvidenceInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightsInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightUncheckedCreateWithoutEvidenceInput = {
@@ -811,6 +1069,8 @@ export type HighlightUncheckedCreateWithoutEvidenceInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightCreateOrConnectWithoutEvidenceInput = {
@@ -848,6 +1108,8 @@ export type HighlightUpdateWithoutEvidenceInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightsNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightUncheckedUpdateWithoutEvidenceInput = {
@@ -869,6 +1131,8 @@ export type HighlightUncheckedUpdateWithoutEvidenceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightCreateWithoutTagsInput = {
@@ -890,6 +1154,8 @@ export type HighlightCreateWithoutTagsInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightsInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightUncheckedCreateWithoutTagsInput = {
@@ -911,6 +1177,8 @@ export type HighlightUncheckedCreateWithoutTagsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
 }
 
 export type HighlightCreateOrConnectWithoutTagsInput = {
@@ -948,6 +1216,8 @@ export type HighlightUpdateWithoutTagsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightsNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightUncheckedUpdateWithoutTagsInput = {
@@ -969,6 +1239,8 @@ export type HighlightUncheckedUpdateWithoutTagsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightCreateManyWorkItemInput = {
@@ -1009,6 +1281,8 @@ export type HighlightUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightUncheckedUpdateWithoutWorkItemInput = {
@@ -1030,6 +1304,8 @@ export type HighlightUncheckedUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
+  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
 }
 
 export type HighlightUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1059,11 +1335,13 @@ export type HighlightUncheckedUpdateManyWithoutWorkItemInput = {
 export type HighlightCountOutputType = {
   evidence: number
   tags: number
+  suggestions: number
 }
 
 export type HighlightCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidence?: boolean | HighlightCountOutputTypeCountEvidenceArgs
   tags?: boolean | HighlightCountOutputTypeCountTagsArgs
+  suggestions?: boolean | HighlightCountOutputTypeCountSuggestionsArgs
 }
 
 /**
@@ -1090,6 +1368,13 @@ export type HighlightCountOutputTypeCountTagsArgs<ExtArgs extends runtime.Types.
   where?: Prisma.HighlightTagWhereInput
 }
 
+/**
+ * HighlightCountOutputType without action
+ */
+export type HighlightCountOutputTypeCountSuggestionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.HighlightSuggestionWhereInput
+}
+
 
 export type HighlightSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1112,6 +1397,8 @@ export type HighlightSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.Highlight$evidenceArgs<ExtArgs>
   tags?: boolean | Prisma.Highlight$tagsArgs<ExtArgs>
+  embedding?: boolean | Prisma.Highlight$embeddingArgs<ExtArgs>
+  suggestions?: boolean | Prisma.Highlight$suggestionsArgs<ExtArgs>
   _count?: boolean | Prisma.HighlightCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["highlight"]>
 
@@ -1182,6 +1469,8 @@ export type HighlightInclude<ExtArgs extends runtime.Types.Extensions.InternalAr
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.Highlight$evidenceArgs<ExtArgs>
   tags?: boolean | Prisma.Highlight$tagsArgs<ExtArgs>
+  embedding?: boolean | Prisma.Highlight$embeddingArgs<ExtArgs>
+  suggestions?: boolean | Prisma.Highlight$suggestionsArgs<ExtArgs>
   _count?: boolean | Prisma.HighlightCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type HighlightIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1197,6 +1486,8 @@ export type $HighlightPayload<ExtArgs extends runtime.Types.Extensions.InternalA
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     evidence: Prisma.$HighlightEvidencePayload<ExtArgs>[]
     tags: Prisma.$HighlightTagPayload<ExtArgs>[]
+    embedding: Prisma.$HighlightEmbeddingPayload<ExtArgs> | null
+    suggestions: Prisma.$HighlightSuggestionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1613,6 +1904,8 @@ export interface Prisma__HighlightClient<T, Null = never, ExtArgs extends runtim
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   evidence<T extends Prisma.Highlight$evidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$evidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tags<T extends Prisma.Highlight$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  embedding<T extends Prisma.Highlight$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$embeddingArgs<ExtArgs>>): Prisma.Prisma__HighlightEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$HighlightEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  suggestions<T extends Prisma.Highlight$suggestionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$suggestionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightSuggestionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2105,6 +2398,49 @@ export type Highlight$tagsArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   distinct?: Prisma.HighlightTagScalarFieldEnum | Prisma.HighlightTagScalarFieldEnum[]
+}
+
+/**
+ * Highlight.embedding
+ */
+export type Highlight$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the HighlightEmbedding
+   */
+  select?: Prisma.HighlightEmbeddingSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the HighlightEmbedding
+   */
+  omit?: Prisma.HighlightEmbeddingOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.HighlightEmbeddingInclude<ExtArgs> | null
+  where?: Prisma.HighlightEmbeddingWhereInput
+}
+
+/**
+ * Highlight.suggestions
+ */
+export type Highlight$suggestionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the HighlightSuggestion
+   */
+  select?: Prisma.HighlightSuggestionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the HighlightSuggestion
+   */
+  omit?: Prisma.HighlightSuggestionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.HighlightSuggestionInclude<ExtArgs> | null
+  where?: Prisma.HighlightSuggestionWhereInput
+  orderBy?: Prisma.HighlightSuggestionOrderByWithRelationInput | Prisma.HighlightSuggestionOrderByWithRelationInput[]
+  cursor?: Prisma.HighlightSuggestionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.HighlightSuggestionScalarFieldEnum | Prisma.HighlightSuggestionScalarFieldEnum[]
 }
 
 /**
