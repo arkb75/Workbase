@@ -162,6 +162,34 @@ function appendFieldErrors(
   }
 }
 
+function readWorkItemReturnTo(formData: FormData, workItemId: string, fallback: string) {
+  const value = formData.get("returnTo");
+
+  if (
+    typeof value === "string" &&
+    value.startsWith(`/work-items/${workItemId}`) &&
+    !value.startsWith("//")
+  ) {
+    return value;
+  }
+
+  return fallback;
+}
+
+function appendRedirectParams(path: string, entries: Record<string, string | null | undefined>) {
+  const [pathname, search = ""] = path.split("?");
+  const searchParams = new URLSearchParams(search);
+
+  for (const [key, value] of Object.entries(entries)) {
+    if (value) {
+      searchParams.set(key, value);
+    }
+  }
+
+  const nextSearch = searchParams.toString();
+  return nextSearch ? `${pathname}?${nextSearch}` : pathname;
+}
+
 function mapWorkItemSnapshot(workItem: {
   id: string;
   userId: string;
@@ -906,6 +934,12 @@ export async function createWorkItemAction(formData: FormData) {
 
 export async function createManualSourceAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}?tab=sources`,
+  );
   const parsed = manualSourceSchema.safeParse({
     workItemId: formData.get("workItemId"),
     label: formData.get("label"),
@@ -913,7 +947,7 @@ export async function createManualSourceAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}?error=invalid-note`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-note" }));
   }
 
   await prisma.workItem.findFirstOrThrow({
@@ -952,9 +986,7 @@ export async function createManualSourceAction(formData: FormData) {
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   redirect(
-    `/work-items/${parsed.data.workItemId}${
-      searchParams.size ? `?${searchParams.toString()}` : ""
-    }`,
+    appendRedirectParams(returnTo, Object.fromEntries(searchParams)),
   );
 }
 
@@ -995,6 +1027,12 @@ export async function createGithubSourceAction(formData: FormData) {
 
 export async function attachGithubRepoAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}?tab=sources`,
+  );
   const parsed = githubRepoImportSchema.safeParse({
     workItemId: formData.get("workItemId"),
     repositoryId: formData.get("repositoryId"),
@@ -1002,7 +1040,7 @@ export async function attachGithubRepoAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}?error=invalid-repo`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-repo" }));
   }
 
   const workItem = await prisma.workItem.findFirstOrThrow({
@@ -1022,7 +1060,7 @@ export async function attachGithubRepoAction(formData: FormData) {
       workItem,
     });
   } catch {
-    redirect(`/work-items/${workItem.id}?error=github-import-failed`);
+    redirect(appendRedirectParams(returnTo, { error: "github-import-failed" }));
   }
 
   const searchParams = new URLSearchParams({
@@ -1058,11 +1096,17 @@ export async function attachGithubRepoAction(formData: FormData) {
   }
 
   revalidatePath(`/work-items/${workItem.id}`);
-  redirect(`/work-items/${workItem.id}?${searchParams.toString()}`);
+  redirect(appendRedirectParams(returnTo, Object.fromEntries(searchParams)));
 }
 
 export async function toggleEvidenceInclusionAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}?tab=sources`,
+  );
   const parsed = evidenceInclusionSchema.safeParse({
     workItemId: formData.get("workItemId"),
     evidenceItemId: formData.get("evidenceItemId"),
@@ -1070,7 +1114,7 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}?error=invalid-evidence`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-evidence" }));
   }
 
   await prisma.evidenceItem.updateMany({
@@ -1089,9 +1133,9 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   redirect(
-    `/work-items/${parsed.data.workItemId}?result=${
-      parsed.data.included ? "evidence-included" : "evidence-excluded"
-    }`,
+    appendRedirectParams(returnTo, {
+      result: parsed.data.included ? "evidence-included" : "evidence-excluded",
+    }),
   );
 }
 
@@ -1101,8 +1145,16 @@ export async function reclusterEvidenceAction(formData: FormData) {
   redirect(`/work-items/${workItemId}?result=clusters-current`);
 }
 
-export async function generateClaimsAction(workItemId: string) {
+export async function generateClaimsAction(
+  workItemId: string,
+  returnToOrFormData?: string | FormData,
+) {
   const demoUser = await ensureDemoUser();
+  const returnTo =
+    typeof returnToOrFormData === "string" ? returnToOrFormData : undefined;
+  const destination = returnTo?.startsWith(`/work-items/${workItemId}`)
+    ? returnTo
+    : `/work-items/${workItemId}/claims`;
   await syncManualEvidenceItemsForWorkItem(workItemId);
   await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
   const workItem = await getWorkItemGenerationContext(demoUser.id, workItemId);
@@ -1111,7 +1163,7 @@ export async function generateClaimsAction(workItemId: string) {
     .filter((item) => item.included);
 
   if (!includedEvidenceItems.length) {
-    redirect(`/work-items/${workItem.id}/claims?error=highlight-generation-failed`);
+    redirect(appendRedirectParams(destination, { error: "highlight-generation-failed" }));
   }
 
   let claimPlan;
@@ -1127,7 +1179,7 @@ export async function generateClaimsAction(workItemId: string) {
       claimVerificationService,
     });
   } catch {
-    redirect(`/work-items/${workItem.id}/claims?error=highlight-generation-failed`);
+    redirect(appendRedirectParams(destination, { error: "highlight-generation-failed" }));
   }
 
   await persistGeneratedHighlightPlan({
@@ -1137,12 +1189,17 @@ export async function generateClaimsAction(workItemId: string) {
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/claims`);
-  redirect(`/work-items/${workItem.id}/claims`);
+  redirect(appendRedirectParams(destination, { result: "highlights-generated" }));
 }
 
 export async function approveAllPendingHighlightsAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
   const workItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    workItemId,
+    `/work-items/${workItemId}/claims`,
+  );
 
   if (!workItemId) {
     redirect("/dashboard");
@@ -1171,7 +1228,7 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/claims`);
   revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
-  redirect(`/work-items/${workItem.id}/claims?result=approved-all`);
+  redirect(appendRedirectParams(returnTo, { result: "approved-all" }));
 }
 
 export async function updateClaimAction(claimId: string, formData: FormData) {
@@ -1196,6 +1253,12 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       tags: true,
     },
   });
+  const rawWorkItemId = String(formData.get("workItemId") ?? claim.workItemId);
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${claim.workItemId}/claims`,
+  );
 
   const parsed = claimUpdateSchema.safeParse({
     workItemId: formData.get("workItemId"),
@@ -1208,7 +1271,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${claim.workItemId}/claims?error=invalid-highlight`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-highlight" }));
   }
 
   const nextStatus = transitionClaimStatus(
@@ -1245,11 +1308,17 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
           : parsed.data.intent === "restore"
             ? "restored"
             : "saved";
-  redirect(`/work-items/${parsed.data.workItemId}/claims?result=${result}`);
+  redirect(appendRedirectParams(returnTo, { result }));
 }
 
 export async function acceptHighlightSuggestionAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}/claims`,
+  );
   const parsed = highlightSuggestionActionSchema.safeParse({
     suggestionId: formData.get("suggestionId"),
     workItemId: formData.get("workItemId"),
@@ -1257,7 +1326,7 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}/claims?error=invalid-suggestion`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-suggestion" }));
   }
 
   const suggestion = await prisma.highlightSuggestion.findFirstOrThrow({
@@ -1276,7 +1345,7 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
   const draft = coerceStoredHighlightDraft(suggestion.suggestedDraft);
 
   if (!draft) {
-    redirect(`/work-items/${parsed.data.workItemId}/claims?error=invalid-suggestion`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-suggestion" }));
   }
 
   await prisma.$transaction(async (tx) => {
@@ -1307,18 +1376,24 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
-  redirect(`/work-items/${parsed.data.workItemId}/claims?result=suggestion-accepted`);
+  redirect(appendRedirectParams(returnTo, { result: "suggestion-accepted" }));
 }
 
 export async function dismissHighlightSuggestionAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}/claims`,
+  );
   const parsed = highlightSuggestionActionSchema.safeParse({
     suggestionId: formData.get("suggestionId"),
     workItemId: formData.get("workItemId"),
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}/claims?error=invalid-suggestion`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid-suggestion" }));
   }
 
   await prisma.highlightSuggestion.updateMany({
@@ -1337,11 +1412,17 @@ export async function dismissHighlightSuggestionAction(formData: FormData) {
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-  redirect(`/work-items/${parsed.data.workItemId}/claims?result=suggestion-dismissed`);
+  redirect(appendRedirectParams(returnTo, { result: "suggestion-dismissed" }));
 }
 
 export async function generateArtifactAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
+  const rawWorkItemId = String(formData.get("workItemId") ?? "");
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    rawWorkItemId,
+    `/work-items/${rawWorkItemId}/artifacts/new`,
+  );
   const parsed = artifactGenerationSchema.safeParse({
     workItemId: formData.get("workItemId"),
     type: formData.get("type"),
@@ -1350,7 +1431,7 @@ export async function generateArtifactAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}/artifacts/new?error=invalid`);
+    redirect(appendRedirectParams(returnTo, { error: "invalid" }));
   }
 
   await syncWorkItemDescriptionEvidenceForWorkItem(parsed.data.workItemId);
@@ -1404,11 +1485,11 @@ export async function generateArtifactAction(formData: FormData) {
       claimVerificationService,
     });
   } catch {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=artifact-generation-failed`);
+    redirect(appendRedirectParams(returnTo, { error: "artifact-generation-failed" }));
   }
 
   if (!artifactDraft.artifactDraft) {
-    redirect(`/work-items/${workItem.id}/artifacts/new?error=no-artifact-context`);
+    redirect(appendRedirectParams(returnTo, { error: "no-artifact-context" }));
   }
 
   const artifact = await prisma.artifact.create({
@@ -1484,5 +1565,5 @@ export async function generateArtifactAction(formData: FormData) {
 
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
-  redirect(`/work-items/${workItem.id}/artifacts/new?artifactId=${artifact.id}`);
+  redirect(appendRedirectParams(returnTo, { artifactId: artifact.id }));
 }

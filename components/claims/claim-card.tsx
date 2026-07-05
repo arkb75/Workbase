@@ -94,6 +94,7 @@ function FieldLabel({
 export function ClaimCard({
   claim,
   defaultOpen = false,
+  returnTo,
 }: {
   claim: {
     id: string;
@@ -121,6 +122,7 @@ export function ClaimCard({
     }>;
   };
   defaultOpen?: boolean;
+  returnTo?: string;
 }) {
   const action = updateClaimAction.bind(null, claim.id);
   const sensitivityInputId = `highlight-sensitive-${claim.id}`;
@@ -193,6 +195,7 @@ export function ClaimCard({
 
       <form action={action} className="border-t border-black/6">
         <input type="hidden" name="workItemId" value={claim.workItemId} />
+        {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
 
         <div className="grid gap-4 p-5 sm:p-6 xl:grid-cols-[1.1fr_0.9fr]">
           <section className="space-y-4">

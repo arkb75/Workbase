@@ -116,8 +116,10 @@ function DiffText({
 
 export function HighlightSuggestionCard({
   suggestion,
+  returnTo,
 }: {
   suggestion: SuggestionCardInput;
+  returnTo?: string;
 }) {
   const draft = coerceStoredHighlightDraft(suggestion.suggestedDraft);
 
@@ -205,6 +207,7 @@ export function HighlightSuggestionCard({
           <form action={acceptAction} className="space-y-3 [&_button]:w-full">
             <input type="hidden" name="suggestionId" value={suggestion.id} />
             <input type="hidden" name="workItemId" value={suggestion.workItemId} />
+            {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
             <Textarea
               name="text"
               defaultValue={draft.text}
@@ -219,6 +222,7 @@ export function HighlightSuggestionCard({
           <form action={dismissAction} className="[&_button]:w-full">
             <input type="hidden" name="suggestionId" value={suggestion.id} />
             <input type="hidden" name="workItemId" value={suggestion.workItemId} />
+            {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
             <SubmitButton pendingLabel="Dismissing..." variant="secondary">
               Dismiss
             </SubmitButton>
