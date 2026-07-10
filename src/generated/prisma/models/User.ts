@@ -208,6 +208,8 @@ export type UserWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   workItems?: Prisma.WorkItemListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
+  chatThreads?: Prisma.ChatThreadListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
   githubConnection?: Prisma.XOR<Prisma.GitHubConnectionNullableScalarRelationFilter, Prisma.GitHubConnectionWhereInput> | null
 }
 
@@ -222,6 +224,8 @@ export type UserOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   workItems?: Prisma.WorkItemOrderByRelationAggregateInput
   artifacts?: Prisma.ArtifactOrderByRelationAggregateInput
+  chatThreads?: Prisma.ChatThreadOrderByRelationAggregateInput
+  agentRuns?: Prisma.AgentRunOrderByRelationAggregateInput
   githubConnection?: Prisma.GitHubConnectionOrderByWithRelationInput
 }
 
@@ -239,6 +243,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   workItems?: Prisma.WorkItemListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
+  chatThreads?: Prisma.ChatThreadListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
   githubConnection?: Prisma.XOR<Prisma.GitHubConnectionNullableScalarRelationFilter, Prisma.GitHubConnectionWhereInput> | null
 }, "id" | "email">
 
@@ -281,6 +287,8 @@ export type UserCreateInput = {
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemCreateNestedManyWithoutUserInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionCreateNestedOneWithoutUserInput
 }
 
@@ -295,6 +303,8 @@ export type UserUncheckedCreateInput = {
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemUncheckedCreateNestedManyWithoutUserInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionUncheckedCreateNestedOneWithoutUserInput
 }
 
@@ -309,6 +319,8 @@ export type UserUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUpdateManyWithoutUserNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUpdateOneWithoutUserNestedInput
 }
 
@@ -323,6 +335,8 @@ export type UserUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUncheckedUpdateManyWithoutUserNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUncheckedUpdateOneWithoutUserNestedInput
 }
 
@@ -459,6 +473,34 @@ export type UserUpdateOneRequiredWithoutArtifactsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutArtifactsInput, Prisma.UserUpdateWithoutArtifactsInput>, Prisma.UserUncheckedUpdateWithoutArtifactsInput>
 }
 
+export type UserCreateNestedOneWithoutChatThreadsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutChatThreadsInput, Prisma.UserUncheckedCreateWithoutChatThreadsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutChatThreadsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutChatThreadsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutChatThreadsInput, Prisma.UserUncheckedCreateWithoutChatThreadsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutChatThreadsInput
+  upsert?: Prisma.UserUpsertWithoutChatThreadsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutChatThreadsInput, Prisma.UserUpdateWithoutChatThreadsInput>, Prisma.UserUncheckedUpdateWithoutChatThreadsInput>
+}
+
+export type UserCreateNestedOneWithoutAgentRunsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutAgentRunsInput, Prisma.UserUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutAgentRunsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutAgentRunsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutAgentRunsInput, Prisma.UserUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutAgentRunsInput
+  upsert?: Prisma.UserUpsertWithoutAgentRunsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutAgentRunsInput, Prisma.UserUpdateWithoutAgentRunsInput>, Prisma.UserUncheckedUpdateWithoutAgentRunsInput>
+}
+
 export type UserCreateWithoutWorkItemsInput = {
   id?: string
   email: string
@@ -469,6 +511,8 @@ export type UserCreateWithoutWorkItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionCreateNestedOneWithoutUserInput
 }
 
@@ -482,6 +526,8 @@ export type UserUncheckedCreateWithoutWorkItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionUncheckedCreateNestedOneWithoutUserInput
 }
 
@@ -511,6 +557,8 @@ export type UserUpdateWithoutWorkItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   artifacts?: Prisma.ArtifactUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUpdateOneWithoutUserNestedInput
 }
 
@@ -524,6 +572,8 @@ export type UserUncheckedUpdateWithoutWorkItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUncheckedUpdateOneWithoutUserNestedInput
 }
 
@@ -538,6 +588,8 @@ export type UserCreateWithoutGithubConnectionInput = {
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemCreateNestedManyWithoutUserInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutGithubConnectionInput = {
@@ -551,6 +603,8 @@ export type UserUncheckedCreateWithoutGithubConnectionInput = {
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemUncheckedCreateNestedManyWithoutUserInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutGithubConnectionInput = {
@@ -580,6 +634,8 @@ export type UserUpdateWithoutGithubConnectionInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUpdateManyWithoutUserNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutGithubConnectionInput = {
@@ -593,6 +649,8 @@ export type UserUncheckedUpdateWithoutGithubConnectionInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUncheckedUpdateManyWithoutUserNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutArtifactsInput = {
@@ -605,6 +663,8 @@ export type UserCreateWithoutArtifactsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionCreateNestedOneWithoutUserInput
 }
 
@@ -618,6 +678,8 @@ export type UserUncheckedCreateWithoutArtifactsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   workItems?: Prisma.WorkItemUncheckedCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutUserInput
   githubConnection?: Prisma.GitHubConnectionUncheckedCreateNestedOneWithoutUserInput
 }
 
@@ -647,6 +709,8 @@ export type UserUpdateWithoutArtifactsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUpdateOneWithoutUserNestedInput
 }
 
@@ -660,6 +724,160 @@ export type UserUncheckedUpdateWithoutArtifactsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItems?: Prisma.WorkItemUncheckedUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutUserNestedInput
+  githubConnection?: Prisma.GitHubConnectionUncheckedUpdateOneWithoutUserNestedInput
+}
+
+export type UserCreateWithoutChatThreadsInput = {
+  id?: string
+  email: string
+  name: string
+  careerStage?: $Enums.CareerStage | null
+  currentGoal?: string | null
+  focusPreference?: $Enums.FocusPreference | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItems?: Prisma.WorkItemCreateNestedManyWithoutUserInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutUserInput
+  githubConnection?: Prisma.GitHubConnectionCreateNestedOneWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutChatThreadsInput = {
+  id?: string
+  email: string
+  name: string
+  careerStage?: $Enums.CareerStage | null
+  currentGoal?: string | null
+  focusPreference?: $Enums.FocusPreference | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItems?: Prisma.WorkItemUncheckedCreateNestedManyWithoutUserInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutUserInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutUserInput
+  githubConnection?: Prisma.GitHubConnectionUncheckedCreateNestedOneWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutChatThreadsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutChatThreadsInput, Prisma.UserUncheckedCreateWithoutChatThreadsInput>
+}
+
+export type UserUpsertWithoutChatThreadsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutChatThreadsInput, Prisma.UserUncheckedUpdateWithoutChatThreadsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutChatThreadsInput, Prisma.UserUncheckedCreateWithoutChatThreadsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutChatThreadsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutChatThreadsInput, Prisma.UserUncheckedUpdateWithoutChatThreadsInput>
+}
+
+export type UserUpdateWithoutChatThreadsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  careerStage?: Prisma.NullableEnumCareerStageFieldUpdateOperationsInput | $Enums.CareerStage | null
+  currentGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  focusPreference?: Prisma.NullableEnumFocusPreferenceFieldUpdateOperationsInput | $Enums.FocusPreference | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItems?: Prisma.WorkItemUpdateManyWithoutUserNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutUserNestedInput
+  githubConnection?: Prisma.GitHubConnectionUpdateOneWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutChatThreadsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  careerStage?: Prisma.NullableEnumCareerStageFieldUpdateOperationsInput | $Enums.CareerStage | null
+  currentGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  focusPreference?: Prisma.NullableEnumFocusPreferenceFieldUpdateOperationsInput | $Enums.FocusPreference | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItems?: Prisma.WorkItemUncheckedUpdateManyWithoutUserNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutUserNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutUserNestedInput
+  githubConnection?: Prisma.GitHubConnectionUncheckedUpdateOneWithoutUserNestedInput
+}
+
+export type UserCreateWithoutAgentRunsInput = {
+  id?: string
+  email: string
+  name: string
+  careerStage?: $Enums.CareerStage | null
+  currentGoal?: string | null
+  focusPreference?: $Enums.FocusPreference | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItems?: Prisma.WorkItemCreateNestedManyWithoutUserInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutUserInput
+  githubConnection?: Prisma.GitHubConnectionCreateNestedOneWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutAgentRunsInput = {
+  id?: string
+  email: string
+  name: string
+  careerStage?: $Enums.CareerStage | null
+  currentGoal?: string | null
+  focusPreference?: $Enums.FocusPreference | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItems?: Prisma.WorkItemUncheckedCreateNestedManyWithoutUserInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutUserInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutUserInput
+  githubConnection?: Prisma.GitHubConnectionUncheckedCreateNestedOneWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutAgentRunsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutAgentRunsInput, Prisma.UserUncheckedCreateWithoutAgentRunsInput>
+}
+
+export type UserUpsertWithoutAgentRunsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutAgentRunsInput, Prisma.UserUncheckedUpdateWithoutAgentRunsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutAgentRunsInput, Prisma.UserUncheckedCreateWithoutAgentRunsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutAgentRunsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutAgentRunsInput, Prisma.UserUncheckedUpdateWithoutAgentRunsInput>
+}
+
+export type UserUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  careerStage?: Prisma.NullableEnumCareerStageFieldUpdateOperationsInput | $Enums.CareerStage | null
+  currentGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  focusPreference?: Prisma.NullableEnumFocusPreferenceFieldUpdateOperationsInput | $Enums.FocusPreference | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItems?: Prisma.WorkItemUpdateManyWithoutUserNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutUserNestedInput
+  githubConnection?: Prisma.GitHubConnectionUpdateOneWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  careerStage?: Prisma.NullableEnumCareerStageFieldUpdateOperationsInput | $Enums.CareerStage | null
+  currentGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  focusPreference?: Prisma.NullableEnumFocusPreferenceFieldUpdateOperationsInput | $Enums.FocusPreference | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItems?: Prisma.WorkItemUncheckedUpdateManyWithoutUserNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutUserNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutUserNestedInput
   githubConnection?: Prisma.GitHubConnectionUncheckedUpdateOneWithoutUserNestedInput
 }
 
@@ -671,11 +889,15 @@ export type UserUncheckedUpdateWithoutArtifactsInput = {
 export type UserCountOutputType = {
   workItems: number
   artifacts: number
+  chatThreads: number
+  agentRuns: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItems?: boolean | UserCountOutputTypeCountWorkItemsArgs
   artifacts?: boolean | UserCountOutputTypeCountArtifactsArgs
+  chatThreads?: boolean | UserCountOutputTypeCountChatThreadsArgs
+  agentRuns?: boolean | UserCountOutputTypeCountAgentRunsArgs
 }
 
 /**
@@ -702,6 +924,20 @@ export type UserCountOutputTypeCountArtifactsArgs<ExtArgs extends runtime.Types.
   where?: Prisma.ArtifactWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountChatThreadsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatThreadWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountAgentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AgentRunWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -714,6 +950,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   updatedAt?: boolean
   workItems?: boolean | Prisma.User$workItemsArgs<ExtArgs>
   artifacts?: boolean | Prisma.User$artifactsArgs<ExtArgs>
+  chatThreads?: boolean | Prisma.User$chatThreadsArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.User$agentRunsArgs<ExtArgs>
   githubConnection?: boolean | Prisma.User$githubConnectionArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
@@ -755,6 +993,8 @@ export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = run
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItems?: boolean | Prisma.User$workItemsArgs<ExtArgs>
   artifacts?: boolean | Prisma.User$artifactsArgs<ExtArgs>
+  chatThreads?: boolean | Prisma.User$chatThreadsArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.User$agentRunsArgs<ExtArgs>
   githubConnection?: boolean | Prisma.User$githubConnectionArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
@@ -766,6 +1006,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   objects: {
     workItems: Prisma.$WorkItemPayload<ExtArgs>[]
     artifacts: Prisma.$ArtifactPayload<ExtArgs>[]
+    chatThreads: Prisma.$ChatThreadPayload<ExtArgs>[]
+    agentRuns: Prisma.$AgentRunPayload<ExtArgs>[]
     githubConnection: Prisma.$GitHubConnectionPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -1173,6 +1415,8 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItems<T extends Prisma.User$workItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$workItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifacts<T extends Prisma.User$artifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  chatThreads<T extends Prisma.User$chatThreadsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatThreadsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatThreadPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  agentRuns<T extends Prisma.User$agentRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$agentRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   githubConnection<T extends Prisma.User$githubConnectionArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$githubConnectionArgs<ExtArgs>>): Prisma.Prisma__GitHubConnectionClient<runtime.Types.Result.GetResult<Prisma.$GitHubConnectionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1649,6 +1893,54 @@ export type User$artifactsArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   distinct?: Prisma.ArtifactScalarFieldEnum | Prisma.ArtifactScalarFieldEnum[]
+}
+
+/**
+ * User.chatThreads
+ */
+export type User$chatThreadsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatThread
+   */
+  select?: Prisma.ChatThreadSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatThread
+   */
+  omit?: Prisma.ChatThreadOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatThreadInclude<ExtArgs> | null
+  where?: Prisma.ChatThreadWhereInput
+  orderBy?: Prisma.ChatThreadOrderByWithRelationInput | Prisma.ChatThreadOrderByWithRelationInput[]
+  cursor?: Prisma.ChatThreadWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatThreadScalarFieldEnum | Prisma.ChatThreadScalarFieldEnum[]
+}
+
+/**
+ * User.agentRuns
+ */
+export type User$agentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AgentRun
+   */
+  select?: Prisma.AgentRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AgentRun
+   */
+  omit?: Prisma.AgentRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AgentRunInclude<ExtArgs> | null
+  where?: Prisma.AgentRunWhereInput
+  orderBy?: Prisma.AgentRunOrderByWithRelationInput | Prisma.AgentRunOrderByWithRelationInput[]
+  cursor?: Prisma.AgentRunWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AgentRunScalarFieldEnum | Prisma.AgentRunScalarFieldEnum[]
 }
 
 /**

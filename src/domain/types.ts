@@ -141,6 +141,7 @@ export interface ArtifactRequest {
   type: ArtifactType;
   targetAngle: TargetAngle;
   tone: ArtifactTone;
+  brief?: string;
 }
 
 export interface GeneratedArtifact {

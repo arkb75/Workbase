@@ -1,5 +1,5 @@
+import { randomUUID } from "node:crypto";
 import { generateArtifactAction } from "@/app/actions";
-import { ArtifactFallbackToast } from "@/components/artifacts/artifact-fallback-toast";
 import { ArtifactHistoryPanel, type ArtifactHistoryEntry } from "@/components/artifacts/artifact-history-panel";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
@@ -7,9 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
+import {
+  readArtifactEvidenceProvenance,
+  readArtifactHighlightProvenance,
+} from "@/src/lib/artifact-provenance";
 import {
   artifactToneOptions,
   artifactTypeOptions,
@@ -94,6 +99,7 @@ export default async function ArtifactGeneratorPage({
   const { artifactId, error } = await searchParams;
   const user = await getDemoUser();
   const workItem = await getWorkItemForUser(user.id, id);
+  const artifactFormIdempotencyKey = `artifact-form:${workItem.id}:${randomUUID()}`;
   const approvedHighlights = workItem.highlights.filter(
     (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
   );
@@ -120,7 +126,7 @@ export default async function ArtifactGeneratorPage({
     const resultRefs = trace ? readArtifactResultRefs(trace.resultRefs) : null;
     const usedHighlightIds = resultRefs?.usedHighlightIds ?? [];
     const supportingEvidenceItemIds = resultRefs?.supportingEvidenceItemIds ?? [];
-    const usedHighlights = usedHighlightIds
+    const legacyUsedHighlights = usedHighlightIds
       .map((highlightId) => workItem.highlights.find((highlight) => highlight.id === highlightId))
       .filter((highlight): highlight is (typeof workItem.highlights)[number] => Boolean(highlight))
       .map((highlight) => ({
@@ -130,8 +136,11 @@ export default async function ArtifactGeneratorPage({
         visibility: highlight.visibility,
         confidence: highlight.confidence,
       }));
+    const usedHighlights = artifact.highlightProvenance.length
+      ? readArtifactHighlightProvenance(artifact.highlightProvenance)
+      : legacyUsedHighlights;
     const fallbackHighlights = resultRefs?.unreviewedFallbackHighlights ?? [];
-    const supportingEvidence = supportingEvidenceItemIds
+    const legacySupportingEvidence = supportingEvidenceItemIds
       .map((evidenceItemId) => workItem.evidenceItems.find((item) => item.id === evidenceItemId))
       .filter((item): item is (typeof workItem.evidenceItems)[number] => Boolean(item))
       .map((item) => ({
@@ -141,6 +150,9 @@ export default async function ArtifactGeneratorPage({
         type: item.type,
         sourceLabel: item.source.label,
       }));
+    const supportingEvidence = artifact.evidenceProvenance.length
+      ? readArtifactEvidenceProvenance(artifact.evidenceProvenance)
+      : legacySupportingEvidence;
 
     return {
       id: artifact.id,
@@ -165,22 +177,38 @@ export default async function ArtifactGeneratorPage({
     <WorkbaseFrame>
       <PageHeader
         eyebrow="Artifact generator"
-        title="Generate from approved highlights"
-        description="Choose the artifact type, target angle, and tone. Workbase retrieves the best approved highlights first, then adds bounded supporting evidence when needed. If that pool is empty, it can generate request-specific unreviewed fallback highlights from evidence and label them clearly."
+        title="Start with a freeform brief"
+        description="Workbase maps your brief to a supported artifact, retrieves approved highlights, and opens any evidence-backed candidates for review in project chat before it writes."
       />
 
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
         <Card>
           <form action={generateArtifactAction}>
             <input type="hidden" name="workItemId" value={workItem.id} />
-            <ArtifactFallbackToast fallbackWillBeAttempted={approvedHighlights.length === 0} />
+            <input
+              type="hidden"
+              name="idempotencyKey"
+              value={artifactFormIdempotencyKey}
+            />
             <CardHeader>
               <CardTitle>Generator controls</CardTitle>
               <CardDescription>
-                Targeting can reprioritize highlights, but it cannot invent work, metrics, or scope.
+                The brief leads; the structured controls provide a fallback when it is terse.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5">
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-[color:var(--ink-strong)]">
+                  What should Workbase write?
+                </span>
+                <Textarea
+                  name="brief"
+                  placeholder="Write three concise resume bullets emphasizing the architecture I owned and the measurable impact."
+                  className="min-h-28"
+                  maxLength={4000}
+                />
+              </label>
+
               <label className="grid gap-2">
                 <span className="text-sm font-medium text-[color:var(--ink-strong)]">
                   Artifact type
@@ -220,8 +248,8 @@ export default async function ArtifactGeneratorPage({
                 </Select>
               </label>
 
-              <SubmitButton pendingLabel="Generating artifact...">
-                Generate artifact
+              <SubmitButton pendingLabel="Starting workflow...">
+                Start artifact workflow
               </SubmitButton>
             </CardContent>
           </form>
@@ -260,6 +288,8 @@ export default async function ArtifactGeneratorPage({
           ) : (
             <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
               No approved, non-sensitive highlights are available yet.
+              Research can propose evidence-backed candidates, but each one must be reviewed before
+              it can support an artifact.
             </p>
           )}
         </CollapsibleCard>
@@ -269,7 +299,7 @@ export default async function ArtifactGeneratorPage({
         <Card className="border-amber-200 bg-amber-50 shadow-none">
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-amber-900">
-              Workbase could not assemble enough approved or request-specific fallback context to generate that artifact.
+              Workbase finished its bounded research passes without enough approved evidence to support that artifact.
             </p>
           </CardContent>
         </Card>

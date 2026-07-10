@@ -212,6 +212,7 @@ export type SourceWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
+  chatCitations?: Prisma.ChatCitationListRelationFilter
 }
 
 export type SourceOrderByWithRelationInput = {
@@ -226,6 +227,7 @@ export type SourceOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
+  chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
 }
 
 export type SourceWhereUniqueInput = Prisma.AtLeast<{
@@ -244,6 +246,7 @@ export type SourceWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
+  chatCitations?: Prisma.ChatCitationListRelationFilter
 }, "id" | "workItemId_type_externalId">
 
 export type SourceOrderByWithAggregationInput = {
@@ -287,6 +290,7 @@ export type SourceCreateInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateInput = {
@@ -300,6 +304,7 @@ export type SourceUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUpdateInput = {
@@ -313,6 +318,7 @@ export type SourceUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateInput = {
@@ -326,6 +332,7 @@ export type SourceUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyInput = {
@@ -418,6 +425,11 @@ export type SourceScalarRelationFilter = {
   isNot?: Prisma.SourceWhereInput
 }
 
+export type SourceNullableScalarRelationFilter = {
+  is?: Prisma.SourceWhereInput | null
+  isNot?: Prisma.SourceWhereInput | null
+}
+
 export type SourceCreateNestedManyWithoutWorkItemInput = {
   create?: Prisma.XOR<Prisma.SourceCreateWithoutWorkItemInput, Prisma.SourceUncheckedCreateWithoutWorkItemInput> | Prisma.SourceCreateWithoutWorkItemInput[] | Prisma.SourceUncheckedCreateWithoutWorkItemInput[]
   connectOrCreate?: Prisma.SourceCreateOrConnectWithoutWorkItemInput | Prisma.SourceCreateOrConnectWithoutWorkItemInput[]
@@ -478,6 +490,22 @@ export type SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.SourceUpdateToOneWithWhereWithoutEvidenceItemsInput, Prisma.SourceUpdateWithoutEvidenceItemsInput>, Prisma.SourceUncheckedUpdateWithoutEvidenceItemsInput>
 }
 
+export type SourceCreateNestedOneWithoutChatCitationsInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutChatCitationsInput, Prisma.SourceUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutChatCitationsInput
+  connect?: Prisma.SourceWhereUniqueInput
+}
+
+export type SourceUpdateOneWithoutChatCitationsNestedInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutChatCitationsInput, Prisma.SourceUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutChatCitationsInput
+  upsert?: Prisma.SourceUpsertWithoutChatCitationsInput
+  disconnect?: Prisma.SourceWhereInput | boolean
+  delete?: Prisma.SourceWhereInput | boolean
+  connect?: Prisma.SourceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.SourceUpdateToOneWithWhereWithoutChatCitationsInput, Prisma.SourceUpdateWithoutChatCitationsInput>, Prisma.SourceUncheckedUpdateWithoutChatCitationsInput>
+}
+
 export type SourceCreateWithoutWorkItemInput = {
   id?: string
   type: $Enums.SourceType
@@ -488,6 +516,7 @@ export type SourceCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutWorkItemInput = {
@@ -500,6 +529,7 @@ export type SourceUncheckedCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutWorkItemInput = {
@@ -553,6 +583,7 @@ export type SourceCreateWithoutEvidenceItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
@@ -565,6 +596,7 @@ export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutEvidenceItemsInput = {
@@ -593,6 +625,7 @@ export type SourceUpdateWithoutEvidenceItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
@@ -605,6 +638,75 @@ export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+}
+
+export type SourceCreateWithoutChatCitationsInput = {
+  id?: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+}
+
+export type SourceUncheckedCreateWithoutChatCitationsInput = {
+  id?: string
+  workItemId: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+}
+
+export type SourceCreateOrConnectWithoutChatCitationsInput = {
+  where: Prisma.SourceWhereUniqueInput
+  create: Prisma.XOR<Prisma.SourceCreateWithoutChatCitationsInput, Prisma.SourceUncheckedCreateWithoutChatCitationsInput>
+}
+
+export type SourceUpsertWithoutChatCitationsInput = {
+  update: Prisma.XOR<Prisma.SourceUpdateWithoutChatCitationsInput, Prisma.SourceUncheckedUpdateWithoutChatCitationsInput>
+  create: Prisma.XOR<Prisma.SourceCreateWithoutChatCitationsInput, Prisma.SourceUncheckedCreateWithoutChatCitationsInput>
+  where?: Prisma.SourceWhereInput
+}
+
+export type SourceUpdateToOneWithWhereWithoutChatCitationsInput = {
+  where?: Prisma.SourceWhereInput
+  data: Prisma.XOR<Prisma.SourceUpdateWithoutChatCitationsInput, Prisma.SourceUncheckedUpdateWithoutChatCitationsInput>
+}
+
+export type SourceUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+}
+
+export type SourceUncheckedUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyWorkItemInput = {
@@ -628,6 +730,7 @@ export type SourceUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutWorkItemInput = {
@@ -640,6 +743,7 @@ export type SourceUncheckedUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
@@ -660,10 +764,12 @@ export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
 
 export type SourceCountOutputType = {
   evidenceItems: number
+  chatCitations: number
 }
 
 export type SourceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidenceItems?: boolean | SourceCountOutputTypeCountEvidenceItemsArgs
+  chatCitations?: boolean | SourceCountOutputTypeCountChatCitationsArgs
 }
 
 /**
@@ -683,6 +789,13 @@ export type SourceCountOutputTypeCountEvidenceItemsArgs<ExtArgs extends runtime.
   where?: Prisma.EvidenceItemWhereInput
 }
 
+/**
+ * SourceCountOutputType without action
+ */
+export type SourceCountOutputTypeCountChatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatCitationWhereInput
+}
+
 
 export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -696,6 +809,7 @@ export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["source"]>
 
@@ -741,6 +855,7 @@ export type SourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
 export type SourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type SourceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -755,6 +870,7 @@ export type $SourcePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
+    chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1162,6 +1278,7 @@ export interface Prisma__SourceClient<T, Null = never, ExtArgs extends runtime.T
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   evidenceItems<T extends Prisma.Source$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  chatCitations<T extends Prisma.Source$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1622,6 +1739,30 @@ export type Source$evidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.EvidenceItemScalarFieldEnum | Prisma.EvidenceItemScalarFieldEnum[]
+}
+
+/**
+ * Source.chatCitations
+ */
+export type Source$chatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatCitation
+   */
+  select?: Prisma.ChatCitationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatCitation
+   */
+  omit?: Prisma.ChatCitationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatCitationInclude<ExtArgs> | null
+  where?: Prisma.ChatCitationWhereInput
+  orderBy?: Prisma.ChatCitationOrderByWithRelationInput | Prisma.ChatCitationOrderByWithRelationInput[]
+  cursor?: Prisma.ChatCitationWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatCitationScalarFieldEnum | Prisma.ChatCitationScalarFieldEnum[]
 }
 
 /**

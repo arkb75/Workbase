@@ -39,7 +39,7 @@ function mapWorkItemSnapshot(workItem: {
 function mapSourceSnapshot(source: {
   id: string;
   workItemId: string;
-  type: "manual_note" | "github_repo";
+  type: "manual_note" | "github_repo" | "chat_context";
   label: string;
   externalId: string | null;
   rawContent: string | null;
@@ -71,7 +71,9 @@ function mapEvidenceItemSnapshot(item: {
     | "github_commit"
     | "github_pull_request"
     | "github_issue"
-    | "github_release";
+    | "github_release"
+    | "chat_user_statement"
+    | "github_file_excerpt";
   title: string;
   content: string;
   searchText: string;
@@ -84,7 +86,7 @@ function mapEvidenceItemSnapshot(item: {
   source: {
     id: string;
     label: string;
-    type: "manual_note" | "github_repo";
+    type: "manual_note" | "github_repo" | "chat_context";
     externalId: string | null;
   };
   tags?: Array<{

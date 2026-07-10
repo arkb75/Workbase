@@ -1,11 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
-import { Archive, Database, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Archive, Database, MessageSquareText, Sparkles } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 
-export type WorkItemWorkspaceTab = "sources" | "highlights" | "artifacts";
+export type WorkItemWorkspaceTab = "sources" | "highlights" | "artifacts" | "chat";
 
 const tabConfig = [
   {
@@ -19,6 +19,12 @@ const tabConfig = [
     label: "Highlights",
     description: "Generate, review, approve, and trace highlights.",
     icon: Sparkles,
+  },
+  {
+    id: "chat",
+    label: "Chat",
+    description: "Ask, research, capture context, and create reviewed outputs.",
+    icon: MessageSquareText,
   },
   {
     id: "artifacts",
@@ -44,11 +50,13 @@ export function WorkItemWorkspace({
   sourcesPanel,
   highlightsPanel,
   artifactsPanel,
+  chatPanel,
 }: {
   initialTab?: string;
   sourcesPanel: ReactNode;
   highlightsPanel: ReactNode;
   artifactsPanel: ReactNode;
+  chatPanel: ReactNode;
 }) {
   const [activeTab, setActiveTab] = useState<WorkItemWorkspaceTab>(() =>
     readInitialTab(initialTab),
@@ -58,9 +66,13 @@ export function WorkItemWorkspace({
       sources: sourcesPanel,
       highlights: highlightsPanel,
       artifacts: artifactsPanel,
+      chat: chatPanel,
     }),
-    [sourcesPanel, highlightsPanel, artifactsPanel],
+    [sourcesPanel, highlightsPanel, artifactsPanel, chatPanel],
   );
+  useEffect(() => {
+    setActiveTab(readInitialTab(initialTab));
+  }, [initialTab]);
   const selectTab = (nextTab: WorkItemWorkspaceTab) => {
     setActiveTab(nextTab);
 
@@ -72,7 +84,7 @@ export function WorkItemWorkspace({
   return (
     <section className="grid gap-5">
       <div className="rounded-[30px] border border-black/8 bg-white/86 p-2 shadow-[0_18px_54px_rgba(15,23,42,0.06)]">
-        <div className="grid gap-2 lg:grid-cols-3" role="tablist" aria-label="Work Item sections">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Work Item sections">
           {tabConfig.map((item) => {
             const isActive = item.id === activeTab;
             const Icon = item.icon;

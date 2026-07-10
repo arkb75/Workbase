@@ -576,10 +576,12 @@ Worked with two classmates and the lab coordinator to tighten wording for sensit
           "type",
           "targetAngle",
           "tone",
+          "requestBrief",
           "content",
+          "searchText",
           "updatedAt"
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         ON CONFLICT ("id")
         DO UPDATE SET
           "userId" = EXCLUDED."userId",
@@ -587,7 +589,9 @@ Worked with two classmates and the lab coordinator to tighten wording for sensit
           "type" = EXCLUDED."type",
           "targetAngle" = EXCLUDED."targetAngle",
           "tone" = EXCLUDED."tone",
+          "requestBrief" = EXCLUDED."requestBrief",
           "content" = EXCLUDED."content",
+          "searchText" = EXCLUDED."searchText",
           "updatedAt" = NOW()
       `,
       [
@@ -597,7 +601,9 @@ Worked with two classmates and the lab coordinator to tighten wording for sensit
         "resume_bullets",
         "full_stack",
         "concise",
+        "Write a concise resume bullet about the sample project.",
         "- Built a Next.js search dashboard that helps lab members find experiment metadata faster.",
+        "Write a concise resume bullet about the sample project. Built a Next.js search dashboard that helps lab members find experiment metadata faster.",
       ],
     );
 

@@ -221,6 +221,8 @@ export type WorkItemWhereInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
   generationRuns?: Prisma.GenerationRunListRelationFilter
+  chatThreads?: Prisma.ChatThreadListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
 }
 
 export type WorkItemOrderByWithRelationInput = {
@@ -240,6 +242,8 @@ export type WorkItemOrderByWithRelationInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionOrderByRelationAggregateInput
   artifacts?: Prisma.ArtifactOrderByRelationAggregateInput
   generationRuns?: Prisma.GenerationRunOrderByRelationAggregateInput
+  chatThreads?: Prisma.ChatThreadOrderByRelationAggregateInput
+  agentRuns?: Prisma.AgentRunOrderByRelationAggregateInput
 }
 
 export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
@@ -262,6 +266,8 @@ export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
   highlightSuggestions?: Prisma.HighlightSuggestionListRelationFilter
   artifacts?: Prisma.ArtifactListRelationFilter
   generationRuns?: Prisma.GenerationRunListRelationFilter
+  chatThreads?: Prisma.ChatThreadListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
 }, "id">
 
 export type WorkItemOrderByWithAggregationInput = {
@@ -310,6 +316,8 @@ export type WorkItemCreateInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateInput = {
@@ -328,6 +336,8 @@ export type WorkItemUncheckedCreateInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUpdateInput = {
@@ -346,6 +356,8 @@ export type WorkItemUpdateInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateInput = {
@@ -364,6 +376,8 @@ export type WorkItemUncheckedUpdateInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateManyInput = {
@@ -579,6 +593,34 @@ export type WorkItemUpdateOneWithoutArtifactsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutArtifactsInput, Prisma.WorkItemUpdateWithoutArtifactsInput>, Prisma.WorkItemUncheckedUpdateWithoutArtifactsInput>
 }
 
+export type WorkItemCreateNestedOneWithoutChatThreadsInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutChatThreadsInput, Prisma.WorkItemUncheckedCreateWithoutChatThreadsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutChatThreadsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+}
+
+export type WorkItemUpdateOneRequiredWithoutChatThreadsNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutChatThreadsInput, Prisma.WorkItemUncheckedCreateWithoutChatThreadsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutChatThreadsInput
+  upsert?: Prisma.WorkItemUpsertWithoutChatThreadsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutChatThreadsInput, Prisma.WorkItemUpdateWithoutChatThreadsInput>, Prisma.WorkItemUncheckedUpdateWithoutChatThreadsInput>
+}
+
+export type WorkItemCreateNestedOneWithoutAgentRunsInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutAgentRunsInput, Prisma.WorkItemUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutAgentRunsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+}
+
+export type WorkItemUpdateOneRequiredWithoutAgentRunsNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutAgentRunsInput, Prisma.WorkItemUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutAgentRunsInput
+  upsert?: Prisma.WorkItemUpsertWithoutAgentRunsInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutAgentRunsInput, Prisma.WorkItemUpdateWithoutAgentRunsInput>, Prisma.WorkItemUncheckedUpdateWithoutAgentRunsInput>
+}
+
 export type WorkItemCreateNestedOneWithoutGenerationRunsInput = {
   create?: Prisma.XOR<Prisma.WorkItemCreateWithoutGenerationRunsInput, Prisma.WorkItemUncheckedCreateWithoutGenerationRunsInput>
   connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutGenerationRunsInput
@@ -608,6 +650,8 @@ export type WorkItemCreateWithoutUserInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutUserInput = {
@@ -625,6 +669,8 @@ export type WorkItemUncheckedCreateWithoutUserInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutUserInput = {
@@ -683,6 +729,8 @@ export type WorkItemCreateWithoutSourcesInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutSourcesInput = {
@@ -700,6 +748,8 @@ export type WorkItemUncheckedCreateWithoutSourcesInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutSourcesInput = {
@@ -733,6 +783,8 @@ export type WorkItemUpdateWithoutSourcesInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutSourcesInput = {
@@ -750,6 +802,8 @@ export type WorkItemUncheckedUpdateWithoutSourcesInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutEvidenceItemsInput = {
@@ -767,6 +821,8 @@ export type WorkItemCreateWithoutEvidenceItemsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutEvidenceItemsInput = {
@@ -784,6 +840,8 @@ export type WorkItemUncheckedCreateWithoutEvidenceItemsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutEvidenceItemsInput = {
@@ -817,6 +875,8 @@ export type WorkItemUpdateWithoutEvidenceItemsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutEvidenceItemsInput = {
@@ -834,6 +894,8 @@ export type WorkItemUncheckedUpdateWithoutEvidenceItemsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutHighlightsInput = {
@@ -851,6 +913,8 @@ export type WorkItemCreateWithoutHighlightsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutHighlightsInput = {
@@ -868,6 +932,8 @@ export type WorkItemUncheckedCreateWithoutHighlightsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutHighlightsInput = {
@@ -901,6 +967,8 @@ export type WorkItemUpdateWithoutHighlightsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutHighlightsInput = {
@@ -918,6 +986,8 @@ export type WorkItemUncheckedUpdateWithoutHighlightsInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutHighlightSuggestionsInput = {
@@ -935,6 +1005,8 @@ export type WorkItemCreateWithoutHighlightSuggestionsInput = {
   highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutHighlightSuggestionsInput = {
@@ -952,6 +1024,8 @@ export type WorkItemUncheckedCreateWithoutHighlightSuggestionsInput = {
   highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutHighlightSuggestionsInput = {
@@ -985,6 +1059,8 @@ export type WorkItemUpdateWithoutHighlightSuggestionsInput = {
   highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutHighlightSuggestionsInput = {
@@ -1002,6 +1078,8 @@ export type WorkItemUncheckedUpdateWithoutHighlightSuggestionsInput = {
   highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutArtifactsInput = {
@@ -1019,6 +1097,8 @@ export type WorkItemCreateWithoutArtifactsInput = {
   highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutArtifactsInput = {
@@ -1036,6 +1116,8 @@ export type WorkItemUncheckedCreateWithoutArtifactsInput = {
   highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutArtifactsInput = {
@@ -1069,6 +1151,8 @@ export type WorkItemUpdateWithoutArtifactsInput = {
   highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
@@ -1086,6 +1170,192 @@ export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
   highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemCreateWithoutChatThreadsInput = {
+  id?: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
+  sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemUncheckedCreateWithoutChatThreadsInput = {
+  id?: string
+  userId: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemCreateOrConnectWithoutChatThreadsInput = {
+  where: Prisma.WorkItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutChatThreadsInput, Prisma.WorkItemUncheckedCreateWithoutChatThreadsInput>
+}
+
+export type WorkItemUpsertWithoutChatThreadsInput = {
+  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutChatThreadsInput, Prisma.WorkItemUncheckedUpdateWithoutChatThreadsInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutChatThreadsInput, Prisma.WorkItemUncheckedCreateWithoutChatThreadsInput>
+  where?: Prisma.WorkItemWhereInput
+}
+
+export type WorkItemUpdateToOneWithWhereWithoutChatThreadsInput = {
+  where?: Prisma.WorkItemWhereInput
+  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutChatThreadsInput, Prisma.WorkItemUncheckedUpdateWithoutChatThreadsInput>
+}
+
+export type WorkItemUpdateWithoutChatThreadsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
+  sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemUncheckedUpdateWithoutChatThreadsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemCreateWithoutAgentRunsInput = {
+  id?: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
+  sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemUncheckedCreateWithoutAgentRunsInput = {
+  id?: string
+  userId: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemCreateOrConnectWithoutAgentRunsInput = {
+  where: Prisma.WorkItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutAgentRunsInput, Prisma.WorkItemUncheckedCreateWithoutAgentRunsInput>
+}
+
+export type WorkItemUpsertWithoutAgentRunsInput = {
+  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutAgentRunsInput, Prisma.WorkItemUncheckedUpdateWithoutAgentRunsInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutAgentRunsInput, Prisma.WorkItemUncheckedCreateWithoutAgentRunsInput>
+  where?: Prisma.WorkItemWhereInput
+}
+
+export type WorkItemUpdateToOneWithWhereWithoutAgentRunsInput = {
+  where?: Prisma.WorkItemWhereInput
+  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutAgentRunsInput, Prisma.WorkItemUncheckedUpdateWithoutAgentRunsInput>
+}
+
+export type WorkItemUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
+  sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemUncheckedUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateWithoutGenerationRunsInput = {
@@ -1103,6 +1373,8 @@ export type WorkItemCreateWithoutGenerationRunsInput = {
   highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
   highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemUncheckedCreateWithoutGenerationRunsInput = {
@@ -1120,6 +1392,8 @@ export type WorkItemUncheckedCreateWithoutGenerationRunsInput = {
   highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
   artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
 }
 
 export type WorkItemCreateOrConnectWithoutGenerationRunsInput = {
@@ -1153,6 +1427,8 @@ export type WorkItemUpdateWithoutGenerationRunsInput = {
   highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutGenerationRunsInput = {
@@ -1170,6 +1446,8 @@ export type WorkItemUncheckedUpdateWithoutGenerationRunsInput = {
   highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemCreateManyUserInput = {
@@ -1198,6 +1476,8 @@ export type WorkItemUpdateWithoutUserInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateWithoutUserInput = {
@@ -1215,6 +1495,8 @@ export type WorkItemUncheckedUpdateWithoutUserInput = {
   highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
   artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
 }
 
 export type WorkItemUncheckedUpdateManyWithoutUserInput = {
@@ -1240,6 +1522,8 @@ export type WorkItemCountOutputType = {
   highlightSuggestions: number
   artifacts: number
   generationRuns: number
+  chatThreads: number
+  agentRuns: number
 }
 
 export type WorkItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1249,6 +1533,8 @@ export type WorkItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensio
   highlightSuggestions?: boolean | WorkItemCountOutputTypeCountHighlightSuggestionsArgs
   artifacts?: boolean | WorkItemCountOutputTypeCountArtifactsArgs
   generationRuns?: boolean | WorkItemCountOutputTypeCountGenerationRunsArgs
+  chatThreads?: boolean | WorkItemCountOutputTypeCountChatThreadsArgs
+  agentRuns?: boolean | WorkItemCountOutputTypeCountAgentRunsArgs
 }
 
 /**
@@ -1303,6 +1589,20 @@ export type WorkItemCountOutputTypeCountGenerationRunsArgs<ExtArgs extends runti
   where?: Prisma.GenerationRunWhereInput
 }
 
+/**
+ * WorkItemCountOutputType without action
+ */
+export type WorkItemCountOutputTypeCountChatThreadsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatThreadWhereInput
+}
+
+/**
+ * WorkItemCountOutputType without action
+ */
+export type WorkItemCountOutputTypeCountAgentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AgentRunWhereInput
+}
+
 
 export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1321,6 +1621,8 @@ export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   highlightSuggestions?: boolean | Prisma.WorkItem$highlightSuggestionsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
   generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
+  chatThreads?: boolean | Prisma.WorkItem$chatThreadsArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.WorkItem$agentRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["workItem"]>
 
@@ -1371,6 +1673,8 @@ export type WorkItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArg
   highlightSuggestions?: boolean | Prisma.WorkItem$highlightSuggestionsArgs<ExtArgs>
   artifacts?: boolean | Prisma.WorkItem$artifactsArgs<ExtArgs>
   generationRuns?: boolean | Prisma.WorkItem$generationRunsArgs<ExtArgs>
+  chatThreads?: boolean | Prisma.WorkItem$chatThreadsArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.WorkItem$agentRunsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type WorkItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1390,6 +1694,8 @@ export type $WorkItemPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     highlightSuggestions: Prisma.$HighlightSuggestionPayload<ExtArgs>[]
     artifacts: Prisma.$ArtifactPayload<ExtArgs>[]
     generationRuns: Prisma.$GenerationRunPayload<ExtArgs>[]
+    chatThreads: Prisma.$ChatThreadPayload<ExtArgs>[]
+    agentRuns: Prisma.$AgentRunPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1802,6 +2108,8 @@ export interface Prisma__WorkItemClient<T, Null = never, ExtArgs extends runtime
   highlightSuggestions<T extends Prisma.WorkItem$highlightSuggestionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$highlightSuggestionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightSuggestionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifacts<T extends Prisma.WorkItem$artifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$artifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   generationRuns<T extends Prisma.WorkItem$generationRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$generationRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GenerationRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  chatThreads<T extends Prisma.WorkItem$chatThreadsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$chatThreadsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatThreadPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  agentRuns<T extends Prisma.WorkItem$agentRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$agentRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2382,6 +2690,54 @@ export type WorkItem$generationRunsArgs<ExtArgs extends runtime.Types.Extensions
   take?: number
   skip?: number
   distinct?: Prisma.GenerationRunScalarFieldEnum | Prisma.GenerationRunScalarFieldEnum[]
+}
+
+/**
+ * WorkItem.chatThreads
+ */
+export type WorkItem$chatThreadsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatThread
+   */
+  select?: Prisma.ChatThreadSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatThread
+   */
+  omit?: Prisma.ChatThreadOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatThreadInclude<ExtArgs> | null
+  where?: Prisma.ChatThreadWhereInput
+  orderBy?: Prisma.ChatThreadOrderByWithRelationInput | Prisma.ChatThreadOrderByWithRelationInput[]
+  cursor?: Prisma.ChatThreadWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatThreadScalarFieldEnum | Prisma.ChatThreadScalarFieldEnum[]
+}
+
+/**
+ * WorkItem.agentRuns
+ */
+export type WorkItem$agentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AgentRun
+   */
+  select?: Prisma.AgentRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AgentRun
+   */
+  omit?: Prisma.AgentRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AgentRunInclude<ExtArgs> | null
+  where?: Prisma.AgentRunWhereInput
+  orderBy?: Prisma.AgentRunOrderByWithRelationInput | Prisma.AgentRunOrderByWithRelationInput[]
+  cursor?: Prisma.AgentRunWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AgentRunScalarFieldEnum | Prisma.AgentRunScalarFieldEnum[]
 }
 
 /**

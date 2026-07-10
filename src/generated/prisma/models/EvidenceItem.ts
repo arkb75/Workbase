@@ -254,6 +254,9 @@ export type EvidenceItemWhereInput = {
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
   highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.EvidenceTagListRelationFilter
+  embedding?: Prisma.XOR<Prisma.EvidenceEmbeddingNullableScalarRelationFilter, Prisma.EvidenceEmbeddingWhereInput> | null
+  chatCitations?: Prisma.ChatCitationListRelationFilter
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
 }
 
 export type EvidenceItemOrderByWithRelationInput = {
@@ -275,6 +278,9 @@ export type EvidenceItemOrderByWithRelationInput = {
   source?: Prisma.SourceOrderByWithRelationInput
   highlightEvidence?: Prisma.HighlightEvidenceOrderByRelationAggregateInput
   tags?: Prisma.EvidenceTagOrderByRelationAggregateInput
+  embedding?: Prisma.EvidenceEmbeddingOrderByWithRelationInput
+  chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceOrderByRelationAggregateInput
 }
 
 export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
@@ -300,6 +306,9 @@ export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
   highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.EvidenceTagListRelationFilter
+  embedding?: Prisma.XOR<Prisma.EvidenceEmbeddingNullableScalarRelationFilter, Prisma.EvidenceEmbeddingWhereInput> | null
+  chatCitations?: Prisma.ChatCitationListRelationFilter
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
 }, "id" | "sourceId_externalId">
 
 export type EvidenceItemOrderByWithAggregationInput = {
@@ -359,6 +368,9 @@ export type EvidenceItemCreateInput = {
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateInput = {
@@ -378,6 +390,9 @@ export type EvidenceItemUncheckedCreateInput = {
   updatedAt?: Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUpdateInput = {
@@ -397,6 +412,9 @@ export type EvidenceItemUpdateInput = {
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateInput = {
@@ -416,6 +434,9 @@ export type EvidenceItemUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyInput = {
@@ -536,6 +557,11 @@ export type EvidenceItemScalarRelationFilter = {
   isNot?: Prisma.EvidenceItemWhereInput
 }
 
+export type EvidenceItemNullableScalarRelationFilter = {
+  is?: Prisma.EvidenceItemWhereInput | null
+  isNot?: Prisma.EvidenceItemWhereInput | null
+}
+
 export type EvidenceItemCreateNestedManyWithoutWorkItemInput = {
   create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutWorkItemInput, Prisma.EvidenceItemUncheckedCreateWithoutWorkItemInput> | Prisma.EvidenceItemCreateWithoutWorkItemInput[] | Prisma.EvidenceItemUncheckedCreateWithoutWorkItemInput[]
   connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutWorkItemInput | Prisma.EvidenceItemCreateOrConnectWithoutWorkItemInput[]
@@ -642,6 +668,14 @@ export type EvidenceItemUpdateOneRequiredWithoutTagsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutTagsInput, Prisma.EvidenceItemUpdateWithoutTagsInput>, Prisma.EvidenceItemUncheckedUpdateWithoutTagsInput>
 }
 
+export type EvidenceItemUpdateOneRequiredWithoutEmbeddingNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutEmbeddingInput, Prisma.EvidenceItemUncheckedCreateWithoutEmbeddingInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutEmbeddingInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutEmbeddingInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.EvidenceItemUpdateWithoutEmbeddingInput>, Prisma.EvidenceItemUncheckedUpdateWithoutEmbeddingInput>
+}
+
 export type EvidenceItemCreateNestedOneWithoutHighlightEvidenceInput = {
   create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutHighlightEvidenceInput, Prisma.EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput>
   connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput
@@ -654,6 +688,38 @@ export type EvidenceItemUpdateOneRequiredWithoutHighlightEvidenceNestedInput = {
   upsert?: Prisma.EvidenceItemUpsertWithoutHighlightEvidenceInput
   connect?: Prisma.EvidenceItemWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutHighlightEvidenceInput, Prisma.EvidenceItemUpdateWithoutHighlightEvidenceInput>, Prisma.EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput>
+}
+
+export type EvidenceItemCreateNestedOneWithoutArtifactProvenanceInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutArtifactProvenanceInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+}
+
+export type EvidenceItemUpdateOneWithoutArtifactProvenanceNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutArtifactProvenanceInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutArtifactProvenanceInput
+  disconnect?: Prisma.EvidenceItemWhereInput | boolean
+  delete?: Prisma.EvidenceItemWhereInput | boolean
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutArtifactProvenanceInput, Prisma.EvidenceItemUpdateWithoutArtifactProvenanceInput>, Prisma.EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput>
+}
+
+export type EvidenceItemCreateNestedOneWithoutChatCitationsInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutChatCitationsInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+}
+
+export type EvidenceItemUpdateOneWithoutChatCitationsNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutChatCitationsInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutChatCitationsInput
+  disconnect?: Prisma.EvidenceItemWhereInput | boolean
+  delete?: Prisma.EvidenceItemWhereInput | boolean
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutChatCitationsInput, Prisma.EvidenceItemUpdateWithoutChatCitationsInput>, Prisma.EvidenceItemUncheckedUpdateWithoutChatCitationsInput>
 }
 
 export type EvidenceItemCreateWithoutWorkItemInput = {
@@ -672,6 +738,9 @@ export type EvidenceItemCreateWithoutWorkItemInput = {
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
@@ -690,6 +759,9 @@ export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutWorkItemInput = {
@@ -754,6 +826,9 @@ export type EvidenceItemCreateWithoutSourceInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutSourceInput = {
@@ -772,6 +847,9 @@ export type EvidenceItemUncheckedCreateWithoutSourceInput = {
   updatedAt?: Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutSourceInput = {
@@ -816,6 +894,9 @@ export type EvidenceItemCreateWithoutTagsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutTagsInput = {
@@ -834,6 +915,9 @@ export type EvidenceItemUncheckedCreateWithoutTagsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutTagsInput = {
@@ -868,6 +952,9 @@ export type EvidenceItemUpdateWithoutTagsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutTagsInput = {
@@ -886,6 +973,109 @@ export type EvidenceItemUncheckedUpdateWithoutTagsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemCreateWithoutEmbeddingInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutEmbeddingInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutEmbeddingInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutEmbeddingInput, Prisma.EvidenceItemUncheckedCreateWithoutEmbeddingInput>
+}
+
+export type EvidenceItemUpsertWithoutEmbeddingInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutEmbeddingInput, Prisma.EvidenceItemUncheckedUpdateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutEmbeddingInput, Prisma.EvidenceItemUncheckedCreateWithoutEmbeddingInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutEmbeddingInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutEmbeddingInput, Prisma.EvidenceItemUncheckedUpdateWithoutEmbeddingInput>
+}
+
+export type EvidenceItemUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutHighlightEvidenceInput = {
@@ -904,6 +1094,9 @@ export type EvidenceItemCreateWithoutHighlightEvidenceInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput = {
@@ -922,6 +1115,9 @@ export type EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput = {
@@ -956,6 +1152,9 @@ export type EvidenceItemUpdateWithoutHighlightEvidenceInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput = {
@@ -974,6 +1173,209 @@ export type EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemCreateWithoutArtifactProvenanceInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutArtifactProvenanceInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput>
+}
+
+export type EvidenceItemUpsertWithoutArtifactProvenanceInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutArtifactProvenanceInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutArtifactProvenanceInput, Prisma.EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput>
+}
+
+export type EvidenceItemUpdateWithoutArtifactProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemCreateWithoutChatCitationsInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutChatCitationsInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutChatCitationsInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedCreateWithoutChatCitationsInput>
+}
+
+export type EvidenceItemUpsertWithoutChatCitationsInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedUpdateWithoutChatCitationsInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedCreateWithoutChatCitationsInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutChatCitationsInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutChatCitationsInput, Prisma.EvidenceItemUncheckedUpdateWithoutChatCitationsInput>
+}
+
+export type EvidenceItemUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyWorkItemInput = {
@@ -1008,6 +1410,9 @@ export type EvidenceItemUpdateWithoutWorkItemInput = {
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
@@ -1026,6 +1431,9 @@ export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1076,6 +1484,9 @@ export type EvidenceItemUpdateWithoutSourceInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
@@ -1094,6 +1505,9 @@ export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
@@ -1120,11 +1534,15 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
 export type EvidenceItemCountOutputType = {
   highlightEvidence: number
   tags: number
+  chatCitations: number
+  artifactProvenance: number
 }
 
 export type EvidenceItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   highlightEvidence?: boolean | EvidenceItemCountOutputTypeCountHighlightEvidenceArgs
   tags?: boolean | EvidenceItemCountOutputTypeCountTagsArgs
+  chatCitations?: boolean | EvidenceItemCountOutputTypeCountChatCitationsArgs
+  artifactProvenance?: boolean | EvidenceItemCountOutputTypeCountArtifactProvenanceArgs
 }
 
 /**
@@ -1151,6 +1569,20 @@ export type EvidenceItemCountOutputTypeCountTagsArgs<ExtArgs extends runtime.Typ
   where?: Prisma.EvidenceTagWhereInput
 }
 
+/**
+ * EvidenceItemCountOutputType without action
+ */
+export type EvidenceItemCountOutputTypeCountChatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatCitationWhereInput
+}
+
+/**
+ * EvidenceItemCountOutputType without action
+ */
+export type EvidenceItemCountOutputTypeCountArtifactProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ArtifactEvidenceProvenanceWhereInput
+}
+
 
 export type EvidenceItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1171,6 +1603,9 @@ export type EvidenceItemSelect<ExtArgs extends runtime.Types.Extensions.Internal
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
   highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
   tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
+  embedding?: boolean | Prisma.EvidenceItem$embeddingArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>
+  artifactProvenance?: boolean | Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceItem"]>
 
@@ -1235,6 +1670,9 @@ export type EvidenceItemInclude<ExtArgs extends runtime.Types.Extensions.Interna
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
   highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
   tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
+  embedding?: boolean | Prisma.EvidenceItem$embeddingArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>
+  artifactProvenance?: boolean | Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type EvidenceItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1253,6 +1691,9 @@ export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.Intern
     source: Prisma.$SourcePayload<ExtArgs>
     highlightEvidence: Prisma.$HighlightEvidencePayload<ExtArgs>[]
     tags: Prisma.$EvidenceTagPayload<ExtArgs>[]
+    embedding: Prisma.$EvidenceEmbeddingPayload<ExtArgs> | null
+    chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
+    artifactProvenance: Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1667,6 +2108,9 @@ export interface Prisma__EvidenceItemClient<T, Null = never, ExtArgs extends run
   source<T extends Prisma.SourceDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.SourceDefaultArgs<ExtArgs>>): Prisma.Prisma__SourceClient<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   highlightEvidence<T extends Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tags<T extends Prisma.EvidenceItem$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  embedding<T extends Prisma.EvidenceItem$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$embeddingArgs<ExtArgs>>): Prisma.Prisma__EvidenceEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$EvidenceEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  chatCitations<T extends Prisma.EvidenceItem$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  artifactProvenance<T extends Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2156,6 +2600,73 @@ export type EvidenceItem$tagsArgs<ExtArgs extends runtime.Types.Extensions.Inter
   take?: number
   skip?: number
   distinct?: Prisma.EvidenceTagScalarFieldEnum | Prisma.EvidenceTagScalarFieldEnum[]
+}
+
+/**
+ * EvidenceItem.embedding
+ */
+export type EvidenceItem$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the EvidenceEmbedding
+   */
+  select?: Prisma.EvidenceEmbeddingSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the EvidenceEmbedding
+   */
+  omit?: Prisma.EvidenceEmbeddingOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.EvidenceEmbeddingInclude<ExtArgs> | null
+  where?: Prisma.EvidenceEmbeddingWhereInput
+}
+
+/**
+ * EvidenceItem.chatCitations
+ */
+export type EvidenceItem$chatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatCitation
+   */
+  select?: Prisma.ChatCitationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatCitation
+   */
+  omit?: Prisma.ChatCitationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatCitationInclude<ExtArgs> | null
+  where?: Prisma.ChatCitationWhereInput
+  orderBy?: Prisma.ChatCitationOrderByWithRelationInput | Prisma.ChatCitationOrderByWithRelationInput[]
+  cursor?: Prisma.ChatCitationWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatCitationScalarFieldEnum | Prisma.ChatCitationScalarFieldEnum[]
+}
+
+/**
+ * EvidenceItem.artifactProvenance
+ */
+export type EvidenceItem$artifactProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ArtifactEvidenceProvenance
+   */
+  select?: Prisma.ArtifactEvidenceProvenanceSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ArtifactEvidenceProvenance
+   */
+  omit?: Prisma.ArtifactEvidenceProvenanceOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactEvidenceProvenanceInclude<ExtArgs> | null
+  where?: Prisma.ArtifactEvidenceProvenanceWhereInput
+  orderBy?: Prisma.ArtifactEvidenceProvenanceOrderByWithRelationInput | Prisma.ArtifactEvidenceProvenanceOrderByWithRelationInput[]
+  cursor?: Prisma.ArtifactEvidenceProvenanceWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ArtifactEvidenceProvenanceScalarFieldEnum | Prisma.ArtifactEvidenceProvenanceScalarFieldEnum[]
 }
 
 /**

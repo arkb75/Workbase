@@ -43,7 +43,7 @@ function toRepositoryJsonValue(repository: {
 function mapSourceSnapshot(source: {
   id: string;
   workItemId: string;
-  type: "manual_note" | "github_repo";
+  type: "manual_note" | "github_repo" | "chat_context";
   label: string;
   externalId: string | null;
   rawContent: string | null;
@@ -71,6 +71,9 @@ export const githubRepoImportService: GitHubRepoImportService = {
       repositoryFullName,
     });
     const repositorySummary = mapRepositorySummary(repository);
+    if (repositorySummary.id !== repositoryId) {
+      throw new Error("The selected GitHub repository ID does not match the fetched repository.");
+    }
     const readme = await fetchGitHubReadme({ token, owner, repo });
     const commits = await fetchGitHubCommitList({
       token,

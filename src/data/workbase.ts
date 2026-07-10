@@ -128,6 +128,16 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
         },
       },
       artifacts: {
+        include: {
+          highlightProvenance: {
+            include: { highlight: true },
+            orderBy: { rank: "asc" },
+          },
+          evidenceProvenance: {
+            include: { evidenceItem: { include: { source: true } } },
+            orderBy: { rank: "asc" },
+          },
+        },
         orderBy: {
           createdAt: "desc",
         },

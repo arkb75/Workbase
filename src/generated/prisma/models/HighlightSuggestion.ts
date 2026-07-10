@@ -266,6 +266,7 @@ export type HighlightSuggestionWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"HighlightSuggestion"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   sourceHighlight?: Prisma.XOR<Prisma.HighlightScalarRelationFilter, Prisma.HighlightWhereInput>
+  agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
 }
 
 export type HighlightSuggestionOrderByWithRelationInput = {
@@ -284,6 +285,7 @@ export type HighlightSuggestionOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   sourceHighlight?: Prisma.HighlightOrderByWithRelationInput
+  agentRunCandidates?: Prisma.AgentRunCandidateOrderByRelationAggregateInput
 }
 
 export type HighlightSuggestionWhereUniqueInput = Prisma.AtLeast<{
@@ -305,6 +307,7 @@ export type HighlightSuggestionWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"HighlightSuggestion"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   sourceHighlight?: Prisma.XOR<Prisma.HighlightScalarRelationFilter, Prisma.HighlightWhereInput>
+  agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
 }, "id">
 
 export type HighlightSuggestionOrderByWithAggregationInput = {
@@ -361,6 +364,7 @@ export type HighlightSuggestionCreateInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightSuggestionsInput
   sourceHighlight: Prisma.HighlightCreateNestedOneWithoutSuggestionsInput
+  agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionUncheckedCreateInput = {
@@ -377,6 +381,7 @@ export type HighlightSuggestionUncheckedCreateInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionUpdateInput = {
@@ -393,6 +398,7 @@ export type HighlightSuggestionUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightSuggestionsNestedInput
   sourceHighlight?: Prisma.HighlightUpdateOneRequiredWithoutSuggestionsNestedInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionUncheckedUpdateInput = {
@@ -409,6 +415,7 @@ export type HighlightSuggestionUncheckedUpdateInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionCreateManyInput = {
@@ -515,6 +522,11 @@ export type HighlightSuggestionSumOrderByAggregateInput = {
   cosineDistance?: Prisma.SortOrder
 }
 
+export type HighlightSuggestionNullableScalarRelationFilter = {
+  is?: Prisma.HighlightSuggestionWhereInput | null
+  isNot?: Prisma.HighlightSuggestionWhereInput | null
+}
+
 export type HighlightSuggestionCreateNestedManyWithoutWorkItemInput = {
   create?: Prisma.XOR<Prisma.HighlightSuggestionCreateWithoutWorkItemInput, Prisma.HighlightSuggestionUncheckedCreateWithoutWorkItemInput> | Prisma.HighlightSuggestionCreateWithoutWorkItemInput[] | Prisma.HighlightSuggestionUncheckedCreateWithoutWorkItemInput[]
   connectOrCreate?: Prisma.HighlightSuggestionCreateOrConnectWithoutWorkItemInput | Prisma.HighlightSuggestionCreateOrConnectWithoutWorkItemInput[]
@@ -603,6 +615,22 @@ export type EnumHighlightSuggestionStatusFieldUpdateOperationsInput = {
   set?: $Enums.HighlightSuggestionStatus
 }
 
+export type HighlightSuggestionCreateNestedOneWithoutAgentRunCandidatesInput = {
+  create?: Prisma.XOR<Prisma.HighlightSuggestionCreateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedCreateWithoutAgentRunCandidatesInput>
+  connectOrCreate?: Prisma.HighlightSuggestionCreateOrConnectWithoutAgentRunCandidatesInput
+  connect?: Prisma.HighlightSuggestionWhereUniqueInput
+}
+
+export type HighlightSuggestionUpdateOneWithoutAgentRunCandidatesNestedInput = {
+  create?: Prisma.XOR<Prisma.HighlightSuggestionCreateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedCreateWithoutAgentRunCandidatesInput>
+  connectOrCreate?: Prisma.HighlightSuggestionCreateOrConnectWithoutAgentRunCandidatesInput
+  upsert?: Prisma.HighlightSuggestionUpsertWithoutAgentRunCandidatesInput
+  disconnect?: Prisma.HighlightSuggestionWhereInput | boolean
+  delete?: Prisma.HighlightSuggestionWhereInput | boolean
+  connect?: Prisma.HighlightSuggestionWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightSuggestionUpdateToOneWithWhereWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUpdateWithoutAgentRunCandidatesInput>, Prisma.HighlightSuggestionUncheckedUpdateWithoutAgentRunCandidatesInput>
+}
+
 export type HighlightSuggestionCreateWithoutWorkItemInput = {
   id?: string
   status?: $Enums.HighlightSuggestionStatus
@@ -616,6 +644,7 @@ export type HighlightSuggestionCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   sourceHighlight: Prisma.HighlightCreateNestedOneWithoutSuggestionsInput
+  agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionUncheckedCreateWithoutWorkItemInput = {
@@ -631,6 +660,7 @@ export type HighlightSuggestionUncheckedCreateWithoutWorkItemInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionCreateOrConnectWithoutWorkItemInput = {
@@ -691,6 +721,7 @@ export type HighlightSuggestionCreateWithoutSourceHighlightInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightSuggestionsInput
+  agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionUncheckedCreateWithoutSourceHighlightInput = {
@@ -706,6 +737,7 @@ export type HighlightSuggestionUncheckedCreateWithoutSourceHighlightInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightSuggestionInput
 }
 
 export type HighlightSuggestionCreateOrConnectWithoutSourceHighlightInput = {
@@ -732,6 +764,86 @@ export type HighlightSuggestionUpdateWithWhereUniqueWithoutSourceHighlightInput 
 export type HighlightSuggestionUpdateManyWithWhereWithoutSourceHighlightInput = {
   where: Prisma.HighlightSuggestionScalarWhereInput
   data: Prisma.XOR<Prisma.HighlightSuggestionUpdateManyMutationInput, Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightInput>
+}
+
+export type HighlightSuggestionCreateWithoutAgentRunCandidatesInput = {
+  id?: string
+  status?: $Enums.HighlightSuggestionStatus
+  suggestionType: string
+  currentSnapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  suggestedDraft: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  matchReason: string
+  cosineDistance?: number | null
+  sourceEvidenceIds: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutHighlightSuggestionsInput
+  sourceHighlight: Prisma.HighlightCreateNestedOneWithoutSuggestionsInput
+}
+
+export type HighlightSuggestionUncheckedCreateWithoutAgentRunCandidatesInput = {
+  id?: string
+  workItemId: string
+  sourceHighlightId: string
+  status?: $Enums.HighlightSuggestionStatus
+  suggestionType: string
+  currentSnapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  suggestedDraft: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  matchReason: string
+  cosineDistance?: number | null
+  sourceEvidenceIds: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type HighlightSuggestionCreateOrConnectWithoutAgentRunCandidatesInput = {
+  where: Prisma.HighlightSuggestionWhereUniqueInput
+  create: Prisma.XOR<Prisma.HighlightSuggestionCreateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedCreateWithoutAgentRunCandidatesInput>
+}
+
+export type HighlightSuggestionUpsertWithoutAgentRunCandidatesInput = {
+  update: Prisma.XOR<Prisma.HighlightSuggestionUpdateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedUpdateWithoutAgentRunCandidatesInput>
+  create: Prisma.XOR<Prisma.HighlightSuggestionCreateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedCreateWithoutAgentRunCandidatesInput>
+  where?: Prisma.HighlightSuggestionWhereInput
+}
+
+export type HighlightSuggestionUpdateToOneWithWhereWithoutAgentRunCandidatesInput = {
+  where?: Prisma.HighlightSuggestionWhereInput
+  data: Prisma.XOR<Prisma.HighlightSuggestionUpdateWithoutAgentRunCandidatesInput, Prisma.HighlightSuggestionUncheckedUpdateWithoutAgentRunCandidatesInput>
+}
+
+export type HighlightSuggestionUpdateWithoutAgentRunCandidatesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumHighlightSuggestionStatusFieldUpdateOperationsInput | $Enums.HighlightSuggestionStatus
+  suggestionType?: Prisma.StringFieldUpdateOperationsInput | string
+  currentSnapshot?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  suggestedDraft?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  matchReason?: Prisma.StringFieldUpdateOperationsInput | string
+  cosineDistance?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  sourceEvidenceIds?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightSuggestionsNestedInput
+  sourceHighlight?: Prisma.HighlightUpdateOneRequiredWithoutSuggestionsNestedInput
+}
+
+export type HighlightSuggestionUncheckedUpdateWithoutAgentRunCandidatesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceHighlightId?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumHighlightSuggestionStatusFieldUpdateOperationsInput | $Enums.HighlightSuggestionStatus
+  suggestionType?: Prisma.StringFieldUpdateOperationsInput | string
+  currentSnapshot?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  suggestedDraft?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  matchReason?: Prisma.StringFieldUpdateOperationsInput | string
+  cosineDistance?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  sourceEvidenceIds?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type HighlightSuggestionCreateManyWorkItemInput = {
@@ -762,6 +874,7 @@ export type HighlightSuggestionUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sourceHighlight?: Prisma.HighlightUpdateOneRequiredWithoutSuggestionsNestedInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionUncheckedUpdateWithoutWorkItemInput = {
@@ -777,6 +890,7 @@ export type HighlightSuggestionUncheckedUpdateWithoutWorkItemInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionUncheckedUpdateManyWithoutWorkItemInput = {
@@ -822,6 +936,7 @@ export type HighlightSuggestionUpdateWithoutSourceHighlightInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutHighlightSuggestionsNestedInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionUncheckedUpdateWithoutSourceHighlightInput = {
@@ -837,6 +952,7 @@ export type HighlightSuggestionUncheckedUpdateWithoutSourceHighlightInput = {
   generationRunIds?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightSuggestionNestedInput
 }
 
 export type HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightInput = {
@@ -855,6 +971,35 @@ export type HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightInput = 
 }
 
 
+/**
+ * Count Type HighlightSuggestionCountOutputType
+ */
+
+export type HighlightSuggestionCountOutputType = {
+  agentRunCandidates: number
+}
+
+export type HighlightSuggestionCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  agentRunCandidates?: boolean | HighlightSuggestionCountOutputTypeCountAgentRunCandidatesArgs
+}
+
+/**
+ * HighlightSuggestionCountOutputType without action
+ */
+export type HighlightSuggestionCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the HighlightSuggestionCountOutputType
+   */
+  select?: Prisma.HighlightSuggestionCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * HighlightSuggestionCountOutputType without action
+ */
+export type HighlightSuggestionCountOutputTypeCountAgentRunCandidatesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AgentRunCandidateWhereInput
+}
+
 
 export type HighlightSuggestionSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -872,6 +1017,8 @@ export type HighlightSuggestionSelect<ExtArgs extends runtime.Types.Extensions.I
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   sourceHighlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  agentRunCandidates?: boolean | Prisma.HighlightSuggestion$agentRunCandidatesArgs<ExtArgs>
+  _count?: boolean | Prisma.HighlightSuggestionCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["highlightSuggestion"]>
 
 export type HighlightSuggestionSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -930,6 +1077,8 @@ export type HighlightSuggestionOmit<ExtArgs extends runtime.Types.Extensions.Int
 export type HighlightSuggestionInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   sourceHighlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  agentRunCandidates?: boolean | Prisma.HighlightSuggestion$agentRunCandidatesArgs<ExtArgs>
+  _count?: boolean | Prisma.HighlightSuggestionCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type HighlightSuggestionIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -945,6 +1094,7 @@ export type $HighlightSuggestionPayload<ExtArgs extends runtime.Types.Extensions
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     sourceHighlight: Prisma.$HighlightPayload<ExtArgs>
+    agentRunCandidates: Prisma.$AgentRunCandidatePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1356,6 +1506,7 @@ export interface Prisma__HighlightSuggestionClient<T, Null = never, ExtArgs exte
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   sourceHighlight<T extends Prisma.HighlightDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.HighlightDefaultArgs<ExtArgs>>): Prisma.Prisma__HighlightClient<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  agentRunCandidates<T extends Prisma.HighlightSuggestion$agentRunCandidatesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.HighlightSuggestion$agentRunCandidatesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunCandidatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1796,6 +1947,30 @@ export type HighlightSuggestionDeleteManyArgs<ExtArgs extends runtime.Types.Exte
    * Limit how many HighlightSuggestions to delete.
    */
   limit?: number
+}
+
+/**
+ * HighlightSuggestion.agentRunCandidates
+ */
+export type HighlightSuggestion$agentRunCandidatesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AgentRunCandidate
+   */
+  select?: Prisma.AgentRunCandidateSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AgentRunCandidate
+   */
+  omit?: Prisma.AgentRunCandidateOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AgentRunCandidateInclude<ExtArgs> | null
+  where?: Prisma.AgentRunCandidateWhereInput
+  orderBy?: Prisma.AgentRunCandidateOrderByWithRelationInput | Prisma.AgentRunCandidateOrderByWithRelationInput[]
+  cursor?: Prisma.AgentRunCandidateWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AgentRunCandidateScalarFieldEnum | Prisma.AgentRunCandidateScalarFieldEnum[]
 }
 
 /**

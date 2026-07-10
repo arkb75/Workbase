@@ -38,7 +38,8 @@ export type WorkItemType = (typeof WorkItemType)[keyof typeof WorkItemType]
 
 export const SourceType = {
   manual_note: 'manual_note',
-  github_repo: 'github_repo'
+  github_repo: 'github_repo',
+  chat_context: 'chat_context'
 } as const
 
 export type SourceType = (typeof SourceType)[keyof typeof SourceType]
@@ -50,7 +51,9 @@ export const EvidenceItemType = {
   github_commit: 'github_commit',
   github_pull_request: 'github_pull_request',
   github_issue: 'github_issue',
-  github_release: 'github_release'
+  github_release: 'github_release',
+  chat_user_statement: 'chat_user_statement',
+  github_file_excerpt: 'github_file_excerpt'
 } as const
 
 export type EvidenceItemType = (typeof EvidenceItemType)[keyof typeof EvidenceItemType]
@@ -165,3 +168,84 @@ export const HighlightSuggestionStatus = {
 } as const
 
 export type HighlightSuggestionStatus = (typeof HighlightSuggestionStatus)[keyof typeof HighlightSuggestionStatus]
+
+
+export const ChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant'
+} as const
+
+export type ChatMessageRole = (typeof ChatMessageRole)[keyof typeof ChatMessageRole]
+
+
+export const ChatMessageStatus = {
+  queued: 'queued',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled'
+} as const
+
+export type ChatMessageStatus = (typeof ChatMessageStatus)[keyof typeof ChatMessageStatus]
+
+
+export const ChatCitationKind = {
+  highlight: 'highlight',
+  evidence: 'evidence',
+  artifact: 'artifact',
+  github_file: 'github_file'
+} as const
+
+export type ChatCitationKind = (typeof ChatCitationKind)[keyof typeof ChatCitationKind]
+
+
+export const AgentRunKind = {
+  chat_turn: 'chat_turn',
+  project_research: 'project_research',
+  artifact_workflow: 'artifact_workflow'
+} as const
+
+export type AgentRunKind = (typeof AgentRunKind)[keyof typeof AgentRunKind]
+
+
+export const AgentRunStatus = {
+  queued: 'queued',
+  running: 'running',
+  awaiting_review: 'awaiting_review',
+  completed: 'completed',
+  insufficient_context: 'insufficient_context',
+  failed: 'failed',
+  cancelled: 'cancelled'
+} as const
+
+export type AgentRunStatus = (typeof AgentRunStatus)[keyof typeof AgentRunStatus]
+
+
+export const AgentRunEventType = {
+  progress: 'progress',
+  tool_call: 'tool_call',
+  tool_result: 'tool_result',
+  status_change: 'status_change',
+  warning: 'warning',
+  error: 'error'
+} as const
+
+export type AgentRunEventType = (typeof AgentRunEventType)[keyof typeof AgentRunEventType]
+
+
+export const AgentRunCandidateKind = {
+  new_highlight: 'new_highlight',
+  highlight_revision: 'highlight_revision'
+} as const
+
+export type AgentRunCandidateKind = (typeof AgentRunCandidateKind)[keyof typeof AgentRunCandidateKind]
+
+
+export const AgentRunCandidateStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  edited_and_approved: 'edited_and_approved',
+  denied: 'denied'
+} as const
+
+export type AgentRunCandidateStatus = (typeof AgentRunCandidateStatus)[keyof typeof AgentRunCandidateStatus]

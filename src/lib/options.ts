@@ -31,6 +31,7 @@ export type WorkItemType = (typeof workItemTypeOptions)[number]["value"];
 export const sourceTypeOptions = [
   { value: "manual_note", label: "Manual note" },
   { value: "github_repo", label: "GitHub repo" },
+  { value: "chat_context", label: "Chat context" },
 ] as const;
 
 export type SourceType = (typeof sourceTypeOptions)[number]["value"];
@@ -42,6 +43,8 @@ export const evidenceItemTypeOptions = [
   { value: "github_pull_request", label: "Pull request" },
   { value: "github_issue", label: "Issue" },
   { value: "github_release", label: "Release" },
+  { value: "chat_user_statement", label: "Self-reported chat context" },
+  { value: "github_file_excerpt", label: "Repository file excerpt" },
 ] as const;
 
 export type EvidenceItemType =

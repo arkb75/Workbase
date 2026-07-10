@@ -82,6 +82,11 @@ export type Highlight = Prisma.HighlightModel
  */
 export type HighlightEmbedding = Prisma.HighlightEmbeddingModel
 /**
+ * Model EvidenceEmbedding
+ * 
+ */
+export type EvidenceEmbedding = Prisma.EvidenceEmbeddingModel
+/**
  * Model HighlightSuggestion
  * 
  */
@@ -101,6 +106,51 @@ export type HighlightTag = Prisma.HighlightTagModel
  * 
  */
 export type Artifact = Prisma.ArtifactModel
+/**
+ * Model ArtifactEmbedding
+ * 
+ */
+export type ArtifactEmbedding = Prisma.ArtifactEmbeddingModel
+/**
+ * Model ArtifactHighlightProvenance
+ * 
+ */
+export type ArtifactHighlightProvenance = Prisma.ArtifactHighlightProvenanceModel
+/**
+ * Model ArtifactEvidenceProvenance
+ * 
+ */
+export type ArtifactEvidenceProvenance = Prisma.ArtifactEvidenceProvenanceModel
+/**
+ * Model ChatThread
+ * 
+ */
+export type ChatThread = Prisma.ChatThreadModel
+/**
+ * Model ChatMessage
+ * 
+ */
+export type ChatMessage = Prisma.ChatMessageModel
+/**
+ * Model ChatCitation
+ * 
+ */
+export type ChatCitation = Prisma.ChatCitationModel
+/**
+ * Model AgentRun
+ * 
+ */
+export type AgentRun = Prisma.AgentRunModel
+/**
+ * Model AgentRunEvent
+ * 
+ */
+export type AgentRunEvent = Prisma.AgentRunEventModel
+/**
+ * Model AgentRunCandidate
+ * 
+ */
+export type AgentRunCandidate = Prisma.AgentRunCandidateModel
 /**
  * Model GenerationRun
  * 

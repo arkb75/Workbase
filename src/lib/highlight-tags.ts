@@ -81,14 +81,16 @@ export function buildEvidenceSearchText(params: {
 export function inferEvidenceTags(params: {
   title: string;
   content: string;
-  sourceType: "manual_note" | "github_repo";
+  sourceType: "manual_note" | "github_repo" | "chat_context";
   evidenceType:
     | "manual_note_excerpt"
     | "github_readme"
     | "github_commit"
     | "github_pull_request"
     | "github_issue"
-    | "github_release";
+    | "github_release"
+    | "chat_user_statement"
+    | "github_file_excerpt";
 }) {
   const content = normalizeWhitespace(
     [params.title, params.content, params.sourceType, params.evidenceType].join(" ").toLowerCase(),

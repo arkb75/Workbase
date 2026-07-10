@@ -97,6 +97,12 @@ describe("workbase workflow", () => {
           highlights: [approvedHighlight],
           supportingEvidence: evidenceItems.slice(0, 2),
           generationRunId: null,
+          adequacy: {
+            status: "sufficient",
+            score: 1,
+            reasons: ["Fixture has approved context."],
+            coverageGaps: [],
+          },
         };
       },
     };
@@ -224,13 +230,13 @@ describe("workbase workflow", () => {
     expect(researchEvidenceIds).toEqual(evidenceItems.map((item) => item.id));
   });
 
-  it("falls back to request-scoped unreviewed highlights when no approved highlights are retrievable", async () => {
+  it("never uses unreviewed highlights when no approved highlights are retrievable", async () => {
     const workItem: WorkItemSnapshot = {
       id: "work-item-3",
       userId: "user-1",
-      title: "Fallback artifact flow",
+      title: "Approval-gated artifact flow",
       type: "project",
-      description: "Generate request-specific highlights if nothing is approved yet.",
+      description: "Require reviewed highlights before generating public artifacts.",
       startDate: null,
       endDate: null,
     };
@@ -275,6 +281,12 @@ describe("workbase workflow", () => {
           highlights: [],
           supportingEvidence: [],
           generationRunId: null,
+          adequacy: {
+            status: "needs_research",
+            score: 0,
+            reasons: [],
+            coverageGaps: ["No approved context."],
+          },
         };
       },
     };
@@ -297,9 +309,8 @@ describe("workbase workflow", () => {
       claimVerificationService,
     });
 
-    expect(artifact.fallback?.highlights.length).toBeGreaterThan(0);
-    expect(artifact.fallback?.note).toContain("not previously reviewed or approved");
-    expect(artifact.artifactDraft).not.toBeNull();
-    expect(artifact.artifactDraft?.usedHighlightIds[0]).toMatch(/^fallback-highlight-/);
+    expect(artifact.fallback).toBeNull();
+    expect(artifact.artifactDraft).toBeNull();
+    expect(artifact.retrieval.highlights).toEqual([]);
   });
 });

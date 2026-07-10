@@ -51,12 +51,21 @@ describe("evidence persistence", () => {
         id: "existing-1",
         sourceId: "source-1",
         externalId: "commit:sha-1",
+        type: "github_commit",
         included: false,
       },
       {
         id: "existing-2",
         sourceId: "source-1",
         externalId: "commit:old-sha",
+        type: "github_commit",
+        included: true,
+      },
+      {
+        id: "promoted-excerpt-1",
+        sourceId: "source-1",
+        externalId: "file:sha:path:1:10:hash",
+        type: "github_file_excerpt",
         included: true,
       },
     ]);
@@ -108,6 +117,9 @@ describe("evidence persistence", () => {
     expect(prismaMock.evidenceItem.deleteMany).toHaveBeenCalledWith({
       where: {
         sourceId: "source-1",
+        id: {
+          notIn: ["promoted-excerpt-1"],
+        },
         externalId: {
           notIn: ["commit:sha-1", "pull:12"],
         },

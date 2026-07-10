@@ -63,7 +63,7 @@ export function readResearchRefEvidenceItemId(
         evidenceItemId?: string;
         sourceId: string;
         sourceLabel: string;
-        sourceType: "manual_note" | "github_repo";
+        sourceType: "manual_note" | "github_repo" | "chat_context";
         title?: string;
         excerpt: string;
       }
@@ -93,7 +93,7 @@ export function readResearchRefSourceId(
         evidenceItemId?: string;
         sourceId: string;
         sourceLabel: string;
-        sourceType: "manual_note" | "github_repo";
+        sourceType: "manual_note" | "github_repo" | "chat_context";
         title?: string;
         excerpt: string;
       }
@@ -131,7 +131,7 @@ export function normalizeResearchDrafts(
             evidenceItemId?: string;
             sourceId: string;
             sourceLabel: string;
-            sourceType: "manual_note" | "github_repo";
+            sourceType: "manual_note" | "github_repo" | "chat_context";
             title?: string;
             excerpt: string;
           }
@@ -155,7 +155,7 @@ export function normalizeResearchDrafts(
             evidenceItemId?: string;
             sourceId: string;
             sourceLabel: string;
-            sourceType: "manual_note" | "github_repo";
+            sourceType: "manual_note" | "github_repo" | "chat_context";
             title?: string;
             excerpt: string;
           }

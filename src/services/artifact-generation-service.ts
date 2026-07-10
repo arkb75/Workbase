@@ -108,11 +108,23 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
             type: request.type,
             targetAngle: request.targetAngle,
             tone: request.tone,
+            brief: request.brief ?? null,
           },
           null,
           2,
         ),
       },
+      ...(request.brief
+        ? [
+            {
+              tag: "request_brief",
+              content: [
+                request.brief,
+                "Follow this brief only where the approved highlights and cited evidence support it.",
+              ].join("\n"),
+            },
+          ]
+        : []),
       {
         tag: "approved_highlights",
         content: JSON.stringify(

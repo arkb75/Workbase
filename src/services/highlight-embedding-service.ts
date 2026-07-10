@@ -9,6 +9,18 @@ import { normalizeWhitespace } from "@/src/lib/utils";
 
 export const HIGHLIGHT_EMBEDDING_DIMENSIONS = 512;
 
+export function resolveCurrentHighlightEmbeddingIdentity() {
+  if (resolveWorkbaseLlmProvider() === "mock") {
+    return {
+      modelId: "mock-titan-embed-text-v2",
+      dimensions: HIGHLIGHT_EMBEDDING_DIMENSIONS,
+    };
+  }
+
+  const config = resolveBedrockEmbeddingConfig();
+  return { modelId: config.modelId, dimensions: config.dimensions };
+}
+
 type EmbeddableHighlight = Pick<
   ClaimDraft | ClaimSnapshot,
   "text" | "summary" | "verificationNotes" | "tags" | "evidence"
@@ -188,21 +200,25 @@ export async function ensureHighlightEmbeddings(
     ]),
   );
   const existingRows = await prisma.$queryRaw<
-    Array<{ highlightId: string; inputHash: string }>
+    Array<{ highlightId: string; inputHash: string; modelId: string; dimensions: number }>
   >(Prisma.sql`
-    SELECT "highlightId", "inputHash"
+    SELECT "highlightId", "inputHash", "modelId", "dimensions"
     FROM "HighlightEmbedding"
     WHERE "highlightId" IN (${Prisma.join(highlights.map((highlight) => highlight.id))})
   `);
-  const existingHashByHighlightId = new Map(
-    existingRows.map((row) => [row.highlightId, row.inputHash]),
-  );
+  const existingByHighlightId = new Map(existingRows.map((row) => [row.highlightId, row]));
+  const expectedIdentity = resolveCurrentHighlightEmbeddingIdentity();
 
   for (const highlight of highlights) {
     const inputText = inputByHighlightId.get(highlight.id) ?? "";
     const nextHash = hashEmbeddingInput(inputText);
 
-    if (existingHashByHighlightId.get(highlight.id) === nextHash) {
+    const existing = existingByHighlightId.get(highlight.id);
+    if (
+      existing?.inputHash === nextHash &&
+      existing.modelId === expectedIdentity.modelId &&
+      existing.dimensions === expectedIdentity.dimensions
+    ) {
       continue;
     }
 

@@ -102,7 +102,7 @@ function inferMissingInfo(text: string) {
 function createClaimDraft(params: {
   sourceId: string;
   sourceLabel: string;
-  sourceType: "manual_note" | "github_repo";
+  sourceType: "manual_note" | "github_repo" | "chat_context";
   claimText: string;
   supportingExcerpt: string;
 }): HighlightDraft {

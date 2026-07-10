@@ -14,14 +14,16 @@ type EvidenceItemWrite = {
   workItemId: string;
   sourceId: string;
   externalId: string;
-  sourceType?: "manual_note" | "github_repo";
+  sourceType?: "manual_note" | "github_repo" | "chat_context";
   type:
     | "manual_note_excerpt"
     | "github_readme"
     | "github_commit"
     | "github_pull_request"
     | "github_issue"
-    | "github_release";
+    | "github_release"
+    | "chat_user_statement"
+    | "github_file_excerpt";
   title: string;
   content: string;
   searchText?: string;
@@ -73,12 +75,16 @@ export async function upsertEvidenceItemsForSource(
     existingItems.map((item) => [item.externalId, item]),
   );
   const nextExternalIds = evidenceItems.map((item) => item.externalId);
+  const promotedExcerptIds = existingItems
+    .filter((item) => item.type === "github_file_excerpt")
+    .map((item) => item.id);
   const persistedItems: PersistedEvidenceItemWriteResult[] = [];
 
   if (existingItems.length) {
     await prisma.evidenceItem.deleteMany({
       where: {
         sourceId,
+        id: { notIn: promotedExcerptIds.length ? promotedExcerptIds : [""] },
         externalId: {
           notIn: nextExternalIds.length ? nextExternalIds : [""],
         },

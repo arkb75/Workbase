@@ -59,10 +59,20 @@ export const ModelName = {
   EvidenceTag: 'EvidenceTag',
   Highlight: 'Highlight',
   HighlightEmbedding: 'HighlightEmbedding',
+  EvidenceEmbedding: 'EvidenceEmbedding',
   HighlightSuggestion: 'HighlightSuggestion',
   HighlightEvidence: 'HighlightEvidence',
   HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
+  ArtifactEmbedding: 'ArtifactEmbedding',
+  ArtifactHighlightProvenance: 'ArtifactHighlightProvenance',
+  ArtifactEvidenceProvenance: 'ArtifactEvidenceProvenance',
+  ChatThread: 'ChatThread',
+  ChatMessage: 'ChatMessage',
+  ChatCitation: 'ChatCitation',
+  AgentRun: 'AgentRun',
+  AgentRunEvent: 'AgentRunEvent',
+  AgentRunCandidate: 'AgentRunCandidate',
   GenerationRun: 'GenerationRun'
 } as const
 
@@ -209,6 +219,20 @@ export const HighlightEmbeddingScalarFieldEnum = {
 export type HighlightEmbeddingScalarFieldEnum = (typeof HighlightEmbeddingScalarFieldEnum)[keyof typeof HighlightEmbeddingScalarFieldEnum]
 
 
+export const EvidenceEmbeddingScalarFieldEnum = {
+  id: 'id',
+  evidenceItemId: 'evidenceItemId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EvidenceEmbeddingScalarFieldEnum = (typeof EvidenceEmbeddingScalarFieldEnum)[keyof typeof EvidenceEmbeddingScalarFieldEnum]
+
+
 export const HighlightSuggestionScalarFieldEnum = {
   id: 'id',
   workItemId: 'workItemId',
@@ -255,15 +279,172 @@ export const ArtifactScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
   workItemId: 'workItemId',
+  originatingAgentRunId: 'originatingAgentRunId',
   type: 'type',
   targetAngle: 'targetAngle',
   tone: 'tone',
+  requestBrief: 'requestBrief',
   content: 'content',
+  searchText: 'searchText',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type ArtifactScalarFieldEnum = (typeof ArtifactScalarFieldEnum)[keyof typeof ArtifactScalarFieldEnum]
+
+
+export const ArtifactEmbeddingScalarFieldEnum = {
+  id: 'id',
+  artifactId: 'artifactId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ArtifactEmbeddingScalarFieldEnum = (typeof ArtifactEmbeddingScalarFieldEnum)[keyof typeof ArtifactEmbeddingScalarFieldEnum]
+
+
+export const ArtifactHighlightProvenanceScalarFieldEnum = {
+  id: 'id',
+  artifactId: 'artifactId',
+  highlightId: 'highlightId',
+  highlightSnapshot: 'highlightSnapshot',
+  rank: 'rank',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type ArtifactHighlightProvenanceScalarFieldEnum = (typeof ArtifactHighlightProvenanceScalarFieldEnum)[keyof typeof ArtifactHighlightProvenanceScalarFieldEnum]
+
+
+export const ArtifactEvidenceProvenanceScalarFieldEnum = {
+  id: 'id',
+  artifactId: 'artifactId',
+  evidenceItemId: 'evidenceItemId',
+  evidenceSnapshot: 'evidenceSnapshot',
+  rank: 'rank',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type ArtifactEvidenceProvenanceScalarFieldEnum = (typeof ArtifactEvidenceProvenanceScalarFieldEnum)[keyof typeof ArtifactEvidenceProvenanceScalarFieldEnum]
+
+
+export const ChatThreadScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  workItemId: 'workItemId',
+  title: 'title',
+  rollingSummary: 'rollingSummary',
+  archivedAt: 'archivedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ChatThreadScalarFieldEnum = (typeof ChatThreadScalarFieldEnum)[keyof typeof ChatThreadScalarFieldEnum]
+
+
+export const ChatMessageScalarFieldEnum = {
+  id: 'id',
+  threadId: 'threadId',
+  agentRunId: 'agentRunId',
+  sequence: 'sequence',
+  role: 'role',
+  status: 'status',
+  content: 'content',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ChatMessageScalarFieldEnum = (typeof ChatMessageScalarFieldEnum)[keyof typeof ChatMessageScalarFieldEnum]
+
+
+export const ChatCitationScalarFieldEnum = {
+  id: 'id',
+  messageId: 'messageId',
+  kind: 'kind',
+  ordinal: 'ordinal',
+  highlightId: 'highlightId',
+  evidenceItemId: 'evidenceItemId',
+  artifactId: 'artifactId',
+  sourceId: 'sourceId',
+  label: 'label',
+  excerpt: 'excerpt',
+  immutableUrl: 'immutableUrl',
+  repository: 'repository',
+  commitSha: 'commitSha',
+  blobSha: 'blobSha',
+  path: 'path',
+  startLine: 'startLine',
+  endLine: 'endLine',
+  contentHash: 'contentHash',
+  metadata: 'metadata',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatCitationScalarFieldEnum = (typeof ChatCitationScalarFieldEnum)[keyof typeof ChatCitationScalarFieldEnum]
+
+
+export const AgentRunScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  workItemId: 'workItemId',
+  threadId: 'threadId',
+  parentRunId: 'parentRunId',
+  workflowId: 'workflowId',
+  idempotencyKey: 'idempotencyKey',
+  kind: 'kind',
+  status: 'status',
+  request: 'request',
+  attemptNumber: 'attemptNumber',
+  result: 'result',
+  error: 'error',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type AgentRunScalarFieldEnum = (typeof AgentRunScalarFieldEnum)[keyof typeof AgentRunScalarFieldEnum]
+
+
+export const AgentRunEventScalarFieldEnum = {
+  id: 'id',
+  agentRunId: 'agentRunId',
+  sequence: 'sequence',
+  type: 'type',
+  message: 'message',
+  toolName: 'toolName',
+  payload: 'payload',
+  isUserVisible: 'isUserVisible',
+  createdAt: 'createdAt'
+} as const
+
+export type AgentRunEventScalarFieldEnum = (typeof AgentRunEventScalarFieldEnum)[keyof typeof AgentRunEventScalarFieldEnum]
+
+
+export const AgentRunCandidateScalarFieldEnum = {
+  id: 'id',
+  agentRunId: 'agentRunId',
+  highlightId: 'highlightId',
+  highlightSuggestionId: 'highlightSuggestionId',
+  kind: 'kind',
+  status: 'status',
+  batchNumber: 'batchNumber',
+  ordinal: 'ordinal',
+  snapshot: 'snapshot',
+  editedText: 'editedText',
+  feedback: 'feedback',
+  reviewedAt: 'reviewedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type AgentRunCandidateScalarFieldEnum = (typeof AgentRunCandidateScalarFieldEnum)[keyof typeof AgentRunCandidateScalarFieldEnum]
 
 
 export const GenerationRunScalarFieldEnum = {

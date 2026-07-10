@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { fromIni } from "@aws-sdk/credential-providers";
 
 function runAwsJson(args: string[]) {
   return JSON.parse(
@@ -40,31 +42,67 @@ const matchingProfile = availableProfiles.find((profileSummary) => {
   );
 }) as { inferenceProfileId?: string; inferenceProfileName?: string } | undefined;
 
-if (!matchingProfile?.inferenceProfileId) {
-  console.error(
-    `Bedrock preflight failed. ${preferredModelId} is not visible in ${region} for profile ${profile}.`,
+async function main() {
+  if (!matchingProfile?.inferenceProfileId) {
+    throw new Error(
+      `${preferredModelId} is not visible in ${region} for profile ${profile}.`,
+    );
+  }
+
+  const runtime = new BedrockRuntimeClient({
+    region,
+    credentials: fromIni({ profile }),
+  });
+  const converse = await runtime.send(
+    new ConverseCommand({
+      modelId: matchingProfile.inferenceProfileId,
+      messages: [{ role: "user", content: [{ text: "Run the capability check." }] }],
+      inferenceConfig: { maxTokens: 32, temperature: 0 },
+      toolConfig: {
+        tools: [
+          {
+            toolSpec: {
+              name: "workbase_capability_check",
+              description: "Return a successful tool-use capability check.",
+              inputSchema: { json: { type: "object", properties: {} } },
+            },
+          },
+        ],
+        toolChoice: { tool: { name: "workbase_capability_check" } },
+      },
+    }),
   );
-  process.exit(1);
+  const supportsToolUse = converse.output?.message?.content?.some((block) => "toolUse" in block);
+  if (!supportsToolUse) {
+    throw new Error("The configured Bedrock model did not return a Converse tool-use block.");
+  }
+
+  console.info("Bedrock preflight passed, including Converse tool use.");
+  console.info(
+    JSON.stringify(
+      {
+        account: identity.Account,
+        arn: identity.Arn,
+        profile,
+        region,
+        modelId: matchingProfile.inferenceProfileId,
+        modelName: matchingProfile.inferenceProfileName ?? null,
+      },
+      null,
+      2,
+    ),
+  );
+  console.info("");
+  console.info("Suggested local env:");
+  console.info(`WORKBASE_LLM_PROVIDER="bedrock"`);
+  console.info(`WORKBASE_AWS_PROFILE="${profile}"`);
+  console.info(`WORKBASE_BEDROCK_REGION="${region}"`);
+  console.info(`WORKBASE_BEDROCK_MODEL_ID="${matchingProfile.inferenceProfileId}"`);
 }
 
-console.info("Bedrock preflight passed.");
-console.info(
-  JSON.stringify(
-    {
-      account: identity.Account,
-      arn: identity.Arn,
-      profile,
-      region,
-      modelId: matchingProfile.inferenceProfileId,
-      modelName: matchingProfile.inferenceProfileName ?? null,
-    },
-    null,
-    2,
-  ),
-);
-console.info("");
-console.info("Suggested local env:");
-console.info(`WORKBASE_LLM_PROVIDER="bedrock"`);
-console.info(`WORKBASE_AWS_PROFILE="${profile}"`);
-console.info(`WORKBASE_BEDROCK_REGION="${region}"`);
-console.info(`WORKBASE_BEDROCK_MODEL_ID="${matchingProfile.inferenceProfileId}"`);
+main().catch((error) => {
+  console.error(
+    `Bedrock preflight failed. ${error instanceof Error ? error.message : "Unknown error"}`,
+  );
+  process.exit(1);
+});

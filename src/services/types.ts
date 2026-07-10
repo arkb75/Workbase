@@ -9,6 +9,14 @@ import type {
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
+import type {
+  ArtifactWorkflowState,
+  ProjectKnowledgePurpose,
+  ProjectKnowledgeResult,
+  ProjectResearchPurpose,
+  ProjectResearchResult,
+} from "@/src/domain/project-chat";
+import type { BedrockConverseAgentEvent } from "@/src/lib/bedrock-converse-agent";
 
 export interface SourceIngestionService {
   normalize(input: {
@@ -62,6 +70,12 @@ export interface HighlightRetrievalService {
     highlights: HighlightSnapshot[];
     supportingEvidence: EvidenceItemSnapshot[];
     generationRunId: string | null;
+    adequacy: {
+      status: "sufficient" | "needs_research";
+      score: number;
+      reasons: string[];
+      coverageGaps: string[];
+    };
   }>;
 }
 
@@ -114,5 +128,58 @@ export interface GitHubRepoImportService {
       importedAt: string;
       counts: Record<string, number>;
     };
+  }>;
+}
+
+export interface ProjectKnowledgeRetrievalService {
+  retrieve(input: {
+    userId: string;
+    workItemId: string;
+    query: string;
+    purpose: ProjectKnowledgePurpose;
+    limits?: {
+      highlights?: number;
+      evidence?: number;
+      artifacts?: number;
+    };
+  }): Promise<ProjectKnowledgeResult>;
+}
+
+export interface ProjectResearchService {
+  research(input: {
+    userId: string;
+    workItemId: string;
+    question: string;
+    purpose: ProjectResearchPurpose;
+    hints?: string[];
+    onAgentEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
+  }): Promise<ProjectResearchResult>;
+}
+
+export interface ArtifactWorkflowService {
+  start(input: {
+    userId: string;
+    workItemId: string;
+    threadId?: string | null;
+    brief: string;
+    idempotencyKey: string;
+  }): Promise<ArtifactWorkflowState>;
+}
+
+export interface CandidateReviewService {
+  resolve(input: {
+    userId: string;
+    candidateId: string;
+    decision: "approve" | "deny";
+    editedText?: string | null;
+    feedback?: string | null;
+    visibility?: "private" | "resume_safe" | "linkedin_safe" | "public_safe" | null;
+    sensitivityFlag?: boolean | null;
+    reviewNotes?: string | null;
+    idempotencyKey: string;
+  }): Promise<{
+    candidateId: string;
+    status: "approved" | "denied";
+    resumedRunId: string | null;
   }>;
 }

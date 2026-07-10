@@ -3,9 +3,13 @@ import { prisma } from "@/src/lib/prisma";
 import { decryptString } from "@/src/lib/encryption";
 import { resolveGitHubConfig } from "@/src/lib/github-config";
 import {
+  githubCodeSearchSchema,
   githubCommitDetailSchema,
+  githubCommitResolutionSchema,
   githubCommitListItemSchema,
   githubContentFileSchema,
+  githubGitBlobSchema,
+  githubGitTreeSchema,
   githubIssueSchema,
   githubPullRequestFileSchema,
   githubPullRequestSchema,
@@ -18,6 +22,7 @@ import type { GitHubRepositorySummary } from "@/src/services/types";
 const defaultHeaders = {
   Accept: "application/vnd.github+json",
   "User-Agent": "Workbase Prototype",
+  "X-GitHub-Api-Version": "2022-11-28",
 } as const;
 
 function mapRepositorySummary(
@@ -58,6 +63,12 @@ async function fetchJson<T>({
   });
 
   if (!response.ok) {
+    const remaining = response.headers.get("x-ratelimit-remaining");
+    const reset = response.headers.get("x-ratelimit-reset");
+    if (response.status === 429 || (response.status === 403 && remaining === "0")) {
+      const resetAt = reset ? new Date(Number(reset) * 1_000).toISOString() : "unknown";
+      throw new Error(`GitHub API rate limit exceeded for ${path}; reset at ${resetAt}.`);
+    }
     throw new Error(`GitHub API request failed (${response.status}) for ${path}`);
   }
 
@@ -201,6 +212,89 @@ export async function fetchGitHubCommitChangedFiles(input: {
   });
 
   return (commit.files ?? []).map((file) => file.filename);
+}
+
+export async function resolveGitHubCommit(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  signal?: AbortSignal;
+}) {
+  return fetchJson({
+    path: `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+      input.repo,
+    )}/commits/${encodeURIComponent(input.ref)}`,
+    token: input.token,
+    schema: githubCommitResolutionSchema,
+    init: {
+      signal: input.signal,
+    },
+  });
+}
+
+export async function fetchGitHubTree(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  treeSha: string;
+  recursive?: boolean;
+  signal?: AbortSignal;
+}) {
+  return fetchJson({
+    path: `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+      input.repo,
+    )}/git/trees/${encodeURIComponent(input.treeSha)}${
+      input.recursive ? "?recursive=1" : ""
+    }`,
+    token: input.token,
+    schema: githubGitTreeSchema,
+    init: {
+      signal: input.signal,
+    },
+  });
+}
+
+export async function searchGitHubCode(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  query: string;
+  perPage: number;
+  signal?: AbortSignal;
+}) {
+  const scopedQuery = `${input.query} repo:${input.owner}/${input.repo}`;
+
+  return fetchJson({
+    path: `/search/code?q=${encodeURIComponent(scopedQuery)}&per_page=${Math.min(
+      Math.max(input.perPage, 1),
+      100,
+    )}`,
+    token: input.token,
+    schema: githubCodeSearchSchema,
+    init: {
+      signal: input.signal,
+    },
+  });
+}
+
+export async function fetchGitHubBlob(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  blobSha: string;
+  signal?: AbortSignal;
+}) {
+  return fetchJson({
+    path: `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+      input.repo,
+    )}/git/blobs/${encodeURIComponent(input.blobSha)}`,
+    token: input.token,
+    schema: githubGitBlobSchema,
+    init: {
+      signal: input.signal,
+    },
+  });
 }
 
 export async function fetchGitHubPullRequests(input: {

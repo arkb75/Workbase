@@ -14,6 +14,79 @@ import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import type { HighlightRetrievalService } from "@/src/services/types";
 
+const genericBriefTerms = new Set([
+  "write", "generate", "create", "artifact", "resume", "bullet", "bullets",
+  "linkedin", "experience", "project", "summary", "concise", "technical",
+  "recruiter", "friendly", "tone", "angle", "emphasizing", "emphasize",
+  "using", "from", "with", "that", "this", "three", "some", "general",
+  "backend", "full", "stack", "data", "engineering", "ai", "ml",
+]);
+
+function assessContextAdequacy(input: {
+  request: ArtifactRequest;
+  highlights: ClaimSnapshot[];
+}) {
+  if (!input.highlights.length) {
+    return {
+      status: "needs_research" as const,
+      score: 0,
+      reasons: [],
+      coverageGaps: ["No approved, visibility-compatible highlight is available."],
+    };
+  }
+
+  const briefTerms = Array.from(
+    new Set(
+      normalizeWhitespace(input.request.brief ?? "")
+        .toLowerCase()
+        .split(/[^a-z0-9_/-]+/)
+        .filter((term) => term.length > 2 && !genericBriefTerms.has(term)),
+    ),
+  ).slice(0, 24);
+  const corpus = input.highlights
+    .map((highlight) =>
+      [
+        highlight.text,
+        highlight.summary,
+        highlight.tags.map((tag) => tag.tag).join(" "),
+      ].join(" ").toLowerCase(),
+    )
+    .join(" ");
+  const coveredTerms = briefTerms.filter((term) => corpus.includes(term));
+  const coverageRatio = briefTerms.length ? coveredTerms.length / briefTerms.length : 1;
+  const angleCovered =
+    input.request.targetAngle === "general" ||
+    input.highlights.some((highlight) =>
+      highlight.tags.some(
+        (tag) => tag.dimension === "domain" && tag.tag === input.request.targetAngle,
+      ),
+    );
+  const minimumCoverage = briefTerms.length <= 2 ? 0.5 : 0.3;
+  const sufficient = coverageRatio >= minimumCoverage && angleCovered;
+  const coverageGaps = [
+    ...(!angleCovered
+      ? [`No approved highlight supports the ${input.request.targetAngle.replace(/_/g, " ")} angle.`]
+      : []),
+    ...(coverageRatio < minimumCoverage
+      ? [
+          `Approved highlights cover ${coveredTerms.length} of ${briefTerms.length} specific brief terms.`,
+        ]
+      : []),
+  ];
+
+  return {
+    status: sufficient ? ("sufficient" as const) : ("needs_research" as const),
+    score: Number(((coverageRatio * 0.7 + (angleCovered ? 0.3 : 0)).toFixed(4))),
+    reasons: [
+      `${input.highlights.length} approved highlight${input.highlights.length === 1 ? "" : "s"} passed visibility checks.`,
+      `${coveredTerms.length}/${briefTerms.length || 0} specific brief terms are grounded.`,
+    ],
+    coverageGaps,
+  };
+}
+
+export const artifactContextAdequacy = assessContextAdequacy;
+
 function buildArtifactQueryText(params: {
   workItem: WorkItemSnapshot;
   request: ArtifactRequest;
@@ -33,6 +106,7 @@ function buildArtifactQueryText(params: {
       params.request.type.replace(/_/g, " "),
       params.request.targetAngle.replace(/_/g, " "),
       params.request.tone.replace(/_/g, " "),
+      params.request.brief ?? "",
       ...targetAngleTerms,
       ...toneTerms,
     ].join(" "),
@@ -143,7 +217,7 @@ function selectSupportingEvidence(params: {
       if (ref.evidenceItemId) {
         const evidenceItem = evidenceById.get(ref.evidenceItemId);
 
-        if (evidenceItem) {
+        if (evidenceItem?.included) {
           supporting.set(evidenceItem.id, evidenceItem);
           if (evidenceItem.parentKey) {
             parentKeys.add(`${evidenceItem.parentKind ?? "parent"}:${evidenceItem.parentKey}`);
@@ -222,6 +296,7 @@ export const highlightRetrievalService: HighlightRetrievalService = {
         highlights: [],
         supportingEvidence: [],
         generationRunId: generationRun.id,
+        adequacy: assessContextAdequacy({ request, highlights: [] }),
       };
     }
 
@@ -256,6 +331,10 @@ export const highlightRetrievalService: HighlightRetrievalService = {
       evidenceItems,
       queryText,
     });
+    const adequacy = assessContextAdequacy({
+      request,
+      highlights: rankedHighlights,
+    });
 
     const generationRun = await createGenerationRun({
       workItemId: workItem.id,
@@ -273,6 +352,7 @@ export const highlightRetrievalService: HighlightRetrievalService = {
       rawOutput: null,
       parsedOutput: {
         lexicalRanks: Object.fromEntries(lexicalRankById),
+        adequacy,
       } as Prisma.InputJsonValue,
       validationErrors: null,
       resultRefs: {
@@ -287,6 +367,7 @@ export const highlightRetrievalService: HighlightRetrievalService = {
       highlights: rankedHighlights,
       supportingEvidence,
       generationRunId: generationRun.id,
+      adequacy,
     };
   },
 };

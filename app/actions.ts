@@ -1,7 +1,9 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getRun, start } from "workflow/api";
 import type { Prisma } from "@/src/generated/prisma/client";
 import type { ClaimDraft, ClaimSnapshot, JsonValue } from "@/src/domain/types";
 import { prisma } from "@/src/lib/prisma";
@@ -20,7 +22,6 @@ import {
 } from "@/src/lib/schemas";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import {
-  buildArtifactFromApprovedClaims,
   buildClaimGenerationDrafts,
   buildIncrementalClaimGenerationDrafts,
 } from "@/src/domain/workbase-workflows";
@@ -39,7 +40,6 @@ import {
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
 import { coerceHighlightTagAssignments } from "@/src/lib/highlight-tags";
-import { artifactGenerationService } from "@/src/services/artifact-generation-service";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
 import { githubRepoImportService } from "@/src/services/github-repo-import-service";
@@ -55,8 +55,20 @@ import {
   createOrUpdateHighlightSuggestion,
   refreshHighlightEmbeddingFromDraft,
 } from "@/src/services/highlight-suggestion-service";
-import { highlightRetrievalService } from "@/src/services/highlight-retrieval-service";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
+import {
+  archiveProjectChatThread,
+  createProjectChatRun,
+  createProjectChatThread,
+  renameProjectChatThread,
+} from "@/src/services/project-chat-store";
+import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-start-service";
+import { resolveAgentCandidate } from "@/src/services/candidate-review-service";
+import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
+import {
+  artifactGenerationWorkflow,
+  projectChatTurnWorkflow,
+} from "@/workflows/project-chat";
 
 function toRepositorySummaryJsonValue(repository: {
   id: string;
@@ -213,7 +225,7 @@ function mapWorkItemSnapshot(workItem: {
 function mapSourceSnapshot(source: {
   id: string;
   workItemId: string;
-  type: "manual_note" | "github_repo";
+  type: "manual_note" | "github_repo" | "chat_context";
   label: string;
   externalId: string | null;
   rawContent: string | null;
@@ -245,7 +257,9 @@ function mapEvidenceItemSnapshot(item: {
     | "github_commit"
     | "github_pull_request"
     | "github_issue"
-    | "github_release";
+    | "github_release"
+    | "chat_user_statement"
+    | "github_file_excerpt";
   title: string;
   content: string;
   searchText: string;
@@ -258,7 +272,7 @@ function mapEvidenceItemSnapshot(item: {
   source: {
     id: string;
     label: string;
-    type: "manual_note" | "github_repo";
+    type: "manual_note" | "github_repo" | "chat_context";
     externalId: string | null;
   };
   tags?: Array<{
@@ -367,7 +381,7 @@ function mapClaimSnapshot(claim: {
       content: string;
       source: {
         label: string;
-        type: "manual_note" | "github_repo";
+        type: "manual_note" | "github_repo" | "chat_context";
       };
     };
   }>;
@@ -784,6 +798,204 @@ function appendHighlightAutomationParams(
   if (result.suppressed) {
     searchParams.set("suppressedHighlights", String(result.suppressed));
   }
+}
+
+export async function createChatThreadAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+
+  if (!workItemId) {
+    redirect("/dashboard");
+  }
+
+  const thread = await createProjectChatThread({
+    userId: user.id,
+    workItemId,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+  redirect(`/work-items/${workItemId}?tab=chat&thread=${thread.id}`);
+}
+
+export async function renameChatThreadAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const threadId = String(formData.get("threadId") ?? "");
+  const title = String(formData.get("title") ?? "");
+
+  if (!workItemId || !threadId || !title.trim()) {
+    return;
+  }
+
+  await renameProjectChatThread({
+    userId: user.id,
+    workItemId,
+    threadId,
+    title,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function archiveChatThreadAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const threadId = String(formData.get("threadId") ?? "");
+
+  if (!workItemId || !threadId) {
+    return;
+  }
+
+  await archiveProjectChatThread({
+    userId: user.id,
+    workItemId,
+    threadId,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+  redirect(`/work-items/${workItemId}?tab=chat`);
+}
+
+export async function sendProjectChatMessageAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const threadId = String(formData.get("threadId") ?? "");
+  const message = String(formData.get("message") ?? "");
+  const submittedKey = String(formData.get("idempotencyKey") ?? "").trim();
+
+  if (!workItemId || !threadId || message.trim().length < 2) {
+    return;
+  }
+
+  const run = await createProjectChatRun({
+    userId: user.id,
+    workItemId,
+    threadId,
+    message,
+    idempotencyKey: submittedKey || `chat:${threadId}:${randomUUID()}`,
+  });
+  await startAgentRunWorkflowOnce({
+    runId: run.id,
+    startWorkflow: () =>
+      run.kind === "artifact_workflow"
+        ? start(artifactGenerationWorkflow, [run.id])
+        : start(projectChatTurnWorkflow, [run.id]),
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function resolveAgentCandidateAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const candidateId = String(formData.get("candidateId") ?? "");
+  const decision = String(formData.get("decision") ?? "");
+  const editedText = String(formData.get("editedText") ?? "").trim();
+  const feedback = String(formData.get("feedback") ?? "").trim();
+  const reviewNotes = String(formData.get("reviewNotes") ?? "").trim();
+  const visibilityValue = String(formData.get("visibility") ?? "");
+  const visibility = ["private", "resume_safe", "linkedin_safe", "public_safe"].includes(
+    visibilityValue,
+  )
+    ? (visibilityValue as "private" | "resume_safe" | "linkedin_safe" | "public_safe")
+    : null;
+  const sensitivityFlag = formData.has("sensitivityFlagPresent")
+    ? formDataToBoolean(formData.get("sensitivityFlag"))
+    : null;
+
+  if (!workItemId || !candidateId || !["approve", "deny"].includes(decision)) {
+    return;
+  }
+
+  await resolveAgentCandidate({
+    userId: user.id,
+    candidateId,
+    decision: decision as "approve" | "deny",
+    editedText: editedText || null,
+    feedback: feedback || null,
+    visibility,
+    sensitivityFlag,
+    reviewNotes: reviewNotes || null,
+    idempotencyKey: `candidate:${candidateId}:${decision}`,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+  revalidatePath(`/work-items/${workItemId}/claims`);
+  revalidatePath(`/work-items/${workItemId}/artifacts/new`);
+}
+
+export async function cancelAgentRunAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const runId = String(formData.get("runId") ?? "");
+
+  if (!workItemId || !runId) return;
+  const run = await prisma.agentRun.findFirst({
+    where: {
+      id: runId,
+      workItemId,
+      userId: user.id,
+      status: { in: ["queued", "running", "awaiting_review"] },
+    },
+  });
+
+  if (!run) return;
+  if (run.workflowId) {
+    try {
+      await getRun(run.workflowId).cancel();
+    } catch {
+      // Persist cancellation even if the workflow provider already stopped the run.
+    }
+  }
+  await prisma.$transaction([
+    prisma.agentRun.update({
+      where: { id: run.id },
+      data: { status: "cancelled", finishedAt: new Date() },
+    }),
+    prisma.chatMessage.updateMany({
+      where: { agentRunId: run.id, role: "assistant" },
+      data: { status: "cancelled", content: "This run was cancelled." },
+    }),
+  ]);
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function retryAgentRunAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const runId = String(formData.get("runId") ?? "");
+  if (!workItemId || !runId) return;
+
+  const previous = await prisma.agentRun.findFirst({
+    where: {
+      id: runId,
+      workItemId,
+      userId: user.id,
+      status: { in: ["failed", "insufficient_context", "cancelled"] },
+      threadId: { not: null },
+    },
+  });
+  if (!previous?.threadId) return;
+  const request = previous.request as Record<string, unknown>;
+  const message =
+    typeof request.message === "string"
+      ? request.message
+      : typeof request.brief === "string"
+        ? request.brief
+        : "";
+  if (!message) return;
+
+  const run = await createProjectChatRun({
+    userId: user.id,
+    workItemId,
+    threadId: previous.threadId,
+    message,
+    kind: previous.kind === "artifact_workflow" ? "artifact_workflow" : "chat_turn",
+    idempotencyKey: `retry:${previous.id}`,
+  });
+  await startAgentRunWorkflowOnce({
+    runId: run.id,
+    startWorkflow: () =>
+      run.kind === "artifact_workflow"
+        ? start(artifactGenerationWorkflow, [run.id])
+        : start(projectChatTurnWorkflow, [run.id]),
+  });
+  revalidatePath(`/work-items/${workItemId}`);
 }
 
 export async function updateOnboardingAction(formData: FormData) {
@@ -1218,6 +1430,9 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
       verificationStatus: {
         in: ["draft", "flagged"],
       },
+      agentRunCandidates: {
+        none: { status: "pending" },
+      },
     },
     data: {
       verificationStatus: "approved",
@@ -1283,6 +1498,36 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       ? parsed.data.rejectionReason?.trim() || null
       : null;
 
+  const runCandidate = await prisma.agentRunCandidate.findFirst({
+    where: {
+      highlightId: claim.id,
+      status: "pending",
+      agentRun: { userId: demoUser.id },
+    },
+    select: { id: true },
+  });
+  if (runCandidate && (parsed.data.intent === "approve" || parsed.data.intent === "reject")) {
+    await resolveAgentCandidate({
+      userId: demoUser.id,
+      candidateId: runCandidate.id,
+      decision: parsed.data.intent === "approve" ? "approve" : "deny",
+      editedText: parsed.data.intent === "approve" ? parsed.data.text : null,
+      feedback: parsed.data.rejectionReason ?? null,
+      visibility: parsed.data.visibility,
+      sensitivityFlag: parsed.data.sensitivityFlag,
+      reviewNotes: parsed.data.verificationNotes ?? null,
+      idempotencyKey: `highlight-form:${runCandidate.id}:${parsed.data.intent}`,
+    });
+    revalidatePath(`/work-items/${parsed.data.workItemId}`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
+    redirect(
+      appendRedirectParams(returnTo, {
+        result: parsed.data.intent === "approve" ? "approved" : "rejected",
+      }),
+    );
+  }
+
   await prisma.highlight.update({
     where: {
       id: claim.id,
@@ -1340,8 +1585,26 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
     },
     include: {
       sourceHighlight: true,
+      agentRunCandidates: {
+        where: { status: "pending", agentRun: { userId: demoUser.id } },
+        take: 1,
+      },
     },
   });
+  const runCandidate = suggestion.agentRunCandidates[0];
+  if (runCandidate) {
+    await resolveAgentCandidate({
+      userId: demoUser.id,
+      candidateId: runCandidate.id,
+      decision: "approve",
+      editedText: parsed.data.text ?? null,
+      idempotencyKey: `suggestion-form:${runCandidate.id}:approve`,
+    });
+    revalidatePath(`/work-items/${parsed.data.workItemId}`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
+    redirect(appendRedirectParams(returnTo, { result: "suggestion-accepted" }));
+  }
   const draft = coerceStoredHighlightDraft(suggestion.suggestedDraft);
 
   if (!draft) {
@@ -1396,6 +1659,27 @@ export async function dismissHighlightSuggestionAction(formData: FormData) {
     redirect(appendRedirectParams(returnTo, { error: "invalid-suggestion" }));
   }
 
+  const runCandidate = await prisma.agentRunCandidate.findFirst({
+    where: {
+      highlightSuggestionId: parsed.data.suggestionId,
+      status: "pending",
+      agentRun: { userId: demoUser.id, workItemId: parsed.data.workItemId },
+    },
+    select: { id: true },
+  });
+  if (runCandidate) {
+    await resolveAgentCandidate({
+      userId: demoUser.id,
+      candidateId: runCandidate.id,
+      decision: "deny",
+      feedback: "Dismissed from the Highlights workspace.",
+      idempotencyKey: `suggestion-form:${runCandidate.id}:deny`,
+    });
+    revalidatePath(`/work-items/${parsed.data.workItemId}`);
+    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
+    redirect(appendRedirectParams(returnTo, { result: "suggestion-dismissed" }));
+  }
+
   await prisma.highlightSuggestion.updateMany({
     where: {
       id: parsed.data.suggestionId,
@@ -1435,135 +1719,33 @@ export async function generateArtifactAction(formData: FormData) {
   }
 
   await syncWorkItemDescriptionEvidenceForWorkItem(parsed.data.workItemId);
-
-  const workItem = await prisma.workItem.findFirstOrThrow({
+  await prisma.workItem.findFirstOrThrow({
     where: {
       id: parsed.data.workItemId,
       userId: demoUser.id,
     },
-    include: {
-      highlights: {
-        include: {
-          evidence: {
-            include: {
-              evidenceItem: {
-                include: {
-                  source: true,
-                },
-              },
-            },
-          },
-          tags: true,
-        },
-      },
-      evidenceItems: {
-        include: {
-          source: true,
-          tags: true,
-        },
-      },
-    },
+    select: { id: true },
   });
-  let artifactDraft;
-
-  try {
-    artifactDraft = await buildArtifactFromApprovedClaims({
-      request: {
-        userId: demoUser.id,
-        workItemId: workItem.id,
-        type: parsed.data.type,
-        targetAngle: parsed.data.targetAngle,
-        tone: parsed.data.tone,
-      },
-      workItem: mapWorkItemSnapshot(workItem),
-      highlights: workItem.highlights.map(mapClaimSnapshot),
-      evidenceItems: workItem.evidenceItems.map(mapEvidenceItemSnapshot),
-      highlightRetrievalService,
-      artifactGenerationService,
-      sourceIngestionService,
-      claimResearchService,
-      claimVerificationService,
-    });
-  } catch {
-    redirect(appendRedirectParams(returnTo, { error: "artifact-generation-failed" }));
-  }
-
-  if (!artifactDraft.artifactDraft) {
-    redirect(appendRedirectParams(returnTo, { error: "no-artifact-context" }));
-  }
-
-  const artifact = await prisma.artifact.create({
-    data: {
-      userId: demoUser.id,
-      workItemId: workItem.id,
-      type: artifactDraft.artifactDraft.type,
-      targetAngle: artifactDraft.artifactDraft.targetAngle,
-      tone: artifactDraft.artifactDraft.tone,
-      content: artifactDraft.artifactDraft.content,
-    },
+  const suppliedBrief = String(formData.get("brief") ?? "").trim();
+  const submittedIdempotencyKey = String(formData.get("idempotencyKey") ?? "").trim();
+  const controlsBrief = [
+    `Generate ${parsed.data.type.replace(/_/g, " ")}.`,
+    `Use a ${parsed.data.targetAngle.replace(/_/g, " ")} angle`,
+    `and a ${parsed.data.tone.replace(/_/g, " ")} tone.`,
+  ].join(" ");
+  const brief = suppliedBrief ? `${suppliedBrief}\n\n${controlsBrief}` : controlsBrief;
+  const state = await artifactWorkflowService.start({
+    userId: demoUser.id,
+    workItemId: parsed.data.workItemId,
+    brief,
+    idempotencyKey: submittedIdempotencyKey || `artifact-form:${randomUUID()}`,
   });
-
-  if (artifactDraft.generationRunId) {
-    await updateGenerationRunResultRefs(artifactDraft.generationRunId, {
-      artifactId: artifact.id,
-      usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
-      supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
-      fallbackUsed: Boolean(artifactDraft.fallback?.highlights.length),
-      fallbackNote: artifactDraft.fallback?.note ?? null,
-      unreviewedFallbackHighlights:
-        artifactDraft.fallback?.highlights.map((highlight) => ({
-          id: highlight.id,
-          text: highlight.text,
-          summary: highlight.summary,
-          confidence: highlight.confidence,
-          ownershipClarity: highlight.ownershipClarity,
-        })) ?? [],
-    } as Prisma.InputJsonValue);
+  if (state.status !== "queued") {
+    throw new Error("Artifact workflow did not enter the durable queue.");
   }
-
-  if (artifactDraft.retrieval.generationRunId) {
-    await updateGenerationRunResultRefs(artifactDraft.retrieval.generationRunId, {
-      artifactId: artifact.id,
-      usedHighlightIds: artifactDraft.artifactDraft.usedHighlightIds,
-      supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
-      fallbackUsed: Boolean(artifactDraft.fallback?.highlights.length),
-      fallbackNote: artifactDraft.fallback?.note ?? null,
-      unreviewedFallbackHighlights:
-        artifactDraft.fallback?.highlights.map((highlight) => ({
-          id: highlight.id,
-          text: highlight.text,
-          summary: highlight.summary,
-          confidence: highlight.confidence,
-          ownershipClarity: highlight.ownershipClarity,
-        })) ?? [],
-    } as Prisma.InputJsonValue);
-  }
-
-  await Promise.allSettled(
-    [
-      ...(artifactDraft.fallback?.generationRunIds.generation ?? []),
-      artifactDraft.fallback?.generationRunIds.verification ?? null,
-    ]
-      .filter(Boolean)
-      .map((generationRunId) =>
-        updateGenerationRunResultRefs(generationRunId!, {
-          artifactId: artifact.id,
-          fallbackUsed: true,
-          fallbackNote: artifactDraft.fallback?.note ?? null,
-          unreviewedFallbackHighlights:
-            artifactDraft.fallback?.highlights.map((highlight) => ({
-              id: highlight.id,
-              text: highlight.text,
-              summary: highlight.summary,
-              confidence: highlight.confidence,
-              ownershipClarity: highlight.ownershipClarity,
-            })) ?? [],
-          supportingEvidenceItemIds: artifactDraft.artifactDraft.supportingEvidenceItemIds,
-        } as Prisma.InputJsonValue),
-      ),
+  revalidatePath(`/work-items/${parsed.data.workItemId}`);
+  revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
+  redirect(
+    `/work-items/${parsed.data.workItemId}?tab=chat&thread=${state.threadId}&result=artifact-started`,
   );
-
-  revalidatePath(`/work-items/${workItem.id}`);
-  revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
-  redirect(appendRedirectParams(returnTo, { artifactId: artifact.id }));
 }

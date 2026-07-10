@@ -28,10 +28,13 @@ export type ArtifactMinAggregateOutputType = {
   id: string | null
   userId: string | null
   workItemId: string | null
+  originatingAgentRunId: string | null
   type: $Enums.ArtifactType | null
   targetAngle: $Enums.TargetAngle | null
   tone: $Enums.ArtifactTone | null
+  requestBrief: string | null
   content: string | null
+  searchText: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -40,10 +43,13 @@ export type ArtifactMaxAggregateOutputType = {
   id: string | null
   userId: string | null
   workItemId: string | null
+  originatingAgentRunId: string | null
   type: $Enums.ArtifactType | null
   targetAngle: $Enums.TargetAngle | null
   tone: $Enums.ArtifactTone | null
+  requestBrief: string | null
   content: string | null
+  searchText: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -52,10 +58,13 @@ export type ArtifactCountAggregateOutputType = {
   id: number
   userId: number
   workItemId: number
+  originatingAgentRunId: number
   type: number
   targetAngle: number
   tone: number
+  requestBrief: number
   content: number
+  searchText: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -66,10 +75,13 @@ export type ArtifactMinAggregateInputType = {
   id?: true
   userId?: true
   workItemId?: true
+  originatingAgentRunId?: true
   type?: true
   targetAngle?: true
   tone?: true
+  requestBrief?: true
   content?: true
+  searchText?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -78,10 +90,13 @@ export type ArtifactMaxAggregateInputType = {
   id?: true
   userId?: true
   workItemId?: true
+  originatingAgentRunId?: true
   type?: true
   targetAngle?: true
   tone?: true
+  requestBrief?: true
   content?: true
+  searchText?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -90,10 +105,13 @@ export type ArtifactCountAggregateInputType = {
   id?: true
   userId?: true
   workItemId?: true
+  originatingAgentRunId?: true
   type?: true
   targetAngle?: true
   tone?: true
+  requestBrief?: true
   content?: true
+  searchText?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -175,10 +193,13 @@ export type ArtifactGroupByOutputType = {
   id: string
   userId: string
   workItemId: string | null
+  originatingAgentRunId: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt: Date
   updatedAt: Date
   _count: ArtifactCountAggregateOutputType | null
@@ -208,32 +229,49 @@ export type ArtifactWhereInput = {
   id?: Prisma.StringFilter<"Artifact"> | string
   userId?: Prisma.StringFilter<"Artifact"> | string
   workItemId?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  originatingAgentRunId?: Prisma.StringNullableFilter<"Artifact"> | string | null
   type?: Prisma.EnumArtifactTypeFilter<"Artifact"> | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFilter<"Artifact"> | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFilter<"Artifact"> | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
+  searchText?: Prisma.StringFilter<"Artifact"> | string
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   workItem?: Prisma.XOR<Prisma.WorkItemNullableScalarRelationFilter, Prisma.WorkItemWhereInput> | null
+  originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
+  embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
+  chatCitations?: Prisma.ChatCitationListRelationFilter
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
 }
 
 export type ArtifactOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
   workItemId?: Prisma.SortOrderInput | Prisma.SortOrder
+  originatingAgentRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   type?: Prisma.SortOrder
   targetAngle?: Prisma.SortOrder
   tone?: Prisma.SortOrder
+  requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
   workItem?: Prisma.WorkItemOrderByWithRelationInput
+  originatingAgentRun?: Prisma.AgentRunOrderByWithRelationInput
+  embedding?: Prisma.ArtifactEmbeddingOrderByWithRelationInput
+  chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceOrderByRelationAggregateInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceOrderByRelationAggregateInput
 }
 
 export type ArtifactWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  originatingAgentRunId?: string
   AND?: Prisma.ArtifactWhereInput | Prisma.ArtifactWhereInput[]
   OR?: Prisma.ArtifactWhereInput[]
   NOT?: Prisma.ArtifactWhereInput | Prisma.ArtifactWhereInput[]
@@ -242,21 +280,31 @@ export type ArtifactWhereUniqueInput = Prisma.AtLeast<{
   type?: Prisma.EnumArtifactTypeFilter<"Artifact"> | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFilter<"Artifact"> | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFilter<"Artifact"> | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
+  searchText?: Prisma.StringFilter<"Artifact"> | string
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   workItem?: Prisma.XOR<Prisma.WorkItemNullableScalarRelationFilter, Prisma.WorkItemWhereInput> | null
-}, "id">
+  originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
+  embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
+  chatCitations?: Prisma.ChatCitationListRelationFilter
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
+}, "id" | "originatingAgentRunId">
 
 export type ArtifactOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
   workItemId?: Prisma.SortOrderInput | Prisma.SortOrder
+  originatingAgentRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   type?: Prisma.SortOrder
   targetAngle?: Prisma.SortOrder
   tone?: Prisma.SortOrder
+  requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ArtifactCountOrderByAggregateInput
@@ -271,10 +319,13 @@ export type ArtifactScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   userId?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   workItemId?: Prisma.StringNullableWithAggregatesFilter<"Artifact"> | string | null
+  originatingAgentRunId?: Prisma.StringNullableWithAggregatesFilter<"Artifact"> | string | null
   type?: Prisma.EnumArtifactTypeWithAggregatesFilter<"Artifact"> | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleWithAggregatesFilter<"Artifact"> | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneWithAggregatesFilter<"Artifact"> | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   content?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
+  searchText?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Artifact"> | Date | string
 }
@@ -284,23 +335,37 @@ export type ArtifactCreateInput = {
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateInput = {
   id?: string
   userId: string
   workItemId?: string | null
+  originatingAgentRunId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUpdateInput = {
@@ -308,33 +373,50 @@ export type ArtifactUpdateInput = {
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateManyInput = {
   id?: string
   userId: string
   workItemId?: string | null
+  originatingAgentRunId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -344,7 +426,9 @@ export type ArtifactUpdateManyMutationInput = {
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -353,10 +437,13 @@ export type ArtifactUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -375,10 +462,13 @@ export type ArtifactCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
+  originatingAgentRunId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   targetAngle?: Prisma.SortOrder
   tone?: Prisma.SortOrder
+  requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -387,10 +477,13 @@ export type ArtifactMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
+  originatingAgentRunId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   targetAngle?: Prisma.SortOrder
   tone?: Prisma.SortOrder
+  requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -399,12 +492,25 @@ export type ArtifactMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
+  originatingAgentRunId?: Prisma.SortOrder
   type?: Prisma.SortOrder
   targetAngle?: Prisma.SortOrder
   tone?: Prisma.SortOrder
+  requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
+  searchText?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type ArtifactScalarRelationFilter = {
+  is?: Prisma.ArtifactWhereInput
+  isNot?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactNullableScalarRelationFilter = {
+  is?: Prisma.ArtifactWhereInput | null
+  isNot?: Prisma.ArtifactWhereInput | null
 }
 
 export type ArtifactCreateNestedManyWithoutUserInput = {
@@ -503,26 +609,124 @@ export type EnumArtifactToneFieldUpdateOperationsInput = {
   set?: $Enums.ArtifactTone
 }
 
+export type ArtifactUpdateOneRequiredWithoutEmbeddingNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutEmbeddingInput
+  upsert?: Prisma.ArtifactUpsertWithoutEmbeddingInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.ArtifactUpdateWithoutEmbeddingInput>, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
+}
+
+export type ArtifactCreateNestedOneWithoutHighlightProvenanceInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutHighlightProvenanceInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutHighlightProvenanceInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUpdateOneRequiredWithoutHighlightProvenanceNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutHighlightProvenanceInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutHighlightProvenanceInput
+  upsert?: Prisma.ArtifactUpsertWithoutHighlightProvenanceInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutHighlightProvenanceInput, Prisma.ArtifactUpdateWithoutHighlightProvenanceInput>, Prisma.ArtifactUncheckedUpdateWithoutHighlightProvenanceInput>
+}
+
+export type ArtifactCreateNestedOneWithoutEvidenceProvenanceInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutEvidenceProvenanceInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutEvidenceProvenanceInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUpdateOneRequiredWithoutEvidenceProvenanceNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutEvidenceProvenanceInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutEvidenceProvenanceInput
+  upsert?: Prisma.ArtifactUpsertWithoutEvidenceProvenanceInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutEvidenceProvenanceInput, Prisma.ArtifactUpdateWithoutEvidenceProvenanceInput>, Prisma.ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput>
+}
+
+export type ArtifactCreateNestedOneWithoutChatCitationsInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutChatCitationsInput, Prisma.ArtifactUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutChatCitationsInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUpdateOneWithoutChatCitationsNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutChatCitationsInput, Prisma.ArtifactUncheckedCreateWithoutChatCitationsInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutChatCitationsInput
+  upsert?: Prisma.ArtifactUpsertWithoutChatCitationsInput
+  disconnect?: Prisma.ArtifactWhereInput | boolean
+  delete?: Prisma.ArtifactWhereInput | boolean
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutChatCitationsInput, Prisma.ArtifactUpdateWithoutChatCitationsInput>, Prisma.ArtifactUncheckedUpdateWithoutChatCitationsInput>
+}
+
+export type ArtifactCreateNestedOneWithoutOriginatingAgentRunInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutOriginatingAgentRunInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUncheckedCreateNestedOneWithoutOriginatingAgentRunInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutOriginatingAgentRunInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUpdateOneWithoutOriginatingAgentRunNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutOriginatingAgentRunInput
+  upsert?: Prisma.ArtifactUpsertWithoutOriginatingAgentRunInput
+  disconnect?: Prisma.ArtifactWhereInput | boolean
+  delete?: Prisma.ArtifactWhereInput | boolean
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutOriginatingAgentRunInput, Prisma.ArtifactUpdateWithoutOriginatingAgentRunInput>, Prisma.ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput>
+}
+
+export type ArtifactUncheckedUpdateOneWithoutOriginatingAgentRunNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutOriginatingAgentRunInput
+  upsert?: Prisma.ArtifactUpsertWithoutOriginatingAgentRunInput
+  disconnect?: Prisma.ArtifactWhereInput | boolean
+  delete?: Prisma.ArtifactWhereInput | boolean
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutOriginatingAgentRunInput, Prisma.ArtifactUpdateWithoutOriginatingAgentRunInput>, Prisma.ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput>
+}
+
 export type ArtifactCreateWithoutUserInput = {
   id?: string
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutUserInput = {
   id?: string
   workItemId?: string | null
+  originatingAgentRunId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutUserInput = {
@@ -558,10 +762,13 @@ export type ArtifactScalarWhereInput = {
   id?: Prisma.StringFilter<"Artifact"> | string
   userId?: Prisma.StringFilter<"Artifact"> | string
   workItemId?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  originatingAgentRunId?: Prisma.StringNullableFilter<"Artifact"> | string | null
   type?: Prisma.EnumArtifactTypeFilter<"Artifact"> | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFilter<"Artifact"> | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFilter<"Artifact"> | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
+  searchText?: Prisma.StringFilter<"Artifact"> | string
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
 }
@@ -571,21 +778,35 @@ export type ArtifactCreateWithoutWorkItemInput = {
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutWorkItemInput = {
   id?: string
   userId: string
+  originatingAgentRunId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutWorkItemInput = {
@@ -614,13 +835,456 @@ export type ArtifactUpdateManyWithWhereWithoutWorkItemInput = {
   data: Prisma.XOR<Prisma.ArtifactUpdateManyMutationInput, Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemInput>
 }
 
-export type ArtifactCreateManyUserInput = {
+export type ArtifactCreateWithoutEmbeddingInput = {
   id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutEmbeddingInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutEmbeddingInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
+}
+
+export type ArtifactUpsertWithoutEmbeddingInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutEmbeddingInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
+}
+
+export type ArtifactUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutEmbeddingInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateWithoutHighlightProvenanceInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutHighlightProvenanceInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutHighlightProvenanceInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutHighlightProvenanceInput>
+}
+
+export type ArtifactUpsertWithoutHighlightProvenanceInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedUpdateWithoutHighlightProvenanceInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutHighlightProvenanceInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutHighlightProvenanceInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutHighlightProvenanceInput, Prisma.ArtifactUncheckedUpdateWithoutHighlightProvenanceInput>
+}
+
+export type ArtifactUpdateWithoutHighlightProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutHighlightProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateWithoutEvidenceProvenanceInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutEvidenceProvenanceInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutEvidenceProvenanceInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutEvidenceProvenanceInput>
+}
+
+export type ArtifactUpsertWithoutEvidenceProvenanceInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedCreateWithoutEvidenceProvenanceInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutEvidenceProvenanceInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutEvidenceProvenanceInput, Prisma.ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput>
+}
+
+export type ArtifactUpdateWithoutEvidenceProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateWithoutChatCitationsInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutChatCitationsInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutChatCitationsInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutChatCitationsInput, Prisma.ArtifactUncheckedCreateWithoutChatCitationsInput>
+}
+
+export type ArtifactUpsertWithoutChatCitationsInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutChatCitationsInput, Prisma.ArtifactUncheckedUpdateWithoutChatCitationsInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutChatCitationsInput, Prisma.ArtifactUncheckedCreateWithoutChatCitationsInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutChatCitationsInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutChatCitationsInput, Prisma.ArtifactUncheckedUpdateWithoutChatCitationsInput>
+}
+
+export type ArtifactUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutChatCitationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateWithoutOriginatingAgentRunInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutOriginatingAgentRunInput = {
+  id?: string
+  userId: string
   workItemId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutOriginatingAgentRunInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+}
+
+export type ArtifactUpsertWithoutOriginatingAgentRunInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedCreateWithoutOriginatingAgentRunInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutOriginatingAgentRunInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutOriginatingAgentRunInput, Prisma.ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput>
+}
+
+export type ArtifactUpdateWithoutOriginatingAgentRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateManyUserInput = {
+  id?: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -630,30 +1294,47 @@ export type ArtifactUpdateWithoutUserInput = {
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutUserInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateManyWithoutUserInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -661,10 +1342,13 @@ export type ArtifactUncheckedUpdateManyWithoutUserInput = {
 export type ArtifactCreateManyWorkItemInput = {
   id?: string
   userId: string
+  originatingAgentRunId?: string | null
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
   tone: $Enums.ArtifactTone
+  requestBrief: string
   content: string
+  searchText: string
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -674,102 +1358,194 @@ export type ArtifactUpdateWithoutWorkItemInput = {
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateManyWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
   tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
+
+/**
+ * Count Type ArtifactCountOutputType
+ */
+
+export type ArtifactCountOutputType = {
+  chatCitations: number
+  highlightProvenance: number
+  evidenceProvenance: number
+}
+
+export type ArtifactCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  chatCitations?: boolean | ArtifactCountOutputTypeCountChatCitationsArgs
+  highlightProvenance?: boolean | ArtifactCountOutputTypeCountHighlightProvenanceArgs
+  evidenceProvenance?: boolean | ArtifactCountOutputTypeCountEvidenceProvenanceArgs
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ArtifactCountOutputType
+   */
+  select?: Prisma.ArtifactCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountChatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatCitationWhereInput
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountHighlightProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ArtifactHighlightProvenanceWhereInput
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountEvidenceProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ArtifactEvidenceProvenanceWhereInput
+}
 
 
 export type ArtifactSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   userId?: boolean
   workItemId?: boolean
+  originatingAgentRunId?: boolean
   type?: boolean
   targetAngle?: boolean
   tone?: boolean
+  requestBrief?: boolean
   content?: boolean
+  searchText?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
+  highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
+  evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
+  _count?: boolean | Prisma.ArtifactCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
 export type ArtifactSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   userId?: boolean
   workItemId?: boolean
+  originatingAgentRunId?: boolean
   type?: boolean
   targetAngle?: boolean
   tone?: boolean
+  requestBrief?: boolean
   content?: boolean
+  searchText?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
 export type ArtifactSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   userId?: boolean
   workItemId?: boolean
+  originatingAgentRunId?: boolean
   type?: boolean
   targetAngle?: boolean
   tone?: boolean
+  requestBrief?: boolean
   content?: boolean
+  searchText?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
 export type ArtifactSelectScalar = {
   id?: boolean
   userId?: boolean
   workItemId?: boolean
+  originatingAgentRunId?: boolean
   type?: boolean
   targetAngle?: boolean
   tone?: boolean
+  requestBrief?: boolean
   content?: boolean
+  searchText?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ArtifactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "type" | "targetAngle" | "tone" | "content" | "createdAt" | "updatedAt", ExtArgs["result"]["artifact"]>
+export type ArtifactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "originatingAgentRunId" | "type" | "targetAngle" | "tone" | "requestBrief" | "content" | "searchText" | "createdAt" | "updatedAt", ExtArgs["result"]["artifact"]>
 export type ArtifactInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
+  chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
+  highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
+  evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
+  _count?: boolean | Prisma.ArtifactCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ArtifactIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
 }
 export type ArtifactIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
+  originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
 }
 
 export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -777,15 +1553,23 @@ export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
   objects: {
     user: Prisma.$UserPayload<ExtArgs>
     workItem: Prisma.$WorkItemPayload<ExtArgs> | null
+    originatingAgentRun: Prisma.$AgentRunPayload<ExtArgs> | null
+    embedding: Prisma.$ArtifactEmbeddingPayload<ExtArgs> | null
+    chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
+    highlightProvenance: Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>[]
+    evidenceProvenance: Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     userId: string
     workItemId: string | null
+    originatingAgentRunId: string | null
     type: $Enums.ArtifactType
     targetAngle: $Enums.TargetAngle
     tone: $Enums.ArtifactTone
+    requestBrief: string
     content: string
+    searchText: string
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["artifact"]>
@@ -1184,6 +1968,11 @@ export interface Prisma__ArtifactClient<T, Null = never, ExtArgs extends runtime
   readonly [Symbol.toStringTag]: "PrismaPromise"
   user<T extends Prisma.UserDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.UserDefaultArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   workItem<T extends Prisma.Artifact$workItemArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$workItemArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  originatingAgentRun<T extends Prisma.Artifact$originatingAgentRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$originatingAgentRunArgs<ExtArgs>>): Prisma.Prisma__AgentRunClient<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  embedding<T extends Prisma.Artifact$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$embeddingArgs<ExtArgs>>): Prisma.Prisma__ArtifactEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$ArtifactEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  chatCitations<T extends Prisma.Artifact$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  highlightProvenance<T extends Prisma.Artifact$highlightProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$highlightProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  evidenceProvenance<T extends Prisma.Artifact$evidenceProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1216,10 +2005,13 @@ export interface ArtifactFieldRefs {
   readonly id: Prisma.FieldRef<"Artifact", 'String'>
   readonly userId: Prisma.FieldRef<"Artifact", 'String'>
   readonly workItemId: Prisma.FieldRef<"Artifact", 'String'>
+  readonly originatingAgentRunId: Prisma.FieldRef<"Artifact", 'String'>
   readonly type: Prisma.FieldRef<"Artifact", 'ArtifactType'>
   readonly targetAngle: Prisma.FieldRef<"Artifact", 'TargetAngle'>
   readonly tone: Prisma.FieldRef<"Artifact", 'ArtifactTone'>
+  readonly requestBrief: Prisma.FieldRef<"Artifact", 'String'>
   readonly content: Prisma.FieldRef<"Artifact", 'String'>
+  readonly searchText: Prisma.FieldRef<"Artifact", 'String'>
   readonly createdAt: Prisma.FieldRef<"Artifact", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Artifact", 'DateTime'>
 }
@@ -1639,6 +2431,116 @@ export type Artifact$workItemArgs<ExtArgs extends runtime.Types.Extensions.Inter
    */
   include?: Prisma.WorkItemInclude<ExtArgs> | null
   where?: Prisma.WorkItemWhereInput
+}
+
+/**
+ * Artifact.originatingAgentRun
+ */
+export type Artifact$originatingAgentRunArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AgentRun
+   */
+  select?: Prisma.AgentRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AgentRun
+   */
+  omit?: Prisma.AgentRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AgentRunInclude<ExtArgs> | null
+  where?: Prisma.AgentRunWhereInput
+}
+
+/**
+ * Artifact.embedding
+ */
+export type Artifact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ArtifactEmbedding
+   */
+  select?: Prisma.ArtifactEmbeddingSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ArtifactEmbedding
+   */
+  omit?: Prisma.ArtifactEmbeddingOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactEmbeddingInclude<ExtArgs> | null
+  where?: Prisma.ArtifactEmbeddingWhereInput
+}
+
+/**
+ * Artifact.chatCitations
+ */
+export type Artifact$chatCitationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatCitation
+   */
+  select?: Prisma.ChatCitationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatCitation
+   */
+  omit?: Prisma.ChatCitationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatCitationInclude<ExtArgs> | null
+  where?: Prisma.ChatCitationWhereInput
+  orderBy?: Prisma.ChatCitationOrderByWithRelationInput | Prisma.ChatCitationOrderByWithRelationInput[]
+  cursor?: Prisma.ChatCitationWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatCitationScalarFieldEnum | Prisma.ChatCitationScalarFieldEnum[]
+}
+
+/**
+ * Artifact.highlightProvenance
+ */
+export type Artifact$highlightProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ArtifactHighlightProvenance
+   */
+  select?: Prisma.ArtifactHighlightProvenanceSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ArtifactHighlightProvenance
+   */
+  omit?: Prisma.ArtifactHighlightProvenanceOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactHighlightProvenanceInclude<ExtArgs> | null
+  where?: Prisma.ArtifactHighlightProvenanceWhereInput
+  orderBy?: Prisma.ArtifactHighlightProvenanceOrderByWithRelationInput | Prisma.ArtifactHighlightProvenanceOrderByWithRelationInput[]
+  cursor?: Prisma.ArtifactHighlightProvenanceWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ArtifactHighlightProvenanceScalarFieldEnum | Prisma.ArtifactHighlightProvenanceScalarFieldEnum[]
+}
+
+/**
+ * Artifact.evidenceProvenance
+ */
+export type Artifact$evidenceProvenanceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ArtifactEvidenceProvenance
+   */
+  select?: Prisma.ArtifactEvidenceProvenanceSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ArtifactEvidenceProvenance
+   */
+  omit?: Prisma.ArtifactEvidenceProvenanceOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactEvidenceProvenanceInclude<ExtArgs> | null
+  where?: Prisma.ArtifactEvidenceProvenanceWhereInput
+  orderBy?: Prisma.ArtifactEvidenceProvenanceOrderByWithRelationInput | Prisma.ArtifactEvidenceProvenanceOrderByWithRelationInput[]
+  cursor?: Prisma.ArtifactEvidenceProvenanceWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ArtifactEvidenceProvenanceScalarFieldEnum | Prisma.ArtifactEvidenceProvenanceScalarFieldEnum[]
 }
 
 /**

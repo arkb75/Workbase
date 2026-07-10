@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import type { ReactNode } from "react";
 import {
   FolderGit2,
@@ -11,7 +12,6 @@ import {
   generateClaimsAction,
   toggleEvidenceInclusionAction,
 } from "@/app/actions";
-import { ArtifactFallbackToast } from "@/components/artifacts/artifact-fallback-toast";
 import {
   ArtifactHistoryPanel,
   type ArtifactHistoryEntry,
@@ -19,6 +19,7 @@ import {
 import { ClaimCard } from "@/components/claims/claim-card";
 import { HighlightSuggestionCard } from "@/components/claims/highlight-suggestion-card";
 import { HighlightSuggestionToast } from "@/components/claims/highlight-suggestion-toast";
+import { ProjectChatWorkspace } from "@/components/chat/project-chat-workspace";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,10 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import {
+  readArtifactEvidenceProvenance,
+  readArtifactHighlightProvenance,
+} from "@/src/lib/artifact-provenance";
+import {
   isWorkItemDescriptionSourceMetadata,
 } from "@/src/lib/evidence-persistence";
 import {
@@ -50,6 +55,7 @@ import {
 import { formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
 import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
+import { getProjectChatWorkspace } from "@/src/services/project-chat-store";
 import type { GitHubRepositorySummary } from "@/src/services/types";
 
 export const dynamic = "force-dynamic";
@@ -406,6 +412,80 @@ function readArtifactResultRefs(value: unknown) {
   };
 }
 
+function readCandidateSnapshot(value: unknown): {
+  text: string;
+  summary: string;
+  visibility: "private" | "resume_safe" | "linkedin_safe" | "public_safe";
+  sensitivityFlag: boolean;
+  evidenceLabels: string[];
+  confidence: "low" | "medium" | "high";
+  ownershipClarity: "unclear" | "partial" | "clear";
+  risksSummary: string | null;
+  missingInfo: string | null;
+  tags: string[];
+  verificationNotes: string | null;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      text: "Candidate highlight",
+      summary: "Review the supporting context before approval.",
+      visibility: "private" as const,
+      sensitivityFlag: false,
+      evidenceLabels: [],
+      confidence: "medium",
+      ownershipClarity: "partial",
+      risksSummary: null,
+      missingInfo: null,
+      tags: [],
+      verificationNotes: null,
+    };
+  }
+
+  const snapshot = value as Record<string, unknown>;
+  const evidence =
+    snapshot.evidence && typeof snapshot.evidence === "object" && !Array.isArray(snapshot.evidence)
+      ? (snapshot.evidence as Record<string, unknown>)
+      : null;
+  const sourceRefs = Array.isArray(evidence?.sourceRefs) ? evidence.sourceRefs : [];
+  const tags = Array.isArray(snapshot.tags) ? snapshot.tags : [];
+  return {
+    text: typeof snapshot.text === "string" ? snapshot.text : "Candidate highlight",
+    summary:
+      typeof snapshot.summary === "string"
+        ? snapshot.summary
+        : "Review the supporting context before approval.",
+    visibility:
+      snapshot.visibility === "resume_safe" ||
+      snapshot.visibility === "linkedin_safe" ||
+      snapshot.visibility === "public_safe"
+        ? snapshot.visibility
+        : ("private" as const),
+    sensitivityFlag: snapshot.sensitivityFlag === true,
+    evidenceLabels: sourceRefs.flatMap((sourceRef) => {
+      if (!sourceRef || typeof sourceRef !== "object" || Array.isArray(sourceRef)) return [];
+      const title = (sourceRef as Record<string, unknown>).title;
+      return typeof title === "string" ? [title] : [];
+    }),
+    confidence:
+      snapshot.confidence === "low" || snapshot.confidence === "high"
+        ? snapshot.confidence
+        : "medium",
+    ownershipClarity:
+      snapshot.ownershipClarity === "unclear" || snapshot.ownershipClarity === "clear"
+        ? snapshot.ownershipClarity
+        : "partial",
+    risksSummary: typeof snapshot.risksSummary === "string" ? snapshot.risksSummary : null,
+    missingInfo: typeof snapshot.missingInfo === "string" ? snapshot.missingInfo : null,
+    tags: tags.flatMap((tag) => {
+      if (!tag || typeof tag !== "object" || Array.isArray(tag)) return [];
+      const value = (tag as Record<string, unknown>).tag;
+      return typeof value === "string" ? [value] : [];
+    }),
+    verificationNotes:
+      typeof snapshot.verificationNotes === "string" ? snapshot.verificationNotes : null,
+  };
+}
+
 function ClaimSection({
   title,
   description,
@@ -447,6 +527,7 @@ export default async function WorkItemDetailPage({
     generatedHighlights?: string;
     updatedHighlights?: string;
     highlightSuggestions?: string;
+    thread?: string;
   }>;
 }) {
   const { id } = await params;
@@ -459,6 +540,7 @@ export default async function WorkItemDetailPage({
     generatedHighlights,
     updatedHighlights,
     highlightSuggestions,
+    thread,
   } = await searchParams;
   const user = await getDemoUser();
 
@@ -467,9 +549,14 @@ export default async function WorkItemDetailPage({
     workItemId: id,
   });
 
-  const [workItem, githubConnection] = await Promise.all([
+  const [workItem, githubConnection, chatWorkspace] = await Promise.all([
     getWorkItemForUser(user.id, id),
     githubAuthService.getConnection(user.id),
+    getProjectChatWorkspace({
+      userId: user.id,
+      workItemId: id,
+      activeThreadId: thread,
+    }),
   ]);
   let repositories: GitHubRepositorySummary[] = [];
   let repositoryLookupFailed = false;
@@ -553,7 +640,7 @@ export default async function WorkItemDetailPage({
     const resultRefs = trace ? readArtifactResultRefs(trace.resultRefs) : null;
     const usedHighlightIds = resultRefs?.usedHighlightIds ?? [];
     const supportingEvidenceItemIds = resultRefs?.supportingEvidenceItemIds ?? [];
-    const usedHighlights = usedHighlightIds
+    const legacyUsedHighlights = usedHighlightIds
       .map((highlightId) => workItem.highlights.find((highlight) => highlight.id === highlightId))
       .filter((highlight): highlight is (typeof workItem.highlights)[number] => Boolean(highlight))
       .map((highlight) => ({
@@ -563,8 +650,11 @@ export default async function WorkItemDetailPage({
         visibility: highlight.visibility,
         confidence: highlight.confidence,
       }));
+    const usedHighlights = artifact.highlightProvenance.length
+      ? readArtifactHighlightProvenance(artifact.highlightProvenance)
+      : legacyUsedHighlights;
     const fallbackHighlights = resultRefs?.unreviewedFallbackHighlights ?? [];
-    const supportingEvidence = supportingEvidenceItemIds
+    const legacySupportingEvidence = supportingEvidenceItemIds
       .map((evidenceItemId) => workItem.evidenceItems.find((item) => item.id === evidenceItemId))
       .filter((item): item is (typeof workItem.evidenceItems)[number] => Boolean(item))
       .map((item) => ({
@@ -574,6 +664,9 @@ export default async function WorkItemDetailPage({
         type: item.type,
         sourceLabel: item.source.label,
       }));
+    const supportingEvidence = artifact.evidenceProvenance.length
+      ? readArtifactEvidenceProvenance(artifact.evidenceProvenance)
+      : legacySupportingEvidence;
 
     return {
       id: artifact.id,
@@ -593,9 +686,78 @@ export default async function WorkItemDetailPage({
       supportingEvidence,
     };
   });
+  const chatThreads = chatWorkspace.threads.map((chatThread) => ({
+    id: chatThread.id,
+    title: chatThread.title,
+    updatedAt: chatThread.updatedAt.toISOString(),
+  }));
+  const chatMessages = chatWorkspace.messages.map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    status:
+      message.status === "queued"
+        ? ("pending" as const)
+        : message.status === "running"
+          ? ("streaming" as const)
+          : message.status,
+    createdAt: message.createdAt.toISOString(),
+    citations: message.citations.map((citation) => ({
+      id: citation.id,
+      kind: citation.kind,
+      label: citation.label,
+      excerpt: citation.excerpt ?? "Source excerpt unavailable.",
+      url: citation.immutableUrl,
+      path: citation.path,
+      commitSha: citation.commitSha,
+      highlightId: citation.highlightId,
+      evidenceItemId: citation.evidenceItemId,
+      artifactId: citation.artifactId,
+    })),
+  }));
+  const chatEvents = chatWorkspace.events.map((event) => ({
+    id: event.id,
+    runId: event.runId,
+    message: event.message ?? titleCase(event.type),
+    eventType: event.type,
+    createdAt: event.createdAt.toISOString(),
+  }));
+  const chatCandidates = chatWorkspace.candidates.map((candidate) => {
+    const snapshot = readCandidateSnapshot(candidate.snapshot);
+    return {
+      id: candidate.id,
+      runId: candidate.runId,
+      kind: candidate.kind === "highlight_revision" ? ("revision" as const) : ("new_highlight" as const),
+      status:
+        candidate.status === "edited_and_approved"
+          ? ("approved" as const)
+          : candidate.status,
+      text: candidate.highlight?.text ?? snapshot.text,
+      summary: candidate.highlight?.summary ?? snapshot.summary,
+      visibility: candidate.highlight?.visibility ?? snapshot.visibility,
+      sensitivityFlag: candidate.highlight?.sensitivityFlag ?? snapshot.sensitivityFlag,
+      confidence: candidate.highlight?.confidence ?? snapshot.confidence,
+      ownershipClarity:
+        candidate.highlight?.ownershipClarity ?? snapshot.ownershipClarity,
+      risksSummary: candidate.highlight?.risksSummary ?? snapshot.risksSummary,
+      missingInfo: candidate.highlight?.missingInfo ?? snapshot.missingInfo,
+      tags: candidate.highlight?.tags.map((tag) => tag.tag) ?? snapshot.tags,
+      verificationNotes:
+        candidate.highlight?.verificationNotes ?? snapshot.verificationNotes,
+      evidenceLabels:
+        candidate.highlight?.evidence.map((entry) => entry.evidenceItem.title) ??
+        snapshot.evidenceLabels,
+    };
+  });
+  const chatRuns = chatWorkspace.runs.map((run) => ({
+    id: run.id,
+    status: run.status,
+    kind: run.kind,
+  }));
   const sourcesReturnTo = `/work-items/${workItem.id}?tab=sources`;
   const highlightsReturnTo = `/work-items/${workItem.id}?tab=highlights`;
   const artifactsReturnTo = `/work-items/${workItem.id}?tab=artifacts`;
+  const artifactFormIdempotencyKey = `artifact-form:${workItem.id}:${randomUUID()}`;
   const generateHighlights = generateClaimsAction.bind(null, workItem.id, highlightsReturnTo);
   const manualNoteForm = (
     <form action={createManualSourceAction} className="grid gap-4">
@@ -1051,6 +1213,19 @@ export default async function WorkItemDetailPage({
             </aside>
           </section>
         }
+        chatPanel={
+          <ProjectChatWorkspace
+            workItemId={workItem.id}
+            workItemTitle={workItem.title}
+            activeThreadId={chatWorkspace.activeThread?.id ?? null}
+            threads={chatThreads}
+            messages={chatMessages}
+            events={chatEvents}
+            candidates={chatCandidates}
+            runs={chatRuns}
+            sensitiveContextAvailable={sensitiveHighlights.length > 0}
+          />
+        }
         artifactsPanel={
           <section className="grid gap-5">
             <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
@@ -1058,14 +1233,28 @@ export default async function WorkItemDetailPage({
                 <form action={generateArtifactAction}>
                   <input type="hidden" name="workItemId" value={workItem.id} />
                   <input type="hidden" name="returnTo" value={artifactsReturnTo} />
-                  <ArtifactFallbackToast fallbackWillBeAttempted={approvedRetrievalHighlights.length === 0} />
+                  <input
+                    type="hidden"
+                    name="idempotencyKey"
+                    value={artifactFormIdempotencyKey}
+                  />
                   <CardHeader>
                     <CardTitle>Generate artifact</CardTitle>
                     <CardDescription>
-                      Choose the output type, angle, and tone. Retrieval starts with approved, non-sensitive highlights.
+                      Give Workbase a brief. It uses approved highlights or starts a review-gated research run.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-5">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-medium text-[color:var(--ink-strong)]">
+                        Brief
+                      </span>
+                      <Textarea
+                        name="brief"
+                        placeholder="Example: Write concise resume bullets emphasizing backend reliability and my ownership of the migration."
+                        className="min-h-28"
+                      />
+                    </label>
                     <label className="grid gap-2">
                       <span className="text-sm font-medium text-[color:var(--ink-strong)]">
                         Artifact type
@@ -1105,8 +1294,8 @@ export default async function WorkItemDetailPage({
                       </Select>
                     </label>
 
-                    <SubmitButton pendingLabel="Generating artifact...">
-                      Generate artifact
+                    <SubmitButton pendingLabel="Starting workflow...">
+                      Start artifact workflow
                     </SubmitButton>
                   </CardContent>
                 </form>
@@ -1154,7 +1343,7 @@ export default async function WorkItemDetailPage({
               <Card className="border-amber-200 bg-amber-50 shadow-none">
                 <CardContent className="py-4">
                   <p className="text-sm leading-6 text-amber-900">
-                    Workbase could not assemble enough approved or request-specific fallback context to generate that artifact.
+                    Workbase could not assemble enough approved context. The research workflow will propose reviewable highlights instead of using unapproved material.
                   </p>
                 </CardContent>
               </Card>
