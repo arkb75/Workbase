@@ -11,7 +11,7 @@ import { GET } from "@/app/api/health/route";
 describe("health route database readiness", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reports the v2 schema as ready", async () => {
+  it("reports the v3 schema as ready", async () => {
     queryRawMock.mockResolvedValue([{ projectFactsReady: true, agentHarnessReady: true }]);
     const response = await GET();
     expect(response.status).toBe(200);
@@ -19,7 +19,7 @@ describe("health route database readiness", () => {
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "agent-harness-v2",
+      schema: "agent-harness-v3",
     });
   });
 

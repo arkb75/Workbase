@@ -627,7 +627,7 @@ model AgentRun {
   attemptNumber  Int                 @default(0)
   result         Json?
   error          Json?
-  harnessVersion String              @default("v2")
+  harnessVersion String              @default("v3")
   environmentSnapshot Json?
   researchState Json?
   provisionalResult Json?

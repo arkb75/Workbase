@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildMemoryCatalog,
   buildStandaloneResearchQuestion,
   requiresLiveRepositoryResearch,
 } from "@/src/services/project-chat-agent-service";
@@ -46,5 +47,50 @@ describe("project chat repository intent", () => {
         "Specific research request: Find what changed recently.",
       ].join("\n"),
     );
+  });
+
+  it("reserves current-run Project Facts and keeps GitHub excerpts as nested provenance", () => {
+    const catalog = buildMemoryCatalog({
+      currentRunProjectFactIds: ["fact-current"],
+      hits: [
+        ...Array.from({ length: 14 }, (_, index) => ({
+          id: `highlight-${index}`,
+          kind: "highlight" as const,
+          authority: "verified_highlight" as const,
+          title: `Historical highlight ${index}`,
+          content: `Historical content ${index}`,
+          score: 100 - index,
+          citations: [{
+            kind: "highlight" as const,
+            label: `Historical highlight ${index}`,
+            excerpt: `Historical content ${index}`,
+            highlightId: `highlight-${index}`,
+          }],
+        })),
+        {
+          id: "fact-current",
+          kind: "project_fact" as const,
+          authority: "verified_project_fact" as const,
+          title: "Current reviewed fact",
+          content: "Current reviewed fact content",
+          score: 1,
+          citations: [
+            { kind: "project_fact" as const, label: "Current reviewed fact", excerpt: "Current reviewed fact content", projectFactId: "fact-current" },
+            { kind: "github_file" as const, label: "src/current.ts", excerpt: "raw code", path: "src/current.ts", commitSha: "a".repeat(40) },
+          ],
+        },
+      ],
+    });
+
+    expect(catalog.entries[0]).toMatchObject({
+      kind: "project_fact",
+      currentRun: true,
+      supportingSources: [{ type: "github_file", title: "src/current.ts" }],
+    });
+    expect(catalog.citations).toEqual([
+      expect.objectContaining({ kind: "project_fact", projectFactId: "fact-current" }),
+      ...catalog.citations.slice(1),
+    ]);
+    expect(catalog.citations.some((citation) => citation.kind === "github_file")).toBe(false);
   });
 });

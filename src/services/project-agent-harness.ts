@@ -3,9 +3,9 @@ import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
 
-export const PROJECT_AGENT_HARNESS_VERSION = "v2";
-export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v2.0";
-export const PROJECT_RESEARCH_CONTROLLER_VERSION = "project-research-fsm-v2.0";
+export const PROJECT_AGENT_HARNESS_VERSION = "v3";
+export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v3.0";
+export const PROJECT_RESEARCH_CONTROLLER_VERSION = "project-research-fsm-v3.0";
 
 export type ProjectTurnIntentKind =
   | "direct_answer"
@@ -18,7 +18,7 @@ export type ProjectTurnIntentKind =
 export interface ProjectTurnIntent {
   kind: ProjectTurnIntentKind;
   freshness: "required" | "preferred" | "none";
-  coverage: "targeted" | "bounded_comprehensive";
+  coverage: "targeted" | "broad_synthesis" | "bounded_comprehensive";
   deliverable: string;
   references: string[];
   confidence: number;
@@ -43,6 +43,10 @@ export interface ProjectAgentTurnContext {
     includedEvidence: number;
     priorArtifacts: number;
     latestDurableMemoryAt: string | null;
+    latestSourceImportedAt: string | null;
+    latestRepositoryCommitAt: string | null;
+    latestRepositoryInspectedAt: string | null;
+    latestFactApprovedAt: string | null;
   };
   capabilities: {
     repositoryResearch: {
@@ -90,6 +94,7 @@ const freshnessPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:l
 const repositoryPattern = /\b(?:repo|repository|github|source code|codebase)\b/i;
 const inspectPattern = /\b(?:inspect|search|read|check|look at|access|pull|refresh|scan|explore)\b/i;
 const comprehensivePattern = /\b(?:comprehensive|everything|entire|whole|thorough|all (?:the )?files|across (?:the )?repo)\b/i;
+const broadSynthesisPattern = /\b(?:summarize|summary|overview|strongest|accomplishments?|achievements?|whole project|project-wide|across the project)\b/i;
 const provenancePattern = /\b(?:did you (?:use|inspect|search|read|call|access)|what (?:sources?|tools?|information) did you|which sources?|what sources?|use anything new|inspect(?:ed)? the repo|repository tools?|tool calls?|fallback|partial (?:answer|run|result))\b/i;
 const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug)\b/i;
 const reviewPattern = /\b(?:approve|deny|reject)\b/i;
@@ -110,7 +115,11 @@ export function routeProjectTurn(input: {
 }): ProjectTurnIntent {
   const question = input.question.trim();
   const freshness = freshnessPattern.test(question) ? "required" : "none";
-  const coverage = comprehensivePattern.test(question) ? "bounded_comprehensive" : "targeted";
+  const coverage = comprehensivePattern.test(question)
+    ? "bounded_comprehensive"
+    : broadSynthesisPattern.test(question)
+      ? "broad_synthesis"
+      : "targeted";
 
   if (looksLikeArtifactRequest(question)) {
     return { kind: "artifact_request", freshness, coverage, deliverable: question, references: [], confidence: 1, reason: "Explicit supported artifact request." };
@@ -163,12 +172,24 @@ export function buildProjectAgentTurnContext(input: {
   appRevision?: string;
   phase?: ProjectAgentTurnContext["run"]["phase"];
   allowedActions?: string[];
+  latestFactApprovedAt?: string | null;
 }): ProjectAgentTurnContext {
-  const latestMemoryAt = input.repositories
+  const latestSourceImportedAt = input.repositories
     .map((repository) => repository.importedAt)
     .filter(Boolean)
     .sort()
     .at(-1) ?? null;
+  const latestRepositoryCommitAt = input.repositories
+    .flatMap((repository) => repository.committedAt ? [repository.committedAt] : [])
+    .sort()
+    .at(-1) ?? null;
+  const latestRepositoryInspectedAt = input.repositories
+    .flatMap((repository) => repository.resolvedAt ? [repository.resolvedAt] : [])
+    .sort()
+    .at(-1) ?? null;
+  // Retained for compatibility with older prompt consumers. It now reflects
+  // the freshest authoritative snapshot rather than merely the import time.
+  const latestMemoryAt = latestRepositoryInspectedAt ?? latestRepositoryCommitAt ?? latestSourceImportedAt;
   const manifestSeed = {
     intent: input.intent,
     repositories: input.repositories.map((repository) => ({ sourceId: repository.sourceId, name: repository.name })),
@@ -186,6 +207,10 @@ export function buildProjectAgentTurnContext(input: {
       includedEvidence: input.hits.filter((hit) => hit.authority === "included_evidence").length,
       priorArtifacts: input.hits.filter((hit) => hit.authority === "prior_artifact").length,
       latestDurableMemoryAt: latestMemoryAt,
+      latestSourceImportedAt,
+      latestRepositoryCommitAt,
+      latestRepositoryInspectedAt,
+      latestFactApprovedAt: input.latestFactApprovedAt ?? null,
     },
     capabilities: {
       repositoryResearch: {

@@ -4,6 +4,10 @@ import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
 import { selectReferencedCitations } from "@/src/services/chat-citation-service";
+import {
+  completeProjectResearchDossier,
+  parseProjectResearchDossier,
+} from "@/src/services/project-research-dossier-service";
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -37,6 +41,62 @@ function citationRows(messageId: string, citations: ProjectKnowledgeCitation[]) 
           })
         : Prisma.JsonNull,
   }));
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+export function mergeCompletedRunResult(input: {
+  existing: unknown;
+  next: unknown;
+  researchState: unknown;
+  environmentSnapshot: unknown;
+}) {
+  const existing = record(input.existing) ?? {};
+  const next = record(input.next) ?? {};
+  const dossier = parseProjectResearchDossier(input.researchState, input.environmentSnapshot);
+  return {
+    ...existing,
+    ...next,
+    partial: Boolean(existing.partial || next.partial || dossier?.partial),
+    coverageGaps: Array.from(new Set([
+      ...stringArray(existing.coverageGaps),
+      ...stringArray(next.coverageGaps),
+      ...(dossier?.coverageGaps ?? []),
+    ])),
+    warnings: Array.from(new Set([
+      ...stringArray(existing.warnings),
+      ...stringArray(next.warnings),
+      ...(dossier?.warnings ?? []),
+    ])),
+    exploredEvidenceCount: Math.max(
+      typeof existing.exploredEvidenceCount === "number" ? existing.exploredEvidenceCount : 0,
+      typeof next.exploredEvidenceCount === "number" ? next.exploredEvidenceCount : 0,
+      dossier?.notebook?.citations.length ?? 0,
+    ),
+    ...(dossier ? {
+      research: {
+        repositories: dossier.repositories,
+        coverage: dossier.coverage,
+        coverageGaps: dossier.coverageGaps,
+        warnings: dossier.warnings,
+        partial: dossier.partial,
+        usage: dossier.usage,
+        candidateIds: dossier.candidateIds,
+        exploredEvidenceCount: dossier.notebook?.citations.length ?? 0,
+        researchedAt: dossier.researchedAt,
+      },
+    } : {}),
+  };
 }
 
 export async function createProjectChatThread(input: {
@@ -257,17 +317,20 @@ export async function appendAgentRunEvent(input: {
 
 export async function markAgentRunRunning(runId: string) {
   await prisma.$transaction(async (tx) => {
-    const updated = await tx.agentRun.updateMany({
-      where: {
-        id: runId,
-        status: { in: ["queued", "running", "awaiting_review"] },
-      },
+    const [run] = await tx.$queryRaw<Array<{ status: string; startedAt: Date | null }>>`
+      SELECT "status"::text AS "status", "startedAt"
+      FROM "AgentRun"
+      WHERE "id" = ${runId}
+      FOR UPDATE
+    `;
+    if (!run || !["queued", "running", "awaiting_review"].includes(run.status)) return;
+    await tx.agentRun.update({
+      where: { id: runId },
       data: {
         status: "running",
-        startedAt: new Date(),
+        startedAt: run.startedAt ?? new Date(),
       },
     });
-    if (!updated.count) return;
     await tx.chatMessage.updateMany({
       where: { agentRunId: runId, role: "assistant" },
       data: { status: "running" },
@@ -329,11 +392,26 @@ export async function completeAgentRun(input: {
   content: string;
   result: unknown;
   citations?: ProjectKnowledgeCitation[];
+  researchFinalization?: {
+    usedProjectFactIds: string[];
+  };
 }) {
   const selected = selectReferencedCitations(input.content, input.citations ?? []);
   await prisma.$transaction(async (tx) => {
-    const runs = await tx.$queryRaw<Array<{ status: string }>>`
-      SELECT "status"::text AS "status" FROM "AgentRun" WHERE "id" = ${input.runId} FOR UPDATE
+    const runs = await tx.$queryRaw<Array<{
+      status: string;
+      result: unknown;
+      researchState: unknown;
+      environmentSnapshot: unknown;
+    }>>`
+      SELECT
+        "status"::text AS "status",
+        "result",
+        "researchState",
+        "environmentSnapshot"
+      FROM "AgentRun"
+      WHERE "id" = ${input.runId}
+      FOR UPDATE
     `;
     if (
       !runs[0] ||
@@ -384,11 +462,27 @@ export async function completeAgentRun(input: {
         }),
       },
     });
+    const completedResearchState = completeProjectResearchDossier(
+      runs[0].researchState,
+      runs[0].environmentSnapshot,
+      {
+        status: "completed",
+        citationCount: selected.citations.length,
+        usedProjectFactIds: input.researchFinalization?.usedProjectFactIds ?? selected.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
+      },
+    );
+    const completedResult = mergeCompletedRunResult({
+      existing: runs[0].result,
+      next: input.result,
+      researchState: completedResearchState ?? runs[0].researchState,
+      environmentSnapshot: runs[0].environmentSnapshot,
+    });
     await tx.agentRun.update({
       where: { id: input.runId },
       data: {
         status: "completed",
-        result: toInputJson(input.result),
+        result: toInputJson(completedResult),
+        ...(completedResearchState ? { researchState: toInputJson(completedResearchState) } : {}),
         finishedAt: new Date(),
       },
     });
@@ -402,6 +496,16 @@ export async function failAgentRun(input: {
 }) {
   const status = input.insufficient ? "insufficient_context" : "failed";
   await prisma.$transaction(async (tx) => {
+    const run = await tx.agentRun.findUnique({
+      where: { id: input.runId },
+      select: { status: true, researchState: true, environmentSnapshot: true },
+    });
+    if (!run || !["queued", "running", "awaiting_review"].includes(run.status)) return;
+    const completedResearchState = completeProjectResearchDossier(
+      run.researchState,
+      run.environmentSnapshot,
+      { status, citationCount: 0, usedProjectFactIds: [] },
+    );
     const updated = await tx.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -410,6 +514,7 @@ export async function failAgentRun(input: {
       data: {
         status,
         error: toInputJson({ message: input.message }),
+        ...(completedResearchState ? { researchState: toInputJson(completedResearchState) } : {}),
         finishedAt: new Date(),
       },
     });

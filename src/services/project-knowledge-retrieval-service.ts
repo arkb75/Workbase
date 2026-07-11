@@ -183,7 +183,7 @@ export const projectKnowledgeScoring = {
 };
 
 export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService = {
-  async retrieve({ userId, workItemId, query, purpose, limits }) {
+  async retrieve({ userId, workItemId, query, purpose, limits, preferredProjectFactIds }) {
     const workItem = await prisma.workItem.findFirstOrThrow({
       where: {
         id: workItemId,
@@ -249,6 +249,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       evidence: limits?.evidence ?? defaultLimits.evidence,
       artifacts: limits?.artifacts ?? defaultLimits.artifacts,
     };
+    const preferredFactIds = new Set(
+      purpose === "public_artifact" ? [] : (preferredProjectFactIds ?? []),
+    );
 
     await Promise.allSettled([
       ensureHighlightEmbeddings(
@@ -378,6 +381,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
               status: "approved",
               sensitivityFlag: fact.sensitivityFlag,
               score:
+                (preferredFactIds.has(fact.id) ? 100 : 0) +
                 authorityWeight("verified_project_fact") +
                 lexicalScore(query, content) +
                 (lexicalRanks.projectFacts.get(fact.id) ?? 0) * 10 +
@@ -391,18 +395,51 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
                   excerpt: fact.statement,
                   projectFactId: fact.id,
                 },
+                ...fact.evidence
+                  .filter((entry) => entry.evidenceItem.included)
+                  .slice(0, 4)
+                  .map((entry): ProjectKnowledgeCitation => {
+                    const item = entry.evidenceItem;
+                    const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+                      ? item.metadata as Record<string, unknown>
+                      : null;
+                    return item.type === "github_file_excerpt"
+                      ? {
+                          kind: "github_file",
+                          label: item.title,
+                          excerpt: item.content,
+                          evidenceItemId: item.id,
+                          sourceId: item.sourceId,
+                          repository: typeof metadata?.repository === "string" ? metadata.repository : undefined,
+                          commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : undefined,
+                          blobSha: typeof metadata?.blobSha === "string" ? metadata.blobSha : undefined,
+                          path: typeof metadata?.path === "string" ? metadata.path : undefined,
+                          startLine: typeof metadata?.startLine === "number" ? metadata.startLine : undefined,
+                          endLine: typeof metadata?.endLine === "number" ? metadata.endLine : undefined,
+                          url: typeof metadata?.url === "string" ? metadata.url : undefined,
+                          contentHash: typeof metadata?.excerptHash === "string" ? metadata.excerptHash : undefined,
+                        }
+                      : {
+                          kind: "evidence",
+                          label: item.title,
+                          excerpt: item.content,
+                          evidenceItemId: item.id,
+                          sourceId: item.sourceId,
+                        };
+                  }),
               ],
             };
           })
           .filter(
             (hit) =>
+              preferredFactIds.has(hit.id) ||
               broadProjectQueryPattern.test(query) ||
               lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
               (lexicalRanks.projectFacts.get(hit.id) ?? 0) > 0 ||
               (vectorRanks.projectFacts.get(hit.id) ?? 0) >= 0.16,
           )
           .sort((left, right) => right.score - left.score)
-          .slice(0, selectedLimits.projectFacts);
+          .slice(0, Math.max(selectedLimits.projectFacts, preferredFactIds.size));
 
     const linkedEvidenceIds = new Set(
       [...highlightHits, ...projectFactHits].flatMap((hit) =>

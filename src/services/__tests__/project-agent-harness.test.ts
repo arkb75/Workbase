@@ -34,6 +34,20 @@ describe("project agent harness", () => {
     expect(intent).toMatchObject({
       kind: "repository_research",
       freshness: "required",
+      coverage: "targeted",
+    });
+  });
+
+  it("classifies strongest-accomplishment summaries as broad synthesis", () => {
+    const intent = routeProjectTurn({
+      question: "Summarize my strongest accomplishments and make sure this is up to date.",
+      memoryHits: [approvedFact],
+      allowResearch: true,
+    });
+    expect(intent).toMatchObject({
+      kind: "repository_research",
+      freshness: "required",
+      coverage: "broad_synthesis",
     });
   });
 
@@ -88,5 +102,33 @@ describe("project agent harness", () => {
       maxRepositories: 3,
     });
     expect(manifest.run.remaining).toMatchObject({ searches: 2, fileReads: 8, visibleBytes: 65_536 });
+  });
+
+  it("separates source import, repository commit, and inspection freshness", () => {
+    const intent = routeProjectTurn({
+      question: "Give me a current overview.",
+      memoryHits: [approvedFact],
+      allowResearch: false,
+    });
+    const context = buildProjectAgentTurnContext({
+      question: "Give me a current overview.",
+      intent,
+      hits: [approvedFact],
+      repositories: [{
+        sourceId: "source-1",
+        name: "workbase/demo",
+        importedAt: "2026-04-06T02:05:31.418Z",
+        pinnedSha: "a".repeat(40),
+        committedAt: "2026-07-09T23:02:00.000Z",
+        resolvedAt: "2026-07-10T20:30:00.000Z",
+      }],
+    });
+    expect(context.knowledge).toMatchObject({
+      latestSourceImportedAt: "2026-04-06T02:05:31.418Z",
+      latestRepositoryCommitAt: "2026-07-09T23:02:00.000Z",
+      latestRepositoryInspectedAt: "2026-07-10T20:30:00.000Z",
+      latestFactApprovedAt: null,
+      latestDurableMemoryAt: "2026-07-10T20:30:00.000Z",
+    });
   });
 });

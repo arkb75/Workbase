@@ -110,6 +110,74 @@ export interface ProjectResearchResult {
     uninspected: string[];
     omittedRepositories: string[];
   } | null;
+  groundedClaims?: Array<{
+    claim: string;
+    citationIndexes: number[];
+  }>;
+}
+
+export interface ProjectResearchRepositorySnapshot {
+  sourceId: string;
+  name: string;
+  importedAt: string;
+  pinnedSha: string | null;
+  committedAt: string | null;
+  resolvedAt: string | null;
+}
+
+export interface ProjectResearchDossier {
+  version: 1;
+  controllerVersion: string | null;
+  allowedActions: string[];
+  remaining: Record<string, unknown> | null;
+  objective: string;
+  phase:
+    | "planning"
+    | "searching"
+    | "reading"
+    | "extracting"
+    | "awaiting_review"
+    | "finalizing"
+    | "completed"
+    | "insufficient_context"
+    | "failed";
+  startedAt: string;
+  updatedAt: string;
+  researchedAt: string | null;
+  completedAt: string | null;
+  repositories: ProjectResearchRepositorySnapshot[];
+  coverage: ProjectResearchResult["coverage"];
+  coverageGaps: string[];
+  warnings: string[];
+  partial: boolean;
+  usage: Record<string, unknown> | null;
+  notebook: {
+    paths: Array<{
+      handle: string;
+      sourceId: string;
+      repository: string;
+      path: string;
+      origin: string;
+      score: number;
+    }>;
+    citations: Array<{
+      type: ProjectKnowledgeCitation["kind"];
+      title: string;
+      repository?: string;
+      commitSha?: string;
+      path?: string;
+      startLine?: number;
+      endLine?: number;
+    }>;
+  } | null;
+  candidateIds: string[];
+  provisionalProjectFactIds: string[];
+  generationRunIds: string[];
+  modelUsage: unknown[];
+  finalization: {
+    citationCount: number;
+    usedProjectFactIds: string[];
+  } | null;
 }
 
 export interface NormalizedArtifactBrief {

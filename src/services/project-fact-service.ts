@@ -6,6 +6,7 @@ import type {
   ProjectKnowledgeCitation,
 } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -32,7 +33,7 @@ const factExtractionSchema = z.object({
     sensitivityFlag: z.boolean(),
     reviewNotes: z.string().trim().max(1_000).nullable(),
     citationIndexes: z.array(z.number().int().min(1)).min(1).max(4),
-  })).max(4),
+  })).max(8),
   coverageGaps: z.array(z.string().trim().min(2).max(500)).max(6),
 });
 
@@ -43,7 +44,7 @@ const factExtractionJsonSchema: JsonSchemaObject = {
   properties: {
     facts: {
       type: "array",
-      maxItems: 4,
+      maxItems: 8,
       items: {
         type: "object",
         additionalProperties: false,
@@ -116,6 +117,7 @@ async function extractFacts(input: {
   workItemTitle: string;
   citations: readonly ProjectKnowledgeCitation[];
   partial: boolean;
+  maxFacts: number;
 }) {
   if (resolveWorkbaseLlmProvider() === "mock") {
     return { facts: mockFacts(input.citations), coverageGaps: [], tokenUsage: null };
@@ -132,6 +134,7 @@ async function extractFacts(input: {
       project: input.workItemTitle,
       question: input.question,
       partialResearch: input.partial,
+      maximumFacts: input.maxFacts,
       excerpts: input.citations.map((citation, index) => ({
         citationIndex: index + 1,
         repository: citation.repository,
@@ -154,6 +157,50 @@ async function extractFacts(input: {
   return { ...result.data, tokenUsage: result.tokenUsage };
 }
 
+export async function extractFactsWithRecovery(input: Parameters<typeof extractFacts>[0]) {
+  try {
+    return await extractFacts(input);
+  } catch (error) {
+    if (!(error instanceof StructuredOutputError) || error.status === "provider_error") throw error;
+
+    const recoveredFacts: z.infer<typeof factExtractionSchema>["facts"] = [];
+    const coverageGaps = [
+      "The full fact-extraction response exceeded or failed its structured-output contract; Workbase retried smaller excerpt batches.",
+    ];
+    const recoveryUsage: unknown[] = [{ phase: "full_extraction", usage: error.tokenUsage, status: error.status }];
+    for (let offset = 0; offset < input.citations.length && recoveredFacts.length < input.maxFacts; offset += 4) {
+      const citations = input.citations.slice(offset, offset + 4);
+      try {
+        const recovered = await extractFacts({
+          ...input,
+          citations,
+          partial: true,
+          maxFacts: input.maxFacts - recoveredFacts.length,
+        });
+        recoveredFacts.push(...recovered.facts.map((fact) => ({
+          ...fact,
+          reviewNotes: fact.reviewNotes ?? null,
+          citationIndexes: fact.citationIndexes.map((index) => index + offset),
+        })));
+        coverageGaps.push(...recovered.coverageGaps);
+        recoveryUsage.push({ phase: `batch_${Math.floor(offset / 4) + 1}`, usage: recovered.tokenUsage, status: "success" });
+      } catch (batchError) {
+        recoveryUsage.push({
+          phase: `batch_${Math.floor(offset / 4) + 1}`,
+          usage: batchError instanceof StructuredOutputError ? batchError.tokenUsage : null,
+          status: "failed",
+        });
+      }
+    }
+    if (!recoveredFacts.length) throw error;
+    return {
+      facts: recoveredFacts.slice(0, input.maxFacts),
+      coverageGaps: Array.from(new Set(coverageGaps)),
+      tokenUsage: recoveryUsage,
+    };
+  }
+}
+
 export async function createProjectFactCandidates(input: {
   runId: string;
   userId: string;
@@ -162,6 +209,7 @@ export async function createProjectFactCandidates(input: {
   citations: readonly ProjectKnowledgeCitation[];
   partial: boolean;
   batchNumber?: number;
+  maxFacts?: number;
 }) {
   const existingCandidates = await prisma.agentRunCandidate.findMany({
     where: {
@@ -180,17 +228,18 @@ export async function createProjectFactCandidates(input: {
   });
   const repositoryCitations = input.citations.filter((citation) => citation.kind === "github_file");
   if (!repositoryCitations.length) return { candidateIds: [], coverageGaps: [], tokenUsage: null };
-  const extracted = await extractFacts({
+  const extracted = await extractFactsWithRecovery({
     question: input.question,
     workItemTitle: workItem.title,
     citations: repositoryCitations,
     partial: input.partial,
+    maxFacts: Math.min(8, Math.max(1, input.maxFacts ?? 4)),
   });
   const validFacts = extracted.facts.flatMap((fact) => {
     const citationIndexes = Array.from(new Set(fact.citationIndexes))
       .filter((index) => index >= 1 && index <= repositoryCitations.length);
     return citationIndexes.length ? [{ ...fact, citationIndexes }] : [];
-  });
+  }).slice(0, Math.min(8, Math.max(1, input.maxFacts ?? 4)));
   if (!validFacts.length) {
     return { candidateIds: [], coverageGaps: extracted.coverageGaps, tokenUsage: extracted.tokenUsage };
   }

@@ -144,6 +144,7 @@ export interface ProjectKnowledgeRetrievalService {
       evidence?: number;
       artifacts?: number;
     };
+    preferredProjectFactIds?: string[];
   }): Promise<ProjectKnowledgeResult>;
 }
 

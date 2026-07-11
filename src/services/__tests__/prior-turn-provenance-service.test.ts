@@ -40,7 +40,7 @@ describe("prior turn provenance", () => {
     expect(result.toolCalls).toEqual([
       { name: "list_repository_paths", count: 1 },
       { name: "search_repository", count: 2 },
-      { name: "read_repository_files", count: 5 },
+      { name: "read_repository_file", count: 5 },
     ]);
     expect(result.usedSources).toEqual([{ kind: "project_fact", title: "Approved architecture fact" }]);
     expect(JSON.stringify(result)).not.toContain("file content");

@@ -15,6 +15,7 @@ export async function GET() {
           WHERE table_schema = 'public'
             AND table_name = 'AgentRun'
             AND column_name = 'harnessVersion'
+            AND column_default LIKE '%v3%'
         ) AS "agentHarnessReady"
     `;
     if (!schema?.projectFactsReady || !schema.agentHarnessReady) {
@@ -32,7 +33,7 @@ export async function GET() {
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "agent-harness-v2",
+      schema: "agent-harness-v3",
     });
   } catch {
     return NextResponse.json(

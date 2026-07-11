@@ -1,5 +1,6 @@
 import { createHook, getWritable } from "workflow";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
+import type { BedrockConverseAgentEvent } from "@/src/lib/bedrock-converse-agent";
 import { prisma } from "@/src/lib/prisma";
 import {
   appendAgentRunEvent,
@@ -11,7 +12,10 @@ import {
 import { proposeHighlightFromChatContext } from "@/src/services/chat-highlight-candidate-service";
 import { executeArtifactAttempt } from "@/src/services/artifact-workflow-service";
 import { persistResearchAgentEvent } from "@/src/services/research-event-persistence-service";
-import { runProjectChatAgent } from "@/src/services/project-chat-agent-service";
+import {
+  finalizeProjectChatAfterFactReview,
+  runProjectChatAgent,
+} from "@/src/services/project-chat-agent-service";
 
 async function emitProgress(
   runId: string,
@@ -44,7 +48,7 @@ async function closeProgressStream() {
   await getWritable<ChatProgressEvent>().close();
 }
 
-async function answerProjectQuestion(runId: string, allowResearch = true) {
+async function answerProjectQuestion(runId: string, afterFactReview = false) {
   "use step";
 
   await markAgentRunRunning(runId);
@@ -121,7 +125,7 @@ async function answerProjectQuestion(runId: string, allowResearch = true) {
         label: citation.label,
       })),
     }));
-  const result = await runProjectChatAgent({
+  const agentInput = {
     runId: run.id,
     userId: run.userId,
     workItemId: run.workItemId,
@@ -130,9 +134,12 @@ async function answerProjectQuestion(runId: string, allowResearch = true) {
     question,
     history,
     rollingSummary: run.thread?.rollingSummary,
-    allowResearch,
-    onAgentEvent: (event) => persistResearchAgentEvent(run.id, event),
-  });
+    allowResearch: !afterFactReview,
+    onAgentEvent: (event: BedrockConverseAgentEvent) => persistResearchAgentEvent(run.id, event),
+  };
+  const result = afterFactReview
+    ? await finalizeProjectChatAfterFactReview(agentInput)
+    : await runProjectChatAgent(agentInput);
 
   if (result.status === "artifact_requested") {
     await prisma.agentRun.update({
@@ -183,9 +190,13 @@ async function answerProjectQuestion(runId: string, allowResearch = true) {
       generationRunIds: result.research.generationRunIds,
       partial: result.research.partial,
       exploredEvidenceCount: result.research.exploredEvidence.length,
+      groundedClaims: result.research.groundedClaims ?? [],
       fallbackUsed: false,
     },
     citations: result.citations,
+    researchFinalization: {
+      usedProjectFactIds: result.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
+    },
   });
   return { status: "completed" as const };
 }
@@ -319,8 +330,8 @@ export async function projectChatTurnWorkflow(runId: string) {
       if (!(await approvedProjectFactCandidateCount(runId))) {
         return await finishDeniedProjectFactReview(runId);
       }
-      await emitProgress(runId, "Fact review complete. Rebuilding the answer from approved memory.", "retrieval");
-      result = await answerProjectQuestion(runId, false);
+      await emitProgress(runId, "Fact review complete. Resuming the saved research and finalizing from approved facts.", "retrieval");
+      result = await answerProjectQuestion(runId, true);
     }
     await emitProgress(
       runId,

@@ -60,7 +60,9 @@ export const priorTurnProvenanceService: PriorTurnProvenanceService = {
     const fileReads = typeof usage?.fileReads === "number" ? usage.fileReads : 0;
     if (treeLookups && !counts.has("list_repository_paths")) counts.set("list_repository_paths", treeLookups);
     if (searches && !counts.has("search_repository")) counts.set("search_repository", searches);
-    if (fileReads && !counts.has("read_repository_files")) counts.set("read_repository_files", fileReads);
+    if (fileReads && !counts.has("read_repository_file") && !counts.has("read_repository_files")) {
+      counts.set("read_repository_file", fileReads);
+    }
     const toolNames = Array.from(counts.keys());
     const manifestIntent = readRecord(message.agentRun?.environmentSnapshot, "intent");
     const researchPhase = researchState && typeof researchState === "object" && !Array.isArray(researchState)
