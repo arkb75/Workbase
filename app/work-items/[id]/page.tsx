@@ -22,6 +22,7 @@ import { HighlightSuggestionToast } from "@/components/claims/highlight-suggesti
 import { ProjectChatWorkspace } from "@/components/chat/project-chat-workspace";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
+import { KnowledgeUpdateInbox } from "@/components/knowledge/knowledge-update-inbox";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import {
@@ -55,6 +56,7 @@ import {
 import { formatDateTime, titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
 import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
+import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
 import { getProjectChatWorkspace } from "@/src/services/project-chat-store";
 import type { GitHubRepositorySummary } from "@/src/services/types";
 
@@ -581,6 +583,10 @@ function ProjectFactSection({
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge>{titleCase(fact.category)}</Badge>
                         <Badge>{fact.confidence} confidence</Badge>
+                        <Badge tone={fact.lifecycleStatus === "active" ? "success" : fact.lifecycleStatus === "quarantined" ? "danger" : "warning"}>
+                          {titleCase(fact.lifecycleStatus)}
+                        </Badge>
+                        {fact.reviewState === "pending_review" ? <Badge tone="accent">New update</Badge> : null}
                         {fact.sensitivityFlag ? <Badge tone="warning">Sensitive</Badge> : null}
                       </div>
                       {fact.reviewNotes ? (
@@ -620,6 +626,53 @@ function ProjectFactSection({
       </div>
     </section>
   );
+}
+
+function mapKnowledgeChangeForInbox(
+  change: Awaited<ReturnType<typeof getWorkItemForUser>>["knowledgeChanges"][number],
+) {
+  const entity = change.projectFact ?? change.highlight ?? change.evidenceItem ?? change.artifact;
+  const entityRecord = entity as unknown as Record<string, unknown> | null;
+  const primary = change.projectFact?.statement
+    ?? change.highlight?.text
+    ?? change.evidenceItem?.title
+    ?? change.artifact?.content
+    ?? "Unavailable knowledge item";
+  const secondary = change.highlight?.summary
+    ?? change.evidenceItem?.content
+    ?? (change.projectFact?.reviewNotes || null);
+  const primaryField = change.projectFact
+    ? "statement" as const
+    : change.highlight
+      ? "text" as const
+      : change.evidenceItem
+        ? "title" as const
+        : "content" as const;
+  const secondaryField = change.highlight
+    ? "summary" as const
+    : change.evidenceItem
+      ? "content" as const
+      : null;
+  return {
+    id: change.id,
+    entityKind: change.entityKind,
+    action: change.action,
+    reason: change.reason,
+    createdAt: change.createdAt.toISOString(),
+    primary,
+    secondary,
+    primaryField,
+    secondaryField,
+    category: change.projectFact?.category ?? null,
+    visibility: change.highlight?.visibility ?? null,
+    sensitivityFlag: Boolean(change.projectFact?.sensitivityFlag ?? change.highlight?.sensitivityFlag),
+    lifecycleStatus: typeof entityRecord?.lifecycleStatus === "string" ? entityRecord.lifecycleStatus : "retired",
+    publicSafetyStatus: typeof entityRecord?.publicSafetyStatus === "string" ? entityRecord.publicSafetyStatus : null,
+    beforeSnapshot: change.beforeSnapshot,
+    afterSnapshot: change.afterSnapshot,
+    provenance: change.provenance,
+    downstreamImpact: change.downstreamImpact,
+  };
 }
 
 export default async function WorkItemDetailPage({
@@ -745,6 +798,15 @@ export default async function WorkItemDetailPage({
   );
   const selectedArtifact =
     workItem.artifacts.find((artifact) => artifact.id === artifactId) ?? workItem.artifacts[0] ?? null;
+  if (selectedArtifact?.lifecycleStatus === "stale") {
+    await artifactWorkflowService.start({
+      userId: user.id,
+      workItemId: workItem.id,
+      brief: selectedArtifact.requestBrief,
+      supersedesArtifactId: selectedArtifact.id,
+      idempotencyKey: `artifact-open-refresh:${selectedArtifact.id}:${selectedArtifact.updatedAt.toISOString()}`,
+    }).catch(() => null);
+  }
   const artifactHistoryEntries: ArtifactHistoryEntry[] = workItem.artifacts.map((artifact) => {
     const trace = artifactTraceById.get(artifact.id) ?? null;
     const resultRefs = trace ? readArtifactResultRefs(trace.resultRefs) : null;
@@ -780,10 +842,14 @@ export default async function WorkItemDetailPage({
 
     return {
       id: artifact.id,
+      workItemId: workItem.id,
       type: artifact.type,
       targetAngle: artifact.targetAngle,
       tone: artifact.tone,
       content: artifact.content,
+      lifecycleStatus: artifact.lifecycleStatus,
+      publicSafetyStatus: artifact.publicSafetyStatus,
+      staleReason: artifact.staleReason,
       createdAt:
         artifact.createdAt instanceof Date ? artifact.createdAt.toISOString() : String(artifact.createdAt),
       highlightCount: usedHighlights.length || fallbackHighlights.length,
@@ -1317,6 +1383,20 @@ export default async function WorkItemDetailPage({
 
               <ProjectFactSection facts={workItem.projectFacts} />
 
+              <KnowledgeUpdateInbox
+                workItemId={workItem.id}
+                refreshes={workItem.knowledgeRefreshRuns.map((refresh) => ({
+                  id: refresh.id,
+                  status: refresh.status,
+                  trigger: refresh.trigger,
+                  targetHeads: refresh.targetHeads,
+                  progress: refresh.progress,
+                  createdAt: refresh.createdAt.toISOString(),
+                  finishedAt: refresh.finishedAt?.toISOString() ?? null,
+                }))}
+                changes={workItem.knowledgeChanges.map(mapKnowledgeChangeForInbox)}
+              />
+
               <GenerationTracePanel
                 traces={highlightTraces}
                 title="Generation traces"
@@ -1335,9 +1415,9 @@ export default async function WorkItemDetailPage({
                 <CardContent className="grid gap-3">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     <div className="rounded-[24px] bg-white/8 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Pending</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Pending updates</p>
                       <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
-                        {pendingHighlights.length}
+                        {workItem.knowledgeChanges.length}
                       </p>
                     </div>
                     <div className="rounded-[24px] bg-white/8 p-4">

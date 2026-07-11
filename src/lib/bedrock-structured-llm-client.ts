@@ -128,6 +128,10 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
       jsonSchema: JsonSchemaObject;
     };
   }) {
+    const configuredTimeout = Number(process.env.WORKBASE_BEDROCK_REQUEST_TIMEOUT_MS ?? 240_000);
+    const requestTimeoutMs = Number.isFinite(configuredTimeout)
+      ? Math.min(600_000, Math.max(30_000, configuredTimeout))
+      : 240_000;
     const bedrockCompatibleSchema = input.structuredOutput
       ? toBedrockCompatibleJsonSchema(input.structuredOutput.jsonSchema)
       : null;
@@ -208,6 +212,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
             }
           : undefined,
       }),
+      { abortSignal: AbortSignal.timeout(requestTimeoutMs) },
     );
 
     return {

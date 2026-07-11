@@ -16,6 +16,7 @@ import {
   upsertProjectFactEmbedding,
 } from "@/src/services/knowledge-embedding-service";
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
+import { recordChange } from "@/src/services/knowledge-reconciliation-service";
 
 const categorySchema = z.enum([
   "architecture",
@@ -216,10 +217,17 @@ export async function createProjectFactCandidates(input: {
       agentRunId: input.runId,
       kind: { in: ["new_project_fact", "project_fact_revision"] },
     },
-    select: { id: true },
+    select: { id: true, projectFactId: true, status: true },
   });
   if (existingCandidates.length) {
-    return { candidateIds: existingCandidates.map((candidate) => candidate.id), coverageGaps: [], tokenUsage: null };
+    return {
+      candidateIds: existingCandidates.map((candidate) => candidate.id),
+      activeProjectFactIds: existingCandidates.flatMap((candidate) =>
+        candidate.status === "approved" && candidate.projectFactId ? [candidate.projectFactId] : [],
+      ),
+      coverageGaps: [],
+      tokenUsage: null,
+    };
   }
 
   const workItem = await prisma.workItem.findFirstOrThrow({
@@ -227,7 +235,7 @@ export async function createProjectFactCandidates(input: {
     select: { title: true },
   });
   const repositoryCitations = input.citations.filter((citation) => citation.kind === "github_file");
-  if (!repositoryCitations.length) return { candidateIds: [], coverageGaps: [], tokenUsage: null };
+  if (!repositoryCitations.length) return { candidateIds: [], activeProjectFactIds: [], coverageGaps: [], tokenUsage: null };
   const extracted = await extractFactsWithRecovery({
     question: input.question,
     workItemTitle: workItem.title,
@@ -241,7 +249,7 @@ export async function createProjectFactCandidates(input: {
     return citationIndexes.length ? [{ ...fact, citationIndexes }] : [];
   }).slice(0, Math.min(8, Math.max(1, input.maxFacts ?? 4)));
   if (!validFacts.length) {
-    return { candidateIds: [], coverageGaps: extracted.coverageGaps, tokenUsage: extracted.tokenUsage };
+    return { candidateIds: [], activeProjectFactIds: [], coverageGaps: extracted.coverageGaps, tokenUsage: extracted.tokenUsage };
   }
 
   const selectedOriginalIndexes = Array.from(
@@ -261,7 +269,7 @@ export async function createProjectFactCandidates(input: {
     orderBy: { updatedAt: "desc" },
   });
   const batchNumber = input.batchNumber ?? 1;
-  const created: Array<{ candidateId: string; projectFactId: string; statement: string; category: ProjectFactCategory; reviewNotes: string | null }> = [];
+  const created: Array<{ candidateId: string; projectFactId: string; statement: string; category: ProjectFactCategory; reviewNotes: string | null; autoSafe: boolean }> = [];
 
   await prisma.$transaction(async (tx) => {
     for (const fact of validFacts) {
@@ -296,17 +304,24 @@ export async function createProjectFactCandidates(input: {
         return evidenceId ? [evidenceId] : [];
       });
       if (!evidenceIds.length) continue;
+      const autoSafe = !fact.sensitivityFlag && fact.confidence !== "low";
       const projectFact = await tx.projectFact.create({
         data: {
           workItemId: input.workItemId,
           statement: fact.statement,
           category: fact.category,
           confidence: fact.confidence,
-          status: "draft",
+          status: autoSafe ? "approved" : "draft",
           sensitivityFlag: fact.sensitivityFlag,
           reviewNotes: fact.reviewNotes,
           searchText: normalizeWhitespace([fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ")),
           supersedesProjectFactId: supersedes?.id ?? null,
+          lifecycleStatus: autoSafe ? "active" : "quarantined",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+          autoAppliedAt: autoSafe ? new Date() : null,
+          validatedThroughSha: Array.from(citedShas)[0] ?? null,
+          lastValidatedAt: new Date(),
           evidence: {
             create: evidenceIds.map((evidenceItemId) => ({ evidenceItemId })),
           },
@@ -317,6 +332,7 @@ export async function createProjectFactCandidates(input: {
           agentRunId: input.runId,
           projectFactId: projectFact.id,
           kind: supersedes ? "project_fact_revision" : "new_project_fact",
+          status: autoSafe ? "approved" : "pending",
           batchNumber,
           ordinal: created.length + 1,
           snapshot: toInputJson({
@@ -330,14 +346,34 @@ export async function createProjectFactCandidates(input: {
             partial: input.partial,
             supersedesProjectFactId: supersedes?.id ?? null,
           }),
+          reviewedAt: autoSafe ? new Date() : null,
         },
       });
+      if (autoSafe && supersedes) {
+        await tx.projectFact.updateMany({
+          where: { id: supersedes.id, status: "approved", lifecycleStatus: "active" },
+          data: { status: "superseded", lifecycleStatus: "superseded" },
+        });
+      }
+      if (autoSafe) {
+        await tx.evidenceItem.updateMany({
+          where: { id: { in: evidenceIds } },
+          data: {
+            included: true,
+            lifecycleStatus: "active",
+            reviewState: "pending_review",
+            approvalSource: "automation",
+            autoAppliedAt: new Date(),
+          },
+        });
+      }
       created.push({
         candidateId: candidate.id,
         projectFactId: projectFact.id,
         statement: fact.statement,
         category: fact.category,
         reviewNotes: fact.reviewNotes ?? null,
+        autoSafe,
       });
     }
   });
@@ -345,6 +381,18 @@ export async function createProjectFactCandidates(input: {
   await Promise.allSettled(created.map((entry) => upsertProjectFactEmbedding({
     projectFactId: entry.projectFactId,
     inputText: buildProjectFactEmbeddingText(entry),
+  })));
+  await Promise.allSettled(created.map((entry) => recordChange({
+    workItemId: input.workItemId,
+    entityKind: "project_fact",
+    action: entry.autoSafe ? "created" : "quarantined",
+    entityId: entry.projectFactId,
+    afterSnapshot: { statement: entry.statement, category: entry.category, lifecycleStatus: entry.autoSafe ? "active" : "quarantined" },
+    reason: entry.autoSafe
+      ? "Repository research auto-applied a supported Project Fact for later review."
+      : "Repository research quarantined a Project Fact that failed the automatic safety gate.",
+    provenance: { agentRunId: input.runId },
+    suffix: `${input.runId}:${entry.projectFactId}`,
   })));
   if (!created.length && promoted.newIds.length) {
     await prisma.evidenceItem.deleteMany({
@@ -354,6 +402,7 @@ export async function createProjectFactCandidates(input: {
 
   return {
     candidateIds: created.map((entry) => entry.candidateId),
+    activeProjectFactIds: created.filter((entry) => entry.autoSafe).map((entry) => entry.projectFactId),
     coverageGaps: extracted.coverageGaps,
     tokenUsage: extracted.tokenUsage,
   };

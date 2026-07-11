@@ -80,6 +80,9 @@ export interface EvidenceItemSnapshot {
   parentKind: string | null;
   parentKey: string | null;
   included: boolean;
+  lifecycleStatus?: "active" | "needs_validation" | "stale" | "superseded" | "retired" | "quarantined";
+  reviewState?: "pending_review" | "reviewed" | "reverted";
+  approvalSource?: "automation" | "user" | "legacy";
   metadata: JsonValue | null;
   source: Pick<SourceSnapshot, "id" | "label" | "type" | "externalId">;
   tags?: HighlightTagAssignment[];
@@ -128,6 +131,11 @@ export interface HighlightDraft {
 export interface HighlightSnapshot extends HighlightDraft {
   id: string;
   workItemId: string;
+  lifecycleStatus?: "active" | "needs_validation" | "stale" | "superseded" | "retired" | "quarantined";
+  reviewState?: "pending_review" | "reviewed" | "reverted";
+  approvalSource?: "automation" | "user" | "legacy";
+  publicSafetyStatus?: "not_eligible" | "pending" | "verified" | "failed";
+  validatedThroughSha?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }

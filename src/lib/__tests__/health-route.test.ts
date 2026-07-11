@@ -11,20 +11,20 @@ import { GET } from "@/app/api/health/route";
 describe("health route database readiness", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reports the v3 schema as ready", async () => {
-    queryRawMock.mockResolvedValue([{ projectFactsReady: true, agentHarnessReady: true }]);
+  it("reports the repository knowledge v4 schema as ready", async () => {
+    queryRawMock.mockResolvedValue([{ projectFactsReady: true, agentHarnessReady: true, repositoryKnowledgeReady: true }]);
     const response = await GET();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "agent-harness-v3",
+      schema: "repository-knowledge-v4",
     });
   });
 
   it("returns an actionable 503 when migrations are pending", async () => {
-    queryRawMock.mockResolvedValue([{ projectFactsReady: true, agentHarnessReady: false }]);
+    queryRawMock.mockResolvedValue([{ projectFactsReady: true, agentHarnessReady: false, repositoryKnowledgeReady: false }]);
     const response = await GET();
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({

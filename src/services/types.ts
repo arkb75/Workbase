@@ -165,6 +165,7 @@ export interface ArtifactWorkflowService {
     userId: string;
     workItemId: string;
     threadId?: string | null;
+    supersedesArtifactId?: string | null;
     brief: string;
     idempotencyKey: string;
   }): Promise<ArtifactWorkflowState>;
@@ -203,4 +204,60 @@ export interface PriorTurnProvenanceService {
     toolCalls: Array<{ name: string; count: number }>;
     usedSources: Array<{ kind: string; title: string }>;
   }>;
+}
+
+export interface RepositoryKnowledgeSyncService {
+  start(input: {
+    userId: string;
+    workItemId: string;
+    trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+    idempotencyKey: string;
+  }): Promise<{
+    runId: string;
+    workflowId: string;
+    status: "queued" | "inventorying" | "analyzing" | "reconciling" | "completed" | "failed" | "cancelled";
+  }>;
+  awaitCurrent(input: {
+    userId: string;
+    workItemId: string;
+    requiredFor: "broad_chat" | "public_artifact" | "explicit_freshness";
+    idempotencyKey: string;
+  }): Promise<{
+    runId: string;
+    targetHeads: Array<{ sourceId: string; repository: string; commitSha: string; resolvedAt: string }>;
+    coverageComplete: boolean;
+  }>;
+}
+
+export interface KnowledgeReviewService {
+  resolve(input: {
+    userId: string;
+    changeId: string;
+    decision: "keep" | "edit_and_keep" | "revert" | "retire";
+    patch?: Record<string, unknown>;
+    feedback?: string | null;
+  }): Promise<{
+    changeId: string;
+    decision: "kept" | "edited_and_kept" | "reverted" | "retired";
+    successor: { kind: string; id: string } | null;
+  }>;
+}
+
+export interface KnowledgeLifecycleService {
+  edit(input: {
+    userId: string;
+    workItemId: string;
+    kind: "evidence" | "highlight" | "project_fact" | "artifact";
+    entityId: string;
+    patch: Record<string, unknown>;
+    idempotencyKey: string;
+  }): Promise<{ successorId: string }>;
+  retire(input: {
+    userId: string;
+    workItemId: string;
+    kind: "evidence" | "highlight" | "project_fact" | "artifact";
+    entityId: string;
+    reason?: string | null;
+    idempotencyKey: string;
+  }): Promise<{ entityId: string; lifecycleStatus: "retired" }>;
 }

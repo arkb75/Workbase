@@ -685,11 +685,17 @@ function projectFactCitation(fact: {
 
 async function buildProvisionalAnswer(input: {
   candidateIds: string[];
+  activeProjectFactIds?: string[];
   coverage: ResearchCoverage;
   partial: boolean;
 }) {
   const candidates = await prisma.agentRunCandidate.findMany({
-    where: { id: { in: input.candidateIds } },
+    where: {
+      id: { in: input.candidateIds },
+      ...(input.activeProjectFactIds?.length
+        ? { projectFactId: { in: input.activeProjectFactIds }, status: "approved" as const }
+        : {}),
+    },
     include: { projectFact: true },
     orderBy: { ordinal: "asc" },
   });
@@ -697,13 +703,13 @@ async function buildProvisionalAnswer(input: {
   const citations = facts.map(projectFactCitation);
   const answer = [
     input.partial
-      ? "This is a provisional assessment from the supported portion of the bounded repository research."
-      : "This is a provisional assessment from the attached repository research.",
+      ? "This assessment uses the supported portion of the repository research."
+      : "This assessment uses auto-applied, evidence-backed Project Facts from repository research.",
     ...facts.map((fact, index) => `- ${fact.statement} [citation:${index + 1}]`),
     input.coverage.uninspected.length
       ? `\nUnresolved coverage: ${input.coverage.uninspected.join("; ")}`
       : "",
-    "\nReview the Project Facts below. Workbase will automatically replace this provisional answer using only the facts you approve.",
+    "\nNew and updated Project Facts are active now and remain available in the review-later inbox.",
   ].filter(Boolean).join("\n");
   return { answer, citations, facts };
 }
@@ -1168,9 +1174,38 @@ export async function researchProject(
     }
     const provisional = await buildProvisionalAnswer({
       candidateIds: candidates.candidateIds,
+      activeProjectFactIds: candidates.activeProjectFactIds,
       coverage,
       partial,
     });
+    if (candidates.activeProjectFactIds.length) {
+      context = { ...context, run: { ...context.run, phase: "finalizing", allowedActions: ["answer_from_auto_applied_facts"] } };
+      await persistResearchState({
+        runId: input.runId,
+        phase: "finalizing",
+        context,
+        coverage,
+        usage: budget.getUsage(),
+        notebook: { paths: pathCandidates, citations: exploredEvidence },
+        warnings,
+        partial,
+        modelUsage,
+        candidateIds: candidates.candidateIds,
+        provisionalProjectFactIds: candidates.activeProjectFactIds,
+      });
+      return baseResult({
+        status: "answered",
+        answer: provisional.answer,
+        findings: provisional.facts.map((fact, index) => ({ statement: fact.statement, confidence: fact.confidence, isInference: false, citationIndexes: [index] })),
+        citations: provisional.citations,
+        candidateIds: candidates.candidateIds,
+        exploredEvidence,
+        coverageGaps: coverage.uninspected,
+        warnings,
+        partial,
+        coverage,
+      });
+    }
     context = { ...context, run: { ...context.run, phase: "awaiting_review", allowedActions: ["review_project_fact_candidates"] } };
     await persistResearchState({
       runId: input.runId,

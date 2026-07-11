@@ -16,6 +16,7 @@
     "db:prepare": "prisma generate && prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:backfill-chat-citations": "tsx --env-file=.env scripts/backfill-chat-citations.ts",
+    "db:backfill-repository-knowledge": "tsx --env-file=.env scripts/backfill-repository-knowledge.ts",
     "bedrock:preflight": "tsx scripts/bedrock-preflight.ts"
   },
   "dependencies": {

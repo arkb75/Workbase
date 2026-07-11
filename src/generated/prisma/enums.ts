@@ -275,3 +275,119 @@ export const AgentRunCandidateStatus = {
 } as const
 
 export type AgentRunCandidateStatus = (typeof AgentRunCandidateStatus)[keyof typeof AgentRunCandidateStatus]
+
+
+export const KnowledgeLifecycleStatus = {
+  active: 'active',
+  needs_validation: 'needs_validation',
+  stale: 'stale',
+  superseded: 'superseded',
+  retired: 'retired',
+  quarantined: 'quarantined'
+} as const
+
+export type KnowledgeLifecycleStatus = (typeof KnowledgeLifecycleStatus)[keyof typeof KnowledgeLifecycleStatus]
+
+
+export const KnowledgeReviewState = {
+  pending_review: 'pending_review',
+  reviewed: 'reviewed',
+  reverted: 'reverted'
+} as const
+
+export type KnowledgeReviewState = (typeof KnowledgeReviewState)[keyof typeof KnowledgeReviewState]
+
+
+export const KnowledgeApprovalSource = {
+  automation: 'automation',
+  user: 'user',
+  legacy: 'legacy'
+} as const
+
+export type KnowledgeApprovalSource = (typeof KnowledgeApprovalSource)[keyof typeof KnowledgeApprovalSource]
+
+
+export const PublicSafetyStatus = {
+  not_eligible: 'not_eligible',
+  pending: 'pending',
+  verified: 'verified',
+  failed: 'failed'
+} as const
+
+export type PublicSafetyStatus = (typeof PublicSafetyStatus)[keyof typeof PublicSafetyStatus]
+
+
+export const KnowledgeRefreshStatus = {
+  queued: 'queued',
+  inventorying: 'inventorying',
+  analyzing: 'analyzing',
+  reconciling: 'reconciling',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled'
+} as const
+
+export type KnowledgeRefreshStatus = (typeof KnowledgeRefreshStatus)[keyof typeof KnowledgeRefreshStatus]
+
+
+export const KnowledgeRefreshTrigger = {
+  repository_attach: 'repository_attach',
+  scheduled: 'scheduled',
+  manual: 'manual',
+  chat_freshness: 'chat_freshness',
+  backfill: 'backfill'
+} as const
+
+export type KnowledgeRefreshTrigger = (typeof KnowledgeRefreshTrigger)[keyof typeof KnowledgeRefreshTrigger]
+
+
+export const RepositoryFileDisposition = {
+  eligible: 'eligible',
+  analyzed: 'analyzed',
+  excluded: 'excluded',
+  unreadable: 'unreadable'
+} as const
+
+export type RepositoryFileDisposition = (typeof RepositoryFileDisposition)[keyof typeof RepositoryFileDisposition]
+
+
+export const RepositoryFileChangeType = {
+  unchanged: 'unchanged',
+  added: 'added',
+  modified: 'modified',
+  renamed: 'renamed'
+} as const
+
+export type RepositoryFileChangeType = (typeof RepositoryFileChangeType)[keyof typeof RepositoryFileChangeType]
+
+
+export const KnowledgeChangeEntityKind = {
+  evidence: 'evidence',
+  highlight: 'highlight',
+  project_fact: 'project_fact',
+  artifact: 'artifact'
+} as const
+
+export type KnowledgeChangeEntityKind = (typeof KnowledgeChangeEntityKind)[keyof typeof KnowledgeChangeEntityKind]
+
+
+export const KnowledgeChangeAction = {
+  created: 'created',
+  updated: 'updated',
+  revalidated: 'revalidated',
+  retired: 'retired',
+  quarantined: 'quarantined'
+} as const
+
+export type KnowledgeChangeAction = (typeof KnowledgeChangeAction)[keyof typeof KnowledgeChangeAction]
+
+
+export const KnowledgeChangeDecision = {
+  pending: 'pending',
+  kept: 'kept',
+  edited_and_kept: 'edited_and_kept',
+  reverted: 'reverted',
+  retired: 'retired'
+} as const
+
+export type KnowledgeChangeDecision = (typeof KnowledgeChangeDecision)[keyof typeof KnowledgeChangeDecision]

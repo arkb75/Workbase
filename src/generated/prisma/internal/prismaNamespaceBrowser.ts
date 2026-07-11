@@ -54,6 +54,10 @@ export const ModelName = {
   User: 'User',
   WorkItem: 'WorkItem',
   Source: 'Source',
+  KnowledgeRefreshRun: 'KnowledgeRefreshRun',
+  RepositorySnapshot: 'RepositorySnapshot',
+  RepositoryFileSnapshot: 'RepositoryFileSnapshot',
+  KnowledgeChange: 'KnowledgeChange',
   GitHubConnection: 'GitHubConnection',
   EvidenceItem: 'EvidenceItem',
   EvidenceTag: 'EvidenceTag',
@@ -139,6 +143,102 @@ export const SourceScalarFieldEnum = {
 export type SourceScalarFieldEnum = (typeof SourceScalarFieldEnum)[keyof typeof SourceScalarFieldEnum]
 
 
+export const KnowledgeRefreshRunScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  workflowId: 'workflowId',
+  idempotencyKey: 'idempotencyKey',
+  trigger: 'trigger',
+  status: 'status',
+  targetHeads: 'targetHeads',
+  completedHeads: 'completedHeads',
+  coverage: 'coverage',
+  progress: 'progress',
+  warnings: 'warnings',
+  error: 'error',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type KnowledgeRefreshRunScalarFieldEnum = (typeof KnowledgeRefreshRunScalarFieldEnum)[keyof typeof KnowledgeRefreshRunScalarFieldEnum]
+
+
+export const RepositorySnapshotScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  sourceId: 'sourceId',
+  refreshRunId: 'refreshRunId',
+  branch: 'branch',
+  commitSha: 'commitSha',
+  treeSha: 'treeSha',
+  committedAt: 'committedAt',
+  resolvedAt: 'resolvedAt',
+  inventoryComplete: 'inventoryComplete',
+  analysisComplete: 'analysisComplete',
+  coverageComplete: 'coverageComplete',
+  manifestHash: 'manifestHash',
+  coverage: 'coverage',
+  warnings: 'warnings',
+  delta: 'delta',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RepositorySnapshotScalarFieldEnum = (typeof RepositorySnapshotScalarFieldEnum)[keyof typeof RepositorySnapshotScalarFieldEnum]
+
+
+export const RepositoryFileSnapshotScalarFieldEnum = {
+  id: 'id',
+  snapshotId: 'snapshotId',
+  path: 'path',
+  blobSha: 'blobSha',
+  sizeBytes: 'sizeBytes',
+  language: 'language',
+  disposition: 'disposition',
+  changeType: 'changeType',
+  exclusionReason: 'exclusionReason',
+  contentHash: 'contentHash',
+  analyzerVersion: 'analyzerVersion',
+  analysis: 'analysis',
+  analyzedAt: 'analyzedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RepositoryFileSnapshotScalarFieldEnum = (typeof RepositoryFileSnapshotScalarFieldEnum)[keyof typeof RepositoryFileSnapshotScalarFieldEnum]
+
+
+export const KnowledgeChangeScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  refreshRunId: 'refreshRunId',
+  entityKind: 'entityKind',
+  action: 'action',
+  decision: 'decision',
+  evidenceItemId: 'evidenceItemId',
+  highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
+  artifactId: 'artifactId',
+  beforeSnapshot: 'beforeSnapshot',
+  afterSnapshot: 'afterSnapshot',
+  reason: 'reason',
+  provenance: 'provenance',
+  downstreamImpact: 'downstreamImpact',
+  policyVersion: 'policyVersion',
+  modelId: 'modelId',
+  idempotencyKey: 'idempotencyKey',
+  reviewedAt: 'reviewedAt',
+  reviewedByUserId: 'reviewedByUserId',
+  feedback: 'feedback',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type KnowledgeChangeScalarFieldEnum = (typeof KnowledgeChangeScalarFieldEnum)[keyof typeof KnowledgeChangeScalarFieldEnum]
+
+
 export const GitHubConnectionScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
@@ -166,6 +266,17 @@ export const EvidenceItemScalarFieldEnum = {
   parentKey: 'parentKey',
   included: 'included',
   metadata: 'metadata',
+  logicalKey: 'logicalKey',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  purgeEligibleAt: 'purgeEligibleAt',
+  supersedesEvidenceItemId: 'supersedesEvidenceItemId',
+  repositorySnapshotId: 'repositorySnapshotId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -201,6 +312,14 @@ export const HighlightScalarFieldEnum = {
   rejectionReason: 'rejectionReason',
   verificationNotes: 'verificationNotes',
   metadata: 'metadata',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  supersedesHighlightId: 'supersedesHighlightId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -234,6 +353,14 @@ export const ProjectFactScalarFieldEnum = {
   rejectionReason: 'rejectionReason',
   searchText: 'searchText',
   supersedesProjectFactId: 'supersedesProjectFactId',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  subsystemKey: 'subsystemKey',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -333,6 +460,15 @@ export const ArtifactScalarFieldEnum = {
   requestBrief: 'requestBrief',
   content: 'content',
   searchText: 'searchText',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  staleReason: 'staleReason',
+  supersedesArtifactId: 'supersedesArtifactId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

@@ -50,6 +50,19 @@ export interface ProjectKnowledgeHit {
   status?: VerificationStatus;
   visibility?: VisibilityLevel;
   sensitivityFlag?: boolean;
+  subsystemKey?: string | null;
+  validatedThroughSha?: string | null;
+  accomplishmentRanking?: {
+    evidenceStrength: number;
+    productImportance: number;
+    implementationBreadth: number;
+    technicalDifficulty: number;
+    ownershipAuthority: number;
+    distinctiveness: number;
+    freshness: number;
+    impactBonus: number;
+    uncertainty: string | null;
+  };
   citations: ProjectKnowledgeCitation[];
 }
 

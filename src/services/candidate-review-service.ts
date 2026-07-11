@@ -1,7 +1,6 @@
 import { resumeHook } from "workflow/api";
 import { prisma } from "@/src/lib/prisma";
 import {
-  applyDraftToHighlight,
   coerceStoredHighlightDraft,
   refreshHighlightEmbeddingFromDraft,
 } from "@/src/services/highlight-suggestion-service";
@@ -10,6 +9,7 @@ import {
   buildProjectFactEmbeddingText,
   upsertProjectFactEmbedding,
 } from "@/src/services/knowledge-embedding-service";
+import { createHighlightWithRelations } from "@/src/lib/evidence-persistence";
 
 export async function resolveAgentCandidate(
   input: Parameters<CandidateReviewService["resolve"]>[0],
@@ -75,16 +75,18 @@ export async function resolveAgentCandidate(
           reviewedAt: new Date(),
         },
       });
-      if (!claimed.count) return false;
+      if (!claimed.count) return null;
       if (input.decision === "deny") {
         await tx.projectFact.update({
           where: { id: candidate.projectFact!.id },
           data: {
             status: "rejected",
+            lifecycleStatus: "retired",
+            reviewState: "reviewed",
             rejectionReason: feedback ?? "Dismissed during project chat review.",
           },
         });
-        return true;
+        return null;
       }
 
       const statement = editedText ?? candidate.projectFact!.statement;
@@ -101,6 +103,9 @@ export async function resolveAgentCandidate(
             reviewNotes ?? candidate.projectFact!.reviewNotes ?? "",
           ].join(" "),
           status: "approved",
+          lifecycleStatus: "active",
+          reviewState: "reviewed",
+          approvalSource: "user",
           rejectionReason: null,
         },
       });
@@ -111,7 +116,7 @@ export async function resolveAgentCandidate(
             workItemId: candidate.projectFact!.workItemId,
             status: "approved",
           },
-          data: { status: "superseded" },
+          data: { status: "superseded", lifecycleStatus: "superseded" },
         });
       }
       await tx.evidenceItem.updateMany({
@@ -152,14 +157,14 @@ export async function resolveAgentCandidate(
           reviewedAt: new Date(),
         },
       });
-      if (!claimed.count) return false;
+      if (!claimed.count) return null;
 
       if (input.decision === "deny") {
         await tx.highlightSuggestion.update({
           where: { id: candidate.highlightSuggestion!.id },
           data: { status: "dismissed" },
         });
-        return true;
+        return null;
       }
 
       const sourceHighlight = await tx.highlight.findUniqueOrThrow({
@@ -175,17 +180,31 @@ export async function resolveAgentCandidate(
       ) {
         throw new Error("This highlight changed after the revision was proposed. Review a fresh revision.");
       }
-      await applyDraftToHighlight({
+      const successorDraft = {
+        ...draft,
+        text: editedText ?? draft.text,
+        verificationStatus: "approved" as const,
+      };
+      const successor = await createHighlightWithRelations({
         tx,
-        highlightId: sourceHighlight.id,
-        existingStatus: sourceHighlight.verificationStatus,
-        draft,
-        overrideText: editedText,
-        mergeEvidence: true,
+        workItemId: sourceHighlight.workItemId,
+        draft: successorDraft,
       });
-      if (Object.keys(reviewOverrides).length) {
-        await tx.highlight.update({ where: { id: sourceHighlight.id }, data: reviewOverrides });
-      }
+      await tx.highlight.update({
+        where: { id: successor.id },
+        data: {
+          ...reviewOverrides,
+          lifecycleStatus: "active",
+          reviewState: "reviewed",
+          approvalSource: "user",
+          publicSafetyStatus: "pending",
+          supersedesHighlightId: sourceHighlight.id,
+        },
+      });
+      await tx.highlight.update({
+        where: { id: sourceHighlight.id },
+        data: { lifecycleStatus: "superseded" },
+      });
       const evidenceIds = draft.evidence.sourceRefs.flatMap((entry) =>
         entry.evidenceItemId ? [entry.evidenceItemId] : [],
       );
@@ -199,11 +218,11 @@ export async function resolveAgentCandidate(
         where: { id: candidate.highlightSuggestion!.id },
         data: { status: "accepted" },
       });
-      return true;
+      return successor.id;
     });
     if (applied && input.decision === "approve") {
       await refreshHighlightEmbeddingFromDraft({
-        highlightId: candidate.highlightSuggestion.sourceHighlightId,
+        highlightId: applied,
         draft,
         overrideText: editedText,
       });
@@ -231,6 +250,8 @@ export async function resolveAgentCandidate(
           where: { id: candidate.highlight!.id },
           data: {
             verificationStatus: "rejected",
+            lifecycleStatus: "retired",
+            reviewState: "reviewed",
             rejectionReason: feedback ?? "Dismissed during project chat review.",
           },
         });
@@ -246,6 +267,10 @@ export async function resolveAgentCandidate(
             candidate.highlight!.verificationNotes ?? "",
           ].join(" "),
           verificationStatus: "approved",
+          lifecycleStatus: "active",
+          reviewState: "reviewed",
+          approvalSource: "user",
+          publicSafetyStatus: "pending",
           rejectionReason: null,
           ...reviewOverrides,
         },

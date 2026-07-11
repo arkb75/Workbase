@@ -149,7 +149,12 @@ describe("deterministic project research controller", () => {
       search: searchMock,
       readFile: readFileMock,
     });
-    factCandidateMock.mockResolvedValue({ candidateIds: ["candidate-1", "candidate-2"], coverageGaps: [] });
+    factCandidateMock.mockResolvedValue({
+      candidateIds: ["candidate-1", "candidate-2"],
+      activeProjectFactIds: ["fact-1", "fact-2"],
+      coverageGaps: [],
+      tokenUsage: null,
+    });
     prismaMock.agentRunCandidate.findMany.mockResolvedValue([
       { ordinal: 1, projectFact: { id: "fact-1", statement: "The chat service uses a deterministic intent router.", category: "architecture", confidence: "high" } },
       { ordinal: 2, projectFact: { id: "fact-2", statement: "Repository reads are pinned to an immutable commit.", category: "behavior", confidence: "high" } },
@@ -168,10 +173,10 @@ describe("deterministic project research controller", () => {
     expect(listPathsMock).toHaveBeenCalledTimes(1);
     expect(searchMock).toHaveBeenCalledTimes(2);
     expect(readFileMock).toHaveBeenCalledTimes(8);
-    expect(result.status).toBe("awaiting_review");
+    expect(result.status).toBe("answered");
     expect(result.citations.map((citation) => citation.kind)).toEqual(["project_fact", "project_fact"]);
     expect(result.exploredEvidence.every((citation) => citation.kind === "github_file")).toBe(true);
-    expect(result.answer).toContain("provisional");
+    expect(result.answer).toContain("auto-applied");
     expect(result.answer).toContain("[citation:1]");
     expect(result.coverage?.planned).toHaveLength(8);
     expect(result.coverage?.achieved).toHaveLength(8);
@@ -198,7 +203,7 @@ describe("deterministic project research controller", () => {
       data: expect.objectContaining({
         researchState: expect.objectContaining({
           version: 1,
-          phase: "awaiting_review",
+          phase: "finalizing",
           candidateIds: ["candidate-1", "candidate-2"],
         }),
       }),
@@ -246,7 +251,7 @@ describe("deterministic project research controller", () => {
     });
 
     expect(readFileMock).toHaveBeenCalledTimes(5);
-    expect(result.status).toBe("awaiting_review");
+    expect(result.status).toBe("answered");
     expect(result.coverage?.planned).toEqual([
       "primary architecture",
       "request-relevant implementation",
@@ -276,7 +281,7 @@ describe("deterministic project research controller", () => {
       purpose: "answer_question",
     });
 
-    expect(result.status).toBe("awaiting_review");
+    expect(result.status).toBe("answered");
     expect(result.partial).toBe(true);
     expect(result.coverage?.achieved).toHaveLength(5);
     expect(result.coverageGaps).toContain(

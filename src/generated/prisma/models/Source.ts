@@ -213,6 +213,7 @@ export type SourceWhereInput = {
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
+  repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
 }
 
 export type SourceOrderByWithRelationInput = {
@@ -228,6 +229,7 @@ export type SourceOrderByWithRelationInput = {
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
+  repositorySnapshots?: Prisma.RepositorySnapshotOrderByRelationAggregateInput
 }
 
 export type SourceWhereUniqueInput = Prisma.AtLeast<{
@@ -247,6 +249,7 @@ export type SourceWhereUniqueInput = Prisma.AtLeast<{
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
+  repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
 }, "id" | "workItemId_type_externalId">
 
 export type SourceOrderByWithAggregationInput = {
@@ -291,6 +294,7 @@ export type SourceCreateInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateInput = {
@@ -305,6 +309,7 @@ export type SourceUncheckedCreateInput = {
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUpdateInput = {
@@ -319,6 +324,7 @@ export type SourceUpdateInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateInput = {
@@ -333,6 +339,7 @@ export type SourceUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyInput = {
@@ -476,6 +483,20 @@ export type EnumSourceTypeFieldUpdateOperationsInput = {
   set?: $Enums.SourceType
 }
 
+export type SourceCreateNestedOneWithoutRepositorySnapshotsInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedCreateWithoutRepositorySnapshotsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutRepositorySnapshotsInput
+  connect?: Prisma.SourceWhereUniqueInput
+}
+
+export type SourceUpdateOneRequiredWithoutRepositorySnapshotsNestedInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedCreateWithoutRepositorySnapshotsInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutRepositorySnapshotsInput
+  upsert?: Prisma.SourceUpsertWithoutRepositorySnapshotsInput
+  connect?: Prisma.SourceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.SourceUpdateToOneWithWhereWithoutRepositorySnapshotsInput, Prisma.SourceUpdateWithoutRepositorySnapshotsInput>, Prisma.SourceUncheckedUpdateWithoutRepositorySnapshotsInput>
+}
+
 export type SourceCreateNestedOneWithoutEvidenceItemsInput = {
   create?: Prisma.XOR<Prisma.SourceCreateWithoutEvidenceItemsInput, Prisma.SourceUncheckedCreateWithoutEvidenceItemsInput>
   connectOrCreate?: Prisma.SourceCreateOrConnectWithoutEvidenceItemsInput
@@ -517,6 +538,7 @@ export type SourceCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutWorkItemInput = {
@@ -530,6 +552,7 @@ export type SourceUncheckedCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutWorkItemInput = {
@@ -573,6 +596,78 @@ export type SourceScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
 }
 
+export type SourceCreateWithoutRepositorySnapshotsInput = {
+  id?: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+}
+
+export type SourceUncheckedCreateWithoutRepositorySnapshotsInput = {
+  id?: string
+  workItemId: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+}
+
+export type SourceCreateOrConnectWithoutRepositorySnapshotsInput = {
+  where: Prisma.SourceWhereUniqueInput
+  create: Prisma.XOR<Prisma.SourceCreateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedCreateWithoutRepositorySnapshotsInput>
+}
+
+export type SourceUpsertWithoutRepositorySnapshotsInput = {
+  update: Prisma.XOR<Prisma.SourceUpdateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedUpdateWithoutRepositorySnapshotsInput>
+  create: Prisma.XOR<Prisma.SourceCreateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedCreateWithoutRepositorySnapshotsInput>
+  where?: Prisma.SourceWhereInput
+}
+
+export type SourceUpdateToOneWithWhereWithoutRepositorySnapshotsInput = {
+  where?: Prisma.SourceWhereInput
+  data: Prisma.XOR<Prisma.SourceUpdateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedUpdateWithoutRepositorySnapshotsInput>
+}
+
+export type SourceUpdateWithoutRepositorySnapshotsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+}
+
+export type SourceUncheckedUpdateWithoutRepositorySnapshotsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+}
+
 export type SourceCreateWithoutEvidenceItemsInput = {
   id?: string
   type: $Enums.SourceType
@@ -584,6 +679,7 @@ export type SourceCreateWithoutEvidenceItemsInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
@@ -597,6 +693,7 @@ export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutEvidenceItemsInput = {
@@ -626,6 +723,7 @@ export type SourceUpdateWithoutEvidenceItemsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
@@ -639,6 +737,7 @@ export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateWithoutChatCitationsInput = {
@@ -652,6 +751,7 @@ export type SourceCreateWithoutChatCitationsInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutChatCitationsInput = {
@@ -665,6 +765,7 @@ export type SourceUncheckedCreateWithoutChatCitationsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutChatCitationsInput = {
@@ -694,6 +795,7 @@ export type SourceUpdateWithoutChatCitationsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutChatCitationsInput = {
@@ -707,6 +809,7 @@ export type SourceUncheckedUpdateWithoutChatCitationsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyWorkItemInput = {
@@ -731,6 +834,7 @@ export type SourceUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutWorkItemInput = {
@@ -744,6 +848,7 @@ export type SourceUncheckedUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
@@ -765,11 +870,13 @@ export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
 export type SourceCountOutputType = {
   evidenceItems: number
   chatCitations: number
+  repositorySnapshots: number
 }
 
 export type SourceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidenceItems?: boolean | SourceCountOutputTypeCountEvidenceItemsArgs
   chatCitations?: boolean | SourceCountOutputTypeCountChatCitationsArgs
+  repositorySnapshots?: boolean | SourceCountOutputTypeCountRepositorySnapshotsArgs
 }
 
 /**
@@ -796,6 +903,13 @@ export type SourceCountOutputTypeCountChatCitationsArgs<ExtArgs extends runtime.
   where?: Prisma.ChatCitationWhereInput
 }
 
+/**
+ * SourceCountOutputType without action
+ */
+export type SourceCountOutputTypeCountRepositorySnapshotsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.RepositorySnapshotWhereInput
+}
+
 
 export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -810,6 +924,7 @@ export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
+  repositorySnapshots?: boolean | Prisma.Source$repositorySnapshotsArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["source"]>
 
@@ -856,6 +971,7 @@ export type SourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
+  repositorySnapshots?: boolean | Prisma.Source$repositorySnapshotsArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type SourceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -871,6 +987,7 @@ export type $SourcePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
+    repositorySnapshots: Prisma.$RepositorySnapshotPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1279,6 +1396,7 @@ export interface Prisma__SourceClient<T, Null = never, ExtArgs extends runtime.T
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   evidenceItems<T extends Prisma.Source$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatCitations<T extends Prisma.Source$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  repositorySnapshots<T extends Prisma.Source$repositorySnapshotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$repositorySnapshotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1763,6 +1881,30 @@ export type Source$chatCitationsArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.ChatCitationScalarFieldEnum | Prisma.ChatCitationScalarFieldEnum[]
+}
+
+/**
+ * Source.repositorySnapshots
+ */
+export type Source$repositorySnapshotsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the RepositorySnapshot
+   */
+  select?: Prisma.RepositorySnapshotSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the RepositorySnapshot
+   */
+  omit?: Prisma.RepositorySnapshotOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.RepositorySnapshotInclude<ExtArgs> | null
+  where?: Prisma.RepositorySnapshotWhereInput
+  orderBy?: Prisma.RepositorySnapshotOrderByWithRelationInput | Prisma.RepositorySnapshotOrderByWithRelationInput[]
+  cursor?: Prisma.RepositorySnapshotWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.RepositorySnapshotScalarFieldEnum | Prisma.RepositorySnapshotScalarFieldEnum[]
 }
 
 /**

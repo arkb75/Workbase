@@ -4,8 +4,10 @@ const prismaMock = vi.hoisted(() => ({
   evidenceItem: {
     findMany: vi.fn(),
     upsert: vi.fn(),
+    update: vi.fn(),
     deleteMany: vi.fn(),
   },
+  knowledgeChange: { upsert: vi.fn() },
   evidenceTag: {
     deleteMany: vi.fn(),
     createMany: vi.fn(),
@@ -45,28 +47,43 @@ describe("evidence persistence", () => {
     vi.resetAllMocks();
   });
 
-  it("preserves included state for matching evidence items and removes stale records on re-import", async () => {
+  it("preserves immutable GitHub evidence revisions and retires records missing from a re-import", async () => {
     prismaMock.evidenceItem.findMany.mockResolvedValue([
       {
         id: "existing-1",
         sourceId: "source-1",
         externalId: "commit:sha-1",
         type: "github_commit",
+        title: "Existing commit",
+        content: "Old content",
         included: false,
+        lifecycleStatus: "active",
+        logicalKey: "commit:sha-1",
+        workItemId: "work-item-1",
       },
       {
         id: "existing-2",
         sourceId: "source-1",
         externalId: "commit:old-sha",
         type: "github_commit",
+        title: "Old commit",
+        content: "Old content",
         included: true,
+        lifecycleStatus: "active",
+        logicalKey: "commit:old-sha",
+        workItemId: "work-item-1",
       },
       {
         id: "promoted-excerpt-1",
         sourceId: "source-1",
         externalId: "file:sha:path:1:10:hash",
         type: "github_file_excerpt",
+        title: "Promoted excerpt",
+        content: "Exact excerpt",
         included: true,
+        lifecycleStatus: "active",
+        logicalKey: "file:sha:path:1:10:hash",
+        workItemId: "work-item-1",
       },
     ]);
     prismaMock.evidenceItem.upsert
@@ -114,17 +131,12 @@ describe("evidence persistence", () => {
       },
     ]);
 
-    expect(prismaMock.evidenceItem.deleteMany).toHaveBeenCalledWith({
-      where: {
-        sourceId: "source-1",
-        id: {
-          notIn: ["promoted-excerpt-1"],
-        },
-        externalId: {
-          notIn: ["commit:sha-1", "pull:12"],
-        },
-      },
-    });
+    expect(prismaMock.evidenceItem.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "existing-2" },
+      data: expect.objectContaining({ lifecycleStatus: "retired", included: false }),
+    }));
+    expect(prismaMock.knowledgeChange.upsert).toHaveBeenCalled();
 
     expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledTimes(2);
     expect(persistedItems).toEqual([
@@ -146,10 +158,14 @@ describe("evidence persistence", () => {
     expect(prismaMock.evidenceItem.upsert).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        update: expect.objectContaining({
-          included: false,
+        create: expect.objectContaining({
+          logicalKey: "commit:sha-1",
+          supersedesEvidenceItemId: "existing-1",
           searchText: "Existing commit Updated content",
-          parentKey: "source-1",
+        }),
+        update: expect.objectContaining({
+          lifecycleStatus: "active",
+          included: false,
         }),
       }),
     );

@@ -122,6 +122,7 @@ function toBedrockHistory(messages: ProjectChatHistoryMessage[]): Message[] {
 export function buildMemoryCatalog(input: {
   hits: ProjectKnowledgeHit[];
   currentRunProjectFactIds?: string[];
+  query?: string;
 }) {
   const preferredIds = new Set(input.currentRunProjectFactIds ?? []);
   const selected: ProjectKnowledgeHit[] = [];
@@ -135,6 +136,9 @@ export function buildMemoryCatalog(input: {
       if (--limit <= 0) break;
     }
   };
+  if (input.query && accomplishmentSynthesisPattern.test(input.query)) {
+    add(rankAccomplishmentHits(input.hits, 12), 12);
+  }
   add(input.hits.filter((hit) => hit.kind === "project_fact" && preferredIds.has(hit.id)), 8);
   add(input.hits.filter((hit) => hit.kind === "highlight" && hit.authority === "verified_highlight"), 6);
   add(input.hits.filter((hit) => hit.kind === "project_fact"), 4);
@@ -173,9 +177,64 @@ export function buildMemoryCatalog(input: {
           path: citation.path,
           commitSha: citation.commitSha,
         })),
+      accomplishmentRanking: hit.accomplishmentRanking ?? null,
+      subsystemKey: hit.subsystemKey ?? null,
+      validatedThroughSha: hit.validatedThroughSha ?? null,
     };
   });
   return { citations, entries, selectedHits: selected };
+}
+
+function accomplishmentScore(hit: ProjectKnowledgeHit) {
+  const ranking = hit.accomplishmentRanking;
+  if (!ranking) return 0;
+  return (
+    (ranking.evidenceStrength / 5) * 20 +
+    (ranking.productImportance / 5) * 20 +
+    (ranking.implementationBreadth / 5) * 15 +
+    (ranking.technicalDifficulty / 5) * 15 +
+    (ranking.ownershipAuthority / 5) * 15 +
+    (ranking.distinctiveness / 5) * 10 +
+    (ranking.freshness / 5) * 5 +
+    ranking.impactBonus
+  );
+}
+
+function hitSimilarity(left: ProjectKnowledgeHit, right: ProjectKnowledgeHit) {
+  const terms = (value: string) => new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length > 2));
+  const leftTerms = terms(`${left.title} ${left.content}`);
+  const rightTerms = terms(`${right.title} ${right.content}`);
+  if (!leftTerms.size || !rightTerms.size) return 0;
+  const overlap = Array.from(leftTerms).filter((term) => rightTerms.has(term)).length;
+  return overlap / new Set([...leftTerms, ...rightTerms]).size;
+}
+
+export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
+  const remaining = hits
+    .filter((hit) => hit.kind === "highlight" || hit.kind === "project_fact")
+    .filter((hit) => hit.kind !== "project_fact" || Boolean(hit.validatedThroughSha))
+    .map((hit) => ({ hit, score: accomplishmentScore(hit) }))
+    .sort((left, right) => right.score - left.score);
+  const selected: ProjectKnowledgeHit[] = [];
+  const subsystemCounts = new Map<string, number>();
+  while (remaining.length && selected.length < limit) {
+    const ranked = remaining
+      .map((entry) => ({
+        ...entry,
+        mmr: 0.75 * entry.score - 0.25 * Math.max(0, ...selected.map((chosen) => hitSimilarity(entry.hit, chosen) * 100)),
+      }))
+      .sort((left, right) => right.mmr - left.mmr);
+    const next = ranked.find((entry) => {
+      const subsystem = entry.hit.subsystemKey ?? `${entry.hit.kind}:${entry.hit.id}`;
+      return (subsystemCounts.get(subsystem) ?? 0) < 2;
+    });
+    if (!next) break;
+    selected.push(next.hit);
+    const subsystem = next.hit.subsystemKey ?? `${next.hit.kind}:${next.hit.id}`;
+    subsystemCounts.set(subsystem, (subsystemCounts.get(subsystem) ?? 0) + 1);
+    remaining.splice(remaining.findIndex((entry) => entry.hit.id === next.hit.id && entry.hit.kind === next.hit.kind), 1);
+  }
+  return selected;
 }
 
 function directResearchResult(input: {
@@ -243,6 +302,23 @@ function ensureCoverageDisclosure(answer: string, dossier: ProjectResearchDossie
   ].filter(Boolean).join("\n\n");
 }
 
+function appendCompleteRefreshFreshness(
+  answer: string,
+  refresh: { targetHeads: unknown; completedAt: string } | null,
+) {
+  if (!answer || !refresh || !Array.isArray(refresh.targetHeads)) return answer;
+  const repositories = refresh.targetHeads.flatMap((target) => {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return [];
+    const value = target as Record<string, unknown>;
+    return typeof value.repository === "string" && typeof value.commitSha === "string"
+      ? [`${value.repository}@${value.commitSha.slice(0, 8)}`]
+      : [];
+  });
+  if (!repositories.length) return answer;
+  const line = `Current through ${repositories.join(", ")} (complete safe-file coverage resolved ${refresh.completedAt}).`;
+  return answer.includes(line) ? answer : `${answer}\n\n${line}`;
+}
+
 function metadataString(metadata: unknown, path: string[]) {
   let value = metadata;
   for (const key of path) {
@@ -263,7 +339,6 @@ async function loadCapabilityInputs(input: {
       where: { workItemId: input.workItemId, type: "github_repo", workItem: { userId: input.userId } },
       select: { id: true, label: true, metadata: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
-      take: 3,
     }),
     prisma.agentRunCandidate.findMany({
       where: {
@@ -297,6 +372,27 @@ async function loadCapabilityInputs(input: {
       },
     }),
   ]);
+  const storedResearchState = run?.researchState && typeof run.researchState === "object" && !Array.isArray(run.researchState)
+    ? run.researchState as Record<string, unknown>
+    : null;
+  const refreshRunId = storedResearchState?.kind === "repository_knowledge_refresh" && typeof storedResearchState.refreshRunId === "string"
+    ? storedResearchState.refreshRunId
+    : null;
+  const knowledgeRefresh = refreshRunId
+    ? await prisma.knowledgeRefreshRun.findFirst({
+        where: { id: refreshRunId, workItemId: input.workItemId, workItem: { userId: input.userId }, status: "completed" },
+        include: {
+          changes: {
+            where: {
+              projectFactId: { not: null },
+              decision: { in: ["pending", "kept", "edited_and_kept"] },
+              projectFact: { lifecycleStatus: "active", status: "approved" },
+            },
+            select: { projectFactId: true, projectFact: { select: { updatedAt: true } } },
+          },
+        },
+      })
+    : null;
   const importedRepositories: AttachedRepositoryCapability[] = sources.map((source) => ({
     sourceId: source.id,
     name: metadataString(source.metadata, ["repository", "fullName"]) ?? source.label,
@@ -306,18 +402,48 @@ async function loadCapabilityInputs(input: {
     resolvedAt: null,
   }));
   const researchDossier = parseProjectResearchDossier(run?.researchState, run?.environmentSnapshot);
-  const repositories: AttachedRepositoryCapability[] = researchDossier?.repositories.length
+  const refreshTargets = knowledgeRefresh?.targetHeads && Array.isArray(knowledgeRefresh.targetHeads)
+    ? knowledgeRefresh.targetHeads.flatMap((target) => {
+        if (!target || typeof target !== "object" || Array.isArray(target)) return [];
+        const value = target as Record<string, unknown>;
+        return typeof value.sourceId === "string" && typeof value.repository === "string"
+          ? [{
+              sourceId: value.sourceId,
+              name: value.repository,
+              importedAt: typeof value.resolvedAt === "string" ? value.resolvedAt : new Date(0).toISOString(),
+              pinnedSha: typeof value.commitSha === "string" ? value.commitSha : null,
+              committedAt: typeof value.committedAt === "string" ? value.committedAt : null,
+              resolvedAt: typeof value.resolvedAt === "string" ? value.resolvedAt : null,
+            } satisfies AttachedRepositoryCapability]
+          : [];
+      })
+    : [];
+  const repositories: AttachedRepositoryCapability[] = refreshTargets.length
+    ? refreshTargets
+    : researchDossier?.repositories.length
     ? researchDossier.repositories.map((repository) => ({ ...repository }))
     : importedRepositories;
+  const candidateFactIds = run?.candidates.flatMap((candidate) => candidate.projectFactId ? [candidate.projectFactId] : []) ?? [];
+  const refreshedFactIds = knowledgeRefresh?.changes.flatMap((change) => change.projectFactId ? [change.projectFactId] : []) ?? [];
+  const currentRunProjectFactIds = Array.from(new Set([...candidateFactIds, ...refreshedFactIds]));
+  const latestFactDates = [
+    ...(run?.candidates.flatMap((candidate) => candidate.projectFact?.updatedAt ? [candidate.projectFact.updatedAt.toISOString()] : []) ?? []),
+    ...(knowledgeRefresh?.changes.flatMap((change) => change.projectFact?.updatedAt ? [change.projectFact.updatedAt.toISOString()] : []) ?? []),
+  ];
   return {
     repositories,
     pendingCandidateIds: pendingCandidates.map((candidate) => candidate.id),
-    currentRunProjectFactIds: run?.candidates.flatMap((candidate) => candidate.projectFactId ? [candidate.projectFactId] : []) ?? [],
-    latestFactApprovedAt: run?.candidates
-      .flatMap((candidate) => candidate.projectFact?.updatedAt ? [candidate.projectFact.updatedAt.toISOString()] : [])
-      .sort()
-      .at(-1) ?? null,
+    currentRunProjectFactIds,
+    latestFactApprovedAt: latestFactDates.sort().at(-1) ?? null,
     researchDossier,
+    knowledgeRefresh: knowledgeRefresh
+      ? {
+          id: knowledgeRefresh.id,
+          targetHeads: knowledgeRefresh.targetHeads,
+          coverage: knowledgeRefresh.coverage,
+          completedAt: knowledgeRefresh.finishedAt?.toISOString() ?? knowledgeRefresh.updatedAt.toISOString(),
+        }
+      : null,
     hasEnvironmentSnapshot: run?.environmentSnapshot != null,
   };
 }
@@ -371,13 +497,21 @@ async function executeProjectChatAgent(
   const memoryCatalog = buildMemoryCatalog({
     hits: memory.hits,
     currentRunProjectFactIds: capabilityInputs.currentRunProjectFactIds,
+    query: input.question,
   });
-  const intent = routeProjectTurn({
+  const routedIntent = routeProjectTurn({
     question: input.question,
     memoryHits: memory.hits,
     pendingCandidateIds: capabilityInputs.pendingCandidateIds,
-    allowResearch: mode === "post_review_finalization" ? false : input.allowResearch,
+    allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh ? false : input.allowResearch,
   });
+  const intent = capabilityInputs.knowledgeRefresh && routedIntent.kind === "repository_research"
+    ? {
+        ...routedIntent,
+        kind: "direct_answer" as const,
+        reason: "A complete latest-commit repository knowledge refresh already satisfied this turn's research requirement.",
+      }
+    : routedIntent;
   const turnContext = buildProjectAgentTurnContext({
     question: input.question,
     intent,
@@ -474,7 +608,10 @@ async function executeProjectChatAgent(
     const groundedContent = mode === "post_review_finalization"
       ? ensureCoverageDisclosure(selected.content, capabilityInputs.researchDossier)
       : selected.content;
-    const answer = groundedContent || "I do not have enough grounded project context to answer that yet.";
+    const answer = appendCompleteRefreshFreshness(
+      groundedContent || "I do not have enough grounded project context to answer that yet.",
+      capabilityInputs.knowledgeRefresh,
+    );
     return {
       status: groundedContent ? "answered" : "insufficient_context",
       answer,
@@ -506,6 +643,9 @@ async function executeProjectChatAgent(
                 approvedProjectFactIds: capabilityInputs.currentRunProjectFactIds,
               })}</reviewed_research>`
             : "",
+          capabilityInputs.knowledgeRefresh
+            ? `<complete_repository_refresh>${JSON.stringify(capabilityInputs.knowledgeRefresh)}</complete_repository_refresh>`
+            : "",
         ].join("\n"),
       }],
     },
@@ -525,6 +665,9 @@ async function executeProjectChatAgent(
         "This phase has no tools. If the supplied sources are insufficient, state the exact missing information.",
         mode === "post_review_finalization"
           ? "This is the continuation of a reviewed repository-research run. Prioritize every currentRun Project Fact, preserve the stated partial and coverage-gap status, and describe freshness using repository commit/inspection timestamps—not source import time."
+          : "",
+        capabilityInputs.knowledgeRefresh
+          ? "A complete all-safe-file repository refresh was performed for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata. Do not describe this as bounded or partial. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
         accomplishmentSynthesisPattern.test(input.question)
           ? "For an accomplishment synthesis, rank nonredundant items by demonstrated ownership, technical difficulty, product importance, implementation breadth, evidence strength, recency, measured impact, and distinctiveness. Do not elevate routine utilities above broader systems without evidence. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact."
@@ -584,8 +727,9 @@ async function executeProjectChatAgent(
         ? [{ claim: claim.claim, citationIndexes: Array.from(new Set(citationIndexes)) }]
         : [];
     });
+    const selectedContent = appendCompleteRefreshFreshness(selected.content, capabilityInputs.knowledgeRefresh);
     const research = directResearchResult({
-      answer: selected.content,
+      answer: selectedContent,
       citations: selected.citations,
       dossier: capabilityInputs.researchDossier,
       warnings: grounded.issues,
@@ -593,7 +737,7 @@ async function executeProjectChatAgent(
     });
     return {
       status: selected.content ? "answered" : "insufficient_context",
-      answer: selected.content || "I do not have enough grounded context to answer that yet.",
+      answer: selectedContent || "I do not have enough grounded context to answer that yet.",
       citations: selected.citations,
       research,
     };
@@ -603,9 +747,9 @@ async function executeProjectChatAgent(
     const groundedContent = mode === "post_review_finalization"
       ? ensureCoverageDisclosure(selected.content, capabilityInputs.researchDossier)
       : selected.content;
-    const answer = groundedContent || (mode === "post_review_finalization"
+    const answer = appendCompleteRefreshFreshness(groundedContent || (mode === "post_review_finalization"
       ? "Workbase could not finalize an answer from the approved Project Facts. The saved repository research remains available for retry."
-      : "Workbase could not complete the grounded answer. Retry this turn; no repository research was performed automatically.");
+      : "Workbase could not complete the grounded answer. Retry this turn; no repository research was performed automatically."), capabilityInputs.knowledgeRefresh);
     return {
       status: groundedContent ? "answered" : "insufficient_context",
       answer,

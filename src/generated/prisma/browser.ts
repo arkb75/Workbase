@@ -33,6 +33,26 @@ export type WorkItem = Prisma.WorkItemModel
  */
 export type Source = Prisma.SourceModel
 /**
+ * Model KnowledgeRefreshRun
+ * 
+ */
+export type KnowledgeRefreshRun = Prisma.KnowledgeRefreshRunModel
+/**
+ * Model RepositorySnapshot
+ * 
+ */
+export type RepositorySnapshot = Prisma.RepositorySnapshotModel
+/**
+ * Model RepositoryFileSnapshot
+ * 
+ */
+export type RepositoryFileSnapshot = Prisma.RepositoryFileSnapshotModel
+/**
+ * Model KnowledgeChange
+ * 
+ */
+export type KnowledgeChange = Prisma.KnowledgeChangeModel
+/**
  * Model GitHubConnection
  * 
  */

@@ -94,12 +94,12 @@ describe("project agent harness", () => {
       })),
     });
     const manifest = toModelCapabilityManifest(context);
-    expect(manifest.capabilities.repositoryResearch.repositories).toHaveLength(3);
+    expect(manifest.capabilities.repositoryResearch.repositories).toHaveLength(4);
     expect(manifest.capabilities.repositoryResearch).toMatchObject({
       readOnly: true,
       rawFilesAreProvenanceOnly: true,
-      requiresProjectFactApproval: true,
-      maxRepositories: 3,
+      requiresProjectFactApproval: false,
+      maxRepositories: null,
     });
     expect(manifest.run.remaining).toMatchObject({ searches: 2, fileReads: 8, visibleBytes: 65_536 });
   });

@@ -497,14 +497,6 @@ export type ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedI
   deleteMany?: Prisma.ArtifactHighlightProvenanceScalarWhereInput | Prisma.ArtifactHighlightProvenanceScalarWhereInput[]
 }
 
-export type NullableIntFieldUpdateOperationsInput = {
-  set?: number | null
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type ArtifactHighlightProvenanceCreateWithoutHighlightInput = {
   id?: string
   highlightSnapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue

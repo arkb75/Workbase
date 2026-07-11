@@ -35,6 +35,15 @@ export type ArtifactMinAggregateOutputType = {
   requestBrief: string | null
   content: string | null
   searchText: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  staleReason: string | null
+  supersedesArtifactId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -50,6 +59,15 @@ export type ArtifactMaxAggregateOutputType = {
   requestBrief: string | null
   content: string | null
   searchText: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  staleReason: string | null
+  supersedesArtifactId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -65,6 +83,15 @@ export type ArtifactCountAggregateOutputType = {
   requestBrief: number
   content: number
   searchText: number
+  lifecycleStatus: number
+  reviewState: number
+  approvalSource: number
+  publicSafetyStatus: number
+  validatedThroughSha: number
+  lastValidatedAt: number
+  autoAppliedAt: number
+  staleReason: number
+  supersedesArtifactId: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -82,6 +109,15 @@ export type ArtifactMinAggregateInputType = {
   requestBrief?: true
   content?: true
   searchText?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  staleReason?: true
+  supersedesArtifactId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -97,6 +133,15 @@ export type ArtifactMaxAggregateInputType = {
   requestBrief?: true
   content?: true
   searchText?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  staleReason?: true
+  supersedesArtifactId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -112,6 +157,15 @@ export type ArtifactCountAggregateInputType = {
   requestBrief?: true
   content?: true
   searchText?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  staleReason?: true
+  supersedesArtifactId?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -200,6 +254,15 @@ export type ArtifactGroupByOutputType = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+  reviewState: $Enums.KnowledgeReviewState
+  approvalSource: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus: $Enums.PublicSafetyStatus
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  staleReason: string | null
+  supersedesArtifactId: string | null
   createdAt: Date
   updatedAt: Date
   _count: ArtifactCountAggregateOutputType | null
@@ -236,15 +299,27 @@ export type ArtifactWhereInput = {
   requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
   searchText?: Prisma.StringFilter<"Artifact"> | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"Artifact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"Artifact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Artifact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Artifact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  staleReason?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  supersedesArtifactId?: Prisma.StringNullableFilter<"Artifact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   workItem?: Prisma.XOR<Prisma.WorkItemNullableScalarRelationFilter, Prisma.WorkItemWhereInput> | null
   originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
+  supersedesArtifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
+  supersededByArtifacts?: Prisma.ArtifactListRelationFilter
   embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
   chatCitations?: Prisma.ChatCitationListRelationFilter
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }
 
 export type ArtifactOrderByWithRelationInput = {
@@ -258,15 +333,27 @@ export type ArtifactOrderByWithRelationInput = {
   requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  staleReason?: Prisma.SortOrderInput | Prisma.SortOrder
+  supersedesArtifactId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   originatingAgentRun?: Prisma.AgentRunOrderByWithRelationInput
+  supersedesArtifact?: Prisma.ArtifactOrderByWithRelationInput
+  supersededByArtifacts?: Prisma.ArtifactOrderByRelationAggregateInput
   embedding?: Prisma.ArtifactEmbeddingOrderByWithRelationInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceOrderByRelationAggregateInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceOrderByRelationAggregateInput
+  knowledgeChanges?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
 }
 
 export type ArtifactWhereUniqueInput = Prisma.AtLeast<{
@@ -283,15 +370,27 @@ export type ArtifactWhereUniqueInput = Prisma.AtLeast<{
   requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
   searchText?: Prisma.StringFilter<"Artifact"> | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"Artifact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"Artifact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Artifact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Artifact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  staleReason?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  supersedesArtifactId?: Prisma.StringNullableFilter<"Artifact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   workItem?: Prisma.XOR<Prisma.WorkItemNullableScalarRelationFilter, Prisma.WorkItemWhereInput> | null
   originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
+  supersedesArtifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
+  supersededByArtifacts?: Prisma.ArtifactListRelationFilter
   embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
   chatCitations?: Prisma.ChatCitationListRelationFilter
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }, "id" | "originatingAgentRunId">
 
 export type ArtifactOrderByWithAggregationInput = {
@@ -305,6 +404,15 @@ export type ArtifactOrderByWithAggregationInput = {
   requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  staleReason?: Prisma.SortOrderInput | Prisma.SortOrder
+  supersedesArtifactId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ArtifactCountOrderByAggregateInput
@@ -326,6 +434,15 @@ export type ArtifactScalarWhereWithAggregatesInput = {
   requestBrief?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   content?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
   searchText?: Prisma.StringWithAggregatesFilter<"Artifact"> | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusWithAggregatesFilter<"Artifact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateWithAggregatesFilter<"Artifact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceWithAggregatesFilter<"Artifact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusWithAggregatesFilter<"Artifact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableWithAggregatesFilter<"Artifact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Artifact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Artifact"> | Date | string | null
+  staleReason?: Prisma.StringNullableWithAggregatesFilter<"Artifact"> | string | null
+  supersedesArtifactId?: Prisma.StringNullableWithAggregatesFilter<"Artifact"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Artifact"> | Date | string
 }
@@ -338,15 +455,26 @@ export type ArtifactCreateInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateInput = {
@@ -360,12 +488,23 @@ export type ArtifactUncheckedCreateInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUpdateInput = {
@@ -376,15 +515,26 @@ export type ArtifactUpdateInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateInput = {
@@ -398,12 +548,23 @@ export type ArtifactUncheckedUpdateInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateManyInput = {
@@ -417,6 +578,15 @@ export type ArtifactCreateManyInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -429,6 +599,14 @@ export type ArtifactUpdateManyMutationInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -444,6 +622,15 @@ export type ArtifactUncheckedUpdateManyInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -458,6 +645,11 @@ export type ArtifactOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type ArtifactNullableScalarRelationFilter = {
+  is?: Prisma.ArtifactWhereInput | null
+  isNot?: Prisma.ArtifactWhereInput | null
+}
+
 export type ArtifactCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   userId?: Prisma.SortOrder
@@ -469,6 +661,15 @@ export type ArtifactCountOrderByAggregateInput = {
   requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  staleReason?: Prisma.SortOrder
+  supersedesArtifactId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -484,6 +685,15 @@ export type ArtifactMaxOrderByAggregateInput = {
   requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  staleReason?: Prisma.SortOrder
+  supersedesArtifactId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -499,6 +709,15 @@ export type ArtifactMinOrderByAggregateInput = {
   requestBrief?: Prisma.SortOrder
   content?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  staleReason?: Prisma.SortOrder
+  supersedesArtifactId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -506,11 +725,6 @@ export type ArtifactMinOrderByAggregateInput = {
 export type ArtifactScalarRelationFilter = {
   is?: Prisma.ArtifactWhereInput
   isNot?: Prisma.ArtifactWhereInput
-}
-
-export type ArtifactNullableScalarRelationFilter = {
-  is?: Prisma.ArtifactWhereInput | null
-  isNot?: Prisma.ArtifactWhereInput | null
 }
 
 export type ArtifactCreateNestedManyWithoutUserInput = {
@@ -597,6 +811,42 @@ export type ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput = {
   deleteMany?: Prisma.ArtifactScalarWhereInput | Prisma.ArtifactScalarWhereInput[]
 }
 
+export type ArtifactCreateNestedOneWithoutKnowledgeChangesInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutKnowledgeChangesInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactUpdateOneWithoutKnowledgeChangesNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutKnowledgeChangesInput
+  upsert?: Prisma.ArtifactUpsertWithoutKnowledgeChangesInput
+  disconnect?: Prisma.ArtifactWhereInput | boolean
+  delete?: Prisma.ArtifactWhereInput | boolean
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutKnowledgeChangesInput, Prisma.ArtifactUpdateWithoutKnowledgeChangesInput>, Prisma.ArtifactUncheckedUpdateWithoutKnowledgeChangesInput>
+}
+
+export type ArtifactCreateNestedOneWithoutSupersededByArtifactsInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedCreateWithoutSupersededByArtifactsInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersededByArtifactsInput
+  connect?: Prisma.ArtifactWhereUniqueInput
+}
+
+export type ArtifactCreateNestedManyWithoutSupersedesArtifactInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput> | Prisma.ArtifactCreateWithoutSupersedesArtifactInput[] | Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput[]
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput | Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput[]
+  createMany?: Prisma.ArtifactCreateManySupersedesArtifactInputEnvelope
+  connect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+}
+
+export type ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput> | Prisma.ArtifactCreateWithoutSupersedesArtifactInput[] | Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput[]
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput | Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput[]
+  createMany?: Prisma.ArtifactCreateManySupersedesArtifactInputEnvelope
+  connect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+}
+
 export type EnumArtifactTypeFieldUpdateOperationsInput = {
   set?: $Enums.ArtifactType
 }
@@ -607,6 +857,44 @@ export type EnumTargetAngleFieldUpdateOperationsInput = {
 
 export type EnumArtifactToneFieldUpdateOperationsInput = {
   set?: $Enums.ArtifactTone
+}
+
+export type ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedCreateWithoutSupersededByArtifactsInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersededByArtifactsInput
+  upsert?: Prisma.ArtifactUpsertWithoutSupersededByArtifactsInput
+  disconnect?: Prisma.ArtifactWhereInput | boolean
+  delete?: Prisma.ArtifactWhereInput | boolean
+  connect?: Prisma.ArtifactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutSupersededByArtifactsInput, Prisma.ArtifactUpdateWithoutSupersededByArtifactsInput>, Prisma.ArtifactUncheckedUpdateWithoutSupersededByArtifactsInput>
+}
+
+export type ArtifactUpdateManyWithoutSupersedesArtifactNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput> | Prisma.ArtifactCreateWithoutSupersedesArtifactInput[] | Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput[]
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput | Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput[]
+  upsert?: Prisma.ArtifactUpsertWithWhereUniqueWithoutSupersedesArtifactInput | Prisma.ArtifactUpsertWithWhereUniqueWithoutSupersedesArtifactInput[]
+  createMany?: Prisma.ArtifactCreateManySupersedesArtifactInputEnvelope
+  set?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  delete?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  connect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  update?: Prisma.ArtifactUpdateWithWhereUniqueWithoutSupersedesArtifactInput | Prisma.ArtifactUpdateWithWhereUniqueWithoutSupersedesArtifactInput[]
+  updateMany?: Prisma.ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput | Prisma.ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput[]
+  deleteMany?: Prisma.ArtifactScalarWhereInput | Prisma.ArtifactScalarWhereInput[]
+}
+
+export type ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput> | Prisma.ArtifactCreateWithoutSupersedesArtifactInput[] | Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput[]
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput | Prisma.ArtifactCreateOrConnectWithoutSupersedesArtifactInput[]
+  upsert?: Prisma.ArtifactUpsertWithWhereUniqueWithoutSupersedesArtifactInput | Prisma.ArtifactUpsertWithWhereUniqueWithoutSupersedesArtifactInput[]
+  createMany?: Prisma.ArtifactCreateManySupersedesArtifactInputEnvelope
+  set?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  delete?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  connect?: Prisma.ArtifactWhereUniqueInput | Prisma.ArtifactWhereUniqueInput[]
+  update?: Prisma.ArtifactUpdateWithWhereUniqueWithoutSupersedesArtifactInput | Prisma.ArtifactUpdateWithWhereUniqueWithoutSupersedesArtifactInput[]
+  updateMany?: Prisma.ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput | Prisma.ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput[]
+  deleteMany?: Prisma.ArtifactScalarWhereInput | Prisma.ArtifactScalarWhereInput[]
 }
 
 export type ArtifactUpdateOneRequiredWithoutEmbeddingNestedInput = {
@@ -701,14 +989,25 @@ export type ArtifactCreateWithoutUserInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutUserInput = {
@@ -721,12 +1020,23 @@ export type ArtifactUncheckedCreateWithoutUserInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutUserInput = {
@@ -769,6 +1079,15 @@ export type ArtifactScalarWhereInput = {
   requestBrief?: Prisma.StringFilter<"Artifact"> | string
   content?: Prisma.StringFilter<"Artifact"> | string
   searchText?: Prisma.StringFilter<"Artifact"> | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"Artifact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"Artifact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Artifact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Artifact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"Artifact"> | Date | string | null
+  staleReason?: Prisma.StringNullableFilter<"Artifact"> | string | null
+  supersedesArtifactId?: Prisma.StringNullableFilter<"Artifact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Artifact"> | Date | string
 }
@@ -781,14 +1100,25 @@ export type ArtifactCreateWithoutWorkItemInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutWorkItemInput = {
@@ -801,12 +1131,23 @@ export type ArtifactUncheckedCreateWithoutWorkItemInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutWorkItemInput = {
@@ -835,6 +1176,354 @@ export type ArtifactUpdateManyWithWhereWithoutWorkItemInput = {
   data: Prisma.XOR<Prisma.ArtifactUpdateManyMutationInput, Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemInput>
 }
 
+export type ArtifactCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutKnowledgeChangesInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedCreateWithoutKnowledgeChangesInput>
+}
+
+export type ArtifactUpsertWithoutKnowledgeChangesInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedUpdateWithoutKnowledgeChangesInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedCreateWithoutKnowledgeChangesInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutKnowledgeChangesInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutKnowledgeChangesInput, Prisma.ArtifactUncheckedUpdateWithoutKnowledgeChangesInput>
+}
+
+export type ArtifactUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactCreateWithoutSupersededByArtifactsInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutSupersededByArtifactsInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutSupersededByArtifactsInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedCreateWithoutSupersededByArtifactsInput>
+}
+
+export type ArtifactCreateWithoutSupersedesArtifactInput = {
+  id?: string
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutArtifactsInput
+  workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactUncheckedCreateWithoutSupersedesArtifactInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
+  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
+}
+
+export type ArtifactCreateOrConnectWithoutSupersedesArtifactInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput>
+}
+
+export type ArtifactCreateManySupersedesArtifactInputEnvelope = {
+  data: Prisma.ArtifactCreateManySupersedesArtifactInput | Prisma.ArtifactCreateManySupersedesArtifactInput[]
+  skipDuplicates?: boolean
+}
+
+export type ArtifactUpsertWithoutSupersededByArtifactsInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedUpdateWithoutSupersededByArtifactsInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedCreateWithoutSupersededByArtifactsInput>
+  where?: Prisma.ArtifactWhereInput
+}
+
+export type ArtifactUpdateToOneWithWhereWithoutSupersededByArtifactsInput = {
+  where?: Prisma.ArtifactWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutSupersededByArtifactsInput, Prisma.ArtifactUncheckedUpdateWithoutSupersededByArtifactsInput>
+}
+
+export type ArtifactUpdateWithoutSupersededByArtifactsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutSupersededByArtifactsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUpsertWithWhereUniqueWithoutSupersedesArtifactInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedUpdateWithoutSupersedesArtifactInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedCreateWithoutSupersedesArtifactInput>
+}
+
+export type ArtifactUpdateWithWhereUniqueWithoutSupersedesArtifactInput = {
+  where: Prisma.ArtifactWhereUniqueInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutSupersedesArtifactInput, Prisma.ArtifactUncheckedUpdateWithoutSupersedesArtifactInput>
+}
+
+export type ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput = {
+  where: Prisma.ArtifactScalarWhereInput
+  data: Prisma.XOR<Prisma.ArtifactUpdateManyMutationInput, Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactInput>
+}
+
 export type ArtifactCreateWithoutEmbeddingInput = {
   id?: string
   type: $Enums.ArtifactType
@@ -843,14 +1532,25 @@ export type ArtifactCreateWithoutEmbeddingInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutEmbeddingInput = {
@@ -864,11 +1564,22 @@ export type ArtifactUncheckedCreateWithoutEmbeddingInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutEmbeddingInput = {
@@ -895,14 +1606,25 @@ export type ArtifactUpdateWithoutEmbeddingInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutEmbeddingInput = {
@@ -916,11 +1638,22 @@ export type ArtifactUncheckedUpdateWithoutEmbeddingInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateWithoutHighlightProvenanceInput = {
@@ -931,14 +1664,25 @@ export type ArtifactCreateWithoutHighlightProvenanceInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutHighlightProvenanceInput = {
@@ -952,11 +1696,22 @@ export type ArtifactUncheckedCreateWithoutHighlightProvenanceInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutHighlightProvenanceInput = {
@@ -983,14 +1738,25 @@ export type ArtifactUpdateWithoutHighlightProvenanceInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutHighlightProvenanceInput = {
@@ -1004,11 +1770,22 @@ export type ArtifactUncheckedUpdateWithoutHighlightProvenanceInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateWithoutEvidenceProvenanceInput = {
@@ -1019,14 +1796,25 @@ export type ArtifactCreateWithoutEvidenceProvenanceInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutEvidenceProvenanceInput = {
@@ -1040,11 +1828,22 @@ export type ArtifactUncheckedCreateWithoutEvidenceProvenanceInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutEvidenceProvenanceInput = {
@@ -1071,14 +1870,25 @@ export type ArtifactUpdateWithoutEvidenceProvenanceInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput = {
@@ -1092,11 +1902,22 @@ export type ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateWithoutChatCitationsInput = {
@@ -1107,14 +1928,25 @@ export type ArtifactCreateWithoutChatCitationsInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutChatCitationsInput = {
@@ -1128,11 +1960,22 @@ export type ArtifactUncheckedCreateWithoutChatCitationsInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutChatCitationsInput = {
@@ -1159,14 +2002,25 @@ export type ArtifactUpdateWithoutChatCitationsInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutChatCitationsInput = {
@@ -1180,11 +2034,22 @@ export type ArtifactUncheckedUpdateWithoutChatCitationsInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateWithoutOriginatingAgentRunInput = {
@@ -1195,14 +2060,25 @@ export type ArtifactCreateWithoutOriginatingAgentRunInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutArtifactsInput
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
+  supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
+  supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactUncheckedCreateWithoutOriginatingAgentRunInput = {
@@ -1215,12 +2091,23 @@ export type ArtifactUncheckedCreateWithoutOriginatingAgentRunInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
 export type ArtifactCreateOrConnectWithoutOriginatingAgentRunInput = {
@@ -1247,14 +2134,25 @@ export type ArtifactUpdateWithoutOriginatingAgentRunInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput = {
@@ -1267,12 +2165,23 @@ export type ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactCreateManyUserInput = {
@@ -1285,6 +2194,15 @@ export type ArtifactCreateManyUserInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1297,14 +2215,25 @@ export type ArtifactUpdateWithoutUserInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutUserInput = {
@@ -1317,12 +2246,23 @@ export type ArtifactUncheckedUpdateWithoutUserInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateManyWithoutUserInput = {
@@ -1335,6 +2275,15 @@ export type ArtifactUncheckedUpdateManyWithoutUserInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1349,6 +2298,15 @@ export type ArtifactCreateManyWorkItemInput = {
   requestBrief: string
   content: string
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1361,14 +2319,25 @@ export type ArtifactUpdateWithoutWorkItemInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateWithoutWorkItemInput = {
@@ -1381,12 +2350,23 @@ export type ArtifactUncheckedUpdateWithoutWorkItemInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
   embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
 }
 
 export type ArtifactUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1399,6 +2379,119 @@ export type ArtifactUncheckedUpdateManyWithoutWorkItemInput = {
   requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
   content?: Prisma.StringFieldUpdateOperationsInput | string
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ArtifactCreateManySupersedesArtifactInput = {
+  id?: string
+  userId: string
+  workItemId?: string | null
+  originatingAgentRunId?: string | null
+  type: $Enums.ArtifactType
+  targetAngle: $Enums.TargetAngle
+  tone: $Enums.ArtifactTone
+  requestBrief: string
+  content: string
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  staleReason?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type ArtifactUpdateWithoutSupersedesArtifactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutArtifactsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
+  originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
+  supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateWithoutSupersedesArtifactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
+  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
+  highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
+}
+
+export type ArtifactUncheckedUpdateManyWithoutSupersedesArtifactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  originatingAgentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
+  targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
+  tone?: Prisma.EnumArtifactToneFieldUpdateOperationsInput | $Enums.ArtifactTone
+  requestBrief?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  staleReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1409,15 +2502,19 @@ export type ArtifactUncheckedUpdateManyWithoutWorkItemInput = {
  */
 
 export type ArtifactCountOutputType = {
+  supersededByArtifacts: number
   chatCitations: number
   highlightProvenance: number
   evidenceProvenance: number
+  knowledgeChanges: number
 }
 
 export type ArtifactCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  supersededByArtifacts?: boolean | ArtifactCountOutputTypeCountSupersededByArtifactsArgs
   chatCitations?: boolean | ArtifactCountOutputTypeCountChatCitationsArgs
   highlightProvenance?: boolean | ArtifactCountOutputTypeCountHighlightProvenanceArgs
   evidenceProvenance?: boolean | ArtifactCountOutputTypeCountEvidenceProvenanceArgs
+  knowledgeChanges?: boolean | ArtifactCountOutputTypeCountKnowledgeChangesArgs
 }
 
 /**
@@ -1428,6 +2525,13 @@ export type ArtifactCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Ext
    * Select specific fields to fetch from the ArtifactCountOutputType
    */
   select?: Prisma.ArtifactCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountSupersededByArtifactsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ArtifactWhereInput
 }
 
 /**
@@ -1451,6 +2555,13 @@ export type ArtifactCountOutputTypeCountEvidenceProvenanceArgs<ExtArgs extends r
   where?: Prisma.ArtifactEvidenceProvenanceWhereInput
 }
 
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountKnowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.KnowledgeChangeWhereInput
+}
+
 
 export type ArtifactSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1463,15 +2574,27 @@ export type ArtifactSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   requestBrief?: boolean
   content?: boolean
   searchText?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  staleReason?: boolean
+  supersedesArtifactId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
+  supersededByArtifacts?: boolean | Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>
   embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
   highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
   evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.Artifact$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.ArtifactCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
@@ -1486,11 +2609,21 @@ export type ArtifactSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   requestBrief?: boolean
   content?: boolean
   searchText?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  staleReason?: boolean
+  supersedesArtifactId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
 export type ArtifactSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1504,11 +2637,21 @@ export type ArtifactSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   requestBrief?: boolean
   content?: boolean
   searchText?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  staleReason?: boolean
+  supersedesArtifactId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
 }, ExtArgs["result"]["artifact"]>
 
 export type ArtifactSelectScalar = {
@@ -1522,30 +2665,44 @@ export type ArtifactSelectScalar = {
   requestBrief?: boolean
   content?: boolean
   searchText?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  staleReason?: boolean
+  supersedesArtifactId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ArtifactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "originatingAgentRunId" | "type" | "targetAngle" | "tone" | "requestBrief" | "content" | "searchText" | "createdAt" | "updatedAt", ExtArgs["result"]["artifact"]>
+export type ArtifactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "originatingAgentRunId" | "type" | "targetAngle" | "tone" | "requestBrief" | "content" | "searchText" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "staleReason" | "supersedesArtifactId" | "createdAt" | "updatedAt", ExtArgs["result"]["artifact"]>
 export type ArtifactInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
+  supersededByArtifacts?: boolean | Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>
   embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
   highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
   evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.Artifact$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.ArtifactCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ArtifactIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
 }
 export type ArtifactIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.Artifact$workItemArgs<ExtArgs>
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
+  supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
 }
 
 export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1554,10 +2711,13 @@ export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     user: Prisma.$UserPayload<ExtArgs>
     workItem: Prisma.$WorkItemPayload<ExtArgs> | null
     originatingAgentRun: Prisma.$AgentRunPayload<ExtArgs> | null
+    supersedesArtifact: Prisma.$ArtifactPayload<ExtArgs> | null
+    supersededByArtifacts: Prisma.$ArtifactPayload<ExtArgs>[]
     embedding: Prisma.$ArtifactEmbeddingPayload<ExtArgs> | null
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     highlightProvenance: Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>[]
     evidenceProvenance: Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>[]
+    knowledgeChanges: Prisma.$KnowledgeChangePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1570,6 +2730,15 @@ export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     requestBrief: string
     content: string
     searchText: string
+    lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+    reviewState: $Enums.KnowledgeReviewState
+    approvalSource: $Enums.KnowledgeApprovalSource
+    publicSafetyStatus: $Enums.PublicSafetyStatus
+    validatedThroughSha: string | null
+    lastValidatedAt: Date | null
+    autoAppliedAt: Date | null
+    staleReason: string | null
+    supersedesArtifactId: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["artifact"]>
@@ -1969,10 +3138,13 @@ export interface Prisma__ArtifactClient<T, Null = never, ExtArgs extends runtime
   user<T extends Prisma.UserDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.UserDefaultArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   workItem<T extends Prisma.Artifact$workItemArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$workItemArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   originatingAgentRun<T extends Prisma.Artifact$originatingAgentRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$originatingAgentRunArgs<ExtArgs>>): Prisma.Prisma__AgentRunClient<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  supersedesArtifact<T extends Prisma.Artifact$supersedesArtifactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$supersedesArtifactArgs<ExtArgs>>): Prisma.Prisma__ArtifactClient<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  supersededByArtifacts<T extends Prisma.Artifact$supersededByArtifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   embedding<T extends Prisma.Artifact$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$embeddingArgs<ExtArgs>>): Prisma.Prisma__ArtifactEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$ArtifactEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   chatCitations<T extends Prisma.Artifact$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   highlightProvenance<T extends Prisma.Artifact$highlightProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$highlightProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evidenceProvenance<T extends Prisma.Artifact$evidenceProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  knowledgeChanges<T extends Prisma.Artifact$knowledgeChangesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$knowledgeChangesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2012,6 +3184,15 @@ export interface ArtifactFieldRefs {
   readonly requestBrief: Prisma.FieldRef<"Artifact", 'String'>
   readonly content: Prisma.FieldRef<"Artifact", 'String'>
   readonly searchText: Prisma.FieldRef<"Artifact", 'String'>
+  readonly lifecycleStatus: Prisma.FieldRef<"Artifact", 'KnowledgeLifecycleStatus'>
+  readonly reviewState: Prisma.FieldRef<"Artifact", 'KnowledgeReviewState'>
+  readonly approvalSource: Prisma.FieldRef<"Artifact", 'KnowledgeApprovalSource'>
+  readonly publicSafetyStatus: Prisma.FieldRef<"Artifact", 'PublicSafetyStatus'>
+  readonly validatedThroughSha: Prisma.FieldRef<"Artifact", 'String'>
+  readonly lastValidatedAt: Prisma.FieldRef<"Artifact", 'DateTime'>
+  readonly autoAppliedAt: Prisma.FieldRef<"Artifact", 'DateTime'>
+  readonly staleReason: Prisma.FieldRef<"Artifact", 'String'>
+  readonly supersedesArtifactId: Prisma.FieldRef<"Artifact", 'String'>
   readonly createdAt: Prisma.FieldRef<"Artifact", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Artifact", 'DateTime'>
 }
@@ -2453,6 +3634,49 @@ export type Artifact$originatingAgentRunArgs<ExtArgs extends runtime.Types.Exten
 }
 
 /**
+ * Artifact.supersedesArtifact
+ */
+export type Artifact$supersedesArtifactArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Artifact
+   */
+  select?: Prisma.ArtifactSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Artifact
+   */
+  omit?: Prisma.ArtifactOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactInclude<ExtArgs> | null
+  where?: Prisma.ArtifactWhereInput
+}
+
+/**
+ * Artifact.supersededByArtifacts
+ */
+export type Artifact$supersededByArtifactsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Artifact
+   */
+  select?: Prisma.ArtifactSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Artifact
+   */
+  omit?: Prisma.ArtifactOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ArtifactInclude<ExtArgs> | null
+  where?: Prisma.ArtifactWhereInput
+  orderBy?: Prisma.ArtifactOrderByWithRelationInput | Prisma.ArtifactOrderByWithRelationInput[]
+  cursor?: Prisma.ArtifactWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ArtifactScalarFieldEnum | Prisma.ArtifactScalarFieldEnum[]
+}
+
+/**
  * Artifact.embedding
  */
 export type Artifact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2541,6 +3765,30 @@ export type Artifact$evidenceProvenanceArgs<ExtArgs extends runtime.Types.Extens
   take?: number
   skip?: number
   distinct?: Prisma.ArtifactEvidenceProvenanceScalarFieldEnum | Prisma.ArtifactEvidenceProvenanceScalarFieldEnum[]
+}
+
+/**
+ * Artifact.knowledgeChanges
+ */
+export type Artifact$knowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the KnowledgeChange
+   */
+  select?: Prisma.KnowledgeChangeSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the KnowledgeChange
+   */
+  omit?: Prisma.KnowledgeChangeOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.KnowledgeChangeInclude<ExtArgs> | null
+  where?: Prisma.KnowledgeChangeWhereInput
+  orderBy?: Prisma.KnowledgeChangeOrderByWithRelationInput | Prisma.KnowledgeChangeOrderByWithRelationInput[]
+  cursor?: Prisma.KnowledgeChangeWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.KnowledgeChangeScalarFieldEnum | Prisma.KnowledgeChangeScalarFieldEnum[]
 }
 
 /**

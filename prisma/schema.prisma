@@ -197,6 +197,89 @@ enum AgentRunCandidateStatus {
   denied
 }
 
+enum KnowledgeLifecycleStatus {
+  active
+  needs_validation
+  stale
+  superseded
+  retired
+  quarantined
+}
+
+enum KnowledgeReviewState {
+  pending_review
+  reviewed
+  reverted
+}
+
+enum KnowledgeApprovalSource {
+  automation
+  user
+  legacy
+}
+
+enum PublicSafetyStatus {
+  not_eligible
+  pending
+  verified
+  failed
+}
+
+enum KnowledgeRefreshStatus {
+  queued
+  inventorying
+  analyzing
+  reconciling
+  completed
+  failed
+  cancelled
+}
+
+enum KnowledgeRefreshTrigger {
+  repository_attach
+  scheduled
+  manual
+  chat_freshness
+  backfill
+}
+
+enum RepositoryFileDisposition {
+  eligible
+  analyzed
+  excluded
+  unreadable
+}
+
+enum RepositoryFileChangeType {
+  unchanged
+  added
+  modified
+  renamed
+}
+
+enum KnowledgeChangeEntityKind {
+  evidence
+  highlight
+  project_fact
+  artifact
+}
+
+enum KnowledgeChangeAction {
+  created
+  updated
+  revalidated
+  retired
+  quarantined
+}
+
+enum KnowledgeChangeDecision {
+  pending
+  kept
+  edited_and_kept
+  reverted
+  retired
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String            @unique
@@ -231,25 +314,147 @@ model WorkItem {
   generationRuns       GenerationRun[]
   chatThreads          ChatThread[]
   agentRuns            AgentRun[]
+  knowledgeRefreshRuns KnowledgeRefreshRun[]
+  repositorySnapshots  RepositorySnapshot[]
+  knowledgeChanges     KnowledgeChange[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
 
 model Source {
-  id            String         @id @default(cuid())
-  workItemId    String
-  type          SourceType
-  label         String
-  externalId    String?
-  rawContent    String?
-  metadata      Json?
-  workItem      WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  evidenceItems EvidenceItem[]
-  chatCitations ChatCitation[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                  String               @id @default(cuid())
+  workItemId          String
+  type                SourceType
+  label               String
+  externalId          String?
+  rawContent          String?
+  metadata            Json?
+  workItem            WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  evidenceItems       EvidenceItem[]
+  chatCitations       ChatCitation[]
+  repositorySnapshots RepositorySnapshot[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   @@unique([workItemId, type, externalId])
+}
+
+model KnowledgeRefreshRun {
+  id             String                  @id @default(cuid())
+  workItemId     String
+  workflowId     String?                 @unique
+  idempotencyKey String
+  trigger        KnowledgeRefreshTrigger
+  status         KnowledgeRefreshStatus  @default(queued)
+  targetHeads    Json
+  completedHeads Json?
+  coverage       Json?
+  progress       Json?
+  warnings       Json?
+  error          Json?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  workItem       WorkItem                @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  snapshots      RepositorySnapshot[]
+  changes        KnowledgeChange[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([workItemId, idempotencyKey])
+  @@index([workItemId, status, updatedAt])
+}
+
+model RepositorySnapshot {
+  id                String                   @id @default(cuid())
+  workItemId        String
+  sourceId          String
+  refreshRunId      String?
+  branch            String
+  commitSha         String
+  treeSha           String
+  committedAt       DateTime?
+  resolvedAt        DateTime
+  inventoryComplete Boolean                  @default(false)
+  analysisComplete  Boolean                  @default(false)
+  coverageComplete  Boolean                  @default(false)
+  manifestHash      String?
+  coverage          Json?
+  warnings          Json?
+  delta             Json?
+  workItem          WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  source            Source                   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  refreshRun        KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  files             RepositoryFileSnapshot[]
+  evidenceItems     EvidenceItem[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([sourceId, commitSha])
+  @@index([workItemId, coverageComplete, resolvedAt])
+  @@index([refreshRunId])
+}
+
+model RepositoryFileSnapshot {
+  id              String                    @id @default(cuid())
+  snapshotId      String
+  path            String
+  blobSha         String?
+  sizeBytes       Int?
+  language        String?
+  disposition     RepositoryFileDisposition
+  changeType      RepositoryFileChangeType  @default(added)
+  exclusionReason String?
+  contentHash     String?
+  analyzerVersion String?
+  analysis        Json?
+  analyzedAt      DateTime?
+  snapshot        RepositorySnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([snapshotId, path])
+  @@index([snapshotId, disposition, path])
+  @@index([blobSha, analyzerVersion])
+}
+
+model KnowledgeChange {
+  id               String                    @id @default(cuid())
+  workItemId       String
+  refreshRunId     String?
+  entityKind       KnowledgeChangeEntityKind
+  action           KnowledgeChangeAction
+  decision         KnowledgeChangeDecision   @default(pending)
+  evidenceItemId   String?
+  highlightId      String?
+  projectFactId    String?
+  artifactId       String?
+  beforeSnapshot   Json?
+  afterSnapshot    Json?
+  reason           String
+  provenance       Json?
+  downstreamImpact Json?
+  policyVersion    String
+  modelId          String?
+  idempotencyKey   String
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  feedback         String?
+  workItem         WorkItem                  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  refreshRun       KnowledgeRefreshRun?      @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  evidenceItem     EvidenceItem?             @relation(fields: [evidenceItemId], references: [id], onDelete: SetNull)
+  highlight        Highlight?                @relation(fields: [highlightId], references: [id], onDelete: SetNull)
+  projectFact      ProjectFact?              @relation(fields: [projectFactId], references: [id], onDelete: SetNull)
+  artifact         Artifact?                 @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([workItemId, idempotencyKey])
+  @@index([workItemId, decision, createdAt])
+  @@index([refreshRunId, action])
+  @@index([evidenceItemId])
+  @@index([highlightId])
+  @@index([projectFactId])
+  @@index([artifactId])
 }
 
 model GitHubConnection {
@@ -265,32 +470,51 @@ model GitHubConnection {
 }
 
 model EvidenceItem {
-  id                 String                       @id @default(cuid())
-  workItemId         String
-  sourceId           String
-  externalId         String
-  type               EvidenceItemType
-  title              String
-  content            String
-  searchText         String
-  parentKind         String?
-  parentKey          String?
-  included           Boolean                      @default(true)
-  metadata           Json?
-  workItem           WorkItem                     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  source             Source                       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  highlightEvidence  HighlightEvidence[]
-  projectFactEvidence ProjectFactEvidence[]
-  tags               EvidenceTag[]
-  embedding          EvidenceEmbedding?
-  chatCitations      ChatCitation[]
-  artifactProvenance ArtifactEvidenceProvenance[]
-  createdAt          DateTime                     @default(now())
-  updatedAt          DateTime                     @updatedAt
+  id                        String                       @id @default(cuid())
+  workItemId                String
+  sourceId                  String
+  externalId                String
+  type                      EvidenceItemType
+  title                     String
+  content                   String
+  searchText                String
+  parentKind                String?
+  parentKey                 String?
+  included                  Boolean                      @default(true)
+  metadata                  Json?
+  logicalKey                String?
+  lifecycleStatus           KnowledgeLifecycleStatus     @default(active)
+  reviewState               KnowledgeReviewState         @default(reviewed)
+  approvalSource            KnowledgeApprovalSource      @default(legacy)
+  publicSafetyStatus        PublicSafetyStatus           @default(not_eligible)
+  validatedThroughSha       String?
+  lastValidatedAt           DateTime?
+  autoAppliedAt             DateTime?
+  purgeEligibleAt           DateTime?
+  supersedesEvidenceItemId  String?
+  repositorySnapshotId      String?
+  workItem                  WorkItem                     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  source                    Source                       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  repositorySnapshot        RepositorySnapshot?          @relation(fields: [repositorySnapshotId], references: [id], onDelete: SetNull)
+  supersedesEvidenceItem    EvidenceItem?                @relation("EvidenceSupersession", fields: [supersedesEvidenceItemId], references: [id], onDelete: SetNull)
+  supersededByEvidenceItems EvidenceItem[]               @relation("EvidenceSupersession")
+  highlightEvidence         HighlightEvidence[]
+  projectFactEvidence       ProjectFactEvidence[]
+  tags                      EvidenceTag[]
+  embedding                 EvidenceEmbedding?
+  chatCitations             ChatCitation[]
+  artifactProvenance        ArtifactEvidenceProvenance[]
+  knowledgeChanges          KnowledgeChange[]
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
 
   @@unique([sourceId, externalId])
   @@index([workItemId, included, updatedAt])
   @@index([workItemId, parentKind, parentKey])
+  @@index([workItemId, lifecycleStatus, reviewState, updatedAt])
+  @@index([sourceId, logicalKey, lifecycleStatus])
+  @@index([repositorySnapshotId])
+  @@index([supersedesEvidenceItemId])
 }
 
 model EvidenceTag {
@@ -307,32 +531,45 @@ model EvidenceTag {
 }
 
 model Highlight {
-  id                 String                        @id @default(cuid())
-  workItemId         String
-  text               String
-  summary            String
-  searchText         String
-  confidence         ClaimConfidence
-  ownershipClarity   OwnershipClarity
-  sensitivityFlag    Boolean                       @default(false)
-  verificationStatus VerificationStatus
-  visibility         VisibilityLevel
-  risksSummary       String?
-  missingInfo        String?
-  rejectionReason    String?
-  verificationNotes  String?
-  metadata           Json?
-  workItem           WorkItem                      @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  evidence           HighlightEvidence[]
-  tags               HighlightTag[]
-  embedding          HighlightEmbedding?
-  suggestions        HighlightSuggestion[]
-  chatCitations      ChatCitation[]
-  artifactProvenance ArtifactHighlightProvenance[]
-  agentRunCandidates AgentRunCandidate[]
-  createdAt          DateTime                      @default(now())
-  updatedAt          DateTime                      @updatedAt
+  id                     String                        @id @default(cuid())
+  workItemId             String
+  text                   String
+  summary                String
+  searchText             String
+  confidence             ClaimConfidence
+  ownershipClarity       OwnershipClarity
+  sensitivityFlag        Boolean                       @default(false)
+  verificationStatus     VerificationStatus
+  visibility             VisibilityLevel
+  risksSummary           String?
+  missingInfo            String?
+  rejectionReason        String?
+  verificationNotes      String?
+  metadata               Json?
+  lifecycleStatus        KnowledgeLifecycleStatus      @default(active)
+  reviewState            KnowledgeReviewState          @default(reviewed)
+  approvalSource         KnowledgeApprovalSource       @default(legacy)
+  publicSafetyStatus     PublicSafetyStatus            @default(not_eligible)
+  validatedThroughSha    String?
+  lastValidatedAt        DateTime?
+  autoAppliedAt          DateTime?
+  supersedesHighlightId  String?
+  workItem               WorkItem                      @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  supersedesHighlight    Highlight?                    @relation("HighlightSupersession", fields: [supersedesHighlightId], references: [id], onDelete: SetNull)
+  supersededByHighlights Highlight[]                   @relation("HighlightSupersession")
+  evidence               HighlightEvidence[]
+  tags                   HighlightTag[]
+  embedding              HighlightEmbedding?
+  suggestions            HighlightSuggestion[]
+  chatCitations          ChatCitation[]
+  artifactProvenance     ArtifactHighlightProvenance[]
+  agentRunCandidates     AgentRunCandidate[]
+  knowledgeChanges       KnowledgeChange[]
+  createdAt              DateTime                      @default(now())
+  updatedAt              DateTime                      @updatedAt
 
+  @@index([workItemId, lifecycleStatus, reviewState, updatedAt])
+  @@index([supersedesHighlightId])
   @@map("Claim")
 }
 
@@ -352,29 +589,40 @@ model HighlightEmbedding {
 }
 
 model ProjectFact {
-  id                       String                 @id @default(cuid())
+  id                       String                   @id @default(cuid())
   workItemId               String
   statement                String
   category                 ProjectFactCategory
   confidence               ClaimConfidence
-  status                   ProjectFactStatus      @default(draft)
-  sensitivityFlag          Boolean                @default(false)
+  status                   ProjectFactStatus        @default(draft)
+  sensitivityFlag          Boolean                  @default(false)
   reviewNotes              String?
   rejectionReason          String?
   searchText               String
   supersedesProjectFactId  String?
-  workItem                 WorkItem               @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  lifecycleStatus          KnowledgeLifecycleStatus @default(active)
+  reviewState              KnowledgeReviewState     @default(reviewed)
+  approvalSource           KnowledgeApprovalSource  @default(legacy)
+  publicSafetyStatus       PublicSafetyStatus       @default(not_eligible)
+  validatedThroughSha      String?
+  lastValidatedAt          DateTime?
+  autoAppliedAt            DateTime?
+  subsystemKey             String?
+  workItem                 WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidence                 ProjectFactEvidence[]
   embedding                ProjectFactEmbedding?
   chatCitations            ChatCitation[]
   agentRunCandidates       AgentRunCandidate[]
-  supersedesProjectFact    ProjectFact?           @relation("ProjectFactSupersession", fields: [supersedesProjectFactId], references: [id], onDelete: SetNull)
-  supersededByProjectFacts ProjectFact[]           @relation("ProjectFactSupersession")
-  createdAt                DateTime                @default(now())
-  updatedAt                DateTime                @updatedAt
+  supersedesProjectFact    ProjectFact?             @relation("ProjectFactSupersession", fields: [supersedesProjectFactId], references: [id], onDelete: SetNull)
+  supersededByProjectFacts ProjectFact[]            @relation("ProjectFactSupersession")
+  knowledgeChanges         KnowledgeChange[]
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
   @@index([workItemId, status, updatedAt])
   @@index([supersedesProjectFactId])
+  @@index([workItemId, lifecycleStatus, reviewState, updatedAt])
+  @@index([workItemId, subsystemKey, lifecycleStatus])
 }
 
 model ProjectFactEvidence {
@@ -478,17 +726,31 @@ model Artifact {
   requestBrief          String
   content               String
   searchText            String
+  lifecycleStatus       KnowledgeLifecycleStatus      @default(active)
+  reviewState           KnowledgeReviewState          @default(reviewed)
+  approvalSource        KnowledgeApprovalSource       @default(legacy)
+  publicSafetyStatus    PublicSafetyStatus            @default(not_eligible)
+  validatedThroughSha   String?
+  lastValidatedAt       DateTime?
+  autoAppliedAt         DateTime?
+  staleReason           String?
+  supersedesArtifactId  String?
   user                  User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
   workItem              WorkItem?                     @relation(fields: [workItemId], references: [id], onDelete: SetNull)
   originatingAgentRun   AgentRun?                     @relation(fields: [originatingAgentRunId], references: [id], onDelete: SetNull)
+  supersedesArtifact    Artifact?                     @relation("ArtifactSupersession", fields: [supersedesArtifactId], references: [id], onDelete: SetNull)
+  supersededByArtifacts Artifact[]                    @relation("ArtifactSupersession")
   embedding             ArtifactEmbedding?
   chatCitations         ChatCitation[]
   highlightProvenance   ArtifactHighlightProvenance[]
   evidenceProvenance    ArtifactEvidenceProvenance[]
+  knowledgeChanges      KnowledgeChange[]
   createdAt             DateTime                      @default(now())
   updatedAt             DateTime                      @updatedAt
 
   @@index([workItemId, updatedAt])
+  @@index([workItemId, lifecycleStatus, reviewState, updatedAt])
+  @@index([supersedesArtifactId])
 }
 
 model ArtifactEmbedding {
@@ -537,38 +799,38 @@ model ArtifactEvidenceProvenance {
 }
 
 model ChatThread {
-  id             String        @id @default(cuid())
-  userId         String
-  workItemId     String
-  title          String
-  rollingSummary String?
+  id                String        @id @default(cuid())
+  userId            String
+  workItemId        String
+  title             String
+  rollingSummary    String?
   conversationState Json?
-  archivedAt     DateTime?
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workItem       WorkItem      @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  messages       ChatMessage[]
-  agentRuns      AgentRun[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  archivedAt        DateTime?
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workItem          WorkItem      @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  messages          ChatMessage[]
+  agentRuns         AgentRun[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@index([userId, workItemId, archivedAt, updatedAt])
 }
 
 model ChatMessage {
-  id         String            @id @default(cuid())
-  threadId   String
-  agentRunId String?
-  sequence   Int
-  role       ChatMessageRole
-  status     ChatMessageStatus @default(completed)
-  content    String
-  metadata   Json?
+  id          String            @id @default(cuid())
+  threadId    String
+  agentRunId  String?
+  sequence    Int
+  role        ChatMessageRole
+  status      ChatMessageStatus @default(completed)
+  content     String
+  metadata    Json?
   finalizedAt DateTime?
-  thread     ChatThread        @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  agentRun   AgentRun?         @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
-  citations  ChatCitation[]
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  thread      ChatThread        @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  agentRun    AgentRun?         @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  citations   ChatCitation[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   @@unique([threadId, sequence])
   @@index([agentRunId])
@@ -614,36 +876,36 @@ model ChatCitation {
 }
 
 model AgentRun {
-  id             String              @id @default(cuid())
-  userId         String
-  workItemId     String
-  threadId       String?
-  parentRunId    String?
-  workflowId     String?             @unique
-  idempotencyKey String
-  kind           AgentRunKind
-  status         AgentRunStatus      @default(queued)
-  request        Json
-  attemptNumber  Int                 @default(0)
-  result         Json?
-  error          Json?
-  harnessVersion String              @default("v3")
+  id                  String              @id @default(cuid())
+  userId              String
+  workItemId          String
+  threadId            String?
+  parentRunId         String?
+  workflowId          String?             @unique
+  idempotencyKey      String
+  kind                AgentRunKind
+  status              AgentRunStatus      @default(queued)
+  request             Json
+  attemptNumber       Int                 @default(0)
+  result              Json?
+  error               Json?
+  harnessVersion      String              @default("v4")
   environmentSnapshot Json?
-  researchState Json?
-  provisionalResult Json?
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workItem       WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  thread         ChatThread?         @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  parentRun      AgentRun?           @relation("AgentRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
-  childRuns      AgentRun[]          @relation("AgentRunHierarchy")
-  messages       ChatMessage[]
-  events         AgentRunEvent[]
-  candidates     AgentRunCandidate[]
-  artifact       Artifact?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  researchState       Json?
+  provisionalResult   Json?
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workItem            WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  thread              ChatThread?         @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  parentRun           AgentRun?           @relation("AgentRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns           AgentRun[]          @relation("AgentRunHierarchy")
+  messages            ChatMessage[]
+  events              AgentRunEvent[]
+  candidates          AgentRunCandidate[]
+  artifact            Artifact?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@unique([userId, idempotencyKey])
   @@index([workItemId, status, updatedAt])

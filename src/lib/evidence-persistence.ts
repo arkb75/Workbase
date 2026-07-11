@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import type {
   HighlightDraft,
@@ -74,26 +75,56 @@ export async function upsertEvidenceItemsForSource(
   const existingByExternalId = new Map(
     existingItems.map((item) => [item.externalId, item]),
   );
+  const currentByLogicalKey = new Map(
+    existingItems
+      .filter((item) => item.lifecycleStatus === "active" || item.lifecycleStatus === "needs_validation")
+      .map((item) => [item.logicalKey ?? item.externalId, item]),
+  );
   const nextExternalIds = evidenceItems.map((item) => item.externalId);
-  const promotedExcerptIds = existingItems
-    .filter((item) => item.type === "github_file_excerpt")
-    .map((item) => item.id);
   const persistedItems: PersistedEvidenceItemWriteResult[] = [];
 
-  if (existingItems.length) {
-    await prisma.evidenceItem.deleteMany({
-      where: {
-        sourceId,
-        id: { notIn: promotedExcerptIds.length ? promotedExcerptIds : [""] },
-        externalId: {
-          notIn: nextExternalIds.length ? nextExternalIds : [""],
+  if (existingItems.length && evidenceItems.some((item) => item.sourceType === "github_repo")) {
+    const nextLogicalKeys = new Set(nextExternalIds);
+    const retiredItems = existingItems.filter(
+      (item) =>
+        item.type !== "github_file_excerpt" &&
+        (item.lifecycleStatus === "active" || item.lifecycleStatus === "needs_validation") &&
+        !nextLogicalKeys.has(item.logicalKey ?? item.externalId),
+    );
+    for (const retired of retiredItems) {
+      await prisma.evidenceItem.update({
+        where: { id: retired.id },
+        data: {
+          lifecycleStatus: "retired",
+          included: false,
+          purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
         },
-      },
-    });
+      });
+      const idempotencyKey = `github-import:evidence:retired:${retired.id}`;
+      await prisma.knowledgeChange.upsert({
+        where: { workItemId_idempotencyKey: { workItemId: retired.workItemId, idempotencyKey } },
+        create: {
+          workItemId: retired.workItemId,
+          entityKind: "evidence",
+          action: "retired",
+          evidenceItemId: retired.id,
+          beforeSnapshot: { id: retired.id, title: retired.title, lifecycleStatus: retired.lifecycleStatus },
+          afterSnapshot: { id: retired.id, title: retired.title, lifecycleStatus: "retired" },
+          reason: "The current GitHub import no longer contains this Evidence item.",
+          provenance: { sourceId, logicalKey: retired.logicalKey ?? retired.externalId },
+          policyVersion: "knowledge-lifecycle-v1",
+          idempotencyKey,
+        },
+        update: {},
+      });
+    }
   }
 
   for (const item of evidenceItems) {
-    const existing = existingByExternalId.get(item.externalId);
+    const logicalKey = item.externalId;
+    const existing = item.sourceType === "github_repo"
+      ? currentByLogicalKey.get(logicalKey) ?? existingByExternalId.get(item.externalId)
+      : existingByExternalId.get(item.externalId);
     const searchText =
       item.searchText ??
       buildEvidenceSearchText({
@@ -102,17 +133,36 @@ export async function upsertEvidenceItemsForSource(
         metadata: item.metadata,
       });
 
+    const contentVersion = createHash("sha256")
+      .update(JSON.stringify({ title: item.title, content: item.content, type: item.type, metadata: item.metadata }))
+      .digest("hex")
+      .slice(0, 16);
+    const isChangedRepositoryEvidence = Boolean(
+      item.sourceType === "github_repo" &&
+      existing &&
+      (existing.title !== item.title || existing.content !== item.content || existing.type !== item.type),
+    );
+    const persistedExternalId = isChangedRepositoryEvidence
+      ? `${logicalKey}:revision:${contentVersion}`
+      : item.externalId;
+    if (isChangedRepositoryEvidence && existing) {
+      await prisma.evidenceItem.update({
+        where: { id: existing.id },
+        data: { lifecycleStatus: "superseded" },
+      });
+    }
     const persisted = await prisma.evidenceItem.upsert({
       where: {
         sourceId_externalId: {
           sourceId,
-          externalId: item.externalId,
+          externalId: persistedExternalId,
         },
       },
       create: {
         workItemId: item.workItemId,
         sourceId: item.sourceId,
-        externalId: item.externalId,
+        externalId: persistedExternalId,
+        logicalKey,
         type: item.type,
         title: item.title,
         content: item.content,
@@ -121,16 +171,28 @@ export async function upsertEvidenceItemsForSource(
         parentKey: item.parentKey ?? null,
         included: item.included,
         metadata: item.metadata as Prisma.InputJsonValue,
+        lifecycleStatus: "active",
+        reviewState: item.sourceType === "github_repo" ? "pending_review" : "reviewed",
+        approvalSource: item.sourceType === "github_repo" ? "automation" : "user",
+        autoAppliedAt: item.sourceType === "github_repo" ? new Date() : null,
+        supersedesEvidenceItemId: isChangedRepositoryEvidence ? existing?.id : null,
       },
       update: {
-        title: item.title,
-        content: item.content,
-        type: item.type,
-        searchText,
-        parentKind: item.parentKind ?? null,
-        parentKey: item.parentKey ?? null,
+        ...(item.sourceType === "github_repo"
+          ? {
+              lifecycleStatus: "active" as const,
+              lastValidatedAt: new Date(),
+            }
+          : {
+              title: item.title,
+              content: item.content,
+              type: item.type,
+              searchText,
+              parentKind: item.parentKind ?? null,
+              parentKey: item.parentKey ?? null,
+              metadata: item.metadata as Prisma.InputJsonValue,
+            }),
         included: existing?.included ?? item.included,
-        metadata: item.metadata as Prisma.InputJsonValue,
       },
     });
 
@@ -156,6 +218,40 @@ export async function upsertEvidenceItemsForSource(
           score: tag.score ?? null,
         })),
         skipDuplicates: true,
+      });
+    }
+
+    if (item.sourceType === "github_repo" && (!existing || isChangedRepositoryEvidence)) {
+      const idempotencyKey = `github-import:evidence:${persisted.id}:${contentVersion}`;
+      await prisma.knowledgeChange.upsert({
+        where: {
+          workItemId_idempotencyKey: {
+            workItemId: item.workItemId,
+            idempotencyKey,
+          },
+        },
+        create: {
+          workItemId: item.workItemId,
+          entityKind: "evidence",
+          action: isChangedRepositoryEvidence ? "updated" : "created",
+          evidenceItemId: persisted.id,
+          beforeSnapshot: existing
+            ? ({ id: existing.id, title: existing.title, content: existing.content } as Prisma.InputJsonValue)
+            : undefined,
+          afterSnapshot: {
+            id: persisted.id,
+            title: persisted.title,
+            content: persisted.content,
+            type: persisted.type,
+          } as Prisma.InputJsonValue,
+          reason: isChangedRepositoryEvidence
+            ? "A GitHub import produced a new immutable Evidence revision."
+            : "A GitHub import added new Evidence.",
+          provenance: { sourceId, logicalKey } as Prisma.InputJsonValue,
+          policyVersion: "knowledge-lifecycle-v1",
+          idempotencyKey,
+        },
+        update: {},
       });
     }
 

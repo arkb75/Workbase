@@ -188,12 +188,20 @@ export async function groundProjectAnswer(input: {
       tokenUsage: result.tokenUsage,
     };
   } catch (error) {
+    const deterministicEntries = input.entries
+      .filter((entry) => entry.citationIndexes.length > 0)
+      .filter((entry) => entry.authority === "verified_project_fact" || entry.authority === "verified_highlight")
+      .sort((left, right) => Number(right.currentRun) - Number(left.currentRun))
+      .slice(0, 6);
+    const fallbackAnswer = deterministicEntries
+      .map((entry) => `${entry.content} [citation:${entry.citationIndexes[0]}]`)
+      .join("\n\n");
     return {
-      answer: input.answer,
-      claims: extractClaimCitationMap(input.answer),
+      answer: fallbackAnswer,
+      claims: extractClaimCitationMap(fallbackAnswer),
       issues: [
         ...contractIssues,
-        `Grounding verification could not complete: ${error instanceof Error ? error.message : "unknown provider error"}`,
+        `Grounding verification failed closed; deterministic supported statements were used: ${error instanceof Error ? error.message : "unknown provider error"}`,
       ],
       tokenUsage: null,
     };

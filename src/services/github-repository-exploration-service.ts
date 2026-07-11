@@ -405,6 +405,15 @@ function classifyExcludedPath(path: string, size: number | null): ExclusionReaso
   return null;
 }
 
+export function classifyRepositoryPathForKnowledgeSync(path: string, size: number | null) {
+  const normalizedPath = normalizeRepositoryPath(path);
+  if (!normalizedPath) return { normalizedPath: null, exclusionReason: "invalid_path" as const };
+  return {
+    normalizedPath,
+    exclusionReason: classifyExcludedPath(normalizedPath, size),
+  };
+}
+
 function encodeGitHubPath(path: string) {
   return path
     .split("/")
@@ -453,6 +462,10 @@ function isBinaryBuffer(value: Buffer) {
   const decoded = value.toString("utf8");
   const replacementCharacters = decoded.match(/\uFFFD/g)?.length ?? 0;
   return replacementCharacters > Math.max(2, decoded.length * 0.01);
+}
+
+export function isRepositoryBinaryContent(value: Buffer) {
+  return isBinaryBuffer(value);
 }
 
 function isSecretAssignmentKey(key: string) {
@@ -569,6 +582,10 @@ function redactSecrets(content: string) {
   };
 }
 
+export function redactRepositorySecrets(content: string) {
+  return redactSecrets(content);
+}
+
 function decodeBlob(input: { content: string; encoding: string }) {
   const encoding = input.encoding.toLowerCase();
 
@@ -584,6 +601,10 @@ function decodeBlob(input: { content: string; encoding: string }) {
     "unsupported_encoding",
     "GitHub returned a file encoding that Workbase does not support.",
   );
+}
+
+export function decodeRepositoryBlob(input: { content: string; encoding: string }) {
+  return decodeBlob(input);
 }
 
 function parsePositiveInteger(value: number | undefined, fallback: number, label: string) {

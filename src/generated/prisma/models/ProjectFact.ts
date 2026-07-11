@@ -36,6 +36,14 @@ export type ProjectFactMinAggregateOutputType = {
   rejectionReason: string | null
   searchText: string | null
   supersedesProjectFactId: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  subsystemKey: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -52,6 +60,14 @@ export type ProjectFactMaxAggregateOutputType = {
   rejectionReason: string | null
   searchText: string | null
   supersedesProjectFactId: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  subsystemKey: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -68,6 +84,14 @@ export type ProjectFactCountAggregateOutputType = {
   rejectionReason: number
   searchText: number
   supersedesProjectFactId: number
+  lifecycleStatus: number
+  reviewState: number
+  approvalSource: number
+  publicSafetyStatus: number
+  validatedThroughSha: number
+  lastValidatedAt: number
+  autoAppliedAt: number
+  subsystemKey: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -86,6 +110,14 @@ export type ProjectFactMinAggregateInputType = {
   rejectionReason?: true
   searchText?: true
   supersedesProjectFactId?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  subsystemKey?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,6 +134,14 @@ export type ProjectFactMaxAggregateInputType = {
   rejectionReason?: true
   searchText?: true
   supersedesProjectFactId?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  subsystemKey?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -118,6 +158,14 @@ export type ProjectFactCountAggregateInputType = {
   rejectionReason?: true
   searchText?: true
   supersedesProjectFactId?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  subsystemKey?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -207,6 +255,14 @@ export type ProjectFactGroupByOutputType = {
   rejectionReason: string | null
   searchText: string
   supersedesProjectFactId: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+  reviewState: $Enums.KnowledgeReviewState
+  approvalSource: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus: $Enums.PublicSafetyStatus
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  subsystemKey: string | null
   createdAt: Date
   updatedAt: Date
   _count: ProjectFactCountAggregateOutputType | null
@@ -244,6 +300,14 @@ export type ProjectFactWhereInput = {
   rejectionReason?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   searchText?: Prisma.StringFilter<"ProjectFact"> | string
   supersedesProjectFactId?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"ProjectFact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"ProjectFact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"ProjectFact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"ProjectFact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -253,6 +317,7 @@ export type ProjectFactWhereInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
   supersedesProjectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   supersededByProjectFacts?: Prisma.ProjectFactListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }
 
 export type ProjectFactOrderByWithRelationInput = {
@@ -267,6 +332,14 @@ export type ProjectFactOrderByWithRelationInput = {
   rejectionReason?: Prisma.SortOrderInput | Prisma.SortOrder
   searchText?: Prisma.SortOrder
   supersedesProjectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  subsystemKey?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
@@ -276,6 +349,7 @@ export type ProjectFactOrderByWithRelationInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateOrderByRelationAggregateInput
   supersedesProjectFact?: Prisma.ProjectFactOrderByWithRelationInput
   supersededByProjectFacts?: Prisma.ProjectFactOrderByRelationAggregateInput
+  knowledgeChanges?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
 }
 
 export type ProjectFactWhereUniqueInput = Prisma.AtLeast<{
@@ -293,6 +367,14 @@ export type ProjectFactWhereUniqueInput = Prisma.AtLeast<{
   rejectionReason?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   searchText?: Prisma.StringFilter<"ProjectFact"> | string
   supersedesProjectFactId?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"ProjectFact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"ProjectFact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"ProjectFact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"ProjectFact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -302,6 +384,7 @@ export type ProjectFactWhereUniqueInput = Prisma.AtLeast<{
   agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
   supersedesProjectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   supersededByProjectFacts?: Prisma.ProjectFactListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }, "id">
 
 export type ProjectFactOrderByWithAggregationInput = {
@@ -316,6 +399,14 @@ export type ProjectFactOrderByWithAggregationInput = {
   rejectionReason?: Prisma.SortOrderInput | Prisma.SortOrder
   searchText?: Prisma.SortOrder
   supersedesProjectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  subsystemKey?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ProjectFactCountOrderByAggregateInput
@@ -338,6 +429,14 @@ export type ProjectFactScalarWhereWithAggregatesInput = {
   rejectionReason?: Prisma.StringNullableWithAggregatesFilter<"ProjectFact"> | string | null
   searchText?: Prisma.StringWithAggregatesFilter<"ProjectFact"> | string
   supersedesProjectFactId?: Prisma.StringNullableWithAggregatesFilter<"ProjectFact"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusWithAggregatesFilter<"ProjectFact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateWithAggregatesFilter<"ProjectFact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceWithAggregatesFilter<"ProjectFact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusWithAggregatesFilter<"ProjectFact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableWithAggregatesFilter<"ProjectFact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ProjectFact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ProjectFact"> | Date | string | null
+  subsystemKey?: Prisma.StringNullableWithAggregatesFilter<"ProjectFact"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFact"> | Date | string
 }
@@ -352,6 +451,14 @@ export type ProjectFactCreateInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -361,6 +468,7 @@ export type ProjectFactCreateInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateInput = {
@@ -375,6 +483,14 @@ export type ProjectFactUncheckedCreateInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -382,6 +498,7 @@ export type ProjectFactUncheckedCreateInput = {
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUpdateInput = {
@@ -394,6 +511,14 @@ export type ProjectFactUpdateInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -403,6 +528,7 @@ export type ProjectFactUpdateInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateInput = {
@@ -417,6 +543,14 @@ export type ProjectFactUncheckedUpdateInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -424,6 +558,7 @@ export type ProjectFactUncheckedUpdateInput = {
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactCreateManyInput = {
@@ -438,6 +573,14 @@ export type ProjectFactCreateManyInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -452,6 +595,14 @@ export type ProjectFactUpdateManyMutationInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -468,6 +619,14 @@ export type ProjectFactUncheckedUpdateManyInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -499,6 +658,14 @@ export type ProjectFactCountOrderByAggregateInput = {
   rejectionReason?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
   supersedesProjectFactId?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  subsystemKey?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -515,6 +682,14 @@ export type ProjectFactMaxOrderByAggregateInput = {
   rejectionReason?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
   supersedesProjectFactId?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  subsystemKey?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -531,6 +706,14 @@ export type ProjectFactMinOrderByAggregateInput = {
   rejectionReason?: Prisma.SortOrder
   searchText?: Prisma.SortOrder
   supersedesProjectFactId?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  subsystemKey?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -580,6 +763,22 @@ export type ProjectFactUncheckedUpdateManyWithoutWorkItemNestedInput = {
   update?: Prisma.ProjectFactUpdateWithWhereUniqueWithoutWorkItemInput | Prisma.ProjectFactUpdateWithWhereUniqueWithoutWorkItemInput[]
   updateMany?: Prisma.ProjectFactUpdateManyWithWhereWithoutWorkItemInput | Prisma.ProjectFactUpdateManyWithWhereWithoutWorkItemInput[]
   deleteMany?: Prisma.ProjectFactScalarWhereInput | Prisma.ProjectFactScalarWhereInput[]
+}
+
+export type ProjectFactCreateNestedOneWithoutKnowledgeChangesInput = {
+  create?: Prisma.XOR<Prisma.ProjectFactCreateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.ProjectFactCreateOrConnectWithoutKnowledgeChangesInput
+  connect?: Prisma.ProjectFactWhereUniqueInput
+}
+
+export type ProjectFactUpdateOneWithoutKnowledgeChangesNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectFactCreateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.ProjectFactCreateOrConnectWithoutKnowledgeChangesInput
+  upsert?: Prisma.ProjectFactUpsertWithoutKnowledgeChangesInput
+  disconnect?: Prisma.ProjectFactWhereInput | boolean
+  delete?: Prisma.ProjectFactWhereInput | boolean
+  connect?: Prisma.ProjectFactWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactUpdateToOneWithWhereWithoutKnowledgeChangesInput, Prisma.ProjectFactUpdateWithoutKnowledgeChangesInput>, Prisma.ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput>
 }
 
 export type ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput = {
@@ -712,6 +911,14 @@ export type ProjectFactCreateWithoutWorkItemInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
@@ -720,6 +927,7 @@ export type ProjectFactCreateWithoutWorkItemInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutWorkItemInput = {
@@ -733,6 +941,14 @@ export type ProjectFactUncheckedCreateWithoutWorkItemInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -740,6 +956,7 @@ export type ProjectFactUncheckedCreateWithoutWorkItemInput = {
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutWorkItemInput = {
@@ -783,8 +1000,148 @@ export type ProjectFactScalarWhereInput = {
   rejectionReason?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   searchText?: Prisma.StringFilter<"ProjectFact"> | string
   supersedesProjectFactId?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"ProjectFact"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"ProjectFact"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"ProjectFact"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"ProjectFact"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
+  subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
+}
+
+export type ProjectFactCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  statement: string
+  category: $Enums.ProjectFactCategory
+  confidence: $Enums.ClaimConfidence
+  status?: $Enums.ProjectFactStatus
+  sensitivityFlag?: boolean
+  reviewNotes?: string | null
+  rejectionReason?: string | null
+  searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
+  evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
+  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
+  agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
+  supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
+  supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+}
+
+export type ProjectFactUncheckedCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  workItemId: string
+  statement: string
+  category: $Enums.ProjectFactCategory
+  confidence: $Enums.ClaimConfidence
+  status?: $Enums.ProjectFactStatus
+  sensitivityFlag?: boolean
+  reviewNotes?: string | null
+  rejectionReason?: string | null
+  searchText: string
+  supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
+  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
+  supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+}
+
+export type ProjectFactCreateOrConnectWithoutKnowledgeChangesInput = {
+  where: Prisma.ProjectFactWhereUniqueInput
+  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedCreateWithoutKnowledgeChangesInput>
+}
+
+export type ProjectFactUpsertWithoutKnowledgeChangesInput = {
+  update: Prisma.XOR<Prisma.ProjectFactUpdateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput>
+  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedCreateWithoutKnowledgeChangesInput>
+  where?: Prisma.ProjectFactWhereInput
+}
+
+export type ProjectFactUpdateToOneWithWhereWithoutKnowledgeChangesInput = {
+  where?: Prisma.ProjectFactWhereInput
+  data: Prisma.XOR<Prisma.ProjectFactUpdateWithoutKnowledgeChangesInput, Prisma.ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput>
+}
+
+export type ProjectFactUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  statement?: Prisma.StringFieldUpdateOperationsInput | string
+  category?: Prisma.EnumProjectFactCategoryFieldUpdateOperationsInput | $Enums.ProjectFactCategory
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  status?: Prisma.EnumProjectFactStatusFieldUpdateOperationsInput | $Enums.ProjectFactStatus
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
+  evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
+  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
+  supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
+  supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+}
+
+export type ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  statement?: Prisma.StringFieldUpdateOperationsInput | string
+  category?: Prisma.EnumProjectFactCategoryFieldUpdateOperationsInput | $Enums.ProjectFactCategory
+  confidence?: Prisma.EnumClaimConfidenceFieldUpdateOperationsInput | $Enums.ClaimConfidence
+  status?: Prisma.EnumProjectFactStatusFieldUpdateOperationsInput | $Enums.ProjectFactStatus
+  sensitivityFlag?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
+  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
+  agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
+  supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
 }
 
 export type ProjectFactCreateWithoutSupersededByProjectFactsInput = {
@@ -797,6 +1154,14 @@ export type ProjectFactCreateWithoutSupersededByProjectFactsInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -805,6 +1170,7 @@ export type ProjectFactCreateWithoutSupersededByProjectFactsInput = {
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutSupersededByProjectFactsInput = {
@@ -819,12 +1185,21 @@ export type ProjectFactUncheckedCreateWithoutSupersededByProjectFactsInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutSupersededByProjectFactsInput = {
@@ -842,6 +1217,14 @@ export type ProjectFactCreateWithoutSupersedesProjectFactInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -850,6 +1233,7 @@ export type ProjectFactCreateWithoutSupersedesProjectFactInput = {
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutSupersedesProjectFactInput = {
@@ -863,6 +1247,14 @@ export type ProjectFactUncheckedCreateWithoutSupersedesProjectFactInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -870,6 +1262,7 @@ export type ProjectFactUncheckedCreateWithoutSupersedesProjectFactInput = {
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutSupersedesProjectFactInput = {
@@ -903,6 +1296,14 @@ export type ProjectFactUpdateWithoutSupersededByProjectFactsInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -911,6 +1312,7 @@ export type ProjectFactUpdateWithoutSupersededByProjectFactsInput = {
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutSupersededByProjectFactsInput = {
@@ -925,12 +1327,21 @@ export type ProjectFactUncheckedUpdateWithoutSupersededByProjectFactsInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUpsertWithWhereUniqueWithoutSupersedesProjectFactInput = {
@@ -959,6 +1370,14 @@ export type ProjectFactCreateWithoutEvidenceInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -967,6 +1386,7 @@ export type ProjectFactCreateWithoutEvidenceInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutEvidenceInput = {
@@ -981,12 +1401,21 @@ export type ProjectFactUncheckedCreateWithoutEvidenceInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutEvidenceInput = {
@@ -1015,6 +1444,14 @@ export type ProjectFactUpdateWithoutEvidenceInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1023,6 +1460,7 @@ export type ProjectFactUpdateWithoutEvidenceInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutEvidenceInput = {
@@ -1037,12 +1475,21 @@ export type ProjectFactUncheckedUpdateWithoutEvidenceInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactCreateWithoutEmbeddingInput = {
@@ -1055,6 +1502,14 @@ export type ProjectFactCreateWithoutEmbeddingInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1063,6 +1518,7 @@ export type ProjectFactCreateWithoutEmbeddingInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutEmbeddingInput = {
@@ -1077,12 +1533,21 @@ export type ProjectFactUncheckedCreateWithoutEmbeddingInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutEmbeddingInput = {
@@ -1111,6 +1576,14 @@ export type ProjectFactUpdateWithoutEmbeddingInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1119,6 +1592,7 @@ export type ProjectFactUpdateWithoutEmbeddingInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutEmbeddingInput = {
@@ -1133,12 +1607,21 @@ export type ProjectFactUncheckedUpdateWithoutEmbeddingInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactCreateWithoutChatCitationsInput = {
@@ -1151,6 +1634,14 @@ export type ProjectFactCreateWithoutChatCitationsInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1159,6 +1650,7 @@ export type ProjectFactCreateWithoutChatCitationsInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutChatCitationsInput = {
@@ -1173,12 +1665,21 @@ export type ProjectFactUncheckedCreateWithoutChatCitationsInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutChatCitationsInput = {
@@ -1207,6 +1708,14 @@ export type ProjectFactUpdateWithoutChatCitationsInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1215,6 +1724,7 @@ export type ProjectFactUpdateWithoutChatCitationsInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutChatCitationsInput = {
@@ -1229,12 +1739,21 @@ export type ProjectFactUncheckedUpdateWithoutChatCitationsInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactCreateWithoutAgentRunCandidatesInput = {
@@ -1247,6 +1766,14 @@ export type ProjectFactCreateWithoutAgentRunCandidatesInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1255,6 +1782,7 @@ export type ProjectFactCreateWithoutAgentRunCandidatesInput = {
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactUncheckedCreateWithoutAgentRunCandidatesInput = {
@@ -1269,12 +1797,21 @@ export type ProjectFactUncheckedCreateWithoutAgentRunCandidatesInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
 export type ProjectFactCreateOrConnectWithoutAgentRunCandidatesInput = {
@@ -1303,6 +1840,14 @@ export type ProjectFactUpdateWithoutAgentRunCandidatesInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1311,6 +1856,7 @@ export type ProjectFactUpdateWithoutAgentRunCandidatesInput = {
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutAgentRunCandidatesInput = {
@@ -1325,12 +1871,21 @@ export type ProjectFactUncheckedUpdateWithoutAgentRunCandidatesInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
   embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactCreateManyWorkItemInput = {
@@ -1344,6 +1899,14 @@ export type ProjectFactCreateManyWorkItemInput = {
   rejectionReason?: string | null
   searchText: string
   supersedesProjectFactId?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1358,6 +1921,14 @@ export type ProjectFactUpdateWithoutWorkItemInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
@@ -1366,6 +1937,7 @@ export type ProjectFactUpdateWithoutWorkItemInput = {
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutWorkItemInput = {
@@ -1379,6 +1951,14 @@ export type ProjectFactUncheckedUpdateWithoutWorkItemInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1386,6 +1966,7 @@ export type ProjectFactUncheckedUpdateWithoutWorkItemInput = {
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1399,6 +1980,14 @@ export type ProjectFactUncheckedUpdateManyWithoutWorkItemInput = {
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
   supersedesProjectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1414,6 +2003,14 @@ export type ProjectFactCreateManySupersedesProjectFactInput = {
   reviewNotes?: string | null
   rejectionReason?: string | null
   searchText: string
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  subsystemKey?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1428,6 +2025,14 @@ export type ProjectFactUpdateWithoutSupersedesProjectFactInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1436,6 +2041,7 @@ export type ProjectFactUpdateWithoutSupersedesProjectFactInput = {
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateWithoutSupersedesProjectFactInput = {
@@ -1449,6 +2055,14 @@ export type ProjectFactUncheckedUpdateWithoutSupersedesProjectFactInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1456,6 +2070,7 @@ export type ProjectFactUncheckedUpdateWithoutSupersedesProjectFactInput = {
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
 export type ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactInput = {
@@ -1469,6 +2084,14 @@ export type ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactInput = {
   reviewNotes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   rejectionReason?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1483,6 +2106,7 @@ export type ProjectFactCountOutputType = {
   chatCitations: number
   agentRunCandidates: number
   supersededByProjectFacts: number
+  knowledgeChanges: number
 }
 
 export type ProjectFactCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1490,6 +2114,7 @@ export type ProjectFactCountOutputTypeSelect<ExtArgs extends runtime.Types.Exten
   chatCitations?: boolean | ProjectFactCountOutputTypeCountChatCitationsArgs
   agentRunCandidates?: boolean | ProjectFactCountOutputTypeCountAgentRunCandidatesArgs
   supersededByProjectFacts?: boolean | ProjectFactCountOutputTypeCountSupersededByProjectFactsArgs
+  knowledgeChanges?: boolean | ProjectFactCountOutputTypeCountKnowledgeChangesArgs
 }
 
 /**
@@ -1530,6 +2155,13 @@ export type ProjectFactCountOutputTypeCountSupersededByProjectFactsArgs<ExtArgs 
   where?: Prisma.ProjectFactWhereInput
 }
 
+/**
+ * ProjectFactCountOutputType without action
+ */
+export type ProjectFactCountOutputTypeCountKnowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.KnowledgeChangeWhereInput
+}
+
 
 export type ProjectFactSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1543,6 +2175,14 @@ export type ProjectFactSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   rejectionReason?: boolean
   searchText?: boolean
   supersedesProjectFactId?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  subsystemKey?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -1552,6 +2192,7 @@ export type ProjectFactSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   agentRunCandidates?: boolean | Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>
   supersedesProjectFact?: boolean | Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>
   supersededByProjectFacts?: boolean | Prisma.ProjectFact$supersededByProjectFactsArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.ProjectFact$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.ProjectFactCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["projectFact"]>
 
@@ -1567,6 +2208,14 @@ export type ProjectFactSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   rejectionReason?: boolean
   searchText?: boolean
   supersedesProjectFactId?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  subsystemKey?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -1585,6 +2234,14 @@ export type ProjectFactSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   rejectionReason?: boolean
   searchText?: boolean
   supersedesProjectFactId?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  subsystemKey?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -1603,11 +2260,19 @@ export type ProjectFactSelectScalar = {
   rejectionReason?: boolean
   searchText?: boolean
   supersedesProjectFactId?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  subsystemKey?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ProjectFactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "statement" | "category" | "confidence" | "status" | "sensitivityFlag" | "reviewNotes" | "rejectionReason" | "searchText" | "supersedesProjectFactId" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFact"]>
+export type ProjectFactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "statement" | "category" | "confidence" | "status" | "sensitivityFlag" | "reviewNotes" | "rejectionReason" | "searchText" | "supersedesProjectFactId" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "subsystemKey" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFact"]>
 export type ProjectFactInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.ProjectFact$evidenceArgs<ExtArgs>
@@ -1616,6 +2281,7 @@ export type ProjectFactInclude<ExtArgs extends runtime.Types.Extensions.Internal
   agentRunCandidates?: boolean | Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>
   supersedesProjectFact?: boolean | Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>
   supersededByProjectFacts?: boolean | Prisma.ProjectFact$supersededByProjectFactsArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.ProjectFact$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.ProjectFactCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ProjectFactIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1637,6 +2303,7 @@ export type $ProjectFactPayload<ExtArgs extends runtime.Types.Extensions.Interna
     agentRunCandidates: Prisma.$AgentRunCandidatePayload<ExtArgs>[]
     supersedesProjectFact: Prisma.$ProjectFactPayload<ExtArgs> | null
     supersededByProjectFacts: Prisma.$ProjectFactPayload<ExtArgs>[]
+    knowledgeChanges: Prisma.$KnowledgeChangePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1650,6 +2317,14 @@ export type $ProjectFactPayload<ExtArgs extends runtime.Types.Extensions.Interna
     rejectionReason: string | null
     searchText: string
     supersedesProjectFactId: string | null
+    lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+    reviewState: $Enums.KnowledgeReviewState
+    approvalSource: $Enums.KnowledgeApprovalSource
+    publicSafetyStatus: $Enums.PublicSafetyStatus
+    validatedThroughSha: string | null
+    lastValidatedAt: Date | null
+    autoAppliedAt: Date | null
+    subsystemKey: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["projectFact"]>
@@ -2053,6 +2728,7 @@ export interface Prisma__ProjectFactClient<T, Null = never, ExtArgs extends runt
   agentRunCandidates<T extends Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunCandidatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   supersedesProjectFact<T extends Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>>): Prisma.Prisma__ProjectFactClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   supersededByProjectFacts<T extends Prisma.ProjectFact$supersededByProjectFactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$supersededByProjectFactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  knowledgeChanges<T extends Prisma.ProjectFact$knowledgeChangesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$knowledgeChangesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2093,6 +2769,14 @@ export interface ProjectFactFieldRefs {
   readonly rejectionReason: Prisma.FieldRef<"ProjectFact", 'String'>
   readonly searchText: Prisma.FieldRef<"ProjectFact", 'String'>
   readonly supersedesProjectFactId: Prisma.FieldRef<"ProjectFact", 'String'>
+  readonly lifecycleStatus: Prisma.FieldRef<"ProjectFact", 'KnowledgeLifecycleStatus'>
+  readonly reviewState: Prisma.FieldRef<"ProjectFact", 'KnowledgeReviewState'>
+  readonly approvalSource: Prisma.FieldRef<"ProjectFact", 'KnowledgeApprovalSource'>
+  readonly publicSafetyStatus: Prisma.FieldRef<"ProjectFact", 'PublicSafetyStatus'>
+  readonly validatedThroughSha: Prisma.FieldRef<"ProjectFact", 'String'>
+  readonly lastValidatedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
+  readonly autoAppliedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
+  readonly subsystemKey: Prisma.FieldRef<"ProjectFact", 'String'>
   readonly createdAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
 }
@@ -2627,6 +3311,30 @@ export type ProjectFact$supersededByProjectFactsArgs<ExtArgs extends runtime.Typ
   take?: number
   skip?: number
   distinct?: Prisma.ProjectFactScalarFieldEnum | Prisma.ProjectFactScalarFieldEnum[]
+}
+
+/**
+ * ProjectFact.knowledgeChanges
+ */
+export type ProjectFact$knowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the KnowledgeChange
+   */
+  select?: Prisma.KnowledgeChangeSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the KnowledgeChange
+   */
+  omit?: Prisma.KnowledgeChangeOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.KnowledgeChangeInclude<ExtArgs> | null
+  where?: Prisma.KnowledgeChangeWhereInput
+  orderBy?: Prisma.KnowledgeChangeOrderByWithRelationInput | Prisma.KnowledgeChangeOrderByWithRelationInput[]
+  cursor?: Prisma.KnowledgeChangeWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.KnowledgeChangeScalarFieldEnum | Prisma.KnowledgeChangeScalarFieldEnum[]
 }
 
 /**

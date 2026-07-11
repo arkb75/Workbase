@@ -22,6 +22,7 @@ describe("project knowledge scoring", () => {
           verificationStatus: "approved",
           sensitivityFlag: false,
           visibility: "resume_safe",
+          publicSafetyStatus: "verified",
         },
         "public_artifact",
       ),

@@ -17,6 +17,9 @@ import {
   snapshotHighlight,
 } from "@/src/services/highlight-suggestion-service";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
+import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
+import { publicKnowledgeVerificationService } from "@/src/services/public-knowledge-verification-service";
+import { recordChange } from "@/src/services/knowledge-reconciliation-service";
 
 const ownershipPattern =
   /\b(i|we)\s+(built|created|designed|implemented|led|owned|shipped|migrated|optimized|improved|reduced|increased|launched|fixed|introduced|architected)\b/i;
@@ -119,6 +122,7 @@ export async function proposeHighlightFromChatContext(input: {
     return null;
   }
 
+  const dlp = redactRepositorySecrets(normalizeWhitespace(input.text));
   const context = await loadCandidateContext(input.userId, input.workItemId);
   const source = await prisma.source.upsert({
     where: {
@@ -142,7 +146,7 @@ export async function proposeHighlightFromChatContext(input: {
       updatedAt: new Date(),
     },
   });
-  const normalizedText = normalizeWhitespace(input.text);
+  const normalizedText = dlp.content;
   const evidence = await prisma.evidenceItem.upsert({
     where: {
       sourceId_externalId: {
@@ -166,7 +170,11 @@ export async function proposeHighlightFromChatContext(input: {
         messageId: input.messageId,
         selfReported: true,
         corroborationStatus: "not_checked",
+        dlpCategories: dlp.categories,
       },
+      lifecycleStatus: dlp.categories.length ? "quarantined" : "active",
+      reviewState: "pending_review",
+      approvalSource: "automation",
     },
     update: {
       content: normalizedText,
@@ -275,9 +283,28 @@ export async function proposeHighlightFromChatContext(input: {
     return null;
   }
 
+  const autoSafe =
+    !dlp.categories.length &&
+    draft.verificationStatus === "approved" &&
+    !draft.sensitivityFlag &&
+    draft.confidence !== "low";
+  const publicVerification = autoSafe
+    ? await publicKnowledgeVerificationService.verify({
+        text: draft.text,
+        summary: draft.summary,
+        confidence: draft.confidence,
+        ownershipClarity: draft.ownershipClarity,
+        sensitivityFlag: draft.sensitivityFlag,
+        evidence: [{ title: evidence.title, excerpt: evidence.content }],
+      })
+    : { eligible: false, correctedText: null, reasons: dlp.categories.length ? ["The user statement contained suspected secret material and was redacted."] : ["The generated Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
+
   const candidateDraft = {
     ...draft,
-    verificationStatus: "draft" as const,
+    text: publicVerification.eligible && publicVerification.correctedText ? publicVerification.correctedText : draft.text,
+    verificationStatus: autoSafe ? ("approved" as const) : ("flagged" as const),
+    visibility: publicVerification.eligible ? draft.visibility : ("private" as const),
+    risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000) || draft.risksSummary,
     metadata: {
       ...(draft.metadata && typeof draft.metadata === "object" && !Array.isArray(draft.metadata)
         ? draft.metadata
@@ -285,6 +312,8 @@ export async function proposeHighlightFromChatContext(input: {
       origin: "chat_user_statement",
       selfReported: true,
       messageId: input.messageId,
+      publicVerification,
+      dlpCategories: dlp.categories,
     },
   };
   const nearest = existingHighlights.length
@@ -312,6 +341,50 @@ export async function proposeHighlightFromChatContext(input: {
   }
 
   if (match && matchClassification === "revision") {
+    if (autoSafe) {
+      const created = await prisma.$transaction(async (tx) => {
+        const highlight = await createHighlightWithRelations({ tx, workItemId: input.workItemId, draft: candidateDraft });
+        await tx.highlight.update({
+          where: { id: highlight.id },
+          data: {
+            lifecycleStatus: "active",
+            reviewState: "pending_review",
+            approvalSource: "automation",
+            publicSafetyStatus: publicVerification.eligible ? "verified" : "failed",
+            autoAppliedAt: new Date(),
+            supersedesHighlightId: match.id,
+          },
+        });
+        await tx.highlight.update({ where: { id: match.id }, data: { lifecycleStatus: "superseded" } });
+        await tx.evidenceItem.update({ where: { id: evidence.id }, data: { included: true, lifecycleStatus: "active", autoAppliedAt: new Date() } });
+        const candidate = await tx.agentRunCandidate.create({
+          data: {
+            agentRunId: input.agentRunId,
+            highlightId: highlight.id,
+            kind: "new_highlight",
+            status: "approved",
+            batchNumber,
+            ordinal: ordinal + 1,
+            snapshot: JSON.parse(JSON.stringify(candidateDraft)),
+            reviewedAt: new Date(),
+          },
+        });
+        return { highlight, candidate };
+      });
+      await upsertHighlightEmbedding({ highlightId: created.highlight.id, inputText: buildHighlightEmbeddingText(candidateDraft) });
+      await recordChange({
+        workItemId: input.workItemId,
+        entityKind: "highlight",
+        action: "updated",
+        entityId: created.highlight.id,
+        beforeSnapshot: { id: match.id, text: match.text },
+        afterSnapshot: { id: created.highlight.id, text: candidateDraft.text, summary: candidateDraft.summary },
+        reason: "New self-reported context auto-applied a verified Highlight successor.",
+        provenance: { messageId: input.messageId, evidenceId: evidence.id, selfReported: true },
+        suffix: `${input.agentRunId}:${created.highlight.id}`,
+      });
+      return created.candidate;
+    }
     return prisma.$transaction(async (tx) => {
       const suggestion = await tx.highlightSuggestion.create({
         data: {
@@ -354,16 +427,43 @@ export async function proposeHighlightFromChatContext(input: {
         agentRunId: input.agentRunId,
         highlightId: highlight.id,
         kind: "new_highlight",
+        status: autoSafe ? "approved" : "pending",
         batchNumber,
         ordinal: ordinal + 1,
         snapshot: JSON.parse(JSON.stringify(candidateDraft)),
+        reviewedAt: autoSafe ? new Date() : null,
       },
     });
+    await tx.highlight.update({
+      where: { id: highlight.id },
+      data: {
+        lifecycleStatus: autoSafe ? "active" : "quarantined",
+        reviewState: "pending_review",
+        approvalSource: "automation",
+        publicSafetyStatus: publicVerification.eligible ? "verified" : autoSafe ? "failed" : "not_eligible",
+        autoAppliedAt: autoSafe ? new Date() : null,
+      },
+    });
+    if (autoSafe) {
+      await tx.evidenceItem.update({ where: { id: evidence.id }, data: { included: true, lifecycleStatus: "active", autoAppliedAt: new Date() } });
+    }
     return { highlight, candidate };
   });
   await upsertHighlightEmbedding({
     highlightId: created.highlight.id,
     inputText: buildHighlightEmbeddingText(candidateDraft),
+  });
+  await recordChange({
+    workItemId: input.workItemId,
+    entityKind: "highlight",
+    action: autoSafe ? "created" : "quarantined",
+    entityId: created.highlight.id,
+    afterSnapshot: { id: created.highlight.id, text: candidateDraft.text, summary: candidateDraft.summary },
+    reason: autoSafe
+      ? "A verified self-reported Highlight was auto-applied for later review."
+      : "A self-reported Highlight was quarantined by the automatic safety gate.",
+    provenance: { messageId: input.messageId, evidenceId: evidence.id, selfReported: true, dlpCategories: dlp.categories },
+    suffix: `${input.agentRunId}:${created.highlight.id}`,
   });
 
   return created.candidate;

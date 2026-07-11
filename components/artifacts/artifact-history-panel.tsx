@@ -1,6 +1,8 @@
 "use client";
 
 import { type CSSProperties, useMemo, useState } from "react";
+import { refreshStaleArtifactAction } from "@/app/actions";
+import { SubmitButton } from "@/components/forms/submit-button";
 import { Clock3, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,10 +34,14 @@ type SupportingEvidence = {
 
 export type ArtifactHistoryEntry = {
   id: string;
+  workItemId: string;
   type: string;
   targetAngle: string;
   tone: string;
   content: string;
+  lifecycleStatus: string;
+  publicSafetyStatus: string;
+  staleReason: string | null;
   createdAt: string;
   highlightCount: number;
   evidenceCount: number;
@@ -135,6 +141,9 @@ export function ArtifactHistoryPanel({
                         <Badge>{entry.targetAngle.replace(/_/g, " ")}</Badge>
                         <Badge>{entry.tone.replace(/_/g, " ")}</Badge>
                         {entry.fallbackUsed ? <Badge tone="warning">fallback</Badge> : null}
+                        {entry.lifecycleStatus !== "active" ? (
+                          <Badge tone="warning">{entry.lifecycleStatus.replace(/_/g, " ")}</Badge>
+                        ) : null}
                       </div>
                       <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
                         {formatDateTime(entry.createdAt)}
@@ -180,6 +189,10 @@ export function ArtifactHistoryPanel({
                     <Badge tone="accent">{selectedEntry.type.replace(/_/g, " ")}</Badge>
                     <Badge>{selectedEntry.targetAngle.replace(/_/g, " ")}</Badge>
                     <Badge>{selectedEntry.tone.replace(/_/g, " ")}</Badge>
+                    <Badge tone={selectedEntry.lifecycleStatus === "active" ? "success" : "warning"}>
+                      {selectedEntry.lifecycleStatus.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge>Public: {selectedEntry.publicSafetyStatus.replace(/_/g, " ")}</Badge>
                     {selectedEntry.fallbackUsed ? <Badge tone="warning">unreviewed fallback used</Badge> : null}
                   </div>
                   <div>
@@ -205,6 +218,18 @@ export function ArtifactHistoryPanel({
               {selectedEntry.fallbackUsed && selectedEntry.fallbackNote ? (
                 <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm leading-6 text-amber-900">{selectedEntry.fallbackNote}</p>
+                </div>
+              ) : null}
+
+              {selectedEntry.staleReason ? (
+                <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-medium text-amber-950">This historical artifact needs refresh.</p>
+                  <p className="mt-1 text-sm leading-6 text-amber-900">{selectedEntry.staleReason}</p>
+                  <form action={refreshStaleArtifactAction} className="mt-3">
+                    <input type="hidden" name="workItemId" value={selectedEntry.workItemId} />
+                    <input type="hidden" name="artifactId" value={selectedEntry.id} />
+                    <SubmitButton pendingLabel="Refreshing artifact..." size="sm">Generate current successor</SubmitButton>
+                  </form>
                 </div>
               ) : null}
 

@@ -6,6 +6,7 @@ export async function GET() {
     const [schema] = await prisma.$queryRaw<Array<{
       projectFactsReady: boolean;
       agentHarnessReady: boolean;
+      repositoryKnowledgeReady: boolean;
     }>>`
       SELECT
         to_regclass('public."ProjectFact"') IS NOT NULL AS "projectFactsReady",
@@ -15,10 +16,13 @@ export async function GET() {
           WHERE table_schema = 'public'
             AND table_name = 'AgentRun'
             AND column_name = 'harnessVersion'
-            AND column_default LIKE '%v3%'
-        ) AS "agentHarnessReady"
+            AND column_default LIKE '%v4%'
+        ) AS "agentHarnessReady",
+        to_regclass('public."KnowledgeRefreshRun"') IS NOT NULL
+          AND to_regclass('public."RepositorySnapshot"') IS NOT NULL
+          AND to_regclass('public."KnowledgeChange"') IS NOT NULL AS "repositoryKnowledgeReady"
     `;
-    if (!schema?.projectFactsReady || !schema.agentHarnessReady) {
+    if (!schema?.projectFactsReady || !schema.agentHarnessReady || !schema.repositoryKnowledgeReady) {
       return NextResponse.json(
         {
           status: "not_ready",
@@ -33,7 +37,7 @@ export async function GET() {
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "agent-harness-v3",
+      schema: "repository-knowledge-v4",
     });
   } catch {
     return NextResponse.json(

@@ -48,6 +48,17 @@ export async function startArtifactWorkflow(
       idempotencyKey: input.idempotencyKey,
       kind: "artifact_workflow",
     }));
+  if (input.supersedesArtifactId) {
+    const predecessor = await prisma.artifact.findFirst({
+      where: { id: input.supersedesArtifactId, userId: input.userId, workItemId: input.workItemId },
+      select: { id: true },
+    });
+    if (!predecessor) throw new Error("The stale Artifact is not available for refresh.");
+    await prisma.agentRun.update({
+      where: { id: run.id },
+      data: { request: { message: input.brief, brief: input.brief, supersedesArtifactId: predecessor.id } },
+    });
+  }
   const workflowId = await startAgentRunWorkflowOnce({
     runId: run.id,
     startWorkflow: () => start(artifactGenerationWorkflow, [run.id]),

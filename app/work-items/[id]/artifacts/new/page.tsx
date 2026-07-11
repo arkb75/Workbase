@@ -156,10 +156,14 @@ export default async function ArtifactGeneratorPage({
 
     return {
       id: artifact.id,
+      workItemId: workItem.id,
       type: artifact.type,
       targetAngle: artifact.targetAngle,
       tone: artifact.tone,
       content: artifact.content,
+      lifecycleStatus: artifact.lifecycleStatus,
+      publicSafetyStatus: artifact.publicSafetyStatus,
+      staleReason: artifact.staleReason,
       createdAt:
         artifact.createdAt instanceof Date ? artifact.createdAt.toISOString() : String(artifact.createdAt),
       highlightCount: usedHighlights.length || fallbackHighlights.length,

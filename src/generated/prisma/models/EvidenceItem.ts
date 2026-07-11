@@ -36,6 +36,17 @@ export type EvidenceItemMinAggregateOutputType = {
   parentKind: string | null
   parentKey: string | null
   included: boolean | null
+  logicalKey: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  purgeEligibleAt: Date | null
+  supersedesEvidenceItemId: string | null
+  repositorySnapshotId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -52,6 +63,17 @@ export type EvidenceItemMaxAggregateOutputType = {
   parentKind: string | null
   parentKey: string | null
   included: boolean | null
+  logicalKey: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus | null
+  reviewState: $Enums.KnowledgeReviewState | null
+  approvalSource: $Enums.KnowledgeApprovalSource | null
+  publicSafetyStatus: $Enums.PublicSafetyStatus | null
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  purgeEligibleAt: Date | null
+  supersedesEvidenceItemId: string | null
+  repositorySnapshotId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -69,6 +91,17 @@ export type EvidenceItemCountAggregateOutputType = {
   parentKey: number
   included: number
   metadata: number
+  logicalKey: number
+  lifecycleStatus: number
+  reviewState: number
+  approvalSource: number
+  publicSafetyStatus: number
+  validatedThroughSha: number
+  lastValidatedAt: number
+  autoAppliedAt: number
+  purgeEligibleAt: number
+  supersedesEvidenceItemId: number
+  repositorySnapshotId: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -87,6 +120,17 @@ export type EvidenceItemMinAggregateInputType = {
   parentKind?: true
   parentKey?: true
   included?: true
+  logicalKey?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  purgeEligibleAt?: true
+  supersedesEvidenceItemId?: true
+  repositorySnapshotId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -103,6 +147,17 @@ export type EvidenceItemMaxAggregateInputType = {
   parentKind?: true
   parentKey?: true
   included?: true
+  logicalKey?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  purgeEligibleAt?: true
+  supersedesEvidenceItemId?: true
+  repositorySnapshotId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -120,6 +175,17 @@ export type EvidenceItemCountAggregateInputType = {
   parentKey?: true
   included?: true
   metadata?: true
+  logicalKey?: true
+  lifecycleStatus?: true
+  reviewState?: true
+  approvalSource?: true
+  publicSafetyStatus?: true
+  validatedThroughSha?: true
+  lastValidatedAt?: true
+  autoAppliedAt?: true
+  purgeEligibleAt?: true
+  supersedesEvidenceItemId?: true
+  repositorySnapshotId?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -210,6 +276,17 @@ export type EvidenceItemGroupByOutputType = {
   parentKey: string | null
   included: boolean
   metadata: runtime.JsonValue | null
+  logicalKey: string | null
+  lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+  reviewState: $Enums.KnowledgeReviewState
+  approvalSource: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus: $Enums.PublicSafetyStatus
+  validatedThroughSha: string | null
+  lastValidatedAt: Date | null
+  autoAppliedAt: Date | null
+  purgeEligibleAt: Date | null
+  supersedesEvidenceItemId: string | null
+  repositorySnapshotId: string | null
   createdAt: Date
   updatedAt: Date
   _count: EvidenceItemCountAggregateOutputType | null
@@ -248,16 +325,31 @@ export type EvidenceItemWhereInput = {
   parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
+  logicalKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"EvidenceItem"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"EvidenceItem"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"EvidenceItem"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"EvidenceItem"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  purgeEligibleAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  supersedesEvidenceItemId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  repositorySnapshotId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
+  repositorySnapshot?: Prisma.XOR<Prisma.RepositorySnapshotNullableScalarRelationFilter, Prisma.RepositorySnapshotWhereInput> | null
+  supersedesEvidenceItem?: Prisma.XOR<Prisma.EvidenceItemNullableScalarRelationFilter, Prisma.EvidenceItemWhereInput> | null
+  supersededByEvidenceItems?: Prisma.EvidenceItemListRelationFilter
   highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
   projectFactEvidence?: Prisma.ProjectFactEvidenceListRelationFilter
   tags?: Prisma.EvidenceTagListRelationFilter
   embedding?: Prisma.XOR<Prisma.EvidenceEmbeddingNullableScalarRelationFilter, Prisma.EvidenceEmbeddingWhereInput> | null
   chatCitations?: Prisma.ChatCitationListRelationFilter
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }
 
 export type EvidenceItemOrderByWithRelationInput = {
@@ -273,16 +365,31 @@ export type EvidenceItemOrderByWithRelationInput = {
   parentKey?: Prisma.SortOrderInput | Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
+  logicalKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  purgeEligibleAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  supersedesEvidenceItemId?: Prisma.SortOrderInput | Prisma.SortOrder
+  repositorySnapshotId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   source?: Prisma.SourceOrderByWithRelationInput
+  repositorySnapshot?: Prisma.RepositorySnapshotOrderByWithRelationInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemOrderByWithRelationInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
   highlightEvidence?: Prisma.HighlightEvidenceOrderByRelationAggregateInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceOrderByRelationAggregateInput
   tags?: Prisma.EvidenceTagOrderByRelationAggregateInput
   embedding?: Prisma.EvidenceEmbeddingOrderByWithRelationInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceOrderByRelationAggregateInput
+  knowledgeChanges?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
 }
 
 export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
@@ -302,16 +409,31 @@ export type EvidenceItemWhereUniqueInput = Prisma.AtLeast<{
   parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
+  logicalKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"EvidenceItem"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"EvidenceItem"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"EvidenceItem"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"EvidenceItem"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  purgeEligibleAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  supersedesEvidenceItemId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  repositorySnapshotId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   source?: Prisma.XOR<Prisma.SourceScalarRelationFilter, Prisma.SourceWhereInput>
+  repositorySnapshot?: Prisma.XOR<Prisma.RepositorySnapshotNullableScalarRelationFilter, Prisma.RepositorySnapshotWhereInput> | null
+  supersedesEvidenceItem?: Prisma.XOR<Prisma.EvidenceItemNullableScalarRelationFilter, Prisma.EvidenceItemWhereInput> | null
+  supersededByEvidenceItems?: Prisma.EvidenceItemListRelationFilter
   highlightEvidence?: Prisma.HighlightEvidenceListRelationFilter
   projectFactEvidence?: Prisma.ProjectFactEvidenceListRelationFilter
   tags?: Prisma.EvidenceTagListRelationFilter
   embedding?: Prisma.XOR<Prisma.EvidenceEmbeddingNullableScalarRelationFilter, Prisma.EvidenceEmbeddingWhereInput> | null
   chatCitations?: Prisma.ChatCitationListRelationFilter
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
+  knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
 }, "id" | "sourceId_externalId">
 
 export type EvidenceItemOrderByWithAggregationInput = {
@@ -327,6 +449,17 @@ export type EvidenceItemOrderByWithAggregationInput = {
   parentKey?: Prisma.SortOrderInput | Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrderInput | Prisma.SortOrder
+  logicalKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  purgeEligibleAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  supersedesEvidenceItemId?: Prisma.SortOrderInput | Prisma.SortOrder
+  repositorySnapshotId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.EvidenceItemCountOrderByAggregateInput
@@ -350,6 +483,17 @@ export type EvidenceItemScalarWhereWithAggregatesInput = {
   parentKey?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolWithAggregatesFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableWithAggregatesFilter<"EvidenceItem">
+  logicalKey?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusWithAggregatesFilter<"EvidenceItem"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateWithAggregatesFilter<"EvidenceItem"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceWithAggregatesFilter<"EvidenceItem"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusWithAggregatesFilter<"EvidenceItem"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"EvidenceItem"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"EvidenceItem"> | Date | string | null
+  purgeEligibleAt?: Prisma.DateTimeNullableWithAggregatesFilter<"EvidenceItem"> | Date | string | null
+  supersedesEvidenceItemId?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
+  repositorySnapshotId?: Prisma.StringNullableWithAggregatesFilter<"EvidenceItem"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"EvidenceItem"> | Date | string
 }
@@ -365,16 +509,29 @@ export type EvidenceItemCreateInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateInput = {
@@ -390,14 +547,27 @@ export type EvidenceItemUncheckedCreateInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUpdateInput = {
@@ -411,16 +581,29 @@ export type EvidenceItemUpdateInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateInput = {
@@ -436,14 +619,27 @@ export type EvidenceItemUncheckedUpdateInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyInput = {
@@ -459,6 +655,17 @@ export type EvidenceItemCreateManyInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -474,6 +681,15 @@ export type EvidenceItemUpdateManyMutationInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -491,6 +707,17 @@ export type EvidenceItemUncheckedUpdateManyInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -503,6 +730,11 @@ export type EvidenceItemListRelationFilter = {
 
 export type EvidenceItemOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
+}
+
+export type EvidenceItemNullableScalarRelationFilter = {
+  is?: Prisma.EvidenceItemWhereInput | null
+  isNot?: Prisma.EvidenceItemWhereInput | null
 }
 
 export type EvidenceItemSourceIdExternalIdCompoundUniqueInput = {
@@ -523,6 +755,17 @@ export type EvidenceItemCountOrderByAggregateInput = {
   parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
   metadata?: Prisma.SortOrder
+  logicalKey?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  purgeEligibleAt?: Prisma.SortOrder
+  supersedesEvidenceItemId?: Prisma.SortOrder
+  repositorySnapshotId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -539,6 +782,17 @@ export type EvidenceItemMaxOrderByAggregateInput = {
   parentKind?: Prisma.SortOrder
   parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
+  logicalKey?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  purgeEligibleAt?: Prisma.SortOrder
+  supersedesEvidenceItemId?: Prisma.SortOrder
+  repositorySnapshotId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -555,6 +809,17 @@ export type EvidenceItemMinOrderByAggregateInput = {
   parentKind?: Prisma.SortOrder
   parentKey?: Prisma.SortOrder
   included?: Prisma.SortOrder
+  logicalKey?: Prisma.SortOrder
+  lifecycleStatus?: Prisma.SortOrder
+  reviewState?: Prisma.SortOrder
+  approvalSource?: Prisma.SortOrder
+  publicSafetyStatus?: Prisma.SortOrder
+  validatedThroughSha?: Prisma.SortOrder
+  lastValidatedAt?: Prisma.SortOrder
+  autoAppliedAt?: Prisma.SortOrder
+  purgeEligibleAt?: Prisma.SortOrder
+  supersedesEvidenceItemId?: Prisma.SortOrder
+  repositorySnapshotId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -562,11 +827,6 @@ export type EvidenceItemMinOrderByAggregateInput = {
 export type EvidenceItemScalarRelationFilter = {
   is?: Prisma.EvidenceItemWhereInput
   isNot?: Prisma.EvidenceItemWhereInput
-}
-
-export type EvidenceItemNullableScalarRelationFilter = {
-  is?: Prisma.EvidenceItemWhereInput | null
-  isNot?: Prisma.EvidenceItemWhereInput | null
 }
 
 export type EvidenceItemCreateNestedManyWithoutWorkItemInput = {
@@ -653,12 +913,140 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput = {
   deleteMany?: Prisma.EvidenceItemScalarWhereInput | Prisma.EvidenceItemScalarWhereInput[]
 }
 
+export type EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput> | Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput[] | Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput | Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput[]
+  createMany?: Prisma.EvidenceItemCreateManyRepositorySnapshotInputEnvelope
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+}
+
+export type EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput> | Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput[] | Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput | Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput[]
+  createMany?: Prisma.EvidenceItemCreateManyRepositorySnapshotInputEnvelope
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+}
+
+export type EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput> | Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput[] | Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput | Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput[]
+  upsert?: Prisma.EvidenceItemUpsertWithWhereUniqueWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpsertWithWhereUniqueWithoutRepositorySnapshotInput[]
+  createMany?: Prisma.EvidenceItemCreateManyRepositorySnapshotInputEnvelope
+  set?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  delete?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  update?: Prisma.EvidenceItemUpdateWithWhereUniqueWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpdateWithWhereUniqueWithoutRepositorySnapshotInput[]
+  updateMany?: Prisma.EvidenceItemUpdateManyWithWhereWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpdateManyWithWhereWithoutRepositorySnapshotInput[]
+  deleteMany?: Prisma.EvidenceItemScalarWhereInput | Prisma.EvidenceItemScalarWhereInput[]
+}
+
+export type EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput> | Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput[] | Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput | Prisma.EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput[]
+  upsert?: Prisma.EvidenceItemUpsertWithWhereUniqueWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpsertWithWhereUniqueWithoutRepositorySnapshotInput[]
+  createMany?: Prisma.EvidenceItemCreateManyRepositorySnapshotInputEnvelope
+  set?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  delete?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  update?: Prisma.EvidenceItemUpdateWithWhereUniqueWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpdateWithWhereUniqueWithoutRepositorySnapshotInput[]
+  updateMany?: Prisma.EvidenceItemUpdateManyWithWhereWithoutRepositorySnapshotInput | Prisma.EvidenceItemUpdateManyWithWhereWithoutRepositorySnapshotInput[]
+  deleteMany?: Prisma.EvidenceItemScalarWhereInput | Prisma.EvidenceItemScalarWhereInput[]
+}
+
+export type EvidenceItemCreateNestedOneWithoutKnowledgeChangesInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutKnowledgeChangesInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+}
+
+export type EvidenceItemUpdateOneWithoutKnowledgeChangesNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedCreateWithoutKnowledgeChangesInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutKnowledgeChangesInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutKnowledgeChangesInput
+  disconnect?: Prisma.EvidenceItemWhereInput | boolean
+  delete?: Prisma.EvidenceItemWhereInput | boolean
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutKnowledgeChangesInput, Prisma.EvidenceItemUpdateWithoutKnowledgeChangesInput>, Prisma.EvidenceItemUncheckedUpdateWithoutKnowledgeChangesInput>
+}
+
+export type EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersededByEvidenceItemsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersededByEvidenceItemsInput
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+}
+
+export type EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput> | Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput[] | Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput[]
+  createMany?: Prisma.EvidenceItemCreateManySupersedesEvidenceItemInputEnvelope
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+}
+
+export type EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput> | Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput[] | Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput[]
+  createMany?: Prisma.EvidenceItemCreateManySupersedesEvidenceItemInputEnvelope
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+}
+
 export type EnumEvidenceItemTypeFieldUpdateOperationsInput = {
   set?: $Enums.EvidenceItemType
 }
 
-export type BoolFieldUpdateOperationsInput = {
-  set?: boolean
+export type EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput = {
+  set?: $Enums.KnowledgeLifecycleStatus
+}
+
+export type EnumKnowledgeReviewStateFieldUpdateOperationsInput = {
+  set?: $Enums.KnowledgeReviewState
+}
+
+export type EnumKnowledgeApprovalSourceFieldUpdateOperationsInput = {
+  set?: $Enums.KnowledgeApprovalSource
+}
+
+export type EnumPublicSafetyStatusFieldUpdateOperationsInput = {
+  set?: $Enums.PublicSafetyStatus
+}
+
+export type EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersededByEvidenceItemsInput>
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersededByEvidenceItemsInput
+  upsert?: Prisma.EvidenceItemUpsertWithoutSupersededByEvidenceItemsInput
+  disconnect?: Prisma.EvidenceItemWhereInput | boolean
+  delete?: Prisma.EvidenceItemWhereInput | boolean
+  connect?: Prisma.EvidenceItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceItemUpdateToOneWithWhereWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUpdateWithoutSupersededByEvidenceItemsInput>, Prisma.EvidenceItemUncheckedUpdateWithoutSupersededByEvidenceItemsInput>
+}
+
+export type EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput> | Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput[] | Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput[]
+  upsert?: Prisma.EvidenceItemUpsertWithWhereUniqueWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpsertWithWhereUniqueWithoutSupersedesEvidenceItemInput[]
+  createMany?: Prisma.EvidenceItemCreateManySupersedesEvidenceItemInputEnvelope
+  set?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  delete?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  update?: Prisma.EvidenceItemUpdateWithWhereUniqueWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpdateWithWhereUniqueWithoutSupersedesEvidenceItemInput[]
+  updateMany?: Prisma.EvidenceItemUpdateManyWithWhereWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpdateManyWithWhereWithoutSupersedesEvidenceItemInput[]
+  deleteMany?: Prisma.EvidenceItemScalarWhereInput | Prisma.EvidenceItemScalarWhereInput[]
+}
+
+export type EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput = {
+  create?: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput> | Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput[] | Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput[]
+  connectOrCreate?: Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput[]
+  upsert?: Prisma.EvidenceItemUpsertWithWhereUniqueWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpsertWithWhereUniqueWithoutSupersedesEvidenceItemInput[]
+  createMany?: Prisma.EvidenceItemCreateManySupersedesEvidenceItemInputEnvelope
+  set?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  delete?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  connect?: Prisma.EvidenceItemWhereUniqueInput | Prisma.EvidenceItemWhereUniqueInput[]
+  update?: Prisma.EvidenceItemUpdateWithWhereUniqueWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpdateWithWhereUniqueWithoutSupersedesEvidenceItemInput[]
+  updateMany?: Prisma.EvidenceItemUpdateManyWithWhereWithoutSupersedesEvidenceItemInput | Prisma.EvidenceItemUpdateManyWithWhereWithoutSupersedesEvidenceItemInput[]
+  deleteMany?: Prisma.EvidenceItemScalarWhereInput | Prisma.EvidenceItemScalarWhereInput[]
 }
 
 export type EvidenceItemCreateNestedOneWithoutTagsInput = {
@@ -754,15 +1142,28 @@ export type EvidenceItemCreateWithoutWorkItemInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
@@ -777,14 +1178,27 @@ export type EvidenceItemUncheckedCreateWithoutWorkItemInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutWorkItemInput = {
@@ -829,6 +1243,17 @@ export type EvidenceItemScalarWhereInput = {
   parentKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   included?: Prisma.BoolFilter<"EvidenceItem"> | boolean
   metadata?: Prisma.JsonNullableFilter<"EvidenceItem">
+  logicalKey?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFilter<"EvidenceItem"> | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFilter<"EvidenceItem"> | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"EvidenceItem"> | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"EvidenceItem"> | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  lastValidatedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  autoAppliedAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  purgeEligibleAt?: Prisma.DateTimeNullableFilter<"EvidenceItem"> | Date | string | null
+  supersedesEvidenceItemId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
+  repositorySnapshotId?: Prisma.StringNullableFilter<"EvidenceItem"> | string | null
   createdAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceItem"> | Date | string
 }
@@ -844,15 +1269,28 @@ export type EvidenceItemCreateWithoutSourceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutSourceInput = {
@@ -867,14 +1305,27 @@ export type EvidenceItemUncheckedCreateWithoutSourceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutSourceInput = {
@@ -903,6 +1354,510 @@ export type EvidenceItemUpdateManyWithWhereWithoutSourceInput = {
   data: Prisma.XOR<Prisma.EvidenceItemUpdateManyMutationInput, Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceInput>
 }
 
+export type EvidenceItemCreateWithoutRepositorySnapshotInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutRepositorySnapshotInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput>
+}
+
+export type EvidenceItemCreateManyRepositorySnapshotInputEnvelope = {
+  data: Prisma.EvidenceItemCreateManyRepositorySnapshotInput | Prisma.EvidenceItemCreateManyRepositorySnapshotInput[]
+  skipDuplicates?: boolean
+}
+
+export type EvidenceItemUpsertWithWhereUniqueWithoutRepositorySnapshotInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedUpdateWithoutRepositorySnapshotInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedCreateWithoutRepositorySnapshotInput>
+}
+
+export type EvidenceItemUpdateWithWhereUniqueWithoutRepositorySnapshotInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutRepositorySnapshotInput, Prisma.EvidenceItemUncheckedUpdateWithoutRepositorySnapshotInput>
+}
+
+export type EvidenceItemUpdateManyWithWhereWithoutRepositorySnapshotInput = {
+  where: Prisma.EvidenceItemScalarWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateManyMutationInput, Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotInput>
+}
+
+export type EvidenceItemCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutKnowledgeChangesInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutKnowledgeChangesInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedCreateWithoutKnowledgeChangesInput>
+}
+
+export type EvidenceItemUpsertWithoutKnowledgeChangesInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedUpdateWithoutKnowledgeChangesInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedCreateWithoutKnowledgeChangesInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutKnowledgeChangesInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutKnowledgeChangesInput, Prisma.EvidenceItemUncheckedUpdateWithoutKnowledgeChangesInput>
+}
+
+export type EvidenceItemUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutKnowledgeChangesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemCreateWithoutSupersededByEvidenceItemsInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutSupersededByEvidenceItemsInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutSupersededByEvidenceItemsInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersededByEvidenceItemsInput>
+}
+
+export type EvidenceItemCreateWithoutSupersedesEvidenceItemInput = {
+  id?: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
+  source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  repositorySnapshotId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
+}
+
+export type EvidenceItemCreateOrConnectWithoutSupersedesEvidenceItemInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput>
+}
+
+export type EvidenceItemCreateManySupersedesEvidenceItemInputEnvelope = {
+  data: Prisma.EvidenceItemCreateManySupersedesEvidenceItemInput | Prisma.EvidenceItemCreateManySupersedesEvidenceItemInput[]
+  skipDuplicates?: boolean
+}
+
+export type EvidenceItemUpsertWithoutSupersededByEvidenceItemsInput = {
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedUpdateWithoutSupersededByEvidenceItemsInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersededByEvidenceItemsInput>
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+export type EvidenceItemUpdateToOneWithWhereWithoutSupersededByEvidenceItemsInput = {
+  where?: Prisma.EvidenceItemWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutSupersededByEvidenceItemsInput, Prisma.EvidenceItemUncheckedUpdateWithoutSupersededByEvidenceItemsInput>
+}
+
+export type EvidenceItemUpdateWithoutSupersededByEvidenceItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutSupersededByEvidenceItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUpsertWithWhereUniqueWithoutSupersedesEvidenceItemInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  update: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedUpdateWithoutSupersedesEvidenceItemInput>
+  create: Prisma.XOR<Prisma.EvidenceItemCreateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedCreateWithoutSupersedesEvidenceItemInput>
+}
+
+export type EvidenceItemUpdateWithWhereUniqueWithoutSupersedesEvidenceItemInput = {
+  where: Prisma.EvidenceItemWhereUniqueInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateWithoutSupersedesEvidenceItemInput, Prisma.EvidenceItemUncheckedUpdateWithoutSupersedesEvidenceItemInput>
+}
+
+export type EvidenceItemUpdateManyWithWhereWithoutSupersedesEvidenceItemInput = {
+  where: Prisma.EvidenceItemScalarWhereInput
+  data: Prisma.XOR<Prisma.EvidenceItemUpdateManyMutationInput, Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemInput>
+}
+
 export type EvidenceItemCreateWithoutTagsInput = {
   id?: string
   externalId: string
@@ -914,15 +1869,28 @@ export type EvidenceItemCreateWithoutTagsInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutTagsInput = {
@@ -938,13 +1906,26 @@ export type EvidenceItemUncheckedCreateWithoutTagsInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutTagsInput = {
@@ -974,15 +1955,28 @@ export type EvidenceItemUpdateWithoutTagsInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutTagsInput = {
@@ -998,13 +1992,26 @@ export type EvidenceItemUncheckedUpdateWithoutTagsInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutProjectFactEvidenceInput = {
@@ -1018,15 +2025,28 @@ export type EvidenceItemCreateWithoutProjectFactEvidenceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutProjectFactEvidenceInput = {
@@ -1042,13 +2062,26 @@ export type EvidenceItemUncheckedCreateWithoutProjectFactEvidenceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutProjectFactEvidenceInput = {
@@ -1078,15 +2111,28 @@ export type EvidenceItemUpdateWithoutProjectFactEvidenceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutProjectFactEvidenceInput = {
@@ -1102,13 +2148,26 @@ export type EvidenceItemUncheckedUpdateWithoutProjectFactEvidenceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutEmbeddingInput = {
@@ -1122,15 +2181,28 @@ export type EvidenceItemCreateWithoutEmbeddingInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutEmbeddingInput = {
@@ -1146,13 +2218,26 @@ export type EvidenceItemUncheckedCreateWithoutEmbeddingInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutEmbeddingInput = {
@@ -1182,15 +2267,28 @@ export type EvidenceItemUpdateWithoutEmbeddingInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutEmbeddingInput = {
@@ -1206,13 +2304,26 @@ export type EvidenceItemUncheckedUpdateWithoutEmbeddingInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutHighlightEvidenceInput = {
@@ -1226,15 +2337,28 @@ export type EvidenceItemCreateWithoutHighlightEvidenceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput = {
@@ -1250,13 +2374,26 @@ export type EvidenceItemUncheckedCreateWithoutHighlightEvidenceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutHighlightEvidenceInput = {
@@ -1286,15 +2423,28 @@ export type EvidenceItemUpdateWithoutHighlightEvidenceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput = {
@@ -1310,13 +2460,26 @@ export type EvidenceItemUncheckedUpdateWithoutHighlightEvidenceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutArtifactProvenanceInput = {
@@ -1330,15 +2493,28 @@ export type EvidenceItemCreateWithoutArtifactProvenanceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput = {
@@ -1354,13 +2530,26 @@ export type EvidenceItemUncheckedCreateWithoutArtifactProvenanceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutArtifactProvenanceInput = {
@@ -1390,15 +2579,28 @@ export type EvidenceItemUpdateWithoutArtifactProvenanceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput = {
@@ -1414,13 +2616,26 @@ export type EvidenceItemUncheckedUpdateWithoutArtifactProvenanceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateWithoutChatCitationsInput = {
@@ -1434,15 +2649,28 @@ export type EvidenceItemCreateWithoutChatCitationsInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutEvidenceItemsInput
   source: Prisma.SourceCreateNestedOneWithoutEvidenceItemsInput
+  repositorySnapshot?: Prisma.RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutSupersededByEvidenceItemsInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemUncheckedCreateWithoutChatCitationsInput = {
@@ -1458,13 +2686,26 @@ export type EvidenceItemUncheckedCreateWithoutChatCitationsInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSupersedesEvidenceItemInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutEvidenceItemInput
   tags?: Prisma.EvidenceTagUncheckedCreateNestedManyWithoutEvidenceItemInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutEvidenceItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutEvidenceItemInput
 }
 
 export type EvidenceItemCreateOrConnectWithoutChatCitationsInput = {
@@ -1494,15 +2735,28 @@ export type EvidenceItemUpdateWithoutChatCitationsInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutChatCitationsInput = {
@@ -1518,13 +2772,26 @@ export type EvidenceItemUncheckedUpdateWithoutChatCitationsInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemCreateManyWorkItemInput = {
@@ -1539,6 +2806,17 @@ export type EvidenceItemCreateManyWorkItemInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1554,15 +2832,28 @@ export type EvidenceItemUpdateWithoutWorkItemInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
@@ -1577,14 +2868,27 @@ export type EvidenceItemUncheckedUpdateWithoutWorkItemInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1599,6 +2903,17 @@ export type EvidenceItemUncheckedUpdateManyWithoutWorkItemInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1615,6 +2930,17 @@ export type EvidenceItemCreateManySourceInput = {
   parentKey?: string | null
   included?: boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  repositorySnapshotId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1630,15 +2956,28 @@ export type EvidenceItemUpdateWithoutSourceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
@@ -1653,14 +2992,27 @@ export type EvidenceItemUncheckedUpdateWithoutSourceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
   highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
   tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
   embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
   artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
 }
 
 export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
@@ -1675,6 +3027,265 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
   parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   included?: Prisma.BoolFieldUpdateOperationsInput | boolean
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type EvidenceItemCreateManyRepositorySnapshotInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  supersedesEvidenceItemId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type EvidenceItemUpdateWithoutRepositorySnapshotInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  supersedesEvidenceItem?: Prisma.EvidenceItemUpdateOneWithoutSupersededByEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutRepositorySnapshotInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  supersedesEvidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type EvidenceItemCreateManySupersedesEvidenceItemInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  externalId: string
+  type: $Enums.EvidenceItemType
+  title: string
+  content: string
+  searchText: string
+  parentKind?: string | null
+  parentKey?: string | null
+  included?: boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: string | null
+  lifecycleStatus?: $Enums.KnowledgeLifecycleStatus
+  reviewState?: $Enums.KnowledgeReviewState
+  approvalSource?: $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: $Enums.PublicSafetyStatus
+  validatedThroughSha?: string | null
+  lastValidatedAt?: Date | string | null
+  autoAppliedAt?: Date | string | null
+  purgeEligibleAt?: Date | string | null
+  repositorySnapshotId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type EvidenceItemUpdateWithoutSupersedesEvidenceItemInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutEvidenceItemsNestedInput
+  repositorySnapshot?: Prisma.RepositorySnapshotUpdateOneWithoutEvidenceItemsNestedInput
+  supersededByEvidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateWithoutSupersedesEvidenceItemInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  supersededByEvidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemNestedInput
+  highlightEvidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  projectFactEvidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  tags?: Prisma.EvidenceTagUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  embedding?: Prisma.EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  artifactProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutEvidenceItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutEvidenceItemNestedInput
+}
+
+export type EvidenceItemUncheckedUpdateManyWithoutSupersedesEvidenceItemInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumEvidenceItemTypeFieldUpdateOperationsInput | $Enums.EvidenceItemType
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  content?: Prisma.StringFieldUpdateOperationsInput | string
+  searchText?: Prisma.StringFieldUpdateOperationsInput | string
+  parentKind?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  included?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  logicalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lifecycleStatus?: Prisma.EnumKnowledgeLifecycleStatusFieldUpdateOperationsInput | $Enums.KnowledgeLifecycleStatus
+  reviewState?: Prisma.EnumKnowledgeReviewStateFieldUpdateOperationsInput | $Enums.KnowledgeReviewState
+  approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
+  publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
+  validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeEligibleAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  repositorySnapshotId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1685,19 +3296,23 @@ export type EvidenceItemUncheckedUpdateManyWithoutSourceInput = {
  */
 
 export type EvidenceItemCountOutputType = {
+  supersededByEvidenceItems: number
   highlightEvidence: number
   projectFactEvidence: number
   tags: number
   chatCitations: number
   artifactProvenance: number
+  knowledgeChanges: number
 }
 
 export type EvidenceItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  supersededByEvidenceItems?: boolean | EvidenceItemCountOutputTypeCountSupersededByEvidenceItemsArgs
   highlightEvidence?: boolean | EvidenceItemCountOutputTypeCountHighlightEvidenceArgs
   projectFactEvidence?: boolean | EvidenceItemCountOutputTypeCountProjectFactEvidenceArgs
   tags?: boolean | EvidenceItemCountOutputTypeCountTagsArgs
   chatCitations?: boolean | EvidenceItemCountOutputTypeCountChatCitationsArgs
   artifactProvenance?: boolean | EvidenceItemCountOutputTypeCountArtifactProvenanceArgs
+  knowledgeChanges?: boolean | EvidenceItemCountOutputTypeCountKnowledgeChangesArgs
 }
 
 /**
@@ -1708,6 +3323,13 @@ export type EvidenceItemCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types
    * Select specific fields to fetch from the EvidenceItemCountOutputType
    */
   select?: Prisma.EvidenceItemCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * EvidenceItemCountOutputType without action
+ */
+export type EvidenceItemCountOutputTypeCountSupersededByEvidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.EvidenceItemWhereInput
 }
 
 /**
@@ -1745,6 +3367,13 @@ export type EvidenceItemCountOutputTypeCountArtifactProvenanceArgs<ExtArgs exten
   where?: Prisma.ArtifactEvidenceProvenanceWhereInput
 }
 
+/**
+ * EvidenceItemCountOutputType without action
+ */
+export type EvidenceItemCountOutputTypeCountKnowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.KnowledgeChangeWhereInput
+}
+
 
 export type EvidenceItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1759,16 +3388,31 @@ export type EvidenceItemSelect<ExtArgs extends runtime.Types.Extensions.Internal
   parentKey?: boolean
   included?: boolean
   metadata?: boolean
+  logicalKey?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  purgeEligibleAt?: boolean
+  supersedesEvidenceItemId?: boolean
+  repositorySnapshotId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
+  supersededByEvidenceItems?: boolean | Prisma.EvidenceItem$supersededByEvidenceItemsArgs<ExtArgs>
   highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
   projectFactEvidence?: boolean | Prisma.EvidenceItem$projectFactEvidenceArgs<ExtArgs>
   tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
   embedding?: boolean | Prisma.EvidenceItem$embeddingArgs<ExtArgs>
   chatCitations?: boolean | Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>
   artifactProvenance?: boolean | Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.EvidenceItem$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceItem"]>
 
@@ -1785,10 +3429,23 @@ export type EvidenceItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   parentKey?: boolean
   included?: boolean
   metadata?: boolean
+  logicalKey?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  purgeEligibleAt?: boolean
+  supersedesEvidenceItemId?: boolean
+  repositorySnapshotId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceItem"]>
 
 export type EvidenceItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1804,10 +3461,23 @@ export type EvidenceItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   parentKey?: boolean
   included?: boolean
   metadata?: boolean
+  logicalKey?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  purgeEligibleAt?: boolean
+  supersedesEvidenceItemId?: boolean
+  repositorySnapshotId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceItem"]>
 
 export type EvidenceItemSelectScalar = {
@@ -1823,29 +3493,48 @@ export type EvidenceItemSelectScalar = {
   parentKey?: boolean
   included?: boolean
   metadata?: boolean
+  logicalKey?: boolean
+  lifecycleStatus?: boolean
+  reviewState?: boolean
+  approvalSource?: boolean
+  publicSafetyStatus?: boolean
+  validatedThroughSha?: boolean
+  lastValidatedAt?: boolean
+  autoAppliedAt?: boolean
+  purgeEligibleAt?: boolean
+  supersedesEvidenceItemId?: boolean
+  repositorySnapshotId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type EvidenceItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "sourceId" | "externalId" | "type" | "title" | "content" | "searchText" | "parentKind" | "parentKey" | "included" | "metadata" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceItem"]>
+export type EvidenceItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "sourceId" | "externalId" | "type" | "title" | "content" | "searchText" | "parentKind" | "parentKey" | "included" | "metadata" | "logicalKey" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "purgeEligibleAt" | "supersedesEvidenceItemId" | "repositorySnapshotId" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceItem"]>
 export type EvidenceItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
+  supersededByEvidenceItems?: boolean | Prisma.EvidenceItem$supersededByEvidenceItemsArgs<ExtArgs>
   highlightEvidence?: boolean | Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>
   projectFactEvidence?: boolean | Prisma.EvidenceItem$projectFactEvidenceArgs<ExtArgs>
   tags?: boolean | Prisma.EvidenceItem$tagsArgs<ExtArgs>
   embedding?: boolean | Prisma.EvidenceItem$embeddingArgs<ExtArgs>
   chatCitations?: boolean | Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>
   artifactProvenance?: boolean | Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>
+  knowledgeChanges?: boolean | Prisma.EvidenceItem$knowledgeChangesArgs<ExtArgs>
   _count?: boolean | Prisma.EvidenceItemCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type EvidenceItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
 }
 export type EvidenceItemIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   source?: boolean | Prisma.SourceDefaultArgs<ExtArgs>
+  repositorySnapshot?: boolean | Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>
+  supersedesEvidenceItem?: boolean | Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>
 }
 
 export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1853,12 +3542,16 @@ export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.Intern
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     source: Prisma.$SourcePayload<ExtArgs>
+    repositorySnapshot: Prisma.$RepositorySnapshotPayload<ExtArgs> | null
+    supersedesEvidenceItem: Prisma.$EvidenceItemPayload<ExtArgs> | null
+    supersededByEvidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
     highlightEvidence: Prisma.$HighlightEvidencePayload<ExtArgs>[]
     projectFactEvidence: Prisma.$ProjectFactEvidencePayload<ExtArgs>[]
     tags: Prisma.$EvidenceTagPayload<ExtArgs>[]
     embedding: Prisma.$EvidenceEmbeddingPayload<ExtArgs> | null
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     artifactProvenance: Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>[]
+    knowledgeChanges: Prisma.$KnowledgeChangePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1873,6 +3566,17 @@ export type $EvidenceItemPayload<ExtArgs extends runtime.Types.Extensions.Intern
     parentKey: string | null
     included: boolean
     metadata: runtime.JsonValue | null
+    logicalKey: string | null
+    lifecycleStatus: $Enums.KnowledgeLifecycleStatus
+    reviewState: $Enums.KnowledgeReviewState
+    approvalSource: $Enums.KnowledgeApprovalSource
+    publicSafetyStatus: $Enums.PublicSafetyStatus
+    validatedThroughSha: string | null
+    lastValidatedAt: Date | null
+    autoAppliedAt: Date | null
+    purgeEligibleAt: Date | null
+    supersedesEvidenceItemId: string | null
+    repositorySnapshotId: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["evidenceItem"]>
@@ -2271,12 +3975,16 @@ export interface Prisma__EvidenceItemClient<T, Null = never, ExtArgs extends run
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   source<T extends Prisma.SourceDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.SourceDefaultArgs<ExtArgs>>): Prisma.Prisma__SourceClient<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  repositorySnapshot<T extends Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$repositorySnapshotArgs<ExtArgs>>): Prisma.Prisma__RepositorySnapshotClient<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  supersedesEvidenceItem<T extends Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$supersedesEvidenceItemArgs<ExtArgs>>): Prisma.Prisma__EvidenceItemClient<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  supersededByEvidenceItems<T extends Prisma.EvidenceItem$supersededByEvidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$supersededByEvidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   highlightEvidence<T extends Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$highlightEvidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   projectFactEvidence<T extends Prisma.EvidenceItem$projectFactEvidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$projectFactEvidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectFactEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tags<T extends Prisma.EvidenceItem$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   embedding<T extends Prisma.EvidenceItem$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$embeddingArgs<ExtArgs>>): Prisma.Prisma__EvidenceEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$EvidenceEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   chatCitations<T extends Prisma.EvidenceItem$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifactProvenance<T extends Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$artifactProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  knowledgeChanges<T extends Prisma.EvidenceItem$knowledgeChangesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItem$knowledgeChangesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2318,6 +4026,17 @@ export interface EvidenceItemFieldRefs {
   readonly parentKey: Prisma.FieldRef<"EvidenceItem", 'String'>
   readonly included: Prisma.FieldRef<"EvidenceItem", 'Boolean'>
   readonly metadata: Prisma.FieldRef<"EvidenceItem", 'Json'>
+  readonly logicalKey: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly lifecycleStatus: Prisma.FieldRef<"EvidenceItem", 'KnowledgeLifecycleStatus'>
+  readonly reviewState: Prisma.FieldRef<"EvidenceItem", 'KnowledgeReviewState'>
+  readonly approvalSource: Prisma.FieldRef<"EvidenceItem", 'KnowledgeApprovalSource'>
+  readonly publicSafetyStatus: Prisma.FieldRef<"EvidenceItem", 'PublicSafetyStatus'>
+  readonly validatedThroughSha: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly lastValidatedAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
+  readonly autoAppliedAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
+  readonly purgeEligibleAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
+  readonly supersedesEvidenceItemId: Prisma.FieldRef<"EvidenceItem", 'String'>
+  readonly repositorySnapshotId: Prisma.FieldRef<"EvidenceItem", 'String'>
   readonly createdAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"EvidenceItem", 'DateTime'>
 }
@@ -2721,6 +4440,68 @@ export type EvidenceItemDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
+ * EvidenceItem.repositorySnapshot
+ */
+export type EvidenceItem$repositorySnapshotArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the RepositorySnapshot
+   */
+  select?: Prisma.RepositorySnapshotSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the RepositorySnapshot
+   */
+  omit?: Prisma.RepositorySnapshotOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.RepositorySnapshotInclude<ExtArgs> | null
+  where?: Prisma.RepositorySnapshotWhereInput
+}
+
+/**
+ * EvidenceItem.supersedesEvidenceItem
+ */
+export type EvidenceItem$supersedesEvidenceItemArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the EvidenceItem
+   */
+  select?: Prisma.EvidenceItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the EvidenceItem
+   */
+  omit?: Prisma.EvidenceItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.EvidenceItemInclude<ExtArgs> | null
+  where?: Prisma.EvidenceItemWhereInput
+}
+
+/**
+ * EvidenceItem.supersededByEvidenceItems
+ */
+export type EvidenceItem$supersededByEvidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the EvidenceItem
+   */
+  select?: Prisma.EvidenceItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the EvidenceItem
+   */
+  omit?: Prisma.EvidenceItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.EvidenceItemInclude<ExtArgs> | null
+  where?: Prisma.EvidenceItemWhereInput
+  orderBy?: Prisma.EvidenceItemOrderByWithRelationInput | Prisma.EvidenceItemOrderByWithRelationInput[]
+  cursor?: Prisma.EvidenceItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.EvidenceItemScalarFieldEnum | Prisma.EvidenceItemScalarFieldEnum[]
+}
+
+/**
  * EvidenceItem.highlightEvidence
  */
 export type EvidenceItem$highlightEvidenceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2857,6 +4638,30 @@ export type EvidenceItem$artifactProvenanceArgs<ExtArgs extends runtime.Types.Ex
   take?: number
   skip?: number
   distinct?: Prisma.ArtifactEvidenceProvenanceScalarFieldEnum | Prisma.ArtifactEvidenceProvenanceScalarFieldEnum[]
+}
+
+/**
+ * EvidenceItem.knowledgeChanges
+ */
+export type EvidenceItem$knowledgeChangesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the KnowledgeChange
+   */
+  select?: Prisma.KnowledgeChangeSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the KnowledgeChange
+   */
+  omit?: Prisma.KnowledgeChangeOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.KnowledgeChangeInclude<ExtArgs> | null
+  where?: Prisma.KnowledgeChangeWhereInput
+  orderBy?: Prisma.KnowledgeChangeOrderByWithRelationInput | Prisma.KnowledgeChangeOrderByWithRelationInput[]
+  cursor?: Prisma.KnowledgeChangeWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.KnowledgeChangeScalarFieldEnum | Prisma.KnowledgeChangeScalarFieldEnum[]
 }
 
 /**

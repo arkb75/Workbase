@@ -145,6 +145,14 @@ export const githubRepoImportService: GitHubRepoImportService = {
       }),
     );
 
+    const importedAt = new Date().toISOString();
+    const revision = commits[0]
+      ? {
+          commitSha: commits[0].sha,
+          committedAt: commits[0].commit.author?.date ?? null,
+          resolvedAt: importedAt,
+        }
+      : null;
     const source = await prisma.source.upsert({
       where: {
         workItemId_type_externalId: {
@@ -161,6 +169,7 @@ export const githubRepoImportService: GitHubRepoImportService = {
         metadata: {
           repository: toRepositoryJsonValue(repositorySummary),
           status: "imported",
+          revision,
         },
       },
       update: {
@@ -168,11 +177,10 @@ export const githubRepoImportService: GitHubRepoImportService = {
         metadata: {
           repository: toRepositoryJsonValue(repositorySummary),
           status: "imported",
+          revision,
         },
       },
     });
-
-    const importedAt = new Date().toISOString();
     const importedEvidenceItems = [
       ...(readme?.content
         ? [

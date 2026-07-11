@@ -151,6 +151,27 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           createdAt: "desc",
         },
       },
+      knowledgeRefreshRuns: {
+        include: {
+          snapshots: {
+            include: { _count: { select: { files: true } } },
+            orderBy: { resolvedAt: "desc" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      },
+      knowledgeChanges: {
+        where: { decision: "pending" },
+        include: {
+          evidenceItem: true,
+          highlight: true,
+          projectFact: true,
+          artifact: true,
+          refreshRun: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }

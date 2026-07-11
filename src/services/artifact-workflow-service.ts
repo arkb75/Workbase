@@ -33,6 +33,8 @@ import { buildArtifactFromApprovedClaims } from "@/src/domain/workbase-workflows
 import { publicArtifactVisibilityRules } from "@/src/lib/options";
 import { persistResearchAgentEvent } from "@/src/services/research-event-persistence-service";
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
+import { publicKnowledgeVerificationService } from "@/src/services/public-knowledge-verification-service";
+import { recordChange } from "@/src/services/knowledge-reconciliation-service";
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -87,6 +89,9 @@ function mapEvidence(item: {
   parentKind: string | null;
   parentKey: string | null;
   included: boolean;
+  lifecycleStatus: EvidenceItemSnapshot["lifecycleStatus"];
+  reviewState: EvidenceItemSnapshot["reviewState"];
+  approvalSource: EvidenceItemSnapshot["approvalSource"];
   metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
@@ -110,6 +115,9 @@ function mapEvidence(item: {
     parentKind: item.parentKind,
     parentKey: item.parentKey,
     included: item.included,
+    lifecycleStatus: item.lifecycleStatus,
+    reviewState: item.reviewState,
+    approvalSource: item.approvalSource,
     metadata: (item.metadata as JsonValue | null) ?? null,
     source: item.source,
     tags: item.tags.map((tag) => ({
@@ -132,6 +140,11 @@ function mapHighlight(highlight: Awaited<ReturnType<typeof loadArtifactContext>>
     ownershipClarity: highlight.ownershipClarity,
     sensitivityFlag: highlight.sensitivityFlag,
     verificationStatus: highlight.verificationStatus,
+    lifecycleStatus: highlight.lifecycleStatus,
+    reviewState: highlight.reviewState,
+    approvalSource: highlight.approvalSource,
+    publicSafetyStatus: highlight.publicSafetyStatus,
+    validatedThroughSha: highlight.validatedThroughSha,
     visibility: highlight.visibility,
     risksSummary: highlight.risksSummary,
     missingInfo: highlight.missingInfo,
@@ -166,10 +179,12 @@ function loadArtifactContext(userId: string, workItemId: string) {
     include: {
       sources: true,
       evidenceItems: {
+        where: { lifecycleStatus: "active" },
         include: { source: true, tags: true },
         orderBy: { updatedAt: "desc" },
       },
       highlights: {
+        where: { lifecycleStatus: "active" },
         include: {
           evidence: {
             include: { evidenceItem: { include: { source: true } } },
@@ -196,6 +211,7 @@ async function persistArtifact(input: {
     usedHighlightIds: string[];
     supportingEvidenceItemIds: string[];
   };
+  supersedesArtifactId?: string | null;
 }) {
   const [highlights, evidence] = await Promise.all([
     prisma.highlight.findMany({
@@ -203,6 +219,8 @@ async function persistArtifact(input: {
         id: { in: input.draft.usedHighlightIds },
         workItemId: input.workItemId,
         verificationStatus: "approved",
+        lifecycleStatus: "active",
+        publicSafetyStatus: "verified",
         sensitivityFlag: false,
         visibility: { in: publicArtifactVisibilityRules[input.normalized.type] },
       },
@@ -212,6 +230,7 @@ async function persistArtifact(input: {
         id: { in: input.draft.supportingEvidenceItemIds },
         workItemId: input.workItemId,
         included: true,
+        lifecycleStatus: "active",
       },
     }),
   ]);
@@ -227,6 +246,29 @@ async function persistArtifact(input: {
     select: { id: true },
   });
   if (!activeRun) throw new Error("The artifact run is no longer active.");
+  const publicVerification = await publicKnowledgeVerificationService.verifyArtifact({
+    content: input.draft.content,
+    sources: [
+      ...highlights.map((highlight) => ({
+        kind: "highlight" as const,
+        title: highlight.text,
+        content: highlight.summary,
+        ownershipClarity: highlight.ownershipClarity,
+        sensitivityFlag: highlight.sensitivityFlag,
+        publicSafetyStatus: highlight.publicSafetyStatus,
+      })),
+      ...evidence.map((item) => ({
+        kind: "evidence" as const,
+        title: item.title,
+        content: item.content,
+        sensitivityFlag: false,
+        publicSafetyStatus: "verified",
+      })),
+    ],
+  });
+  const persistedContent = publicVerification.eligible && publicVerification.correctedContent
+    ? publicVerification.correctedContent
+    : input.draft.content;
   const artifact = await prisma.artifact.upsert({
     where: { originatingAgentRunId: input.runId },
     create: {
@@ -237,10 +279,16 @@ async function persistArtifact(input: {
       targetAngle: input.normalized.targetAngle,
       tone: input.normalized.tone,
       requestBrief: input.normalized.brief,
-      content: input.draft.content,
+      content: persistedContent,
       searchText: normalizeWhitespace(
-        [input.normalized.brief, input.draft.content].join(" "),
+        [input.normalized.brief, persistedContent].join(" "),
       ),
+      lifecycleStatus: publicVerification.eligible ? "active" : "quarantined",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+      publicSafetyStatus: publicVerification.eligible ? "verified" : "failed",
+      staleReason: publicVerification.eligible ? null : publicVerification.reasons.join(" ").slice(0, 1_000),
+      supersedesArtifactId: input.supersedesArtifactId ?? null,
       highlightProvenance: {
         create: highlights.map((highlight, index) => ({
           highlightId: highlight.id,
@@ -276,11 +324,34 @@ async function persistArtifact(input: {
     },
     update: {},
   });
+  if (input.supersedesArtifactId && publicVerification.eligible) {
+    await prisma.artifact.updateMany({
+      where: { id: input.supersedesArtifactId, workItemId: input.workItemId },
+      data: { lifecycleStatus: "superseded" },
+    });
+  }
   await upsertArtifactEmbedding({
     artifactId: artifact.id,
     inputText: buildArtifactEmbeddingText(artifact),
   });
-  return artifact;
+  await recordChange({
+    workItemId: input.workItemId,
+    entityKind: "artifact",
+    action: publicVerification.eligible ? "created" : "quarantined",
+    entityId: artifact.id,
+    afterSnapshot: {
+      id: artifact.id,
+      content: artifact.content,
+      lifecycleStatus: artifact.lifecycleStatus,
+      publicSafetyStatus: artifact.publicSafetyStatus,
+    },
+    reason: publicVerification.eligible
+      ? "The generated Artifact passed final claim-level public verification."
+      : publicVerification.reasons.join(" ") || "The generated Artifact failed final public verification.",
+    provenance: { highlightIds: highlights.map((highlight) => highlight.id), evidenceIds: evidence.map((item) => item.id) },
+    suffix: `${artifact.id}:public-verification`,
+  }).catch(() => null);
+  return { artifact, publicVerification };
 }
 
 async function generateCandidateBatch(input: {
@@ -387,9 +458,37 @@ async function generateCandidateBatch(input: {
     evidenceItems: normalizedEvidence,
     highlights: generated.highlights,
   });
-  const drafts = filterDuplicateClaimDrafts(verified, existingHighlights)
-    .slice(0, 4)
-    .map((draft) => ({ ...draft, verificationStatus: "draft" as const }));
+  const drafts = [] as Array<(typeof verified)[number] & { autoSafe: boolean; publicVerified: boolean }>;
+  for (const draft of filterDuplicateClaimDrafts(verified, existingHighlights).slice(0, 4)) {
+    const autoSafe = draft.verificationStatus === "approved" && !draft.sensitivityFlag && draft.confidence !== "low";
+    const publicVerification = autoSafe
+      ? await publicKnowledgeVerificationService.verify({
+          text: draft.text,
+          summary: draft.summary,
+          confidence: draft.confidence,
+          ownershipClarity: draft.ownershipClarity,
+          sensitivityFlag: draft.sensitivityFlag,
+          evidence: draft.evidence.sourceRefs.map((reference) => ({
+            title: reference.title ?? reference.sourceLabel,
+            excerpt: reference.excerpt,
+          })),
+        })
+      : { eligible: false, correctedText: null, reasons: ["The candidate failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
+    drafts.push({
+      ...draft,
+      text: publicVerification.eligible && publicVerification.correctedText ? publicVerification.correctedText : draft.text,
+      verificationStatus: autoSafe ? "approved" : "flagged",
+      visibility: publicVerification.eligible ? draft.visibility : "private",
+      risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000) || draft.risksSummary,
+      metadata: {
+        ...(draft.metadata && typeof draft.metadata === "object" && !Array.isArray(draft.metadata) ? draft.metadata : {}),
+        managedBy: "artifact_auto_research",
+        publicVerification,
+      },
+      autoSafe,
+      publicVerified: publicVerification.eligible,
+    });
+  }
 
   if (!drafts.length && promoted.newIds.length) {
     await prisma.evidenceItem.deleteMany({
@@ -414,9 +513,21 @@ async function generateCandidateBatch(input: {
           agentRunId: input.runId,
           highlightId: highlight.id,
           kind: "new_highlight",
+          status: draft.autoSafe ? "approved" : "pending",
           batchNumber: input.batchNumber,
           ordinal: surfaced.length + index + 1,
           snapshot: toInputJson(draft),
+          reviewedAt: draft.autoSafe ? new Date() : null,
+        },
+      });
+      await tx.highlight.update({
+        where: { id: highlight.id },
+        data: {
+          lifecycleStatus: draft.autoSafe ? "active" : "quarantined",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+          publicSafetyStatus: draft.publicVerified ? "verified" : draft.autoSafe ? "failed" : "not_eligible",
+          autoAppliedAt: draft.autoSafe ? new Date() : null,
         },
       });
       entries.push({ id: candidate.id, highlightId: highlight.id, draft });
@@ -432,6 +543,23 @@ async function generateCandidateBatch(input: {
       }),
     ),
   );
+  await Promise.allSettled(created.map((entry) => recordChange({
+    workItemId: input.workItemId,
+    entityKind: "highlight",
+    action: entry.draft.autoSafe ? "created" : "quarantined",
+    entityId: entry.highlightId,
+    afterSnapshot: {
+      text: entry.draft.text,
+      summary: entry.draft.summary,
+      verificationStatus: entry.draft.verificationStatus,
+      publicSafetyStatus: entry.draft.publicVerified ? "verified" : "failed",
+    },
+    reason: entry.draft.autoSafe
+      ? "Artifact research auto-applied a verified Highlight for later review."
+      : "Artifact research quarantined a Highlight that failed the automatic safety gate.",
+    provenance: { agentRunId: input.runId, batchNumber: input.batchNumber },
+    suffix: `${input.runId}:${entry.highlightId}`,
+  })));
   if (created.length && promoted.newIds.length) {
     await prisma.evidenceItem.updateMany({
       where: { id: { in: promoted.newIds } },
@@ -478,6 +606,10 @@ export async function executeArtifactAttempt(input: {
     throw new Error("The artifact run was cancelled.");
   }
   if (run.artifact) {
+    if (run.artifact.lifecycleStatus === "quarantined") {
+      const message = run.artifact.staleReason ?? "The generated Artifact did not pass public verification.";
+      return { status: "insufficient_context", message };
+    }
     await completeAgentRun({
       runId: run.id,
       content: run.artifact.content,
@@ -530,13 +662,20 @@ export async function executeArtifactAttempt(input: {
   });
 
   if (artifactResult.artifactDraft) {
-    const artifact = await persistArtifact({
+    const persisted = await persistArtifact({
       runId: run.id,
       userId: run.userId,
       workItemId: run.workItemId,
       normalized: normalized.request,
       draft: artifactResult.artifactDraft,
+      supersedesArtifactId: typeof request.supersedesArtifactId === "string" ? request.supersedesArtifactId : null,
     });
+    const artifact = persisted.artifact;
+    if (!persisted.publicVerification.eligible) {
+      const message = persisted.publicVerification.reasons.join(" ") || "The generated Artifact did not pass public verification.";
+      await failAgentRun({ runId: run.id, message, insufficient: true });
+      return { status: "insufficient_context", message };
+    }
     if (artifactResult.generationRunId) {
       await updateGenerationRunResultRefs(artifactResult.generationRunId, {
         artifactId: artifact.id,
@@ -670,6 +809,22 @@ export async function executeArtifactAttempt(input: {
     return { status: "insufficient_context", message };
   }
 
+  const pendingSafetyCandidates = await prisma.agentRunCandidate.findMany({
+    where: {
+      id: { in: candidates.map((candidate) => candidate.id) },
+      status: "pending",
+    },
+    select: { id: true },
+  });
+  if (!pendingSafetyCandidates.length) {
+    await appendAgentRunEvent({
+      runId: run.id,
+      type: "status_change",
+      message: `Auto-applied ${candidates.length} verified Highlight${candidates.length === 1 ? "" : "s"}; rechecking artifact context without blocking for review.`,
+    });
+    return { status: "retry_research", batchNumber: input.batchNumber + 1 };
+  }
+
   const awaitingReview = await prisma.agentRun.updateMany({
     where: { id: run.id, status: "running" },
     data: {
@@ -683,12 +838,12 @@ export async function executeArtifactAttempt(input: {
   await appendAgentRunEvent({
     runId: run.id,
     type: "status_change",
-    message: `Review all ${candidates.length} candidate${candidates.length === 1 ? "" : "s"} before artifact generation resumes.`,
+    message: `Review ${pendingSafetyCandidates.length} quarantined candidate${pendingSafetyCandidates.length === 1 ? "" : "s"}; verified candidates were already applied.`,
   });
 
   return {
     status: "awaiting_review",
-    candidateIds: candidates.map((candidate) => candidate.id),
+    candidateIds: pendingSafetyCandidates.map((candidate) => candidate.id),
     batchNumber: input.batchNumber,
   };
 }

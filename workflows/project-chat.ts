@@ -14,8 +14,16 @@ import { executeArtifactAttempt } from "@/src/services/artifact-workflow-service
 import { persistResearchAgentEvent } from "@/src/services/research-event-persistence-service";
 import {
   finalizeProjectChatAfterFactReview,
+  requiresLiveRepositoryResearch,
   runProjectChatAgent,
 } from "@/src/services/project-chat-agent-service";
+import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
+import {
+  knowledgeRefreshService,
+  startKnowledgeRefresh,
+} from "@/src/services/knowledge-refresh-service";
+import { knowledgeReconciliationService } from "@/src/services/knowledge-reconciliation-service";
+import { knowledgeStalenessService } from "@/src/services/knowledge-staleness-service";
 
 async function emitProgress(
   runId: string,
@@ -46,6 +54,118 @@ async function emitProgress(
 async function closeProgressStream() {
   "use step";
   await getWritable<ChatProgressEvent>().close();
+}
+
+async function startRequiredKnowledgeRefresh(runId: string) {
+  "use step";
+  const run = await prisma.agentRun.findUniqueOrThrow({
+    where: { id: runId },
+    include: { messages: { where: { role: "user" }, orderBy: { sequence: "desc" }, take: 1 } },
+  });
+  const question = run.messages[0]?.content ?? "";
+  if (!requiresLiveRepositoryResearch(question) && !looksLikeArtifactRequest(question)) {
+    return { required: false as const, refreshRunId: null, alreadyComplete: false };
+  }
+  const refresh = await startKnowledgeRefresh({
+    userId: run.userId,
+    workItemId: run.workItemId,
+    trigger: "chat_freshness",
+    idempotencyKey: `agent-run:${run.id}:freshness`,
+  });
+  return { required: true as const, refreshRunId: refresh.runId, alreadyComplete: refresh.status === "completed" };
+}
+
+async function inventoryRequiredKnowledge(refreshRunId: string) {
+  "use step";
+  return knowledgeRefreshService.inventory(refreshRunId);
+}
+
+async function analyzeRequiredKnowledgeBatch(refreshRunId: string) {
+  "use step";
+  return knowledgeRefreshService.analyzeBatch({ runId: refreshRunId, batchSize: 4 });
+}
+
+async function finalizeRequiredCoverage(refreshRunId: string) {
+  "use step";
+  return knowledgeRefreshService.finalizeCoverage(refreshRunId);
+}
+
+async function reconcileRequiredKnowledge(refreshRunId: string) {
+  "use step";
+  const reconciled = await knowledgeReconciliationService.reconcile(refreshRunId);
+  const staleness = await knowledgeStalenessService.reconcile({
+    runId: refreshRunId,
+    appliedFactIds: reconciled.appliedFactIds,
+    appliedHighlightIds: reconciled.appliedHighlightIds,
+  });
+  await knowledgeRefreshService.complete(refreshRunId);
+  return {
+    appliedFactIds: reconciled.appliedFactIds,
+    appliedHighlightIds: reconciled.appliedHighlightIds,
+    promotedEvidenceIds: reconciled.promotedEvidenceIds,
+    staleness,
+  };
+}
+
+async function failRequiredKnowledgeRefresh(refreshRunId: string, errorMessage: string) {
+  "use step";
+  return knowledgeRefreshService.fail(refreshRunId, new Error(errorMessage));
+}
+
+async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
+  "use step";
+  const refresh = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: refreshRunId } });
+  await prisma.agentRun.update({
+    where: { id: runId },
+    data: {
+      researchState: {
+        kind: "repository_knowledge_refresh",
+        refreshRunId,
+        status: refresh.status,
+        targetHeads: refresh.targetHeads,
+        coverage: refresh.coverage,
+        partial: false,
+        completedAt: refresh.finishedAt?.toISOString() ?? new Date().toISOString(),
+      },
+    },
+  });
+}
+
+async function runRequiredKnowledgeRefresh(runId: string) {
+  const requirement = await startRequiredKnowledgeRefresh(runId);
+  if (!requirement.required || !requirement.refreshRunId) return null;
+  if (requirement.alreadyComplete) {
+    await attachRefreshToAgentRun(runId, requirement.refreshRunId);
+    await emitProgress(runId, "Repository knowledge is already complete at the latest resolved commit.", "research");
+    return { refreshRunId: requirement.refreshRunId };
+  }
+  await emitProgress(runId, "Resolving the latest repository commit and inventorying every safe file.", "research");
+  try {
+    await inventoryRequiredKnowledge(requirement.refreshRunId);
+    let remaining = 1;
+    while (remaining > 0) {
+      const batch = await analyzeRequiredKnowledgeBatch(requirement.refreshRunId);
+      remaining = batch.remaining;
+      await emitProgress(
+        runId,
+        remaining > 0
+          ? `Analyzing complete repository coverage (${remaining} safe files remaining).`
+          : "Every safe repository file has been analyzed.",
+        "research",
+      );
+    }
+    await finalizeRequiredCoverage(requirement.refreshRunId);
+    await emitProgress(runId, "Reconciling current Facts, Highlights, Evidence, and Artifacts.", "candidate");
+    const reconciliation = await reconcileRequiredKnowledge(requirement.refreshRunId);
+    await attachRefreshToAgentRun(runId, requirement.refreshRunId);
+    return { refreshRunId: requirement.refreshRunId, ...reconciliation };
+  } catch (error) {
+    await failRequiredKnowledgeRefresh(
+      requirement.refreshRunId,
+      error instanceof Error ? error.message : "Unknown repository refresh error.",
+    );
+    throw error;
+  }
 }
 
 async function answerProjectQuestion(runId: string, afterFactReview = false) {
@@ -289,7 +409,7 @@ async function runArtifactLifecycle(runId: string) {
 
     await emitProgress(
       runId,
-      "Research found candidate highlights. Waiting for every review decision.",
+      "Verified Highlights were auto-applied; waiting only on quarantined safety exceptions.",
       "candidate",
     );
     using review = createHook<{ reviewed: true }>({
@@ -299,7 +419,7 @@ async function runArtifactLifecycle(runId: string) {
       await review;
     }
     await setArtifactRunRunning(runId);
-    await emitProgress(runId, "Review complete. Rechecking approved context.", "retrieval");
+    await emitProgress(runId, "Safety review complete. Rechecking auto-applied context.", "retrieval");
   }
 
   const message = "The artifact workflow finished without enough approved context.";
@@ -311,6 +431,7 @@ export async function projectChatTurnWorkflow(runId: string) {
   "use workflow";
 
   try {
+    await runRequiredKnowledgeRefresh(runId);
     await emitProgress(runId, "Searching verified project memory.", "retrieval");
     let result = await answerProjectQuestion(runId);
     if (result.status === "artifact_requested") {
@@ -356,6 +477,7 @@ export async function artifactGenerationWorkflow(runId: string) {
   "use workflow";
 
   try {
+    await runRequiredKnowledgeRefresh(runId);
     return await runArtifactLifecycle(runId);
   } catch (error) {
     const message = await failWorkflowRun(
@@ -365,5 +487,26 @@ export async function artifactGenerationWorkflow(runId: string) {
     return { status: "failed" as const, message };
   } finally {
     await closeProgressStream();
+  }
+}
+
+export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
+  "use workflow";
+
+  try {
+    await inventoryRequiredKnowledge(refreshRunId);
+    let remaining = 1;
+    while (remaining > 0) {
+      const batch = await analyzeRequiredKnowledgeBatch(refreshRunId);
+      remaining = batch.remaining;
+    }
+    await finalizeRequiredCoverage(refreshRunId);
+    return await reconcileRequiredKnowledge(refreshRunId);
+  } catch (error) {
+    await failRequiredKnowledgeRefresh(
+      refreshRunId,
+      error instanceof Error ? error.message : "Unknown repository refresh error.",
+    );
+    throw error;
   }
 }

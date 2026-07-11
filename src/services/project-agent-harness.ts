@@ -3,9 +3,9 @@ import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
 
-export const PROJECT_AGENT_HARNESS_VERSION = "v3";
-export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v3.0";
-export const PROJECT_RESEARCH_CONTROLLER_VERSION = "project-research-fsm-v3.0";
+export const PROJECT_AGENT_HARNESS_VERSION = "v4";
+export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v4.0";
+export const PROJECT_RESEARCH_CONTROLLER_VERSION = "repository-knowledge-sync-v4.0";
 
 export type ProjectTurnIntentKind =
   | "direct_answer"
@@ -55,8 +55,8 @@ export interface ProjectAgentTurnContext {
       repositories: AttachedRepositoryCapability[];
       readOnly: true;
       rawFilesAreProvenanceOnly: true;
-      requiresProjectFactApproval: true;
-      maxRepositories: 3;
+      requiresProjectFactApproval: boolean;
+      maxRepositories: number | null;
     };
     artifactTypes: ["resume_bullets", "linkedin_experience", "project_summary"];
     pendingCandidateIds: string[];
@@ -216,11 +216,11 @@ export function buildProjectAgentTurnContext(input: {
       repositoryResearch: {
         available: input.repositories.length > 0,
         unavailableReason: input.repositories.length ? null : "No attached GitHub repository is available.",
-        repositories: input.repositories.slice(0, 3),
+        repositories: input.repositories,
         readOnly: true,
         rawFilesAreProvenanceOnly: true,
-        requiresProjectFactApproval: true,
-        maxRepositories: 3,
+        requiresProjectFactApproval: false,
+        maxRepositories: null,
       },
       artifactTypes: ["resume_bullets", "linkedin_experience", "project_summary"],
       pendingCandidateIds: input.pendingCandidateIds ?? [],

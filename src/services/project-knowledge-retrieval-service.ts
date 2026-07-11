@@ -77,6 +77,53 @@ function recencyScore(updatedAt: Date) {
   return Math.max(0, 1.25 - ageInDays / 365);
 }
 
+function highlightRanking(highlight: {
+  confidence: string;
+  ownershipClarity: string;
+  validatedThroughSha: string | null;
+  metadata: unknown;
+  evidence: Array<{ evidenceItem: { type: string } }>;
+}) {
+  const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
+    ? highlight.metadata as Record<string, unknown>
+    : null;
+  const scores = metadata?.scores && typeof metadata.scores === "object" && !Array.isArray(metadata.scores)
+    ? metadata.scores as Record<string, unknown>
+    : null;
+  const numeric = (key: string, fallback: number) => typeof scores?.[key] === "number" ? Math.max(0, Math.min(5, scores[key] as number)) : fallback;
+  return {
+    evidenceStrength: highlight.evidence.length ? (highlight.confidence === "high" ? 5 : highlight.confidence === "medium" ? 4 : 2) : 1,
+    productImportance: numeric("productImportance", 3),
+    implementationBreadth: numeric("implementationBreadth", Math.min(5, 2 + highlight.evidence.length)),
+    technicalDifficulty: numeric("technicalDifficulty", 3),
+    ownershipAuthority: highlight.ownershipClarity === "clear" ? 5 : highlight.ownershipClarity === "partial" ? 3 : 1,
+    distinctiveness: numeric("distinctiveness", 3),
+    freshness: highlight.validatedThroughSha ? 5 : 2,
+    impactBonus: typeof metadata?.measuredImpact === "boolean" && metadata.measuredImpact ? 10 : 0,
+    uncertainty: highlight.ownershipClarity === "unclear" ? "Repository evidence does not establish personal ownership." : null,
+  };
+}
+
+function factRanking(fact: {
+  confidence: string;
+  category: string;
+  validatedThroughSha: string | null;
+  evidence: Array<{ evidenceItem: { type: string } }>;
+}) {
+  const systemCategory = fact.category === "architecture" || fact.category === "data_flow" || fact.category === "behavior";
+  return {
+    evidenceStrength: fact.evidence.length ? (fact.confidence === "high" ? 5 : fact.confidence === "medium" ? 4 : 2) : 1,
+    productImportance: systemCategory ? 4 : 2,
+    implementationBreadth: Math.min(5, systemCategory ? 3 + fact.evidence.length : 1 + fact.evidence.length),
+    technicalDifficulty: systemCategory ? 4 : 2,
+    ownershipAuthority: 0,
+    distinctiveness: systemCategory ? 4 : 2,
+    freshness: fact.validatedThroughSha ? 5 : 2,
+    impactBonus: 0,
+    uncertainty: "Technical implementation is verified; personal ownership and impact require Highlight context.",
+  };
+}
+
 async function loadPostgresLexicalScores(input: {
   userId: string;
   workItemId: string;
@@ -162,15 +209,21 @@ function isHighlightEligible(
     verificationStatus: string;
     sensitivityFlag: boolean;
     visibility: string;
+    lifecycleStatus?: string;
+    publicSafetyStatus?: string;
   },
   purpose: ProjectKnowledgePurpose,
 ) {
+  if (highlight.lifecycleStatus && highlight.lifecycleStatus !== "active") {
+    return false;
+  }
   if (purpose !== "public_artifact") {
     return true;
   }
 
   return (
     highlight.verificationStatus === "approved" &&
+    highlight.publicSafetyStatus === "verified" &&
     !highlight.sensitivityFlag &&
     highlight.visibility !== "private"
   );
@@ -191,6 +244,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       },
       include: {
         highlights: {
+          where: { lifecycleStatus: "active" },
           include: {
             evidence: {
               include: {
@@ -205,7 +259,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           },
         },
         projectFacts: {
-          where: { status: "approved" },
+          where: { status: "approved", lifecycleStatus: "active" },
           include: {
             evidence: {
               include: {
@@ -217,6 +271,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         evidenceItems: {
           where: {
             included: true,
+            lifecycleStatus: "active",
           },
           include: {
             source: true,
@@ -224,6 +279,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           },
         },
         artifacts: {
+          where: { lifecycleStatus: "active" },
           include: {
             highlightProvenance: {
               include: {
@@ -263,6 +319,12 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           confidence: highlight.confidence,
           ownershipClarity: highlight.ownershipClarity,
           sensitivityFlag: highlight.sensitivityFlag,
+          subsystemKey:
+            highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata) && typeof highlight.metadata.subsystemKey === "string"
+              ? highlight.metadata.subsystemKey
+              : null,
+          validatedThroughSha: highlight.validatedThroughSha,
+          accomplishmentRanking: highlightRanking(highlight),
           verificationStatus: highlight.verificationStatus,
           visibility: highlight.visibility,
           risksSummary: highlight.risksSummary,
@@ -380,6 +442,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
               content: fact.statement,
               status: "approved",
               sensitivityFlag: fact.sensitivityFlag,
+              subsystemKey: fact.subsystemKey,
+              validatedThroughSha: fact.validatedThroughSha,
+              accomplishmentRanking: factRanking(fact),
               score:
                 (preferredFactIds.has(fact.id) ? 100 : 0) +
                 authorityWeight("verified_project_fact") +

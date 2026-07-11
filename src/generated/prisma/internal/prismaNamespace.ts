@@ -387,6 +387,10 @@ export const ModelName = {
   User: 'User',
   WorkItem: 'WorkItem',
   Source: 'Source',
+  KnowledgeRefreshRun: 'KnowledgeRefreshRun',
+  RepositorySnapshot: 'RepositorySnapshot',
+  RepositoryFileSnapshot: 'RepositoryFileSnapshot',
+  KnowledgeChange: 'KnowledgeChange',
   GitHubConnection: 'GitHubConnection',
   EvidenceItem: 'EvidenceItem',
   EvidenceTag: 'EvidenceTag',
@@ -425,7 +429,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "knowledgeRefreshRun" | "repositorySnapshot" | "repositoryFileSnapshot" | "knowledgeChange" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -648,6 +652,302 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.SourceCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.SourceCountAggregateOutputType> | number
+        }
+      }
+    }
+    KnowledgeRefreshRun: {
+      payload: Prisma.$KnowledgeRefreshRunPayload<ExtArgs>
+      fields: Prisma.KnowledgeRefreshRunFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.KnowledgeRefreshRunFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.KnowledgeRefreshRunFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        findFirst: {
+          args: Prisma.KnowledgeRefreshRunFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.KnowledgeRefreshRunFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        findMany: {
+          args: Prisma.KnowledgeRefreshRunFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>[]
+        }
+        create: {
+          args: Prisma.KnowledgeRefreshRunCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        createMany: {
+          args: Prisma.KnowledgeRefreshRunCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.KnowledgeRefreshRunCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>[]
+        }
+        delete: {
+          args: Prisma.KnowledgeRefreshRunDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        update: {
+          args: Prisma.KnowledgeRefreshRunUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        deleteMany: {
+          args: Prisma.KnowledgeRefreshRunDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.KnowledgeRefreshRunUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.KnowledgeRefreshRunUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>[]
+        }
+        upsert: {
+          args: Prisma.KnowledgeRefreshRunUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeRefreshRunPayload>
+        }
+        aggregate: {
+          args: Prisma.KnowledgeRefreshRunAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateKnowledgeRefreshRun>
+        }
+        groupBy: {
+          args: Prisma.KnowledgeRefreshRunGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KnowledgeRefreshRunGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.KnowledgeRefreshRunCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KnowledgeRefreshRunCountAggregateOutputType> | number
+        }
+      }
+    }
+    RepositorySnapshot: {
+      payload: Prisma.$RepositorySnapshotPayload<ExtArgs>
+      fields: Prisma.RepositorySnapshotFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.RepositorySnapshotFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.RepositorySnapshotFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        findFirst: {
+          args: Prisma.RepositorySnapshotFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.RepositorySnapshotFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        findMany: {
+          args: Prisma.RepositorySnapshotFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>[]
+        }
+        create: {
+          args: Prisma.RepositorySnapshotCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        createMany: {
+          args: Prisma.RepositorySnapshotCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.RepositorySnapshotCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>[]
+        }
+        delete: {
+          args: Prisma.RepositorySnapshotDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        update: {
+          args: Prisma.RepositorySnapshotUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        deleteMany: {
+          args: Prisma.RepositorySnapshotDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.RepositorySnapshotUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.RepositorySnapshotUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>[]
+        }
+        upsert: {
+          args: Prisma.RepositorySnapshotUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositorySnapshotPayload>
+        }
+        aggregate: {
+          args: Prisma.RepositorySnapshotAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateRepositorySnapshot>
+        }
+        groupBy: {
+          args: Prisma.RepositorySnapshotGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RepositorySnapshotGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.RepositorySnapshotCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RepositorySnapshotCountAggregateOutputType> | number
+        }
+      }
+    }
+    RepositoryFileSnapshot: {
+      payload: Prisma.$RepositoryFileSnapshotPayload<ExtArgs>
+      fields: Prisma.RepositoryFileSnapshotFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.RepositoryFileSnapshotFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.RepositoryFileSnapshotFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        findFirst: {
+          args: Prisma.RepositoryFileSnapshotFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.RepositoryFileSnapshotFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        findMany: {
+          args: Prisma.RepositoryFileSnapshotFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>[]
+        }
+        create: {
+          args: Prisma.RepositoryFileSnapshotCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        createMany: {
+          args: Prisma.RepositoryFileSnapshotCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.RepositoryFileSnapshotCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>[]
+        }
+        delete: {
+          args: Prisma.RepositoryFileSnapshotDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        update: {
+          args: Prisma.RepositoryFileSnapshotUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        deleteMany: {
+          args: Prisma.RepositoryFileSnapshotDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.RepositoryFileSnapshotUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.RepositoryFileSnapshotUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>[]
+        }
+        upsert: {
+          args: Prisma.RepositoryFileSnapshotUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RepositoryFileSnapshotPayload>
+        }
+        aggregate: {
+          args: Prisma.RepositoryFileSnapshotAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateRepositoryFileSnapshot>
+        }
+        groupBy: {
+          args: Prisma.RepositoryFileSnapshotGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RepositoryFileSnapshotGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.RepositoryFileSnapshotCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RepositoryFileSnapshotCountAggregateOutputType> | number
+        }
+      }
+    }
+    KnowledgeChange: {
+      payload: Prisma.$KnowledgeChangePayload<ExtArgs>
+      fields: Prisma.KnowledgeChangeFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.KnowledgeChangeFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.KnowledgeChangeFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        findFirst: {
+          args: Prisma.KnowledgeChangeFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.KnowledgeChangeFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        findMany: {
+          args: Prisma.KnowledgeChangeFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>[]
+        }
+        create: {
+          args: Prisma.KnowledgeChangeCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        createMany: {
+          args: Prisma.KnowledgeChangeCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.KnowledgeChangeCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>[]
+        }
+        delete: {
+          args: Prisma.KnowledgeChangeDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        update: {
+          args: Prisma.KnowledgeChangeUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        deleteMany: {
+          args: Prisma.KnowledgeChangeDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.KnowledgeChangeUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.KnowledgeChangeUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>[]
+        }
+        upsert: {
+          args: Prisma.KnowledgeChangeUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KnowledgeChangePayload>
+        }
+        aggregate: {
+          args: Prisma.KnowledgeChangeAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateKnowledgeChange>
+        }
+        groupBy: {
+          args: Prisma.KnowledgeChangeGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KnowledgeChangeGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.KnowledgeChangeCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KnowledgeChangeCountAggregateOutputType> | number
         }
       }
     }
@@ -2372,6 +2672,102 @@ export const SourceScalarFieldEnum = {
 export type SourceScalarFieldEnum = (typeof SourceScalarFieldEnum)[keyof typeof SourceScalarFieldEnum]
 
 
+export const KnowledgeRefreshRunScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  workflowId: 'workflowId',
+  idempotencyKey: 'idempotencyKey',
+  trigger: 'trigger',
+  status: 'status',
+  targetHeads: 'targetHeads',
+  completedHeads: 'completedHeads',
+  coverage: 'coverage',
+  progress: 'progress',
+  warnings: 'warnings',
+  error: 'error',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type KnowledgeRefreshRunScalarFieldEnum = (typeof KnowledgeRefreshRunScalarFieldEnum)[keyof typeof KnowledgeRefreshRunScalarFieldEnum]
+
+
+export const RepositorySnapshotScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  sourceId: 'sourceId',
+  refreshRunId: 'refreshRunId',
+  branch: 'branch',
+  commitSha: 'commitSha',
+  treeSha: 'treeSha',
+  committedAt: 'committedAt',
+  resolvedAt: 'resolvedAt',
+  inventoryComplete: 'inventoryComplete',
+  analysisComplete: 'analysisComplete',
+  coverageComplete: 'coverageComplete',
+  manifestHash: 'manifestHash',
+  coverage: 'coverage',
+  warnings: 'warnings',
+  delta: 'delta',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RepositorySnapshotScalarFieldEnum = (typeof RepositorySnapshotScalarFieldEnum)[keyof typeof RepositorySnapshotScalarFieldEnum]
+
+
+export const RepositoryFileSnapshotScalarFieldEnum = {
+  id: 'id',
+  snapshotId: 'snapshotId',
+  path: 'path',
+  blobSha: 'blobSha',
+  sizeBytes: 'sizeBytes',
+  language: 'language',
+  disposition: 'disposition',
+  changeType: 'changeType',
+  exclusionReason: 'exclusionReason',
+  contentHash: 'contentHash',
+  analyzerVersion: 'analyzerVersion',
+  analysis: 'analysis',
+  analyzedAt: 'analyzedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RepositoryFileSnapshotScalarFieldEnum = (typeof RepositoryFileSnapshotScalarFieldEnum)[keyof typeof RepositoryFileSnapshotScalarFieldEnum]
+
+
+export const KnowledgeChangeScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  refreshRunId: 'refreshRunId',
+  entityKind: 'entityKind',
+  action: 'action',
+  decision: 'decision',
+  evidenceItemId: 'evidenceItemId',
+  highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
+  artifactId: 'artifactId',
+  beforeSnapshot: 'beforeSnapshot',
+  afterSnapshot: 'afterSnapshot',
+  reason: 'reason',
+  provenance: 'provenance',
+  downstreamImpact: 'downstreamImpact',
+  policyVersion: 'policyVersion',
+  modelId: 'modelId',
+  idempotencyKey: 'idempotencyKey',
+  reviewedAt: 'reviewedAt',
+  reviewedByUserId: 'reviewedByUserId',
+  feedback: 'feedback',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type KnowledgeChangeScalarFieldEnum = (typeof KnowledgeChangeScalarFieldEnum)[keyof typeof KnowledgeChangeScalarFieldEnum]
+
+
 export const GitHubConnectionScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
@@ -2399,6 +2795,17 @@ export const EvidenceItemScalarFieldEnum = {
   parentKey: 'parentKey',
   included: 'included',
   metadata: 'metadata',
+  logicalKey: 'logicalKey',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  purgeEligibleAt: 'purgeEligibleAt',
+  supersedesEvidenceItemId: 'supersedesEvidenceItemId',
+  repositorySnapshotId: 'repositorySnapshotId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -2434,6 +2841,14 @@ export const HighlightScalarFieldEnum = {
   rejectionReason: 'rejectionReason',
   verificationNotes: 'verificationNotes',
   metadata: 'metadata',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  supersedesHighlightId: 'supersedesHighlightId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -2467,6 +2882,14 @@ export const ProjectFactScalarFieldEnum = {
   rejectionReason: 'rejectionReason',
   searchText: 'searchText',
   supersedesProjectFactId: 'supersedesProjectFactId',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  subsystemKey: 'subsystemKey',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -2566,6 +2989,15 @@ export const ArtifactScalarFieldEnum = {
   requestBrief: 'requestBrief',
   content: 'content',
   searchText: 'searchText',
+  lifecycleStatus: 'lifecycleStatus',
+  reviewState: 'reviewState',
+  approvalSource: 'approvalSource',
+  publicSafetyStatus: 'publicSafetyStatus',
+  validatedThroughSha: 'validatedThroughSha',
+  lastValidatedAt: 'lastValidatedAt',
+  autoAppliedAt: 'autoAppliedAt',
+  staleReason: 'staleReason',
+  supersedesArtifactId: 'supersedesArtifactId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -2909,6 +3341,125 @@ export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$Prisma
 
 
 /**
+ * Reference to a field of type 'KnowledgeRefreshTrigger'
+ */
+export type EnumKnowledgeRefreshTriggerFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeRefreshTrigger'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeRefreshTrigger[]'
+ */
+export type ListEnumKnowledgeRefreshTriggerFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeRefreshTrigger[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeRefreshStatus'
+ */
+export type EnumKnowledgeRefreshStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeRefreshStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeRefreshStatus[]'
+ */
+export type ListEnumKnowledgeRefreshStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeRefreshStatus[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Boolean'
+ */
+export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+    
+
+
+/**
+ * Reference to a field of type 'Int'
+ */
+export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
+    
+
+
+/**
+ * Reference to a field of type 'Int[]'
+ */
+export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
+    
+
+
+/**
+ * Reference to a field of type 'RepositoryFileDisposition'
+ */
+export type EnumRepositoryFileDispositionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'RepositoryFileDisposition'>
+    
+
+
+/**
+ * Reference to a field of type 'RepositoryFileDisposition[]'
+ */
+export type ListEnumRepositoryFileDispositionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'RepositoryFileDisposition[]'>
+    
+
+
+/**
+ * Reference to a field of type 'RepositoryFileChangeType'
+ */
+export type EnumRepositoryFileChangeTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'RepositoryFileChangeType'>
+    
+
+
+/**
+ * Reference to a field of type 'RepositoryFileChangeType[]'
+ */
+export type ListEnumRepositoryFileChangeTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'RepositoryFileChangeType[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeEntityKind'
+ */
+export type EnumKnowledgeChangeEntityKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeEntityKind'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeEntityKind[]'
+ */
+export type ListEnumKnowledgeChangeEntityKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeEntityKind[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeAction'
+ */
+export type EnumKnowledgeChangeActionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeAction'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeAction[]'
+ */
+export type ListEnumKnowledgeChangeActionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeAction[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeDecision'
+ */
+export type EnumKnowledgeChangeDecisionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeDecision'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeChangeDecision[]'
+ */
+export type ListEnumKnowledgeChangeDecisionFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeChangeDecision[]'>
+    
+
+
+/**
  * Reference to a field of type 'EvidenceItemType'
  */
 export type EnumEvidenceItemTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EvidenceItemType'>
@@ -2923,9 +3474,58 @@ export type ListEnumEvidenceItemTypeFieldRefInput<$PrismaModel> = FieldRefInputT
 
 
 /**
- * Reference to a field of type 'Boolean'
+ * Reference to a field of type 'KnowledgeLifecycleStatus'
  */
-export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+export type EnumKnowledgeLifecycleStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeLifecycleStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeLifecycleStatus[]'
+ */
+export type ListEnumKnowledgeLifecycleStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeLifecycleStatus[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeReviewState'
+ */
+export type EnumKnowledgeReviewStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeReviewState'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeReviewState[]'
+ */
+export type ListEnumKnowledgeReviewStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeReviewState[]'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeApprovalSource'
+ */
+export type EnumKnowledgeApprovalSourceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeApprovalSource'>
+    
+
+
+/**
+ * Reference to a field of type 'KnowledgeApprovalSource[]'
+ */
+export type ListEnumKnowledgeApprovalSourceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'KnowledgeApprovalSource[]'>
+    
+
+
+/**
+ * Reference to a field of type 'PublicSafetyStatus'
+ */
+export type EnumPublicSafetyStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PublicSafetyStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'PublicSafetyStatus[]'
+ */
+export type ListEnumPublicSafetyStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PublicSafetyStatus[]'>
     
 
 
@@ -3010,20 +3610,6 @@ export type EnumVisibilityLevelFieldRefInput<$PrismaModel> = FieldRefInputType<$
  * Reference to a field of type 'VisibilityLevel[]'
  */
 export type ListEnumVisibilityLevelFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'VisibilityLevel[]'>
-    
-
-
-/**
- * Reference to a field of type 'Int'
- */
-export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
-    
-
-
-/**
- * Reference to a field of type 'Int[]'
- */
-export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
     
 
 
@@ -3348,6 +3934,10 @@ export type GlobalOmitConfig = {
   user?: Prisma.UserOmit
   workItem?: Prisma.WorkItemOmit
   source?: Prisma.SourceOmit
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunOmit
+  repositorySnapshot?: Prisma.RepositorySnapshotOmit
+  repositoryFileSnapshot?: Prisma.RepositoryFileSnapshotOmit
+  knowledgeChange?: Prisma.KnowledgeChangeOmit
   gitHubConnection?: Prisma.GitHubConnectionOmit
   evidenceItem?: Prisma.EvidenceItemOmit
   evidenceTag?: Prisma.EvidenceTagOmit

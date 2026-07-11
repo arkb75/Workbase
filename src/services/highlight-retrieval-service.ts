@@ -192,6 +192,8 @@ async function getLexicalRanks(params: {
     FROM "Claim"
     WHERE "workItemId" = ${params.workItemId}
       AND "verificationStatus" = 'approved'::"VerificationStatus"
+      AND "lifecycleStatus" = 'active'::"KnowledgeLifecycleStatus"
+      AND "publicSafetyStatus" = 'verified'::"PublicSafetyStatus"
       AND "sensitivityFlag" = false
       AND "visibility" IN (${Prisma.join(
         params.allowedVisibilities.map((visibility) => Prisma.sql`${visibility}::"VisibilityLevel"`),
@@ -260,6 +262,8 @@ export const highlightRetrievalService: HighlightRetrievalService = {
     const eligibleHighlights = highlights.filter(
       (highlight) =>
         highlight.verificationStatus === "approved" &&
+        highlight.lifecycleStatus === "active" &&
+        highlight.publicSafetyStatus === "verified" &&
         !highlight.sensitivityFlag &&
         allowedVisibilities.includes(highlight.visibility),
     );

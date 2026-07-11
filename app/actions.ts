@@ -65,6 +65,8 @@ import {
 import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-start-service";
 import { resolveAgentCandidate } from "@/src/services/candidate-review-service";
 import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
+import { repositoryKnowledgeRefreshApplicationService } from "@/src/services/repository-knowledge-refresh-application-service";
+import { knowledgeReviewService } from "@/src/services/knowledge-review-service";
 import {
   artifactGenerationWorkflow,
   projectChatTurnWorkflow,
@@ -143,12 +145,26 @@ async function importGitHubRepositoryIntoWorkItem(input: {
     },
     data: {
       metadata: {
+        ...(
+          imported.source.metadata &&
+          typeof imported.source.metadata === "object" &&
+          !Array.isArray(imported.source.metadata)
+            ? imported.source.metadata
+            : {}
+        ),
         repository: toRepositorySummaryJsonValue(imported.importSummary.repository),
         importedAt: imported.importSummary.importedAt,
         counts: imported.importSummary.counts,
         status: "imported",
       },
     },
+  });
+
+  await repositoryKnowledgeRefreshApplicationService.start({
+    userId: input.userId,
+    workItemId: input.workItem.id,
+    trigger: "repository_attach",
+    idempotencyKey: `repository-attach:${imported.source.id}:${imported.importSummary.importedAt}`,
   });
 
   return {
@@ -439,11 +455,14 @@ async function persistGeneratedHighlightPlan(params: {
 
   await prisma.$transaction(async (tx) => {
     if (params.claimPlan.replaceableClaims.length) {
-      await tx.highlight.deleteMany({
+      await tx.highlight.updateMany({
         where: {
           id: {
             in: params.claimPlan.replaceableClaims.map((claim) => claim.id),
           },
+        },
+        data: {
+          lifecycleStatus: "retired",
         },
       });
     }
@@ -1760,4 +1779,73 @@ export async function generateArtifactAction(formData: FormData) {
   redirect(
     `/work-items/${parsed.data.workItemId}?tab=chat&thread=${state.threadId}&result=artifact-started`,
   );
+}
+
+export async function startProjectKnowledgeRefreshAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "").trim();
+  if (!workItemId) throw new Error("A Work Item is required.");
+  const workItem = await prisma.workItem.findFirst({
+    where: { id: workItemId, userId: user.id },
+    select: { id: true },
+  });
+  if (!workItem) throw new Error("The Work Item is not available.");
+  await repositoryKnowledgeRefreshApplicationService.start({
+    userId: user.id,
+    workItemId,
+    trigger: "manual",
+    idempotencyKey: `manual:${workItemId}:${randomUUID()}`,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function resolveKnowledgeChangeAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const changeId = String(formData.get("changeId") ?? "").trim();
+  const workItemId = String(formData.get("workItemId") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  if (!changeId || !workItemId || !["keep", "edit_and_keep", "revert", "retire"].includes(decision)) {
+    throw new Error("The knowledge review request is invalid.");
+  }
+  const patch = {
+    text: String(formData.get("text") ?? "").trim() || undefined,
+    statement: String(formData.get("statement") ?? "").trim() || undefined,
+    summary: String(formData.get("summary") ?? "").trim() || undefined,
+    title: String(formData.get("title") ?? "").trim() || undefined,
+    content: String(formData.get("content") ?? "").trim() || undefined,
+    category: String(formData.get("category") ?? "").trim() || undefined,
+    visibility: String(formData.get("visibility") ?? "").trim() || undefined,
+    reviewNotes: String(formData.get("reviewNotes") ?? "").trim() || undefined,
+    ...(formData.has("sensitivityFlag")
+      ? { sensitivityFlag: formData.get("sensitivityFlag") === "true" || formData.get("sensitivityFlag") === "on" }
+      : {}),
+  };
+  await knowledgeReviewService.resolve({
+    userId: user.id,
+    changeId,
+    decision: decision as "keep" | "edit_and_keep" | "revert" | "retire",
+    patch,
+    feedback: String(formData.get("feedback") ?? "").trim() || null,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function refreshStaleArtifactAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "").trim();
+  const artifactId = String(formData.get("artifactId") ?? "").trim();
+  const artifact = await prisma.artifact.findFirst({
+    where: { id: artifactId, workItemId, userId: user.id, lifecycleStatus: "stale" },
+  });
+  if (!artifact) throw new Error("The stale Artifact is not available for refresh.");
+  const state = await artifactWorkflowService.start({
+    userId: user.id,
+    workItemId,
+    brief: artifact.requestBrief,
+    supersedesArtifactId: artifact.id,
+    idempotencyKey: `artifact-refresh:${artifact.id}:${randomUUID()}`,
+  });
+  if (state.status !== "queued") throw new Error("Artifact refresh did not enter the durable queue.");
+  revalidatePath(`/work-items/${workItemId}`);
+  redirect(`/work-items/${workItemId}?tab=chat&thread=${state.threadId}&result=artifact-refresh-started`);
 }
