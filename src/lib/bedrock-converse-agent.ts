@@ -183,6 +183,8 @@ export interface BedrockConverseAgentRunInput {
   tools?: readonly BedrockConverseTool[];
   maxTokens?: number;
   temperature?: number;
+  effort?: "low" | "medium" | "high";
+  enablePromptCaching?: boolean;
   limits?: Partial<BedrockConverseAgentLimits>;
   signal?: AbortSignal;
   onEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
@@ -435,6 +437,12 @@ function createToolError(code: string, message: string, issues?: JsonValue): Jso
       ...(issues ? { issues } : {}),
     },
   };
+}
+
+function safeToolErrorCode(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+  const code = String(error.code);
+  return /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : null;
 }
 
 function createToolResultBlock(params: {
@@ -733,6 +741,7 @@ export class BedrockConverseAgent {
       let response: BedrockConverseTransportResponse;
 
       try {
+        const cachePoint = { cachePoint: { type: "default" as const } };
         response = await this.transport.converse(
           {
             modelId: this.config.modelId,
@@ -741,25 +750,35 @@ export class BedrockConverseAgent {
                   {
                     text: input.systemPrompt,
                   },
+                  ...(input.enablePromptCaching ? [cachePoint] : []),
                 ]
               : undefined,
             messages,
             inferenceConfig: {
               maxTokens,
-              temperature,
+              temperature: input.effort ? 1 : temperature,
             },
             toolConfig: tools.length
               ? {
-                  tools: tools.map((tool) => ({
-                    toolSpec: {
-                      name: tool.name,
-                      description: tool.description,
-                      inputSchema: {
-                        json: toBedrockCompatibleJsonSchema(tool.jsonSchema) as never,
+                  tools: [
+                    ...tools.map((tool) => ({
+                      toolSpec: {
+                        name: tool.name,
+                        description: tool.description,
+                        inputSchema: {
+                          json: toBedrockCompatibleJsonSchema(tool.jsonSchema) as never,
+                        },
+                        strict: tool.strict,
                       },
-                      strict: tool.strict,
-                    },
-                  })),
+                    })),
+                    ...(input.enablePromptCaching ? [cachePoint] : []),
+                  ],
+                }
+              : undefined,
+            additionalModelRequestFields: input.effort
+              ? {
+                  thinking: { type: "adaptive" },
+                  output_config: { effort: input.effort },
                 }
               : undefined,
           },
@@ -984,11 +1003,14 @@ export class BedrockConverseAgent {
                 }),
               );
               outcome = "success";
-            } catch {
+            } catch (error) {
               outcome = "execution_error";
+              const errorCode = safeToolErrorCode(error);
               modelResult = createToolError(
-                "tool_execution_failed",
-                `Tool \"${safeToolName}\" failed.`,
+                errorCode ?? "tool_execution_failed",
+                errorCode
+                  ? `Tool \"${safeToolName}\" failed with ${errorCode}.`
+                  : `Tool \"${safeToolName}\" failed.`,
               );
             }
           }

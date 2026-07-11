@@ -45,6 +45,7 @@ export type AgentRunMinAggregateOutputType = {
   kind: $Enums.AgentRunKind | null
   status: $Enums.AgentRunStatus | null
   attemptNumber: number | null
+  harnessVersion: string | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date | null
@@ -62,6 +63,7 @@ export type AgentRunMaxAggregateOutputType = {
   kind: $Enums.AgentRunKind | null
   status: $Enums.AgentRunStatus | null
   attemptNumber: number | null
+  harnessVersion: string | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date | null
@@ -82,6 +84,10 @@ export type AgentRunCountAggregateOutputType = {
   attemptNumber: number
   result: number
   error: number
+  harnessVersion: number
+  environmentSnapshot: number
+  researchState: number
+  provisionalResult: number
   startedAt: number
   finishedAt: number
   createdAt: number
@@ -109,6 +115,7 @@ export type AgentRunMinAggregateInputType = {
   kind?: true
   status?: true
   attemptNumber?: true
+  harnessVersion?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -126,6 +133,7 @@ export type AgentRunMaxAggregateInputType = {
   kind?: true
   status?: true
   attemptNumber?: true
+  harnessVersion?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -146,6 +154,10 @@ export type AgentRunCountAggregateInputType = {
   attemptNumber?: true
   result?: true
   error?: true
+  harnessVersion?: true
+  environmentSnapshot?: true
+  researchState?: true
+  provisionalResult?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -253,6 +265,10 @@ export type AgentRunGroupByOutputType = {
   attemptNumber: number
   result: runtime.JsonValue | null
   error: runtime.JsonValue | null
+  harnessVersion: string
+  environmentSnapshot: runtime.JsonValue | null
+  researchState: runtime.JsonValue | null
+  provisionalResult: runtime.JsonValue | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date
@@ -296,6 +312,10 @@ export type AgentRunWhereInput = {
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
+  harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
+  environmentSnapshot?: Prisma.JsonNullableFilter<"AgentRun">
+  researchState?: Prisma.JsonNullableFilter<"AgentRun">
+  provisionalResult?: Prisma.JsonNullableFilter<"AgentRun">
   startedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"AgentRun"> | Date | string
@@ -325,6 +345,10 @@ export type AgentRunOrderByWithRelationInput = {
   attemptNumber?: Prisma.SortOrder
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
+  harnessVersion?: Prisma.SortOrder
+  environmentSnapshot?: Prisma.SortOrderInput | Prisma.SortOrder
+  researchState?: Prisma.SortOrderInput | Prisma.SortOrder
+  provisionalResult?: Prisma.SortOrderInput | Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -358,6 +382,10 @@ export type AgentRunWhereUniqueInput = Prisma.AtLeast<{
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
+  harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
+  environmentSnapshot?: Prisma.JsonNullableFilter<"AgentRun">
+  researchState?: Prisma.JsonNullableFilter<"AgentRun">
+  provisionalResult?: Prisma.JsonNullableFilter<"AgentRun">
   startedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"AgentRun"> | Date | string
@@ -387,6 +415,10 @@ export type AgentRunOrderByWithAggregationInput = {
   attemptNumber?: Prisma.SortOrder
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
+  harnessVersion?: Prisma.SortOrder
+  environmentSnapshot?: Prisma.SortOrderInput | Prisma.SortOrder
+  researchState?: Prisma.SortOrderInput | Prisma.SortOrder
+  provisionalResult?: Prisma.SortOrderInput | Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -415,6 +447,10 @@ export type AgentRunScalarWhereWithAggregatesInput = {
   attemptNumber?: Prisma.IntWithAggregatesFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
   error?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
+  harnessVersion?: Prisma.StringWithAggregatesFilter<"AgentRun"> | string
+  environmentSnapshot?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
+  researchState?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
+  provisionalResult?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AgentRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"AgentRun"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"AgentRun"> | Date | string
@@ -431,6 +467,10 @@ export type AgentRunCreateInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -460,6 +500,10 @@ export type AgentRunUncheckedCreateInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -481,6 +525,10 @@ export type AgentRunUpdateInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -510,6 +558,10 @@ export type AgentRunUncheckedUpdateInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -535,6 +587,10 @@ export type AgentRunCreateManyInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -551,6 +607,10 @@ export type AgentRunUpdateManyMutationInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -571,6 +631,10 @@ export type AgentRunUncheckedUpdateManyInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -611,6 +675,10 @@ export type AgentRunCountOrderByAggregateInput = {
   attemptNumber?: Prisma.SortOrder
   result?: Prisma.SortOrder
   error?: Prisma.SortOrder
+  harnessVersion?: Prisma.SortOrder
+  environmentSnapshot?: Prisma.SortOrder
+  researchState?: Prisma.SortOrder
+  provisionalResult?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -632,6 +700,7 @@ export type AgentRunMaxOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  harnessVersion?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -649,6 +718,7 @@ export type AgentRunMinOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  harnessVersion?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -926,6 +996,10 @@ export type AgentRunCreateWithoutUserInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -953,6 +1027,10 @@ export type AgentRunUncheckedCreateWithoutUserInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1007,6 +1085,10 @@ export type AgentRunScalarWhereInput = {
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
+  harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
+  environmentSnapshot?: Prisma.JsonNullableFilter<"AgentRun">
+  researchState?: Prisma.JsonNullableFilter<"AgentRun">
+  provisionalResult?: Prisma.JsonNullableFilter<"AgentRun">
   startedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"AgentRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"AgentRun"> | Date | string
@@ -1023,6 +1105,10 @@ export type AgentRunCreateWithoutWorkItemInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1050,6 +1136,10 @@ export type AgentRunUncheckedCreateWithoutWorkItemInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1097,6 +1187,10 @@ export type AgentRunCreateWithoutArtifactInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1125,6 +1219,10 @@ export type AgentRunUncheckedCreateWithoutArtifactInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1161,6 +1259,10 @@ export type AgentRunUpdateWithoutArtifactInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1189,6 +1291,10 @@ export type AgentRunUncheckedUpdateWithoutArtifactInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1209,6 +1315,10 @@ export type AgentRunCreateWithoutThreadInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1236,6 +1346,10 @@ export type AgentRunUncheckedCreateWithoutThreadInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1283,6 +1397,10 @@ export type AgentRunCreateWithoutMessagesInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1311,6 +1429,10 @@ export type AgentRunUncheckedCreateWithoutMessagesInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1347,6 +1469,10 @@ export type AgentRunUpdateWithoutMessagesInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1375,6 +1501,10 @@ export type AgentRunUncheckedUpdateWithoutMessagesInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1395,6 +1525,10 @@ export type AgentRunCreateWithoutChildRunsInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1423,6 +1557,10 @@ export type AgentRunUncheckedCreateWithoutChildRunsInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1448,6 +1586,10 @@ export type AgentRunCreateWithoutParentRunInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1475,6 +1617,10 @@ export type AgentRunUncheckedCreateWithoutParentRunInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1517,6 +1663,10 @@ export type AgentRunUpdateWithoutChildRunsInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1545,6 +1695,10 @@ export type AgentRunUncheckedUpdateWithoutChildRunsInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1581,6 +1735,10 @@ export type AgentRunCreateWithoutEventsInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1609,6 +1767,10 @@ export type AgentRunUncheckedCreateWithoutEventsInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1645,6 +1807,10 @@ export type AgentRunUpdateWithoutEventsInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1673,6 +1839,10 @@ export type AgentRunUncheckedUpdateWithoutEventsInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1693,6 +1863,10 @@ export type AgentRunCreateWithoutCandidatesInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1721,6 +1895,10 @@ export type AgentRunUncheckedCreateWithoutCandidatesInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1757,6 +1935,10 @@ export type AgentRunUpdateWithoutCandidatesInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1785,6 +1967,10 @@ export type AgentRunUncheckedUpdateWithoutCandidatesInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1808,6 +1994,10 @@ export type AgentRunCreateManyUserInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1824,6 +2014,10 @@ export type AgentRunUpdateWithoutUserInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1851,6 +2045,10 @@ export type AgentRunUncheckedUpdateWithoutUserInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1875,6 +2073,10 @@ export type AgentRunUncheckedUpdateManyWithoutUserInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1894,6 +2096,10 @@ export type AgentRunCreateManyWorkItemInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1910,6 +2116,10 @@ export type AgentRunUpdateWithoutWorkItemInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1937,6 +2147,10 @@ export type AgentRunUncheckedUpdateWithoutWorkItemInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1961,6 +2175,10 @@ export type AgentRunUncheckedUpdateManyWithoutWorkItemInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1980,6 +2198,10 @@ export type AgentRunCreateManyThreadInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -1996,6 +2218,10 @@ export type AgentRunUpdateWithoutThreadInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2023,6 +2249,10 @@ export type AgentRunUncheckedUpdateWithoutThreadInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2047,6 +2277,10 @@ export type AgentRunUncheckedUpdateManyWithoutThreadInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2066,6 +2300,10 @@ export type AgentRunCreateManyParentRunInput = {
   attemptNumber?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -2082,6 +2320,10 @@ export type AgentRunUpdateWithoutParentRunInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2109,6 +2351,10 @@ export type AgentRunUncheckedUpdateWithoutParentRunInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2133,6 +2379,10 @@ export type AgentRunUncheckedUpdateManyWithoutParentRunInput = {
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2211,6 +2461,10 @@ export type AgentRunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   attemptNumber?: boolean
   result?: boolean
   error?: boolean
+  harnessVersion?: boolean
+  environmentSnapshot?: boolean
+  researchState?: boolean
+  provisionalResult?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -2241,6 +2495,10 @@ export type AgentRunSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   attemptNumber?: boolean
   result?: boolean
   error?: boolean
+  harnessVersion?: boolean
+  environmentSnapshot?: boolean
+  researchState?: boolean
+  provisionalResult?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -2265,6 +2523,10 @@ export type AgentRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   attemptNumber?: boolean
   result?: boolean
   error?: boolean
+  harnessVersion?: boolean
+  environmentSnapshot?: boolean
+  researchState?: boolean
+  provisionalResult?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -2289,13 +2551,17 @@ export type AgentRunSelectScalar = {
   attemptNumber?: boolean
   result?: boolean
   error?: boolean
+  harnessVersion?: boolean
+  environmentSnapshot?: boolean
+  researchState?: boolean
+  provisionalResult?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "result" | "error" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
+export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "result" | "error" | "harnessVersion" | "environmentSnapshot" | "researchState" | "provisionalResult" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
 export type AgentRunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -2348,6 +2614,10 @@ export type $AgentRunPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     attemptNumber: number
     result: runtime.JsonValue | null
     error: runtime.JsonValue | null
+    harnessVersion: string
+    environmentSnapshot: runtime.JsonValue | null
+    researchState: runtime.JsonValue | null
+    provisionalResult: runtime.JsonValue | null
     startedAt: Date | null
     finishedAt: Date | null
     createdAt: Date
@@ -2797,6 +3067,10 @@ export interface AgentRunFieldRefs {
   readonly attemptNumber: Prisma.FieldRef<"AgentRun", 'Int'>
   readonly result: Prisma.FieldRef<"AgentRun", 'Json'>
   readonly error: Prisma.FieldRef<"AgentRun", 'Json'>
+  readonly harnessVersion: Prisma.FieldRef<"AgentRun", 'String'>
+  readonly environmentSnapshot: Prisma.FieldRef<"AgentRun", 'Json'>
+  readonly researchState: Prisma.FieldRef<"AgentRun", 'Json'>
+  readonly provisionalResult: Prisma.FieldRef<"AgentRun", 'Json'>
   readonly startedAt: Prisma.FieldRef<"AgentRun", 'DateTime'>
   readonly finishedAt: Prisma.FieldRef<"AgentRun", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"AgentRun", 'DateTime'>

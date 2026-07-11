@@ -11,6 +11,7 @@ import type {
 } from "@/src/domain/types";
 import type {
   ArtifactWorkflowState,
+  ProjectFactCategory,
   ProjectKnowledgePurpose,
   ProjectKnowledgeResult,
   ProjectResearchPurpose,
@@ -139,6 +140,7 @@ export interface ProjectKnowledgeRetrievalService {
     purpose: ProjectKnowledgePurpose;
     limits?: {
       highlights?: number;
+      projectFacts?: number;
       evidence?: number;
       artifacts?: number;
     };
@@ -147,6 +149,7 @@ export interface ProjectKnowledgeRetrievalService {
 
 export interface ProjectResearchService {
   research(input: {
+    runId?: string;
     userId: string;
     workItemId: string;
     question: string;
@@ -176,10 +179,27 @@ export interface CandidateReviewService {
     visibility?: "private" | "resume_safe" | "linkedin_safe" | "public_safe" | null;
     sensitivityFlag?: boolean | null;
     reviewNotes?: string | null;
+    category?: ProjectFactCategory | null;
     idempotencyKey: string;
   }): Promise<{
     candidateId: string;
     status: "approved" | "denied";
     resumedRunId: string | null;
+  }>;
+}
+
+export interface PriorTurnProvenanceService {
+  inspect(input: {
+    userId: string;
+    workItemId: string;
+    threadId: string;
+    assistantMessageId?: string | null;
+  }): Promise<{
+    messageId: string;
+    repositoryInspected: boolean;
+    partial: boolean;
+    fallbackUsed: boolean;
+    toolCalls: Array<{ name: string; count: number }>;
+    usedSources: Array<{ kind: string; title: string }>;
   }>;
 }

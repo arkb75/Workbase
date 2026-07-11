@@ -424,6 +424,8 @@ function readCandidateSnapshot(value: unknown): {
   missingInfo: string | null;
   tags: string[];
   verificationNotes: string | null;
+  category: "architecture" | "behavior" | "data_flow" | "code_location" | "dependency" | "configuration" | null;
+  partial: boolean;
 } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {
@@ -438,6 +440,8 @@ function readCandidateSnapshot(value: unknown): {
       missingInfo: null,
       tags: [],
       verificationNotes: null,
+      category: null,
+      partial: false,
     };
   }
 
@@ -449,11 +453,18 @@ function readCandidateSnapshot(value: unknown): {
   const sourceRefs = Array.isArray(evidence?.sourceRefs) ? evidence.sourceRefs : [];
   const tags = Array.isArray(snapshot.tags) ? snapshot.tags : [];
   return {
-    text: typeof snapshot.text === "string" ? snapshot.text : "Candidate highlight",
+    text:
+      typeof snapshot.text === "string"
+        ? snapshot.text
+        : typeof snapshot.statement === "string"
+          ? snapshot.statement
+          : "Candidate highlight",
     summary:
       typeof snapshot.summary === "string"
         ? snapshot.summary
-        : "Review the supporting context before approval.",
+        : typeof snapshot.statement === "string"
+          ? snapshot.statement
+          : "Review the supporting context before approval.",
     visibility:
       snapshot.visibility === "resume_safe" ||
       snapshot.visibility === "linkedin_safe" ||
@@ -461,11 +472,13 @@ function readCandidateSnapshot(value: unknown): {
         ? snapshot.visibility
         : ("private" as const),
     sensitivityFlag: snapshot.sensitivityFlag === true,
-    evidenceLabels: sourceRefs.flatMap((sourceRef) => {
+    evidenceLabels: Array.isArray(snapshot.evidenceLabels)
+      ? snapshot.evidenceLabels.filter((label): label is string => typeof label === "string")
+      : sourceRefs.flatMap((sourceRef) => {
       if (!sourceRef || typeof sourceRef !== "object" || Array.isArray(sourceRef)) return [];
       const title = (sourceRef as Record<string, unknown>).title;
       return typeof title === "string" ? [title] : [];
-    }),
+      }),
     confidence:
       snapshot.confidence === "low" || snapshot.confidence === "high"
         ? snapshot.confidence
@@ -482,7 +495,21 @@ function readCandidateSnapshot(value: unknown): {
       return typeof value === "string" ? [value] : [];
     }),
     verificationNotes:
-      typeof snapshot.verificationNotes === "string" ? snapshot.verificationNotes : null,
+      typeof snapshot.verificationNotes === "string"
+        ? snapshot.verificationNotes
+        : typeof snapshot.reviewNotes === "string"
+          ? snapshot.reviewNotes
+          : null,
+    category:
+      snapshot.category === "architecture" ||
+      snapshot.category === "behavior" ||
+      snapshot.category === "data_flow" ||
+      snapshot.category === "code_location" ||
+      snapshot.category === "dependency" ||
+      snapshot.category === "configuration"
+        ? snapshot.category
+        : null,
+    partial: snapshot.partial === true,
   };
 }
 
@@ -510,6 +537,88 @@ function ClaimSection({
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
+  );
+}
+
+function ProjectFactSection({
+  facts,
+}: {
+  facts: Awaited<ReturnType<typeof getWorkItemForUser>>["projectFacts"];
+}) {
+  const groups = ["approved", "draft", "rejected", "superseded"] as const;
+  return (
+    <section id="project-facts" className="scroll-mt-24 border-t border-black/8 pt-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--accent)]">
+            Project memory
+          </p>
+          <h3 className="mt-2 font-display text-2xl font-semibold tracking-[-0.035em] text-[color:var(--ink-strong)]">
+            Project facts
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
+            Reviewed technical facts derived from repository evidence. File excerpts remain underneath each fact as provenance.
+          </p>
+        </div>
+        <Badge tone="accent">{facts.filter((fact) => fact.status === "approved").length} approved</Badge>
+      </div>
+      <div className="mt-5 grid gap-6">
+        {groups.map((status) => {
+          const entries = facts.filter((fact) => fact.status === status);
+          if (!entries.length) return null;
+          return (
+            <div key={status} className="grid gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
+                {titleCase(status)} · {entries.length}
+              </p>
+              <div className="divide-y divide-black/7 border-y border-black/7">
+                {entries.map((fact) => (
+                  <article key={fact.id} className="grid gap-3 py-4 sm:grid-cols-[1fr_auto] sm:items-start">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-6 text-[color:var(--ink-strong)]">
+                        {fact.statement}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge>{titleCase(fact.category)}</Badge>
+                        <Badge>{fact.confidence} confidence</Badge>
+                        {fact.sensitivityFlag ? <Badge tone="warning">Sensitive</Badge> : null}
+                      </div>
+                      {fact.reviewNotes ? (
+                        <p className="mt-2 text-xs leading-5 text-[color:var(--ink-soft)]">{fact.reviewNotes}</p>
+                      ) : null}
+                    </div>
+                    {fact.evidence.length ? (
+                      <details className="text-xs sm:w-72">
+                        <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
+                          {fact.evidence.length} evidence excerpt{fact.evidence.length === 1 ? "" : "s"}
+                        </summary>
+                        <div className="mt-2 grid gap-2 border-l border-black/8 pl-3">
+                          {fact.evidence.map((entry) => (
+                            <div key={entry.id}>
+                              <p className="font-mono text-[10px] text-[color:var(--ink-muted)]">
+                                {entry.evidenceItem.title}
+                              </p>
+                              <p className="mt-1 line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
+                                {entry.evidenceItem.content}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {!facts.length ? (
+          <p className="border-y border-black/7 py-5 text-sm text-[color:var(--ink-soft)]">
+            No project facts yet. Chat research will propose them when reviewed memory cannot answer a technical question.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -607,6 +716,7 @@ export default async function WorkItemDetailPage({
     (highlight) => highlight.verificationStatus === "rejected",
   );
   const sensitiveHighlights = workItem.highlights.filter((highlight) => highlight.sensitivityFlag);
+  const sensitiveProjectFacts = workItem.projectFacts.filter((fact) => fact.sensitivityFlag);
   const approvedRetrievalHighlights = workItem.highlights.filter(
     (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
   );
@@ -711,8 +821,20 @@ export default async function WorkItemDetailPage({
       path: citation.path,
       commitSha: citation.commitSha,
       highlightId: citation.highlightId,
+      projectFactId: citation.projectFactId,
       evidenceItemId: citation.evidenceItemId,
       artifactId: citation.artifactId,
+      provenance: citation.projectFact?.evidence.map((entry) => {
+        const metadata = readSourceMetadata(entry.evidenceItem.metadata);
+        return {
+          id: entry.evidenceItem.id,
+          title: entry.evidenceItem.title,
+          excerpt: entry.evidenceItem.content,
+          path: typeof metadata?.path === "string" ? metadata.path : null,
+          commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : null,
+          url: typeof metadata?.url === "string" ? metadata.url : null,
+        };
+      }) ?? [],
     })),
   }));
   const chatEvents = chatWorkspace.events.map((event) => ({
@@ -724,6 +846,33 @@ export default async function WorkItemDetailPage({
   }));
   const chatCandidates = chatWorkspace.candidates.map((candidate) => {
     const snapshot = readCandidateSnapshot(candidate.snapshot);
+    if (candidate.projectFact) {
+      return {
+        id: candidate.id,
+        runId: candidate.runId,
+        kind:
+          candidate.kind === "project_fact_revision"
+            ? ("project_fact_revision" as const)
+            : ("project_fact" as const),
+        status:
+          candidate.status === "edited_and_approved"
+            ? ("approved" as const)
+            : candidate.status,
+        text: candidate.projectFact.statement,
+        summary: candidate.projectFact.statement,
+        visibility: "private" as const,
+        sensitivityFlag: candidate.projectFact.sensitivityFlag,
+        confidence: candidate.projectFact.confidence,
+        ownershipClarity: "unclear" as const,
+        risksSummary: null,
+        missingInfo: snapshot.partial ? "Research ended before every repository area could be checked." : null,
+        tags: [candidate.projectFact.category],
+        verificationNotes: candidate.projectFact.reviewNotes,
+        evidenceLabels: candidate.projectFact.evidence.map((entry) => entry.evidenceItem.title),
+        category: candidate.projectFact.category,
+        partial: snapshot.partial,
+      };
+    }
     return {
       id: candidate.id,
       runId: candidate.runId,
@@ -747,6 +896,8 @@ export default async function WorkItemDetailPage({
       evidenceLabels:
         candidate.highlight?.evidence.map((entry) => entry.evidenceItem.title) ??
         snapshot.evidenceLabels,
+      category: null,
+      partial: false,
     };
   });
   const chatRuns = chatWorkspace.runs.map((run) => ({
@@ -1164,6 +1315,8 @@ export default async function WorkItemDetailPage({
                 )}
               </ClaimSection>
 
+              <ProjectFactSection facts={workItem.projectFacts} />
+
               <GenerationTracePanel
                 traces={highlightTraces}
                 title="Generation traces"
@@ -1223,7 +1376,7 @@ export default async function WorkItemDetailPage({
             events={chatEvents}
             candidates={chatCandidates}
             runs={chatRuns}
-            sensitiveContextAvailable={sensitiveHighlights.length > 0}
+            sensitiveContextAvailable={sensitiveHighlights.length + sensitiveProjectFacts.length > 0}
           />
         }
         artifactsPanel={

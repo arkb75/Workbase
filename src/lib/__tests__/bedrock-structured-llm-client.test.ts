@@ -281,6 +281,8 @@ describe("AwsBedrockConverseRuntime", () => {
       userPrompt: "Return {\"ok\":true}.",
       maxTokens: 64,
       temperature: 0,
+      effort: "high",
+      enablePromptCaching: true,
       structuredOutput: {
         mode: "bedrock_json_schema",
         schemaName: "workbase_test_schema",
@@ -296,6 +298,18 @@ describe("AwsBedrockConverseRuntime", () => {
         type: "json_schema",
       },
     });
+    expect(command.input.inferenceConfig).toEqual({
+      maxTokens: 64,
+      temperature: 1,
+    });
+    expect(command.input.additionalModelRequestFields).toEqual({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
+    });
+    expect(command.input.system).toEqual([
+      { text: "Return JSON." },
+      { cachePoint: { type: "default" } },
+    ]);
     expect(
       JSON.parse(
         (
@@ -349,6 +363,7 @@ describe("AwsBedrockConverseRuntime", () => {
       userPrompt: "Return {\"ok\":true}.",
       maxTokens: 64,
       temperature: 0,
+      effort: "high",
       structuredOutput: {
         mode: "strict_tool_use",
         schemaName: "workbase_test_schema",
@@ -366,6 +381,11 @@ describe("AwsBedrockConverseRuntime", () => {
         },
       },
     });
+    expect(command.input.inferenceConfig).toEqual({
+      maxTokens: 64,
+      temperature: 0,
+    });
+    expect(command.input.additionalModelRequestFields).toBeUndefined();
     expect(
       (
         command.input.toolConfig as {

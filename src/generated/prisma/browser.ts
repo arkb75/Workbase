@@ -58,6 +58,21 @@ export type Highlight = Prisma.HighlightModel
  */
 export type HighlightEmbedding = Prisma.HighlightEmbeddingModel
 /**
+ * Model ProjectFact
+ * 
+ */
+export type ProjectFact = Prisma.ProjectFactModel
+/**
+ * Model ProjectFactEvidence
+ * 
+ */
+export type ProjectFactEvidence = Prisma.ProjectFactEvidenceModel
+/**
+ * Model ProjectFactEmbedding
+ * 
+ */
+export type ProjectFactEmbedding = Prisma.ProjectFactEmbeddingModel
+/**
  * Model EvidenceEmbedding
  * 
  */

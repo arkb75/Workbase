@@ -890,6 +890,17 @@ export async function resolveAgentCandidateAction(formData: FormData) {
   const feedback = String(formData.get("feedback") ?? "").trim();
   const reviewNotes = String(formData.get("reviewNotes") ?? "").trim();
   const visibilityValue = String(formData.get("visibility") ?? "");
+  const categoryValue = String(formData.get("category") ?? "");
+  const category = [
+    "architecture",
+    "behavior",
+    "data_flow",
+    "code_location",
+    "dependency",
+    "configuration",
+  ].includes(categoryValue)
+    ? (categoryValue as "architecture" | "behavior" | "data_flow" | "code_location" | "dependency" | "configuration")
+    : null;
   const visibility = ["private", "resume_safe", "linkedin_safe", "public_safe"].includes(
     visibilityValue,
   )
@@ -912,6 +923,7 @@ export async function resolveAgentCandidateAction(formData: FormData) {
     visibility,
     sensitivityFlag,
     reviewNotes: reviewNotes || null,
+    category,
     idempotencyKey: `candidate:${candidateId}:${decision}`,
   });
   revalidatePath(`/work-items/${workItemId}`);

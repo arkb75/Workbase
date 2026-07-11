@@ -33,6 +33,8 @@ export interface ConverseTextRuntime {
     userPrompt: string;
     maxTokens: number;
     temperature: number;
+    effort?: "low" | "medium" | "high";
+    enablePromptCaching?: boolean;
     structuredOutput?: {
       mode: NativeStructuredOutputMode;
       schemaName: string;
@@ -117,6 +119,8 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
     userPrompt: string;
     maxTokens: number;
     temperature: number;
+    effort?: "low" | "medium" | "high";
+    enablePromptCaching?: boolean;
     structuredOutput?: {
       mode: NativeStructuredOutputMode;
       schemaName: string;
@@ -128,6 +132,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
       ? toBedrockCompatibleJsonSchema(input.structuredOutput.jsonSchema)
       : null;
 
+    const cachePoint = { cachePoint: { type: "default" as const } };
     const response = await this.client.send(
       new ConverseCommand({
         modelId: this.config.modelId,
@@ -135,6 +140,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
           {
             text: input.systemPrompt,
           },
+          ...(input.enablePromptCaching ? [cachePoint] : []),
         ],
         messages: [
           {
@@ -148,7 +154,10 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
         ],
         inferenceConfig: {
           maxTokens: input.maxTokens,
-          temperature: input.temperature,
+          temperature:
+            input.effort && input.structuredOutput?.mode !== "strict_tool_use"
+              ? 1
+              : input.temperature,
         },
         outputConfig:
           input.structuredOutput?.mode === "bedrock_json_schema"
@@ -179,6 +188,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
                       strict: true,
                     },
                   },
+                  ...(input.enablePromptCaching ? [cachePoint] : []),
                 ],
                 toolChoice: {
                   tool: {
@@ -187,6 +197,16 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
                 },
               }
             : undefined,
+        // Bedrock rejects adaptive thinking when a request forces a specific tool.
+        // Native JSON-schema output still receives the requested adaptive effort;
+        // the strict-tool fallback prioritizes schema enforcement instead.
+        additionalModelRequestFields:
+          input.effort && input.structuredOutput?.mode !== "strict_tool_use"
+          ? {
+              thinking: { type: "adaptive" },
+              output_config: { effort: input.effort },
+            }
+          : undefined,
       }),
     );
 
@@ -456,9 +476,11 @@ export class BedrockStructuredLlmClient {
     transportPreference?: StructuredOutputTransportMode[];
     maxTokens: number;
     temperature?: number;
+    effort?: "low" | "medium" | "high";
     extraValidation?: (value: T) => string[];
   }) {
     const temperature = params.temperature ?? 0;
+    const effort = params.effort ?? "high";
     const transportPreference = params.transportPreference ?? [
       "bedrock_json_schema",
       "strict_tool_use",
@@ -487,6 +509,8 @@ export class BedrockStructuredLlmClient {
           userPrompt: params.userPrompt,
           maxTokens: params.maxTokens,
           temperature,
+          effort,
+          enablePromptCaching: true,
           structuredOutput: {
             mode,
             schemaName: params.schemaName,
@@ -577,6 +601,8 @@ export class BedrockStructuredLlmClient {
         userPrompt: params.userPrompt,
         maxTokens: params.maxTokens,
         temperature,
+        effort,
+        enablePromptCaching: true,
       });
     } catch (error) {
       attempts.push({
@@ -654,6 +680,8 @@ export class BedrockStructuredLlmClient {
         }),
         maxTokens: params.maxTokens,
         temperature: 0,
+        effort: "medium",
+        enablePromptCaching: true,
       });
     } catch (error) {
       attempts.push({

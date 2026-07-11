@@ -18,6 +18,7 @@ import type { ProjectKnowledgeRetrievalService } from "@/src/services/types";
 
 const defaultLimits = {
   highlights: 6,
+  projectFacts: 6,
   evidence: 8,
   artifacts: 3,
 } as const;
@@ -64,6 +65,7 @@ function highlightAuthority(status: string): ProjectKnowledgeAuthority {
 
 function authorityWeight(authority: ProjectKnowledgeAuthority) {
   if (authority === "verified_highlight") return 6;
+  if (authority === "verified_project_fact") return 5.5;
   if (authority === "included_evidence") return 2.5;
   if (authority === "prior_artifact") return 1.5;
   if (authority === "candidate_highlight") return 0.5;
@@ -83,7 +85,7 @@ async function loadPostgresLexicalScores(input: {
   type RankedRow = { id: string; score: number };
 
   try {
-    const [highlights, evidence, artifacts] = await Promise.all([
+    const [highlights, projectFacts, evidence, artifacts] = await Promise.all([
       prisma.$queryRaw<RankedRow[]>`
         WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
         SELECT claim."id", ts_rank_cd(
@@ -93,6 +95,19 @@ async function loadPostgresLexicalScores(input: {
         FROM "Claim" claim, query
         WHERE claim."workItemId" = ${input.workItemId}
           AND to_tsvector('english', coalesce(claim."searchText", '')) @@ query.value
+        ORDER BY score DESC
+        LIMIT 40
+      `,
+      prisma.$queryRaw<RankedRow[]>`
+        WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
+        SELECT fact."id", ts_rank_cd(
+          to_tsvector('english', coalesce(fact."searchText", '')),
+          query.value
+        )::double precision AS score
+        FROM "ProjectFact" fact, query
+        WHERE fact."workItemId" = ${input.workItemId}
+          AND fact."status" = 'approved'
+          AND to_tsvector('english', coalesce(fact."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
       `,
@@ -126,6 +141,7 @@ async function loadPostgresLexicalScores(input: {
 
     return {
       highlights: new Map(highlights.map((row) => [row.id, Number(row.score)])),
+      projectFacts: new Map(projectFacts.map((row) => [row.id, Number(row.score)])),
       evidence: new Map(evidence.map((row) => [row.id, Number(row.score)])),
       artifacts: new Map(artifacts.map((row) => [row.id, Number(row.score)])),
     };
@@ -134,6 +150,7 @@ async function loadPostgresLexicalScores(input: {
     // during migrations or database feature outages.
     return {
       highlights: new Map<string, number>(),
+      projectFacts: new Map<string, number>(),
       evidence: new Map<string, number>(),
       artifacts: new Map<string, number>(),
     };
@@ -187,6 +204,16 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             tags: true,
           },
         },
+        projectFacts: {
+          where: { status: "approved" },
+          include: {
+            evidence: {
+              include: {
+                evidenceItem: { include: { source: true } },
+              },
+            },
+          },
+        },
         evidenceItems: {
           where: {
             included: true,
@@ -218,6 +245,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
     });
     const selectedLimits = {
       highlights: limits?.highlights ?? defaultLimits.highlights,
+      projectFacts: limits?.projectFacts ?? defaultLimits.projectFacts,
       evidence: limits?.evidence ?? defaultLimits.evidence,
       artifacts: limits?.artifacts ?? defaultLimits.artifacts,
     };
@@ -261,6 +289,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         })),
       ),
       ensureProjectKnowledgeEmbeddings({
+        projectFacts: workItem.projectFacts,
         evidenceItems: workItem.evidenceItems,
         artifacts: workItem.artifacts,
       }),
@@ -272,6 +301,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       limit: 40,
     }).catch(() => ({
       highlights: new Map<string, number>(),
+      projectFacts: new Map<string, number>(),
       evidence: new Map<string, number>(),
       artifacts: new Map<string, number>(),
     }));
@@ -333,14 +363,56 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .sort((left, right) => right.score - left.score)
       .slice(0, selectedLimits.highlights);
 
+    const projectFactHits = purpose === "public_artifact"
+      ? []
+      : workItem.projectFacts
+          .map((fact): ProjectKnowledgeHit => {
+            const content = [fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ");
+
+            return {
+              id: fact.id,
+              kind: "project_fact",
+              authority: "verified_project_fact",
+              title: fact.statement,
+              content: fact.statement,
+              status: "approved",
+              sensitivityFlag: fact.sensitivityFlag,
+              score:
+                authorityWeight("verified_project_fact") +
+                lexicalScore(query, content) +
+                (lexicalRanks.projectFacts.get(fact.id) ?? 0) * 10 +
+                (vectorRanks.projectFacts.get(fact.id) ?? 0) * 8 +
+                (fact.confidence === "high" ? 1.5 : fact.confidence === "medium" ? 0.75 : 0) +
+                recencyScore(fact.updatedAt),
+              citations: [
+                {
+                  kind: "project_fact",
+                  label: fact.statement,
+                  excerpt: fact.statement,
+                  projectFactId: fact.id,
+                },
+              ],
+            };
+          })
+          .filter(
+            (hit) =>
+              broadProjectQueryPattern.test(query) ||
+              lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
+              (lexicalRanks.projectFacts.get(hit.id) ?? 0) > 0 ||
+              (vectorRanks.projectFacts.get(hit.id) ?? 0) >= 0.16,
+          )
+          .sort((left, right) => right.score - left.score)
+          .slice(0, selectedLimits.projectFacts);
+
     const linkedEvidenceIds = new Set(
-      highlightHits.flatMap((hit) =>
+      [...highlightHits, ...projectFactHits].flatMap((hit) =>
         hit.citations.flatMap((citation) =>
           citation.evidenceItemId ? [citation.evidenceItemId] : [],
         ),
       ),
     );
     const evidenceHits = workItem.evidenceItems
+      .filter((item) => item.type !== "github_file_excerpt")
       .filter((item) => purpose !== "public_artifact" || linkedEvidenceIds.has(item.id))
       .map((item): ProjectKnowledgeHit => {
         const tagText = item.tags.map((tag) => `${tag.dimension}:${tag.tag}`).join(" ");
@@ -482,7 +554,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .sort((left, right) => right.score - left.score)
       .slice(0, selectedLimits.artifacts);
 
-    const hits = [...highlightHits, ...evidenceHits, ...artifactHits].sort(
+    const hits = [...highlightHits, ...projectFactHits, ...evidenceHits, ...artifactHits].sort(
       (left, right) => right.score - left.score,
     );
     const warnings = [
@@ -501,6 +573,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       purpose,
       hits,
       selectedHighlightIds: highlightHits.map((hit) => hit.id),
+      selectedProjectFactIds: projectFactHits.map((hit) => hit.id),
       selectedEvidenceItemIds: evidenceHits.map((hit) => hit.id),
       selectedArtifactIds: artifactHits.map((hit) => hit.id),
       warnings,

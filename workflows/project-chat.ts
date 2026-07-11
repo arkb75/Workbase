@@ -5,6 +5,7 @@ import {
   appendAgentRunEvent,
   completeAgentRun,
   failAgentRun,
+  markAgentRunAwaitingReview,
   markAgentRunRunning,
 } from "@/src/services/project-chat-store";
 import { proposeHighlightFromChatContext } from "@/src/services/chat-highlight-candidate-service";
@@ -43,7 +44,7 @@ async function closeProgressStream() {
   await getWritable<ChatProgressEvent>().close();
 }
 
-async function answerProjectQuestion(runId: string) {
+async function answerProjectQuestion(runId: string, allowResearch = true) {
   "use step";
 
   await markAgentRunRunning(runId);
@@ -58,7 +59,8 @@ async function answerProjectQuestion(runId: string) {
           messages: {
             where: { status: "completed" },
             orderBy: { sequence: "desc" },
-            take: 10,
+            take: 13,
+            include: { citations: { orderBy: { ordinal: "asc" } } },
           },
         },
       },
@@ -105,19 +107,20 @@ async function answerProjectQuestion(runId: string) {
     }
   }
 
-  const hints = run.thread
-    ? [
-        `Recent conversation (oldest to newest):\n${run.thread.messages
-          .slice()
-          .reverse()
-          .filter((message) => message.id !== userMessage?.id)
-          .map(
-            (message) =>
-              `${message.role}: ${message.content.slice(0, 700)}`,
-          )
-          .join("\n")}`,
-      ]
-    : undefined;
+  const history = run.thread?.messages
+    .slice()
+    .reverse()
+    .filter((message) => message.id !== userMessage?.id)
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      citations: message.citations.map((citation) => ({
+        ordinal: citation.ordinal,
+        kind: citation.kind,
+        label: citation.label,
+      })),
+    }));
   const result = await runProjectChatAgent({
     runId: run.id,
     userId: run.userId,
@@ -125,7 +128,9 @@ async function answerProjectQuestion(runId: string) {
     threadId: run.threadId!,
     messageId: userMessage!.id,
     question,
-    hints,
+    history,
+    rollingSummary: run.thread?.rollingSummary,
+    allowResearch,
     onAgentEvent: (event) => persistResearchAgentEvent(run.id, event),
   });
 
@@ -149,6 +154,23 @@ async function answerProjectQuestion(runId: string) {
     return { status: "insufficient_context" as const };
   }
 
+  if (result.status === "awaiting_review") {
+    await markAgentRunAwaitingReview({
+      runId: run.id,
+      content: result.answer,
+      citations: result.citations,
+      result: {
+        status: "awaiting_review",
+        candidateIds: result.research.candidateIds,
+        coverageGaps: result.research.coverageGaps,
+        warnings: result.research.warnings,
+        partial: result.research.partial,
+        exploredEvidenceCount: result.research.exploredEvidence.length,
+      },
+    });
+    return { status: "awaiting_review" as const };
+  }
+
   await completeAgentRun({
     runId,
     content: result.answer,
@@ -159,10 +181,42 @@ async function answerProjectQuestion(runId: string) {
       warnings: result.research.warnings,
       citationCount: result.citations.length,
       generationRunIds: result.research.generationRunIds,
+      partial: result.research.partial,
+      exploredEvidenceCount: result.research.exploredEvidence.length,
+      fallbackUsed: false,
     },
     citations: result.citations,
   });
   return { status: "completed" as const };
+}
+
+async function approvedProjectFactCandidateCount(runId: string) {
+  "use step";
+  return prisma.agentRunCandidate.count({
+    where: {
+      agentRunId: runId,
+      kind: { in: ["new_project_fact", "project_fact_revision"] },
+      status: { in: ["approved", "edited_and_approved"] },
+      projectFact: { status: "approved" },
+    },
+  });
+}
+
+async function finishDeniedProjectFactReview(runId: string) {
+  "use step";
+  const run = await prisma.agentRun.findUnique({ where: { id: runId }, select: { result: true } });
+  const stored = run?.result && typeof run.result === "object" && !Array.isArray(run.result)
+    ? run.result as Record<string, unknown>
+    : null;
+  const gaps = Array.isArray(stored?.coverageGaps)
+    ? stored.coverageGaps.filter((gap): gap is string => typeof gap === "string").slice(0, 3)
+    : [];
+  const message = [
+    "None of the repository-derived Project Facts were approved, so Workbase cannot retain or use those provisional claims.",
+    gaps.length ? `Unresolved coverage: ${gaps.join("; ")}` : "Retry with a narrower question or different repository scope if you want another research pass.",
+  ].join(" ");
+  await failAgentRun({ runId, message, insufficient: true });
+  return { status: "insufficient_context" as const, message };
 }
 
 async function setArtifactRunRunning(runId: string) {
@@ -247,10 +301,26 @@ export async function projectChatTurnWorkflow(runId: string) {
 
   try {
     await emitProgress(runId, "Searching verified project memory.", "retrieval");
-    const result = await answerProjectQuestion(runId);
+    let result = await answerProjectQuestion(runId);
     if (result.status === "artifact_requested") {
       await emitProgress(runId, "Starting the approval-gated artifact workflow.", "artifact");
       return await runArtifactLifecycle(runId);
+    }
+    if (result.status === "awaiting_review") {
+      await emitProgress(
+        runId,
+        "Repository research found project facts. Waiting for every review decision.",
+        "candidate",
+      );
+      using review = createHook<{ reviewed: true }>({
+        token: `agent-run:${runId}:review:1`,
+      });
+      if (await hasPendingReviewCandidates(runId, 1)) await review;
+      if (!(await approvedProjectFactCandidateCount(runId))) {
+        return await finishDeniedProjectFactReview(runId);
+      }
+      await emitProgress(runId, "Fact review complete. Rebuilding the answer from approved memory.", "retrieval");
+      result = await answerProjectQuestion(runId, false);
     }
     await emitProgress(
       runId,

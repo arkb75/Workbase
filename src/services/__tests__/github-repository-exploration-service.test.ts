@@ -214,14 +214,50 @@ describe("githubRepositoryExplorationService", () => {
       sourceId: "source-1",
       budget,
     });
+    const thirdSession = await githubRepositoryExplorationService.start({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      sourceId: "source-1",
+      budget,
+    });
+    const fourthSession = await githubRepositoryExplorationService.start({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      sourceId: "source-1",
+      budget,
+    });
 
     await firstSession.listPaths();
-    await expect(secondSession.listPaths()).rejects.toMatchObject({
+    await secondSession.listPaths();
+    await thirdSession.listPaths();
+    await expect(fourthSession.listPaths()).rejects.toMatchObject({
       code: "budget_exhausted",
     });
     expect(firstSession.getUsage()).toEqual(secondSession.getUsage());
-    expect(budget.getUsage().treeLookups).toBe(1);
+    expect(budget.getUsage().treeLookups).toBe(3);
     expect(firstSession.snapshot.expiresAt).toBe(secondSession.snapshot.expiresAt);
+  });
+
+  it("does not charge model planning time to repository request timeouts", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-07-10T12:00:00.000Z"));
+      const session = await startSession();
+
+      // A high-effort planning call may take longer than the repository tool
+      // timeout. It must not consume the tool session before the first lookup.
+      vi.setSystemTime(new Date("2026-07-10T12:01:00.000Z"));
+      await expect(session.listPaths({ limit: 1 })).resolves.toMatchObject({
+        paths: [{ path: "docs/architecture.md" }],
+      });
+
+      vi.setSystemTime(new Date("2026-07-10T12:01:31.000Z"));
+      await expect(session.listPaths({ limit: 1 })).resolves.toMatchObject({
+        paths: [{ path: "docs/architecture.md" }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses code search only for hints and maps matches back to pinned tree blobs", async () => {
@@ -351,7 +387,9 @@ describe("githubRepositoryExplorationService", () => {
   });
 
   it("enforces the aggregate model-visible content budget", async () => {
-    const content = "a".repeat(githubRepositoryExplorationLimits.maxFileBytes);
+    const content = "a".repeat(
+      githubRepositoryExplorationLimits.maxVisibleBytes / 4,
+    );
     githubClientMocks.fetchGitHubTree.mockResolvedValue({
       sha: treeSha,
       url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,

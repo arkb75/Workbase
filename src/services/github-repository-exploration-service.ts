@@ -9,15 +9,16 @@ import {
 } from "@/src/services/github-client";
 
 export const githubRepositoryExplorationLimits = Object.freeze({
-  treeLookups: 1,
+  // The controller lists each of at most three selected repositories once.
+  treeLookups: 3,
   searches: 2,
   fileReads: 8,
   maxFileBytes: 256 * 1024,
-  maxVisibleBytes: 1024 * 1024,
+  maxVisibleBytes: 64 * 1024,
   maxPathChars: 500,
   timeoutMs: 30_000,
-  defaultPathLimit: 200,
-  maxPathLimit: 1_000,
+  defaultPathLimit: 100,
+  maxPathLimit: 200,
   defaultSearchLimit: 10,
   maxSearchLimit: 20,
 } as const);
@@ -282,7 +283,6 @@ interface LoadedTree {
 }
 
 interface ExplorationBudgetState {
-  deadlineAt: number;
   usage: GitHubRepositoryExplorationUsage;
   operationQueue: Promise<void>;
 }
@@ -293,8 +293,8 @@ const explorationBudgetStates = new WeakMap<
 >();
 
 function createExplorationBudget(): GitHubRepositoryExplorationBudget {
+  const nominalExpiresAt = Date.now() + githubRepositoryExplorationLimits.timeoutMs;
   const state: ExplorationBudgetState = {
-    deadlineAt: Date.now() + githubRepositoryExplorationLimits.timeoutMs,
     usage: {
       treeLookups: 0,
       searches: 0,
@@ -304,7 +304,7 @@ function createExplorationBudget(): GitHubRepositoryExplorationBudget {
     operationQueue: Promise.resolve(),
   };
   const budget: GitHubRepositoryExplorationBudget = {
-    expiresAt: new Date(state.deadlineAt).toISOString(),
+    expiresAt: new Date(nominalExpiresAt).toISOString(),
     getUsage: () => ({ ...state.usage }),
   };
 
@@ -607,18 +607,10 @@ function createSession(input: {
 
   const usageSnapshot = () => ({ ...input.budgetState.usage });
 
-  const remainingSignal = () => {
-    const remaining = input.budgetState.deadlineAt - Date.now();
-
-    if (remaining <= 0) {
-      throw new GitHubRepositoryExplorationError(
-        "session_expired",
-        "The bounded repository exploration session has expired.",
-      );
-    }
-
-    return AbortSignal.timeout(remaining);
-  };
+  // Bound active GitHub I/O rather than Bedrock's planning time between calls.
+  // Count, byte, and agent budgets still bound the complete research pass.
+  const remainingSignal = () =>
+    AbortSignal.timeout(githubRepositoryExplorationLimits.timeoutMs);
 
   const ensureTree = async () => {
     remainingSignal();
@@ -1085,22 +1077,13 @@ export const githubRepositoryExplorationService = {
       );
     }
 
-    const remaining = budgetState.deadlineAt - Date.now();
-
-    if (remaining <= 0) {
-      throw new GitHubRepositoryExplorationError(
-        "session_expired",
-        "The bounded repository exploration session has expired.",
-      );
-    }
-
     const requestedRef = parsedInput.data.ref ?? repository.defaultBranch;
     const commit = await resolveGitHubCommit({
       token,
       owner: repository.owner,
       repo: repository.name,
       ref: requestedRef,
-      signal: AbortSignal.timeout(remaining),
+      signal: AbortSignal.timeout(githubRepositoryExplorationLimits.timeoutMs),
     });
 
     if (

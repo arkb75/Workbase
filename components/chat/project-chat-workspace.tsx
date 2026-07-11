@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatDateTime, titleCase } from "@/src/lib/utils";
+import { splitCitationText } from "@/src/services/chat-citation-service";
 
 export interface ChatWorkspaceThread {
   id: string;
@@ -41,22 +42,31 @@ export interface ChatWorkspaceThread {
 
 export interface ChatWorkspaceCitation {
   id: string;
-  kind: "highlight" | "evidence" | "artifact" | "github_file";
+  kind: "highlight" | "project_fact" | "evidence" | "artifact" | "github_file";
   label: string;
   excerpt: string;
   url?: string | null;
   path?: string | null;
   commitSha?: string | null;
   highlightId?: string | null;
+  projectFactId?: string | null;
   evidenceItemId?: string | null;
   artifactId?: string | null;
+  provenance: Array<{
+    id: string;
+    title: string;
+    excerpt: string;
+    path?: string | null;
+    commitSha?: string | null;
+    url?: string | null;
+  }>;
 }
 
 export interface ChatWorkspaceMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  status: "pending" | "streaming" | "completed" | "failed" | "cancelled";
+  status: "pending" | "streaming" | "awaiting_review" | "completed" | "failed" | "cancelled";
   createdAt: string;
   citations: ChatWorkspaceCitation[];
 }
@@ -72,7 +82,7 @@ export interface ChatWorkspaceEvent {
 export interface ChatWorkspaceCandidate {
   id: string;
   runId: string;
-  kind: "new_highlight" | "revision";
+  kind: "new_highlight" | "revision" | "project_fact" | "project_fact_revision";
   status: "pending" | "approved" | "denied";
   text: string;
   summary: string;
@@ -85,6 +95,8 @@ export interface ChatWorkspaceCandidate {
   missingInfo: string | null;
   tags: string[];
   verificationNotes: string | null;
+  category: "architecture" | "behavior" | "data_flow" | "code_location" | "dependency" | "configuration" | null;
+  partial: boolean;
 }
 
 export interface ChatWorkspaceRun {
@@ -120,6 +132,8 @@ function citationHref(citation: ChatWorkspaceCitation, workItemId: string) {
     citation.url ??
     (citation.highlightId
       ? `/work-items/${workItemId}?tab=highlights`
+      : citation.projectFactId
+        ? `/work-items/${workItemId}?tab=highlights#project-facts`
       : citation.evidenceItemId
         ? `/work-items/${workItemId}?tab=sources`
         : citation.artifactId
@@ -128,7 +142,7 @@ function citationHref(citation: ChatWorkspaceCitation, workItemId: string) {
   );
 }
 
-function MessageContent({
+export function MessageContent({
   content,
   citations,
   workItemId,
@@ -139,30 +153,45 @@ function MessageContent({
 }) {
   return (
     <div className="whitespace-pre-wrap">
-      {content.split(/(\[citation:\d+\])/gi).map((part, index) => {
-        const match = /^\[citation:(\d+)\]$/i.exec(part);
-        if (!match) return <span key={`${index}-${part.slice(0, 12)}`}>{part}</span>;
-        const ordinal = Number(match[1]);
-        const citation = citations[ordinal - 1];
-        if (!citation) return null;
-        const href = citationHref(citation, workItemId);
-        const chip = (
-          <span className="mx-0.5 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18">
-            {ordinal}
-          </span>
-        );
-        return href ? (
-          <a
-            key={`${index}-${citation.id}`}
-            href={href}
-            title={citation.label}
-            target={citation.url ? "_blank" : undefined}
-            rel={citation.url ? "noreferrer" : undefined}
+      {splitCitationText(content).map((segment, index) => {
+        if (segment.kind === "text") {
+          return <span key={`${index}-${segment.text.slice(0, 12)}`}>{segment.text}</span>;
+        }
+        const referenced = segment.ordinals.flatMap((ordinal) => {
+          const citation = citations[ordinal - 1];
+          return citation ? [{ ordinal, citation }] : [];
+        });
+        if (!referenced.length) return null;
+        return (
+          <span
+            key={`${index}-${referenced.map((entry) => entry.ordinal).join("-")}`}
+            aria-label={`Sources ${referenced.map((entry) => entry.ordinal).join(", ")}`}
+            className="mx-1 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18"
           >
-            {chip}
-          </a>
-        ) : (
-          <span key={`${index}-${citation.id}`} title={citation.label}>{chip}</span>
+            [
+            {referenced.map(({ ordinal, citation }, citationIndex) => {
+              const href = citationHref(citation, workItemId);
+              return (
+                <span key={citation.id}>
+                  {citationIndex ? ", " : ""}
+                  {href ? (
+                    <a
+                      href={href}
+                      title={citation.label}
+                      target={citation.url ? "_blank" : undefined}
+                      rel={citation.url ? "noreferrer" : undefined}
+                      className="hover:underline"
+                    >
+                      {ordinal}
+                    </a>
+                  ) : (
+                    <span title={citation.label}>{ordinal}</span>
+                  )}
+                </span>
+              );
+            })}
+            ]
+          </span>
         );
       })}
     </div>
@@ -208,6 +237,26 @@ function CitationList({
                   {citation.commitSha ? ` · ${citation.commitSha.slice(0, 8)}` : ""}
                 </p>
               ) : null}
+              {citation.kind === "project_fact" && citation.provenance.length ? (
+                <details className="mt-1 text-xs text-[color:var(--ink-muted)]">
+                  <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
+                    View underlying repository evidence
+                  </summary>
+                  <div className="mt-2 grid gap-2 border-l border-black/8 pl-3">
+                    {citation.provenance.map((entry) => (
+                      <div key={entry.id} className="grid gap-1">
+                        <span className="font-mono text-[10px]">
+                          {entry.path ?? entry.title}
+                          {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
+                        </span>
+                        <p className="line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
+                          {entry.excerpt}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </div>
           );
 
@@ -245,13 +294,20 @@ function CandidateCard({
     return null;
   }
 
+  const isProjectFact = candidate.kind === "project_fact" || candidate.kind === "project_fact_revision";
   return (
     <section className="my-5 overflow-hidden rounded-[24px] border border-[color:var(--accent)]/22 bg-[color:var(--accent-soft)]/45">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--accent)]/12 px-5 py-4">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[color:var(--accent)]" />
           <p className="text-sm font-semibold text-[color:var(--ink-strong)]">
-            {candidate.kind === "revision" ? "Suggested revision" : "New highlight candidate"}
+            {candidate.kind === "revision"
+              ? "Suggested highlight revision"
+              : candidate.kind === "project_fact_revision"
+                ? "Suggested project fact revision"
+                : candidate.kind === "project_fact"
+                  ? "New project fact"
+                  : "New highlight candidate"}
           </p>
         </div>
         <Badge tone="accent">Review required</Badge>
@@ -260,8 +316,10 @@ function CandidateCard({
         <p className="text-sm leading-6 text-[color:var(--ink-soft)]">{candidate.summary}</p>
         <div className="flex flex-wrap gap-2">
           <Badge>{candidate.confidence} confidence</Badge>
-          <Badge>{candidate.ownershipClarity} ownership</Badge>
-          <Badge>{candidate.visibility.replace(/_/g, " ")}</Badge>
+          {isProjectFact && candidate.category ? <Badge>{candidate.category.replace(/_/g, " ")}</Badge> : null}
+          {!isProjectFact ? <Badge>{candidate.ownershipClarity} ownership</Badge> : null}
+          {!isProjectFact ? <Badge>{candidate.visibility.replace(/_/g, " ")}</Badge> : <Badge>private project memory</Badge>}
+          {candidate.partial ? <Badge tone="warning">Partial research</Badge> : null}
           {candidate.sensitivityFlag ? <Badge tone="warning">Sensitive</Badge> : null}
           {candidate.tags.slice(0, 4).map((tag) => (
             <Badge key={`${candidate.id}-tag-${tag}`}>{tag.replace(/_/g, " ")}</Badge>
@@ -292,15 +350,26 @@ function CandidateCard({
               aria-label="Edit candidate before approval"
               className="min-h-24 bg-white/75 text-sm leading-6"
               minLength={10}
-              maxLength={240}
+              maxLength={isProjectFact ? 500 : 240}
             />
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <Select name="visibility" defaultValue={candidate.visibility} aria-label="Visibility">
-                <option value="private">Private</option>
-                <option value="resume_safe">Resume safe</option>
-                <option value="linkedin_safe">LinkedIn safe</option>
-                <option value="public_safe">Public safe</option>
-              </Select>
+              {isProjectFact ? (
+                <Select name="category" defaultValue={candidate.category ?? "architecture"} aria-label="Project fact category">
+                  <option value="architecture">Architecture</option>
+                  <option value="behavior">Behavior</option>
+                  <option value="data_flow">Data flow</option>
+                  <option value="code_location">Code location</option>
+                  <option value="dependency">Dependency</option>
+                  <option value="configuration">Configuration</option>
+                </Select>
+              ) : (
+                <Select name="visibility" defaultValue={candidate.visibility} aria-label="Visibility">
+                  <option value="private">Private</option>
+                  <option value="resume_safe">Resume safe</option>
+                  <option value="linkedin_safe">LinkedIn safe</option>
+                  <option value="public_safe">Public safe</option>
+                </Select>
+              )}
               <label className="flex items-center gap-2 text-xs text-[color:var(--ink-soft)]">
                 <input type="hidden" name="sensitivityFlagPresent" value="true" />
                 <input
@@ -331,7 +400,7 @@ function CandidateCard({
             <input type="hidden" name="decision" value="deny" />
             <Textarea
               name="feedback"
-              placeholder="Why should this be denied? Feedback focuses the final research pass."
+              placeholder={isProjectFact ? "Why should this fact be denied?" : "Why should this be denied? Feedback focuses the final research pass."}
               aria-label="Review feedback"
               className="min-h-24 bg-white/75 text-sm leading-6"
               maxLength={1000}
@@ -479,7 +548,7 @@ export function ProjectChatWorkspace({
           <div className="border-t border-black/7 p-4">
             <div className="flex items-start gap-2.5 text-xs leading-5 text-[color:var(--ink-muted)]">
               <BookOpenCheck className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--accent)]" />
-              <p>Verified highlights lead. Research is cited and repository access stays read-only.</p>
+              <p>Reviewed highlights and project facts lead. Repository evidence stays underneath them.</p>
             </div>
           </div>
         </aside>
@@ -570,6 +639,11 @@ export function ProjectChatWorkspace({
                           : "w-full border-l border-black/8 pl-5 text-[color:var(--ink-strong)]",
                       )}
                     >
+                      {message.status === "awaiting_review" ? (
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge tone="warning">Provisional · awaiting Project Fact review</Badge>
+                        </div>
+                      ) : null}
                       {message.status === "pending" && !message.content ? (
                         <span className="inline-flex items-center gap-2 text-[color:var(--ink-muted)]">
                           <LoaderCircle className="h-4 w-4 animate-spin" /> Thinking through the project…

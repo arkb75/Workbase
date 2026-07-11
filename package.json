@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "npm run db:prepare",
+    "prebuild": "prisma generate",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -11,7 +13,9 @@
     "test:watch": "vitest",
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
     "prisma:generate": "prisma generate",
+    "db:prepare": "prisma generate && prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill-chat-citations": "tsx --env-file=.env scripts/backfill-chat-citations.ts",
     "bedrock:preflight": "tsx scripts/bedrock-preflight.ts"
   },
   "dependencies": {

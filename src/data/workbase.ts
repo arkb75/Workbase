@@ -84,6 +84,15 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           },
         ],
       },
+      projectFacts: {
+        include: {
+          evidence: {
+            include: { evidenceItem: { include: { source: true } } },
+          },
+          supersedesProjectFact: true,
+        },
+        orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+      },
       highlightSuggestions: {
         where: {
           status: "pending",

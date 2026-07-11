@@ -52,6 +52,7 @@ export type ChatThreadCountAggregateOutputType = {
   workItemId: number
   title: number
   rollingSummary: number
+  conversationState: number
   archivedAt: number
   createdAt: number
   updatedAt: number
@@ -87,6 +88,7 @@ export type ChatThreadCountAggregateInputType = {
   workItemId?: true
   title?: true
   rollingSummary?: true
+  conversationState?: true
   archivedAt?: true
   createdAt?: true
   updatedAt?: true
@@ -171,6 +173,7 @@ export type ChatThreadGroupByOutputType = {
   workItemId: string
   title: string
   rollingSummary: string | null
+  conversationState: runtime.JsonValue | null
   archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -203,6 +206,7 @@ export type ChatThreadWhereInput = {
   workItemId?: Prisma.StringFilter<"ChatThread"> | string
   title?: Prisma.StringFilter<"ChatThread"> | string
   rollingSummary?: Prisma.StringNullableFilter<"ChatThread"> | string | null
+  conversationState?: Prisma.JsonNullableFilter<"ChatThread">
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatThread"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
@@ -218,6 +222,7 @@ export type ChatThreadOrderByWithRelationInput = {
   workItemId?: Prisma.SortOrder
   title?: Prisma.SortOrder
   rollingSummary?: Prisma.SortOrderInput | Prisma.SortOrder
+  conversationState?: Prisma.SortOrderInput | Prisma.SortOrder
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -236,6 +241,7 @@ export type ChatThreadWhereUniqueInput = Prisma.AtLeast<{
   workItemId?: Prisma.StringFilter<"ChatThread"> | string
   title?: Prisma.StringFilter<"ChatThread"> | string
   rollingSummary?: Prisma.StringNullableFilter<"ChatThread"> | string | null
+  conversationState?: Prisma.JsonNullableFilter<"ChatThread">
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatThread"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
@@ -251,6 +257,7 @@ export type ChatThreadOrderByWithAggregationInput = {
   workItemId?: Prisma.SortOrder
   title?: Prisma.SortOrder
   rollingSummary?: Prisma.SortOrderInput | Prisma.SortOrder
+  conversationState?: Prisma.SortOrderInput | Prisma.SortOrder
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -268,6 +275,7 @@ export type ChatThreadScalarWhereWithAggregatesInput = {
   workItemId?: Prisma.StringWithAggregatesFilter<"ChatThread"> | string
   title?: Prisma.StringWithAggregatesFilter<"ChatThread"> | string
   rollingSummary?: Prisma.StringNullableWithAggregatesFilter<"ChatThread"> | string | null
+  conversationState?: Prisma.JsonNullableWithAggregatesFilter<"ChatThread">
   archivedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ChatThread"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ChatThread"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"ChatThread"> | Date | string
@@ -277,6 +285,7 @@ export type ChatThreadCreateInput = {
   id?: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -292,6 +301,7 @@ export type ChatThreadUncheckedCreateInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -303,6 +313,7 @@ export type ChatThreadUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -318,6 +329,7 @@ export type ChatThreadUncheckedUpdateInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -331,6 +343,7 @@ export type ChatThreadCreateManyInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -340,6 +353,7 @@ export type ChatThreadUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -351,6 +365,7 @@ export type ChatThreadUncheckedUpdateManyInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -372,6 +387,7 @@ export type ChatThreadCountOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   title?: Prisma.SortOrder
   rollingSummary?: Prisma.SortOrder
+  conversationState?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -527,6 +543,7 @@ export type ChatThreadCreateWithoutUserInput = {
   id?: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -540,6 +557,7 @@ export type ChatThreadUncheckedCreateWithoutUserInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -582,6 +600,7 @@ export type ChatThreadScalarWhereInput = {
   workItemId?: Prisma.StringFilter<"ChatThread"> | string
   title?: Prisma.StringFilter<"ChatThread"> | string
   rollingSummary?: Prisma.StringNullableFilter<"ChatThread"> | string | null
+  conversationState?: Prisma.JsonNullableFilter<"ChatThread">
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatThread"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ChatThread"> | Date | string
@@ -591,6 +610,7 @@ export type ChatThreadCreateWithoutWorkItemInput = {
   id?: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -604,6 +624,7 @@ export type ChatThreadUncheckedCreateWithoutWorkItemInput = {
   userId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -641,6 +662,7 @@ export type ChatThreadCreateWithoutMessagesInput = {
   id?: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -655,6 +677,7 @@ export type ChatThreadUncheckedCreateWithoutMessagesInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -681,6 +704,7 @@ export type ChatThreadUpdateWithoutMessagesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -695,6 +719,7 @@ export type ChatThreadUncheckedUpdateWithoutMessagesInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -705,6 +730,7 @@ export type ChatThreadCreateWithoutAgentRunsInput = {
   id?: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -719,6 +745,7 @@ export type ChatThreadUncheckedCreateWithoutAgentRunsInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -745,6 +772,7 @@ export type ChatThreadUpdateWithoutAgentRunsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -759,6 +787,7 @@ export type ChatThreadUncheckedUpdateWithoutAgentRunsInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -770,6 +799,7 @@ export type ChatThreadCreateManyUserInput = {
   workItemId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -779,6 +809,7 @@ export type ChatThreadUpdateWithoutUserInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -792,6 +823,7 @@ export type ChatThreadUncheckedUpdateWithoutUserInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -804,6 +836,7 @@ export type ChatThreadUncheckedUpdateManyWithoutUserInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -814,6 +847,7 @@ export type ChatThreadCreateManyWorkItemInput = {
   userId: string
   title: string
   rollingSummary?: string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -823,6 +857,7 @@ export type ChatThreadUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -836,6 +871,7 @@ export type ChatThreadUncheckedUpdateWithoutWorkItemInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -848,6 +884,7 @@ export type ChatThreadUncheckedUpdateManyWithoutWorkItemInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
   rollingSummary?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  conversationState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -899,6 +936,7 @@ export type ChatThreadSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   workItemId?: boolean
   title?: boolean
   rollingSummary?: boolean
+  conversationState?: boolean
   archivedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -915,6 +953,7 @@ export type ChatThreadSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   workItemId?: boolean
   title?: boolean
   rollingSummary?: boolean
+  conversationState?: boolean
   archivedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -928,6 +967,7 @@ export type ChatThreadSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   workItemId?: boolean
   title?: boolean
   rollingSummary?: boolean
+  conversationState?: boolean
   archivedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -941,12 +981,13 @@ export type ChatThreadSelectScalar = {
   workItemId?: boolean
   title?: boolean
   rollingSummary?: boolean
+  conversationState?: boolean
   archivedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ChatThreadOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "title" | "rollingSummary" | "archivedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["chatThread"]>
+export type ChatThreadOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "title" | "rollingSummary" | "conversationState" | "archivedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["chatThread"]>
 export type ChatThreadInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -977,6 +1018,7 @@ export type $ChatThreadPayload<ExtArgs extends runtime.Types.Extensions.Internal
     workItemId: string
     title: string
     rollingSummary: string | null
+    conversationState: runtime.JsonValue | null
     archivedAt: Date | null
     createdAt: Date
     updatedAt: Date
@@ -1412,6 +1454,7 @@ export interface ChatThreadFieldRefs {
   readonly workItemId: Prisma.FieldRef<"ChatThread", 'String'>
   readonly title: Prisma.FieldRef<"ChatThread", 'String'>
   readonly rollingSummary: Prisma.FieldRef<"ChatThread", 'String'>
+  readonly conversationState: Prisma.FieldRef<"ChatThread", 'Json'>
   readonly archivedAt: Prisma.FieldRef<"ChatThread", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"ChatThread", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"ChatThread", 'DateTime'>

@@ -44,6 +44,7 @@ export type ChatCitationMinAggregateOutputType = {
   kind: $Enums.ChatCitationKind | null
   ordinal: number | null
   highlightId: string | null
+  projectFactId: string | null
   evidenceItemId: string | null
   artifactId: string | null
   sourceId: string | null
@@ -66,6 +67,7 @@ export type ChatCitationMaxAggregateOutputType = {
   kind: $Enums.ChatCitationKind | null
   ordinal: number | null
   highlightId: string | null
+  projectFactId: string | null
   evidenceItemId: string | null
   artifactId: string | null
   sourceId: string | null
@@ -88,6 +90,7 @@ export type ChatCitationCountAggregateOutputType = {
   kind: number
   ordinal: number
   highlightId: number
+  projectFactId: number
   evidenceItemId: number
   artifactId: number
   sourceId: number
@@ -125,6 +128,7 @@ export type ChatCitationMinAggregateInputType = {
   kind?: true
   ordinal?: true
   highlightId?: true
+  projectFactId?: true
   evidenceItemId?: true
   artifactId?: true
   sourceId?: true
@@ -147,6 +151,7 @@ export type ChatCitationMaxAggregateInputType = {
   kind?: true
   ordinal?: true
   highlightId?: true
+  projectFactId?: true
   evidenceItemId?: true
   artifactId?: true
   sourceId?: true
@@ -169,6 +174,7 @@ export type ChatCitationCountAggregateInputType = {
   kind?: true
   ordinal?: true
   highlightId?: true
+  projectFactId?: true
   evidenceItemId?: true
   artifactId?: true
   sourceId?: true
@@ -279,6 +285,7 @@ export type ChatCitationGroupByOutputType = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId: string | null
+  projectFactId: string | null
   evidenceItemId: string | null
   artifactId: string | null
   sourceId: string | null
@@ -325,6 +332,7 @@ export type ChatCitationWhereInput = {
   kind?: Prisma.EnumChatCitationKindFilter<"ChatCitation"> | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFilter<"ChatCitation"> | number
   highlightId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   evidenceItemId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   artifactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   sourceId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
@@ -342,6 +350,7 @@ export type ChatCitationWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"ChatCitation"> | Date | string
   message?: Prisma.XOR<Prisma.ChatMessageScalarRelationFilter, Prisma.ChatMessageWhereInput>
   highlight?: Prisma.XOR<Prisma.HighlightNullableScalarRelationFilter, Prisma.HighlightWhereInput> | null
+  projectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   evidenceItem?: Prisma.XOR<Prisma.EvidenceItemNullableScalarRelationFilter, Prisma.EvidenceItemWhereInput> | null
   artifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
   source?: Prisma.XOR<Prisma.SourceNullableScalarRelationFilter, Prisma.SourceWhereInput> | null
@@ -353,6 +362,7 @@ export type ChatCitationOrderByWithRelationInput = {
   kind?: Prisma.SortOrder
   ordinal?: Prisma.SortOrder
   highlightId?: Prisma.SortOrderInput | Prisma.SortOrder
+  projectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrderInput | Prisma.SortOrder
   artifactId?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -370,6 +380,7 @@ export type ChatCitationOrderByWithRelationInput = {
   createdAt?: Prisma.SortOrder
   message?: Prisma.ChatMessageOrderByWithRelationInput
   highlight?: Prisma.HighlightOrderByWithRelationInput
+  projectFact?: Prisma.ProjectFactOrderByWithRelationInput
   evidenceItem?: Prisma.EvidenceItemOrderByWithRelationInput
   artifact?: Prisma.ArtifactOrderByWithRelationInput
   source?: Prisma.SourceOrderByWithRelationInput
@@ -385,6 +396,7 @@ export type ChatCitationWhereUniqueInput = Prisma.AtLeast<{
   kind?: Prisma.EnumChatCitationKindFilter<"ChatCitation"> | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFilter<"ChatCitation"> | number
   highlightId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   evidenceItemId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   artifactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   sourceId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
@@ -402,6 +414,7 @@ export type ChatCitationWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"ChatCitation"> | Date | string
   message?: Prisma.XOR<Prisma.ChatMessageScalarRelationFilter, Prisma.ChatMessageWhereInput>
   highlight?: Prisma.XOR<Prisma.HighlightNullableScalarRelationFilter, Prisma.HighlightWhereInput> | null
+  projectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   evidenceItem?: Prisma.XOR<Prisma.EvidenceItemNullableScalarRelationFilter, Prisma.EvidenceItemWhereInput> | null
   artifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
   source?: Prisma.XOR<Prisma.SourceNullableScalarRelationFilter, Prisma.SourceWhereInput> | null
@@ -413,6 +426,7 @@ export type ChatCitationOrderByWithAggregationInput = {
   kind?: Prisma.SortOrder
   ordinal?: Prisma.SortOrder
   highlightId?: Prisma.SortOrderInput | Prisma.SortOrder
+  projectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrderInput | Prisma.SortOrder
   artifactId?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -444,6 +458,7 @@ export type ChatCitationScalarWhereWithAggregatesInput = {
   kind?: Prisma.EnumChatCitationKindWithAggregatesFilter<"ChatCitation"> | $Enums.ChatCitationKind
   ordinal?: Prisma.IntWithAggregatesFilter<"ChatCitation"> | number
   highlightId?: Prisma.StringNullableWithAggregatesFilter<"ChatCitation"> | string | null
+  projectFactId?: Prisma.StringNullableWithAggregatesFilter<"ChatCitation"> | string | null
   evidenceItemId?: Prisma.StringNullableWithAggregatesFilter<"ChatCitation"> | string | null
   artifactId?: Prisma.StringNullableWithAggregatesFilter<"ChatCitation"> | string | null
   sourceId?: Prisma.StringNullableWithAggregatesFilter<"ChatCitation"> | string | null
@@ -479,6 +494,7 @@ export type ChatCitationCreateInput = {
   createdAt?: Date | string
   message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
   evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
   source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
@@ -490,6 +506,7 @@ export type ChatCitationUncheckedCreateInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -525,6 +542,7 @@ export type ChatCitationUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
   source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
@@ -536,6 +554,7 @@ export type ChatCitationUncheckedUpdateInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -559,6 +578,7 @@ export type ChatCitationCreateManyInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -600,6 +620,7 @@ export type ChatCitationUncheckedUpdateManyInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -638,6 +659,7 @@ export type ChatCitationCountOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   ordinal?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
   sourceId?: Prisma.SortOrder
@@ -667,6 +689,7 @@ export type ChatCitationMaxOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   ordinal?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
   sourceId?: Prisma.SortOrder
@@ -689,6 +712,7 @@ export type ChatCitationMinOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   ordinal?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
   sourceId?: Prisma.SortOrder
@@ -837,6 +861,48 @@ export type ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput = {
   deleteMany?: Prisma.ChatCitationScalarWhereInput | Prisma.ChatCitationScalarWhereInput[]
 }
 
+export type ChatCitationCreateNestedManyWithoutProjectFactInput = {
+  create?: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput> | Prisma.ChatCitationCreateWithoutProjectFactInput[] | Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput | Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput[]
+  createMany?: Prisma.ChatCitationCreateManyProjectFactInputEnvelope
+  connect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+}
+
+export type ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput = {
+  create?: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput> | Prisma.ChatCitationCreateWithoutProjectFactInput[] | Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput | Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput[]
+  createMany?: Prisma.ChatCitationCreateManyProjectFactInputEnvelope
+  connect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+}
+
+export type ChatCitationUpdateManyWithoutProjectFactNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput> | Prisma.ChatCitationCreateWithoutProjectFactInput[] | Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput | Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput[]
+  upsert?: Prisma.ChatCitationUpsertWithWhereUniqueWithoutProjectFactInput | Prisma.ChatCitationUpsertWithWhereUniqueWithoutProjectFactInput[]
+  createMany?: Prisma.ChatCitationCreateManyProjectFactInputEnvelope
+  set?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  disconnect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  delete?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  connect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  update?: Prisma.ChatCitationUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.ChatCitationUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.ChatCitationUpdateManyWithWhereWithoutProjectFactInput | Prisma.ChatCitationUpdateManyWithWhereWithoutProjectFactInput[]
+  deleteMany?: Prisma.ChatCitationScalarWhereInput | Prisma.ChatCitationScalarWhereInput[]
+}
+
+export type ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput> | Prisma.ChatCitationCreateWithoutProjectFactInput[] | Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput | Prisma.ChatCitationCreateOrConnectWithoutProjectFactInput[]
+  upsert?: Prisma.ChatCitationUpsertWithWhereUniqueWithoutProjectFactInput | Prisma.ChatCitationUpsertWithWhereUniqueWithoutProjectFactInput[]
+  createMany?: Prisma.ChatCitationCreateManyProjectFactInputEnvelope
+  set?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  disconnect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  delete?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  connect?: Prisma.ChatCitationWhereUniqueInput | Prisma.ChatCitationWhereUniqueInput[]
+  update?: Prisma.ChatCitationUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.ChatCitationUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.ChatCitationUpdateManyWithWhereWithoutProjectFactInput | Prisma.ChatCitationUpdateManyWithWhereWithoutProjectFactInput[]
+  deleteMany?: Prisma.ChatCitationScalarWhereInput | Prisma.ChatCitationScalarWhereInput[]
+}
+
 export type ChatCitationCreateNestedManyWithoutArtifactInput = {
   create?: Prisma.XOR<Prisma.ChatCitationCreateWithoutArtifactInput, Prisma.ChatCitationUncheckedCreateWithoutArtifactInput> | Prisma.ChatCitationCreateWithoutArtifactInput[] | Prisma.ChatCitationUncheckedCreateWithoutArtifactInput[]
   connectOrCreate?: Prisma.ChatCitationCreateOrConnectWithoutArtifactInput | Prisma.ChatCitationCreateOrConnectWithoutArtifactInput[]
@@ -943,6 +1009,7 @@ export type ChatCitationCreateWithoutSourceInput = {
   createdAt?: Date | string
   message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
   evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
 }
@@ -953,6 +1020,7 @@ export type ChatCitationUncheckedCreateWithoutSourceInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   label: string
@@ -1004,6 +1072,7 @@ export type ChatCitationScalarWhereInput = {
   kind?: Prisma.EnumChatCitationKindFilter<"ChatCitation"> | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFilter<"ChatCitation"> | number
   highlightId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   evidenceItemId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   artifactId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
   sourceId?: Prisma.StringNullableFilter<"ChatCitation"> | string | null
@@ -1039,6 +1108,7 @@ export type ChatCitationCreateWithoutEvidenceItemInput = {
   createdAt?: Date | string
   message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
   source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
 }
@@ -1049,6 +1119,7 @@ export type ChatCitationUncheckedCreateWithoutEvidenceItemInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   artifactId?: string | null
   sourceId?: string | null
   label: string
@@ -1108,6 +1179,7 @@ export type ChatCitationCreateWithoutHighlightInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
   evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
   source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
@@ -1118,6 +1190,7 @@ export type ChatCitationUncheckedCreateWithoutHighlightInput = {
   messageId: string
   kind: $Enums.ChatCitationKind
   ordinal: number
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -1161,7 +1234,7 @@ export type ChatCitationUpdateManyWithWhereWithoutHighlightInput = {
   data: Prisma.XOR<Prisma.ChatCitationUpdateManyMutationInput, Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightInput>
 }
 
-export type ChatCitationCreateWithoutArtifactInput = {
+export type ChatCitationCreateWithoutProjectFactInput = {
   id?: string
   kind: $Enums.ChatCitationKind
   ordinal: number
@@ -1180,6 +1253,79 @@ export type ChatCitationCreateWithoutArtifactInput = {
   message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
   evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
+  artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
+  source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
+}
+
+export type ChatCitationUncheckedCreateWithoutProjectFactInput = {
+  id?: string
+  messageId: string
+  kind: $Enums.ChatCitationKind
+  ordinal: number
+  highlightId?: string | null
+  evidenceItemId?: string | null
+  artifactId?: string | null
+  sourceId?: string | null
+  label: string
+  excerpt?: string | null
+  immutableUrl?: string | null
+  repository?: string | null
+  commitSha?: string | null
+  blobSha?: string | null
+  path?: string | null
+  startLine?: number | null
+  endLine?: number | null
+  contentHash?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+}
+
+export type ChatCitationCreateOrConnectWithoutProjectFactInput = {
+  where: Prisma.ChatCitationWhereUniqueInput
+  create: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput>
+}
+
+export type ChatCitationCreateManyProjectFactInputEnvelope = {
+  data: Prisma.ChatCitationCreateManyProjectFactInput | Prisma.ChatCitationCreateManyProjectFactInput[]
+  skipDuplicates?: boolean
+}
+
+export type ChatCitationUpsertWithWhereUniqueWithoutProjectFactInput = {
+  where: Prisma.ChatCitationWhereUniqueInput
+  update: Prisma.XOR<Prisma.ChatCitationUpdateWithoutProjectFactInput, Prisma.ChatCitationUncheckedUpdateWithoutProjectFactInput>
+  create: Prisma.XOR<Prisma.ChatCitationCreateWithoutProjectFactInput, Prisma.ChatCitationUncheckedCreateWithoutProjectFactInput>
+}
+
+export type ChatCitationUpdateWithWhereUniqueWithoutProjectFactInput = {
+  where: Prisma.ChatCitationWhereUniqueInput
+  data: Prisma.XOR<Prisma.ChatCitationUpdateWithoutProjectFactInput, Prisma.ChatCitationUncheckedUpdateWithoutProjectFactInput>
+}
+
+export type ChatCitationUpdateManyWithWhereWithoutProjectFactInput = {
+  where: Prisma.ChatCitationScalarWhereInput
+  data: Prisma.XOR<Prisma.ChatCitationUpdateManyMutationInput, Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactInput>
+}
+
+export type ChatCitationCreateWithoutArtifactInput = {
+  id?: string
+  kind: $Enums.ChatCitationKind
+  ordinal: number
+  label: string
+  excerpt?: string | null
+  immutableUrl?: string | null
+  repository?: string | null
+  commitSha?: string | null
+  blobSha?: string | null
+  path?: string | null
+  startLine?: number | null
+  endLine?: number | null
+  contentHash?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  message: Prisma.ChatMessageCreateNestedOneWithoutCitationsInput
+  highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
+  evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
   source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
 }
 
@@ -1189,6 +1335,7 @@ export type ChatCitationUncheckedCreateWithoutArtifactInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   sourceId?: string | null
   label: string
@@ -1248,6 +1395,7 @@ export type ChatCitationCreateWithoutMessageInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   highlight?: Prisma.HighlightCreateNestedOneWithoutChatCitationsInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutChatCitationsInput
   evidenceItem?: Prisma.EvidenceItemCreateNestedOneWithoutChatCitationsInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutChatCitationsInput
   source?: Prisma.SourceCreateNestedOneWithoutChatCitationsInput
@@ -1258,6 +1406,7 @@ export type ChatCitationUncheckedCreateWithoutMessageInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -1307,6 +1456,7 @@ export type ChatCitationCreateManySourceInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   label: string
@@ -1341,6 +1491,7 @@ export type ChatCitationUpdateWithoutSourceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
 }
@@ -1351,6 +1502,7 @@ export type ChatCitationUncheckedUpdateWithoutSourceInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1373,6 +1525,7 @@ export type ChatCitationUncheckedUpdateManyWithoutSourceInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1395,6 +1548,7 @@ export type ChatCitationCreateManyEvidenceItemInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   artifactId?: string | null
   sourceId?: string | null
   label: string
@@ -1429,6 +1583,7 @@ export type ChatCitationUpdateWithoutEvidenceItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
   source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
 }
@@ -1439,6 +1594,7 @@ export type ChatCitationUncheckedUpdateWithoutEvidenceItemInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1461,6 +1617,7 @@ export type ChatCitationUncheckedUpdateManyWithoutEvidenceItemInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1482,6 +1639,7 @@ export type ChatCitationCreateManyHighlightInput = {
   messageId: string
   kind: $Enums.ChatCitationKind
   ordinal: number
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -1516,6 +1674,7 @@ export type ChatCitationUpdateWithoutHighlightInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
   source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
@@ -1526,6 +1685,7 @@ export type ChatCitationUncheckedUpdateWithoutHighlightInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1548,6 +1708,99 @@ export type ChatCitationUncheckedUpdateManyWithoutHighlightInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  excerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  immutableUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repository?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  blobSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  path?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  endLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ChatCitationCreateManyProjectFactInput = {
+  id?: string
+  messageId: string
+  kind: $Enums.ChatCitationKind
+  ordinal: number
+  highlightId?: string | null
+  evidenceItemId?: string | null
+  artifactId?: string | null
+  sourceId?: string | null
+  label: string
+  excerpt?: string | null
+  immutableUrl?: string | null
+  repository?: string | null
+  commitSha?: string | null
+  blobSha?: string | null
+  path?: string | null
+  startLine?: number | null
+  endLine?: number | null
+  contentHash?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+}
+
+export type ChatCitationUpdateWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  excerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  immutableUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repository?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  blobSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  path?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  endLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
+  highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
+  artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
+  source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
+}
+
+export type ChatCitationUncheckedUpdateWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  messageId?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  excerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  immutableUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  repository?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  blobSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  path?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  endLine?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ChatCitationUncheckedUpdateManyWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  messageId?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1571,6 +1824,7 @@ export type ChatCitationCreateManyArtifactInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   sourceId?: string | null
   label: string
@@ -1605,6 +1859,7 @@ export type ChatCitationUpdateWithoutArtifactInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   message?: Prisma.ChatMessageUpdateOneRequiredWithoutCitationsNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
   source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
 }
@@ -1615,6 +1870,7 @@ export type ChatCitationUncheckedUpdateWithoutArtifactInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1637,6 +1893,7 @@ export type ChatCitationUncheckedUpdateManyWithoutArtifactInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   label?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1658,6 +1915,7 @@ export type ChatCitationCreateManyMessageInput = {
   kind: $Enums.ChatCitationKind
   ordinal: number
   highlightId?: string | null
+  projectFactId?: string | null
   evidenceItemId?: string | null
   artifactId?: string | null
   sourceId?: string | null
@@ -1692,6 +1950,7 @@ export type ChatCitationUpdateWithoutMessageInput = {
   metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlight?: Prisma.HighlightUpdateOneWithoutChatCitationsNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutChatCitationsNestedInput
   evidenceItem?: Prisma.EvidenceItemUpdateOneWithoutChatCitationsNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutChatCitationsNestedInput
   source?: Prisma.SourceUpdateOneWithoutChatCitationsNestedInput
@@ -1702,6 +1961,7 @@ export type ChatCitationUncheckedUpdateWithoutMessageInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1724,6 +1984,7 @@ export type ChatCitationUncheckedUpdateManyWithoutMessageInput = {
   kind?: Prisma.EnumChatCitationKindFieldUpdateOperationsInput | $Enums.ChatCitationKind
   ordinal?: Prisma.IntFieldUpdateOperationsInput | number
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evidenceItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   artifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1749,6 +2010,7 @@ export type ChatCitationSelect<ExtArgs extends runtime.Types.Extensions.Internal
   kind?: boolean
   ordinal?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   evidenceItemId?: boolean
   artifactId?: boolean
   sourceId?: boolean
@@ -1766,6 +2028,7 @@ export type ChatCitationSelect<ExtArgs extends runtime.Types.Extensions.Internal
   createdAt?: boolean
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1777,6 +2040,7 @@ export type ChatCitationSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   kind?: boolean
   ordinal?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   evidenceItemId?: boolean
   artifactId?: boolean
   sourceId?: boolean
@@ -1794,6 +2058,7 @@ export type ChatCitationSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   createdAt?: boolean
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1805,6 +2070,7 @@ export type ChatCitationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   kind?: boolean
   ordinal?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   evidenceItemId?: boolean
   artifactId?: boolean
   sourceId?: boolean
@@ -1822,6 +2088,7 @@ export type ChatCitationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   createdAt?: boolean
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1833,6 +2100,7 @@ export type ChatCitationSelectScalar = {
   kind?: boolean
   ordinal?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   evidenceItemId?: boolean
   artifactId?: boolean
   sourceId?: boolean
@@ -1850,10 +2118,11 @@ export type ChatCitationSelectScalar = {
   createdAt?: boolean
 }
 
-export type ChatCitationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "messageId" | "kind" | "ordinal" | "highlightId" | "evidenceItemId" | "artifactId" | "sourceId" | "label" | "excerpt" | "immutableUrl" | "repository" | "commitSha" | "blobSha" | "path" | "startLine" | "endLine" | "contentHash" | "metadata" | "createdAt", ExtArgs["result"]["chatCitation"]>
+export type ChatCitationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "messageId" | "kind" | "ordinal" | "highlightId" | "projectFactId" | "evidenceItemId" | "artifactId" | "sourceId" | "label" | "excerpt" | "immutableUrl" | "repository" | "commitSha" | "blobSha" | "path" | "startLine" | "endLine" | "contentHash" | "metadata" | "createdAt", ExtArgs["result"]["chatCitation"]>
 export type ChatCitationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1861,6 +2130,7 @@ export type ChatCitationInclude<ExtArgs extends runtime.Types.Extensions.Interna
 export type ChatCitationIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1868,6 +2138,7 @@ export type ChatCitationIncludeCreateManyAndReturn<ExtArgs extends runtime.Types
 export type ChatCitationIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   message?: boolean | Prisma.ChatMessageDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.ChatCitation$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.ChatCitation$projectFactArgs<ExtArgs>
   evidenceItem?: boolean | Prisma.ChatCitation$evidenceItemArgs<ExtArgs>
   artifact?: boolean | Prisma.ChatCitation$artifactArgs<ExtArgs>
   source?: boolean | Prisma.ChatCitation$sourceArgs<ExtArgs>
@@ -1878,6 +2149,7 @@ export type $ChatCitationPayload<ExtArgs extends runtime.Types.Extensions.Intern
   objects: {
     message: Prisma.$ChatMessagePayload<ExtArgs>
     highlight: Prisma.$HighlightPayload<ExtArgs> | null
+    projectFact: Prisma.$ProjectFactPayload<ExtArgs> | null
     evidenceItem: Prisma.$EvidenceItemPayload<ExtArgs> | null
     artifact: Prisma.$ArtifactPayload<ExtArgs> | null
     source: Prisma.$SourcePayload<ExtArgs> | null
@@ -1888,6 +2160,7 @@ export type $ChatCitationPayload<ExtArgs extends runtime.Types.Extensions.Intern
     kind: $Enums.ChatCitationKind
     ordinal: number
     highlightId: string | null
+    projectFactId: string | null
     evidenceItemId: string | null
     artifactId: string | null
     sourceId: string | null
@@ -2299,6 +2572,7 @@ export interface Prisma__ChatCitationClient<T, Null = never, ExtArgs extends run
   readonly [Symbol.toStringTag]: "PrismaPromise"
   message<T extends Prisma.ChatMessageDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatMessageDefaultArgs<ExtArgs>>): Prisma.Prisma__ChatMessageClient<runtime.Types.Result.GetResult<Prisma.$ChatMessagePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   highlight<T extends Prisma.ChatCitation$highlightArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatCitation$highlightArgs<ExtArgs>>): Prisma.Prisma__HighlightClient<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  projectFact<T extends Prisma.ChatCitation$projectFactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatCitation$projectFactArgs<ExtArgs>>): Prisma.Prisma__ProjectFactClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   evidenceItem<T extends Prisma.ChatCitation$evidenceItemArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatCitation$evidenceItemArgs<ExtArgs>>): Prisma.Prisma__EvidenceItemClient<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   artifact<T extends Prisma.ChatCitation$artifactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatCitation$artifactArgs<ExtArgs>>): Prisma.Prisma__ArtifactClient<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   source<T extends Prisma.ChatCitation$sourceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatCitation$sourceArgs<ExtArgs>>): Prisma.Prisma__SourceClient<runtime.Types.Result.GetResult<Prisma.$SourcePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
@@ -2336,6 +2610,7 @@ export interface ChatCitationFieldRefs {
   readonly kind: Prisma.FieldRef<"ChatCitation", 'ChatCitationKind'>
   readonly ordinal: Prisma.FieldRef<"ChatCitation", 'Int'>
   readonly highlightId: Prisma.FieldRef<"ChatCitation", 'String'>
+  readonly projectFactId: Prisma.FieldRef<"ChatCitation", 'String'>
   readonly evidenceItemId: Prisma.FieldRef<"ChatCitation", 'String'>
   readonly artifactId: Prisma.FieldRef<"ChatCitation", 'String'>
   readonly sourceId: Prisma.FieldRef<"ChatCitation", 'String'>
@@ -2768,6 +3043,25 @@ export type ChatCitation$highlightArgs<ExtArgs extends runtime.Types.Extensions.
    */
   include?: Prisma.HighlightInclude<ExtArgs> | null
   where?: Prisma.HighlightWhereInput
+}
+
+/**
+ * ChatCitation.projectFact
+ */
+export type ChatCitation$projectFactArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ProjectFact
+   */
+  select?: Prisma.ProjectFactSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ProjectFact
+   */
+  omit?: Prisma.ProjectFactOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ProjectFactInclude<ExtArgs> | null
+  where?: Prisma.ProjectFactWhereInput
 }
 
 /**

@@ -13,16 +13,18 @@ export type ProjectKnowledgePurpose =
 
 export type ProjectKnowledgeAuthority =
   | "verified_highlight"
+  | "verified_project_fact"
   | "candidate_highlight"
   | "included_evidence"
   | "rejected_guidance"
   | "prior_artifact";
 
 export interface ProjectKnowledgeCitation {
-  kind: "highlight" | "evidence" | "artifact" | "github_file";
+  kind: "highlight" | "project_fact" | "evidence" | "artifact" | "github_file";
   label: string;
   excerpt: string;
   highlightId?: string;
+  projectFactId?: string;
   evidenceItemId?: string;
   artifactId?: string;
   sourceId?: string;
@@ -40,7 +42,7 @@ export interface ProjectKnowledgeCitation {
 
 export interface ProjectKnowledgeHit {
   id: string;
-  kind: "highlight" | "evidence" | "artifact";
+  kind: "highlight" | "project_fact" | "evidence" | "artifact";
   authority: ProjectKnowledgeAuthority;
   title: string;
   content: string;
@@ -56,12 +58,33 @@ export interface ProjectKnowledgeResult {
   purpose: ProjectKnowledgePurpose;
   hits: ProjectKnowledgeHit[];
   selectedHighlightIds: string[];
+  selectedProjectFactIds: string[];
   selectedEvidenceItemIds: string[];
   selectedArtifactIds: string[];
   warnings: string[];
 }
 
 export type ProjectResearchPurpose = "answer_question" | "discover_highlights";
+
+export type ProjectFactCategory =
+  | "architecture"
+  | "behavior"
+  | "data_flow"
+  | "code_location"
+  | "dependency"
+  | "configuration";
+
+export type ProjectFactStatus = "draft" | "approved" | "rejected" | "superseded";
+
+export interface ProjectFactDraft {
+  statement: string;
+  category: ProjectFactCategory;
+  confidence: "low" | "medium" | "high";
+  sensitivityFlag: boolean;
+  reviewNotes?: string | null;
+  citationIndexes: number[];
+  supersedesProjectFactId?: string | null;
+}
 
 export interface ProjectResearchFinding {
   statement: string;
@@ -71,7 +94,7 @@ export interface ProjectResearchFinding {
 }
 
 export interface ProjectResearchResult {
-  status: "answered" | "insufficient_context" | "failed";
+  status: "answered" | "awaiting_review" | "insufficient_context" | "failed";
   answer: string;
   findings: ProjectResearchFinding[];
   citations: ProjectKnowledgeCitation[];
@@ -79,6 +102,14 @@ export interface ProjectResearchResult {
   warnings: string[];
   candidateIds: string[];
   generationRunIds: string[];
+  partial: boolean;
+  exploredEvidence: ProjectKnowledgeCitation[];
+  coverage: {
+    planned: string[];
+    achieved: string[];
+    uninspected: string[];
+    omittedRepositories: string[];
+  } | null;
 }
 
 export interface NormalizedArtifactBrief {

@@ -38,6 +38,16 @@ export function buildArtifactEmbeddingText(input: {
   ).slice(0, 20_000);
 }
 
+export function buildProjectFactEmbeddingText(input: {
+  statement: string;
+  category: string;
+  reviewNotes?: string | null;
+}) {
+  return normalizeWhitespace(
+    [input.category.replace(/_/g, " "), input.statement, input.reviewNotes ?? ""].join("\n"),
+  ).slice(0, 20_000);
+}
+
 export async function upsertEvidenceEmbedding(input: {
   evidenceItemId: string;
   inputText: string;
@@ -86,7 +96,37 @@ export async function upsertArtifactEmbedding(input: {
   return embedding;
 }
 
+export async function upsertProjectFactEmbedding(input: {
+  projectFactId: string;
+  inputText: string;
+}) {
+  const embedding = await generateHighlightEmbedding(input.inputText);
+  const vectorLiteral = vectorToSqlLiteral(embedding.vector);
+
+  await prisma.$executeRaw`
+    INSERT INTO "ProjectFactEmbedding"
+      ("id", "projectFactId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "createdAt", "updatedAt")
+    VALUES
+      (${randomUUID()}, ${input.projectFactId}, ${embedding.modelId}, ${embedding.dimensions}, ${embedding.inputHash}, ${embedding.inputText}, CAST(${vectorLiteral} AS vector), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT ("projectFactId") DO UPDATE SET
+      "modelId" = EXCLUDED."modelId",
+      "dimensions" = EXCLUDED."dimensions",
+      "inputHash" = EXCLUDED."inputHash",
+      "inputText" = EXCLUDED."inputText",
+      "embedding" = EXCLUDED."embedding",
+      "updatedAt" = CURRENT_TIMESTAMP
+  `;
+
+  return embedding;
+}
+
 export async function ensureProjectKnowledgeEmbeddings(input: {
+  projectFacts: Array<{
+    id: string;
+    statement: string;
+    category: string;
+    reviewNotes?: string | null;
+  }>;
   evidenceItems: Array<{
     id: string;
     title: string;
@@ -112,13 +152,23 @@ export async function ensureProjectKnowledgeEmbeddings(input: {
       }),
     ]),
   );
+  const projectFactInputById = new Map(
+    input.projectFacts.map((fact) => [fact.id, buildProjectFactEmbeddingText(fact)]),
+  );
   const artifactInputById = new Map(
     input.artifacts.map((artifact) => [
       artifact.id,
       buildArtifactEmbeddingText(artifact),
     ]),
   );
-  const [evidenceRows, artifactRows] = await Promise.all([
+  const [projectFactRows, evidenceRows, artifactRows] = await Promise.all([
+    input.projectFacts.length
+      ? prisma.$queryRaw<Array<{ projectFactId: string; inputHash: string; modelId: string; dimensions: number }>>(Prisma.sql`
+          SELECT "projectFactId", "inputHash", "modelId", "dimensions"
+          FROM "ProjectFactEmbedding"
+          WHERE "projectFactId" IN (${Prisma.join(input.projectFacts.map((fact) => fact.id))})
+        `)
+      : Promise.resolve([]),
     input.evidenceItems.length
       ? prisma.$queryRaw<Array<{ evidenceItemId: string; inputHash: string; modelId: string; dimensions: number }>>(Prisma.sql`
           SELECT "evidenceItemId", "inputHash", "modelId", "dimensions"
@@ -134,6 +184,7 @@ export async function ensureProjectKnowledgeEmbeddings(input: {
         `)
       : Promise.resolve([]),
   ]);
+  const projectFactById = new Map(projectFactRows.map((row) => [row.projectFactId, row]));
   const evidenceById = new Map(evidenceRows.map((row) => [row.evidenceItemId, row]));
   const artifactById = new Map(artifactRows.map((row) => [row.artifactId, row]));
   const expectedIdentity = resolveCurrentHighlightEmbeddingIdentity();
@@ -143,6 +194,12 @@ export async function ensureProjectKnowledgeEmbeddings(input: {
     row.dimensions === expectedIdentity.dimensions;
 
   await Promise.allSettled([
+    ...input.projectFacts.flatMap((fact) => {
+      const inputText = projectFactInputById.get(fact.id) ?? "";
+      return isFresh(projectFactById.get(fact.id), inputText)
+        ? []
+        : [upsertProjectFactEmbedding({ projectFactId: fact.id, inputText })];
+    }),
     ...input.evidenceItems.flatMap((item) => {
       const inputText = evidenceInputById.get(item.id) ?? "";
       return isFresh(evidenceById.get(item.id), inputText)
@@ -166,7 +223,7 @@ export async function findNearestProjectKnowledge(input: {
   const embedding = await generateHighlightEmbedding(input.query);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
   const limit = input.limit ?? 30;
-  const [highlightRows, evidenceRows, artifactRows] = await Promise.all([
+  const [highlightRows, projectFactRows, evidenceRows, artifactRows] = await Promise.all([
     prisma.$queryRaw<Array<{ id: string; similarity: number }>>`
       SELECT "HighlightEmbedding"."highlightId" AS "id",
         (1 - ("HighlightEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)))::float8 AS "similarity"
@@ -174,6 +231,15 @@ export async function findNearestProjectKnowledge(input: {
       INNER JOIN "Claim" ON "Claim"."id" = "HighlightEmbedding"."highlightId"
       WHERE "Claim"."workItemId" = ${input.workItemId}
       ORDER BY "HighlightEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
+      LIMIT ${limit}
+    `,
+    prisma.$queryRaw<Array<{ id: string; similarity: number }>>`
+      SELECT "ProjectFactEmbedding"."projectFactId" AS "id",
+        (1 - ("ProjectFactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)))::float8 AS "similarity"
+      FROM "ProjectFactEmbedding"
+      INNER JOIN "ProjectFact" ON "ProjectFact"."id" = "ProjectFactEmbedding"."projectFactId"
+      WHERE "ProjectFact"."workItemId" = ${input.workItemId}
+      ORDER BY "ProjectFactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
     `,
     prisma.$queryRaw<Array<{ id: string; similarity: number }>>`
@@ -198,6 +264,7 @@ export async function findNearestProjectKnowledge(input: {
 
   return {
     highlights: new Map(highlightRows.map((row) => [row.id, Number(row.similarity)])),
+    projectFacts: new Map(projectFactRows.map((row) => [row.id, Number(row.similarity)])),
     evidence: new Map(evidenceRows.map((row) => [row.id, Number(row.similarity)])),
     artifacts: new Map(artifactRows.map((row) => [row.id, Number(row.similarity)])),
   };

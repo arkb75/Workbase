@@ -3,9 +3,40 @@ import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
+import { selectReferencedCitations } from "@/src/services/chat-citation-service";
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function citationRows(messageId: string, citations: ProjectKnowledgeCitation[]) {
+  return citations.map((citation, index) => ({
+    messageId,
+    kind: citation.kind,
+    ordinal: index + 1,
+    highlightId: citation.highlightId ?? null,
+    projectFactId: citation.projectFactId ?? null,
+    evidenceItemId: citation.evidenceItemId ?? null,
+    artifactId: citation.artifactId ?? null,
+    sourceId: citation.sourceId ?? null,
+    label: citation.label.slice(0, 300),
+    excerpt: citation.excerpt.slice(0, 2_000),
+    immutableUrl: citation.url ?? null,
+    repository: citation.repository ?? null,
+    commitSha: citation.commitSha ?? null,
+    blobSha: citation.blobSha ?? null,
+    path: citation.path ?? null,
+    startLine: citation.startLine ?? null,
+    endLine: citation.endLine ?? null,
+    contentHash: citation.contentHash ?? null,
+    metadata:
+      citation.redacted || citation.redactionCategories?.length
+        ? toInputJson({
+            redacted: citation.redacted ?? false,
+            redactionCategories: citation.redactionCategories ?? [],
+          })
+        : Prisma.JsonNull,
+  }));
 }
 
 export async function createProjectChatThread(input: {
@@ -244,12 +275,62 @@ export async function markAgentRunRunning(runId: string) {
   });
 }
 
+export async function markAgentRunAwaitingReview(input: {
+  runId: string;
+  content: string;
+  result: unknown;
+  citations: ProjectKnowledgeCitation[];
+}) {
+  const selected = selectReferencedCitations(input.content, input.citations);
+  await prisma.$transaction(async (tx) => {
+    const runs = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT "status"::text AS "status" FROM "AgentRun" WHERE "id" = ${input.runId} FOR UPDATE
+    `;
+    if (!runs[0] || !["queued", "running", "awaiting_review"].includes(runs[0].status)) return;
+    const message = await tx.chatMessage.findFirstOrThrow({
+      where: { agentRunId: input.runId, role: "assistant" },
+      orderBy: { sequence: "desc" },
+    });
+    await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
+    if (selected.citations.length) {
+      await tx.chatCitation.createMany({ data: citationRows(message.id, selected.citations) });
+    }
+    await tx.chatMessage.update({
+      where: { id: message.id },
+      data: {
+        content: selected.content,
+        status: "awaiting_review",
+        finalizedAt: null,
+        metadata: toInputJson({ provisional: true, originatingRunId: input.runId }),
+      },
+    });
+    await tx.agentRun.update({
+      where: { id: input.runId },
+      data: {
+        status: "awaiting_review",
+        result: toInputJson(input.result),
+        provisionalResult: toInputJson({
+          content: selected.content,
+          citations: selected.citations.map((citation, index) => ({
+            ordinal: index + 1,
+            kind: citation.kind,
+            label: citation.label,
+            projectFactId: citation.projectFactId ?? null,
+          })),
+          capturedAt: new Date().toISOString(),
+        }),
+      },
+    });
+  });
+}
+
 export async function completeAgentRun(input: {
   runId: string;
   content: string;
   result: unknown;
   citations?: ProjectKnowledgeCitation[];
 }) {
+  const selected = selectReferencedCitations(input.content, input.citations ?? []);
   await prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{ status: string }>>`
       SELECT "status"::text AS "status" FROM "AgentRun" WHERE "id" = ${input.runId} FOR UPDATE
@@ -266,58 +347,41 @@ export async function completeAgentRun(input: {
     });
     await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
 
-    if (input.citations?.length) {
-      await tx.chatCitation.createMany({
-        data: input.citations.slice(0, 20).map((citation, index) => ({
-          messageId: message.id,
-          kind: citation.kind,
-          ordinal: index + 1,
-          highlightId: citation.highlightId ?? null,
-          evidenceItemId: citation.evidenceItemId ?? null,
-          artifactId: citation.artifactId ?? null,
-          sourceId: citation.sourceId ?? null,
-          label: citation.label.slice(0, 300),
-          excerpt: citation.excerpt.slice(0, 2_000),
-          immutableUrl: citation.url ?? null,
-          repository: citation.repository ?? null,
-          commitSha: citation.commitSha ?? null,
-          blobSha: citation.blobSha ?? null,
-          path: citation.path ?? null,
-          startLine: citation.startLine ?? null,
-          endLine: citation.endLine ?? null,
-          contentHash: citation.contentHash ?? null,
-          metadata:
-            citation.redacted || citation.redactionCategories?.length
-              ? toInputJson({
-                  redacted: citation.redacted ?? false,
-                  redactionCategories: citation.redactionCategories ?? [],
-                })
-              : Prisma.JsonNull,
-        })),
-      });
+    if (selected.citations.length) {
+      await tx.chatCitation.createMany({ data: citationRows(message.id, selected.citations) });
     }
 
     await tx.chatMessage.update({
       where: { id: message.id },
       data: {
-        content: input.content,
+        content: selected.content,
         status: "completed",
+        finalizedAt: new Date(),
+        metadata: toInputJson({ provisional: false, originatingRunId: input.runId }),
       },
     });
-    const recentMessages = await tx.chatMessage.findMany({
+    const threadMessages = await tx.chatMessage.findMany({
       where: { threadId: message.threadId },
-      orderBy: { sequence: "desc" },
-      take: 8,
+      orderBy: { sequence: "asc" },
     });
+    const olderMessages = threadMessages.slice(0, Math.max(0, threadMessages.length - 12));
+    const rollingSummary = olderMessages
+      .map((entry) => `${entry.role}: ${entry.id === message.id ? selected.content : entry.content}`)
+      .join("\n");
     await tx.chatThread.update({
       where: { id: message.threadId },
       data: {
-        rollingSummary: recentMessages
-          .slice()
-          .reverse()
-          .map((entry) => `${entry.role}: ${entry.id === message.id ? input.content : entry.content}`)
-          .join("\n")
-          .slice(0, 6_000),
+        rollingSummary: rollingSummary ? rollingSummary.slice(-6_000) : null,
+        conversationState: toInputJson({
+          version: 1,
+          olderTurns: olderMessages.slice(-24).map((entry) => ({
+            messageId: entry.id,
+            role: entry.role,
+            summary: (entry.id === message.id ? selected.content : entry.content).slice(0, 800),
+          })),
+          lastCompletedRunId: input.runId,
+          updatedAt: new Date().toISOString(),
+        }),
       },
     });
     await tx.agentRun.update({
@@ -355,6 +419,7 @@ export async function failAgentRun(input: {
       data: {
         status: "failed",
         content: input.message,
+        finalizedAt: new Date(),
       },
     });
   });
@@ -390,7 +455,18 @@ export async function getProjectChatWorkspace(input: {
   const [messages, runs] = await Promise.all([
     prisma.chatMessage.findMany({
       where: { threadId: activeThread.id },
-      include: { citations: { orderBy: { ordinal: "asc" } } },
+      include: {
+        citations: {
+          orderBy: { ordinal: "asc" },
+          include: {
+            projectFact: {
+              include: {
+                evidence: { include: { evidenceItem: true } },
+              },
+            },
+          },
+        },
+      },
       orderBy: { sequence: "asc" },
     }),
     prisma.agentRun.findMany({
@@ -411,6 +487,12 @@ export async function getProjectChatWorkspace(input: {
               },
             },
             highlightSuggestion: true,
+            projectFact: {
+              include: {
+                evidence: { include: { evidenceItem: true } },
+                supersedesProjectFact: true,
+              },
+            },
           },
           orderBy: [{ batchNumber: "asc" }, { ordinal: "asc" }],
         },

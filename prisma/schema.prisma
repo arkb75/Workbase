@@ -61,6 +61,22 @@ enum VerificationStatus {
   rejected
 }
 
+enum ProjectFactCategory {
+  architecture
+  behavior
+  data_flow
+  code_location
+  dependency
+  configuration
+}
+
+enum ProjectFactStatus {
+  draft
+  approved
+  rejected
+  superseded
+}
+
 enum VisibilityLevel {
   private
   resume_safe
@@ -128,6 +144,7 @@ enum ChatMessageRole {
 enum ChatMessageStatus {
   queued
   running
+  awaiting_review
   completed
   failed
   cancelled
@@ -135,6 +152,7 @@ enum ChatMessageStatus {
 
 enum ChatCitationKind {
   highlight
+  project_fact
   evidence
   artifact
   github_file
@@ -168,6 +186,8 @@ enum AgentRunEventType {
 enum AgentRunCandidateKind {
   new_highlight
   highlight_revision
+  new_project_fact
+  project_fact_revision
 }
 
 enum AgentRunCandidateStatus {
@@ -205,6 +225,7 @@ model WorkItem {
   sources              Source[]
   evidenceItems        EvidenceItem[]
   highlights           Highlight[]
+  projectFacts         ProjectFact[]
   highlightSuggestions HighlightSuggestion[]
   artifacts            Artifact[]
   generationRuns       GenerationRun[]
@@ -259,6 +280,7 @@ model EvidenceItem {
   workItem           WorkItem                     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   source             Source                       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   highlightEvidence  HighlightEvidence[]
+  projectFactEvidence ProjectFactEvidence[]
   tags               EvidenceTag[]
   embedding          EvidenceEmbedding?
   chatCitations      ChatCitation[]
@@ -327,6 +349,60 @@ model HighlightEmbedding {
   updatedAt   DateTime                   @updatedAt
 
   @@index([highlightId])
+}
+
+model ProjectFact {
+  id                       String                 @id @default(cuid())
+  workItemId               String
+  statement                String
+  category                 ProjectFactCategory
+  confidence               ClaimConfidence
+  status                   ProjectFactStatus      @default(draft)
+  sensitivityFlag          Boolean                @default(false)
+  reviewNotes              String?
+  rejectionReason          String?
+  searchText               String
+  supersedesProjectFactId  String?
+  workItem                 WorkItem               @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  evidence                 ProjectFactEvidence[]
+  embedding                ProjectFactEmbedding?
+  chatCitations            ChatCitation[]
+  agentRunCandidates       AgentRunCandidate[]
+  supersedesProjectFact    ProjectFact?           @relation("ProjectFactSupersession", fields: [supersedesProjectFactId], references: [id], onDelete: SetNull)
+  supersededByProjectFacts ProjectFact[]           @relation("ProjectFactSupersession")
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  @@index([workItemId, status, updatedAt])
+  @@index([supersedesProjectFactId])
+}
+
+model ProjectFactEvidence {
+  id             String       @id @default(cuid())
+  projectFactId  String
+  evidenceItemId String
+  relevanceScore Float?
+  projectFact    ProjectFact  @relation(fields: [projectFactId], references: [id], onDelete: Cascade)
+  evidenceItem   EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([projectFactId, evidenceItemId])
+  @@index([evidenceItemId])
+}
+
+model ProjectFactEmbedding {
+  id            String                     @id @default(cuid())
+  projectFactId String                     @unique
+  modelId       String
+  dimensions    Int
+  inputHash     String
+  inputText     String
+  embedding     Unsupported("vector(512)")
+  projectFact   ProjectFact                @relation(fields: [projectFactId], references: [id], onDelete: Cascade)
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+
+  @@index([projectFactId])
 }
 
 model EvidenceEmbedding {
@@ -466,6 +542,7 @@ model ChatThread {
   workItemId     String
   title          String
   rollingSummary String?
+  conversationState Json?
   archivedAt     DateTime?
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   workItem       WorkItem      @relation(fields: [workItemId], references: [id], onDelete: Cascade)
@@ -486,6 +563,7 @@ model ChatMessage {
   status     ChatMessageStatus @default(completed)
   content    String
   metadata   Json?
+  finalizedAt DateTime?
   thread     ChatThread        @relation(fields: [threadId], references: [id], onDelete: Cascade)
   agentRun   AgentRun?         @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
   citations  ChatCitation[]
@@ -503,6 +581,7 @@ model ChatCitation {
   kind           ChatCitationKind
   ordinal        Int
   highlightId    String?
+  projectFactId  String?
   evidenceItemId String?
   artifactId     String?
   sourceId       String?
@@ -519,6 +598,7 @@ model ChatCitation {
   metadata       Json?
   message        ChatMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
   highlight      Highlight?       @relation(fields: [highlightId], references: [id], onDelete: SetNull)
+  projectFact    ProjectFact?     @relation(fields: [projectFactId], references: [id], onDelete: SetNull)
   evidenceItem   EvidenceItem?    @relation(fields: [evidenceItemId], references: [id], onDelete: SetNull)
   artifact       Artifact?        @relation(fields: [artifactId], references: [id], onDelete: SetNull)
   source         Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
@@ -526,6 +606,7 @@ model ChatCitation {
 
   @@unique([messageId, ordinal])
   @@index([highlightId])
+  @@index([projectFactId])
   @@index([evidenceItemId])
   @@index([artifactId])
   @@index([sourceId])
@@ -546,6 +627,10 @@ model AgentRun {
   attemptNumber  Int                 @default(0)
   result         Json?
   error          Json?
+  harnessVersion String              @default("v2")
+  environmentSnapshot Json?
+  researchState Json?
+  provisionalResult Json?
   startedAt      DateTime?
   finishedAt     DateTime?
   user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -586,6 +671,7 @@ model AgentRunCandidate {
   id                    String                  @id @default(cuid())
   agentRunId            String
   highlightId           String?
+  projectFactId         String?
   highlightSuggestionId String?
   kind                  AgentRunCandidateKind
   status                AgentRunCandidateStatus @default(pending)
@@ -597,6 +683,7 @@ model AgentRunCandidate {
   reviewedAt            DateTime?
   agentRun              AgentRun                @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
   highlight             Highlight?              @relation(fields: [highlightId], references: [id], onDelete: SetNull)
+  projectFact           ProjectFact?            @relation(fields: [projectFactId], references: [id], onDelete: SetNull)
   highlightSuggestion   HighlightSuggestion?    @relation(fields: [highlightSuggestionId], references: [id], onDelete: SetNull)
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
@@ -604,6 +691,7 @@ model AgentRunCandidate {
   @@unique([agentRunId, batchNumber, ordinal])
   @@index([agentRunId, status, batchNumber])
   @@index([highlightId])
+  @@index([projectFactId])
   @@index([highlightSuggestionId])
 }
 

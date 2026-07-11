@@ -392,6 +392,9 @@ export const ModelName = {
   EvidenceTag: 'EvidenceTag',
   Highlight: 'Highlight',
   HighlightEmbedding: 'HighlightEmbedding',
+  ProjectFact: 'ProjectFact',
+  ProjectFactEvidence: 'ProjectFactEvidence',
+  ProjectFactEmbedding: 'ProjectFactEmbedding',
   EvidenceEmbedding: 'EvidenceEmbedding',
   HighlightSuggestion: 'HighlightSuggestion',
   HighlightEvidence: 'HighlightEvidence',
@@ -422,7 +425,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -999,6 +1002,212 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.HighlightEmbeddingCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.HighlightEmbeddingCountAggregateOutputType> | number
+        }
+      }
+    }
+    ProjectFact: {
+      payload: Prisma.$ProjectFactPayload<ExtArgs>
+      fields: Prisma.ProjectFactFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProjectFactFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProjectFactFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        findFirst: {
+          args: Prisma.ProjectFactFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProjectFactFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        findMany: {
+          args: Prisma.ProjectFactFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>[]
+        }
+        create: {
+          args: Prisma.ProjectFactCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        createMany: {
+          args: Prisma.ProjectFactCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ProjectFactCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>[]
+        }
+        delete: {
+          args: Prisma.ProjectFactDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        update: {
+          args: Prisma.ProjectFactUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        deleteMany: {
+          args: Prisma.ProjectFactDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProjectFactUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProjectFactUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>[]
+        }
+        upsert: {
+          args: Prisma.ProjectFactUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactPayload>
+        }
+        aggregate: {
+          args: Prisma.ProjectFactAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProjectFact>
+        }
+        groupBy: {
+          args: Prisma.ProjectFactGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProjectFactCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactCountAggregateOutputType> | number
+        }
+      }
+    }
+    ProjectFactEvidence: {
+      payload: Prisma.$ProjectFactEvidencePayload<ExtArgs>
+      fields: Prisma.ProjectFactEvidenceFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProjectFactEvidenceFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProjectFactEvidenceFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        findFirst: {
+          args: Prisma.ProjectFactEvidenceFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProjectFactEvidenceFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        findMany: {
+          args: Prisma.ProjectFactEvidenceFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>[]
+        }
+        create: {
+          args: Prisma.ProjectFactEvidenceCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        createMany: {
+          args: Prisma.ProjectFactEvidenceCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ProjectFactEvidenceCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>[]
+        }
+        delete: {
+          args: Prisma.ProjectFactEvidenceDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        update: {
+          args: Prisma.ProjectFactEvidenceUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        deleteMany: {
+          args: Prisma.ProjectFactEvidenceDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProjectFactEvidenceUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProjectFactEvidenceUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>[]
+        }
+        upsert: {
+          args: Prisma.ProjectFactEvidenceUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEvidencePayload>
+        }
+        aggregate: {
+          args: Prisma.ProjectFactEvidenceAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProjectFactEvidence>
+        }
+        groupBy: {
+          args: Prisma.ProjectFactEvidenceGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactEvidenceGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProjectFactEvidenceCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactEvidenceCountAggregateOutputType> | number
+        }
+      }
+    }
+    ProjectFactEmbedding: {
+      payload: Prisma.$ProjectFactEmbeddingPayload<ExtArgs>
+      fields: Prisma.ProjectFactEmbeddingFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProjectFactEmbeddingFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProjectFactEmbeddingFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>
+        }
+        findFirst: {
+          args: Prisma.ProjectFactEmbeddingFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProjectFactEmbeddingFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>
+        }
+        findMany: {
+          args: Prisma.ProjectFactEmbeddingFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>[]
+        }
+        delete: {
+          args: Prisma.ProjectFactEmbeddingDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>
+        }
+        update: {
+          args: Prisma.ProjectFactEmbeddingUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>
+        }
+        deleteMany: {
+          args: Prisma.ProjectFactEmbeddingDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProjectFactEmbeddingUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProjectFactEmbeddingUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectFactEmbeddingPayload>[]
+        }
+        aggregate: {
+          args: Prisma.ProjectFactEmbeddingAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProjectFactEmbedding>
+        }
+        groupBy: {
+          args: Prisma.ProjectFactEmbeddingGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactEmbeddingGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProjectFactEmbeddingCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectFactEmbeddingCountAggregateOutputType> | number
         }
       }
     }
@@ -2246,6 +2455,50 @@ export const HighlightEmbeddingScalarFieldEnum = {
 export type HighlightEmbeddingScalarFieldEnum = (typeof HighlightEmbeddingScalarFieldEnum)[keyof typeof HighlightEmbeddingScalarFieldEnum]
 
 
+export const ProjectFactScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  statement: 'statement',
+  category: 'category',
+  confidence: 'confidence',
+  status: 'status',
+  sensitivityFlag: 'sensitivityFlag',
+  reviewNotes: 'reviewNotes',
+  rejectionReason: 'rejectionReason',
+  searchText: 'searchText',
+  supersedesProjectFactId: 'supersedesProjectFactId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ProjectFactScalarFieldEnum = (typeof ProjectFactScalarFieldEnum)[keyof typeof ProjectFactScalarFieldEnum]
+
+
+export const ProjectFactEvidenceScalarFieldEnum = {
+  id: 'id',
+  projectFactId: 'projectFactId',
+  evidenceItemId: 'evidenceItemId',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectFactEvidenceScalarFieldEnum = (typeof ProjectFactEvidenceScalarFieldEnum)[keyof typeof ProjectFactEvidenceScalarFieldEnum]
+
+
+export const ProjectFactEmbeddingScalarFieldEnum = {
+  id: 'id',
+  projectFactId: 'projectFactId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ProjectFactEmbeddingScalarFieldEnum = (typeof ProjectFactEmbeddingScalarFieldEnum)[keyof typeof ProjectFactEmbeddingScalarFieldEnum]
+
+
 export const EvidenceEmbeddingScalarFieldEnum = {
   id: 'id',
   evidenceItemId: 'evidenceItemId',
@@ -2366,6 +2619,7 @@ export const ChatThreadScalarFieldEnum = {
   workItemId: 'workItemId',
   title: 'title',
   rollingSummary: 'rollingSummary',
+  conversationState: 'conversationState',
   archivedAt: 'archivedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -2383,6 +2637,7 @@ export const ChatMessageScalarFieldEnum = {
   status: 'status',
   content: 'content',
   metadata: 'metadata',
+  finalizedAt: 'finalizedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -2396,6 +2651,7 @@ export const ChatCitationScalarFieldEnum = {
   kind: 'kind',
   ordinal: 'ordinal',
   highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
   evidenceItemId: 'evidenceItemId',
   artifactId: 'artifactId',
   sourceId: 'sourceId',
@@ -2430,6 +2686,10 @@ export const AgentRunScalarFieldEnum = {
   attemptNumber: 'attemptNumber',
   result: 'result',
   error: 'error',
+  harnessVersion: 'harnessVersion',
+  environmentSnapshot: 'environmentSnapshot',
+  researchState: 'researchState',
+  provisionalResult: 'provisionalResult',
   startedAt: 'startedAt',
   finishedAt: 'finishedAt',
   createdAt: 'createdAt',
@@ -2458,6 +2718,7 @@ export const AgentRunCandidateScalarFieldEnum = {
   id: 'id',
   agentRunId: 'agentRunId',
   highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
   highlightSuggestionId: 'highlightSuggestionId',
   kind: 'kind',
   status: 'status',
@@ -2767,6 +3028,34 @@ export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel,
 
 
 /**
+ * Reference to a field of type 'ProjectFactCategory'
+ */
+export type EnumProjectFactCategoryFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectFactCategory'>
+    
+
+
+/**
+ * Reference to a field of type 'ProjectFactCategory[]'
+ */
+export type ListEnumProjectFactCategoryFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectFactCategory[]'>
+    
+
+
+/**
+ * Reference to a field of type 'ProjectFactStatus'
+ */
+export type EnumProjectFactStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectFactStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'ProjectFactStatus[]'
+ */
+export type ListEnumProjectFactStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectFactStatus[]'>
+    
+
+
+/**
  * Reference to a field of type 'HighlightSuggestionStatus'
  */
 export type EnumHighlightSuggestionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'HighlightSuggestionStatus'>
@@ -3064,6 +3353,9 @@ export type GlobalOmitConfig = {
   evidenceTag?: Prisma.EvidenceTagOmit
   highlight?: Prisma.HighlightOmit
   highlightEmbedding?: Prisma.HighlightEmbeddingOmit
+  projectFact?: Prisma.ProjectFactOmit
+  projectFactEvidence?: Prisma.ProjectFactEvidenceOmit
+  projectFactEmbedding?: Prisma.ProjectFactEmbeddingOmit
   evidenceEmbedding?: Prisma.EvidenceEmbeddingOmit
   highlightSuggestion?: Prisma.HighlightSuggestionOmit
   highlightEvidence?: Prisma.HighlightEvidenceOmit

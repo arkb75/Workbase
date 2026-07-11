@@ -11,8 +11,8 @@ export async function persistResearchAgentEvent(
       type: "tool_call",
       toolName: event.toolName,
       message:
-        event.toolName === "read_repository_file"
-          ? "Reading a pinned repository excerpt."
+        event.toolName === "read_repository_file" || event.toolName === "read_repository_files"
+          ? "Reading pinned repository excerpts."
           : event.toolName === "search_repository"
             ? "Searching an attached repository."
             : "Inspecting safe repository paths.",
@@ -26,6 +26,17 @@ export async function persistResearchAgentEvent(
   }
 
   if (event.type === "tool_call_completed") {
+    const errorCode =
+      event.output &&
+      typeof event.output === "object" &&
+      !Array.isArray(event.output) &&
+      "error" in event.output &&
+      event.output.error &&
+      typeof event.output.error === "object" &&
+      !Array.isArray(event.output.error) &&
+      "code" in event.output.error
+        ? String(event.output.error.code)
+        : null;
     await appendAgentRunEvent({
       runId,
       type: "tool_result",
@@ -36,6 +47,7 @@ export async function persistResearchAgentEvent(
         toolCall: event.toolCall,
         toolUseId: event.toolUseId,
         outcome: event.outcome,
+        ...(errorCode ? { errorCode } : {}),
         durationMs: event.durationMs,
       },
     });
@@ -55,6 +67,7 @@ export async function persistResearchAgentEvent(
             iteration: event.iteration,
             stopReason: event.stopReason,
             usage: event.usage,
+            aggregateUsage: event.aggregateUsage,
           }
         : { iteration: event.iteration },
     isUserVisible: false,

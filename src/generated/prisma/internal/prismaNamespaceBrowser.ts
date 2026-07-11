@@ -59,6 +59,9 @@ export const ModelName = {
   EvidenceTag: 'EvidenceTag',
   Highlight: 'Highlight',
   HighlightEmbedding: 'HighlightEmbedding',
+  ProjectFact: 'ProjectFact',
+  ProjectFactEvidence: 'ProjectFactEvidence',
+  ProjectFactEmbedding: 'ProjectFactEmbedding',
   EvidenceEmbedding: 'EvidenceEmbedding',
   HighlightSuggestion: 'HighlightSuggestion',
   HighlightEvidence: 'HighlightEvidence',
@@ -219,6 +222,50 @@ export const HighlightEmbeddingScalarFieldEnum = {
 export type HighlightEmbeddingScalarFieldEnum = (typeof HighlightEmbeddingScalarFieldEnum)[keyof typeof HighlightEmbeddingScalarFieldEnum]
 
 
+export const ProjectFactScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  statement: 'statement',
+  category: 'category',
+  confidence: 'confidence',
+  status: 'status',
+  sensitivityFlag: 'sensitivityFlag',
+  reviewNotes: 'reviewNotes',
+  rejectionReason: 'rejectionReason',
+  searchText: 'searchText',
+  supersedesProjectFactId: 'supersedesProjectFactId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ProjectFactScalarFieldEnum = (typeof ProjectFactScalarFieldEnum)[keyof typeof ProjectFactScalarFieldEnum]
+
+
+export const ProjectFactEvidenceScalarFieldEnum = {
+  id: 'id',
+  projectFactId: 'projectFactId',
+  evidenceItemId: 'evidenceItemId',
+  relevanceScore: 'relevanceScore',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectFactEvidenceScalarFieldEnum = (typeof ProjectFactEvidenceScalarFieldEnum)[keyof typeof ProjectFactEvidenceScalarFieldEnum]
+
+
+export const ProjectFactEmbeddingScalarFieldEnum = {
+  id: 'id',
+  projectFactId: 'projectFactId',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  inputHash: 'inputHash',
+  inputText: 'inputText',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ProjectFactEmbeddingScalarFieldEnum = (typeof ProjectFactEmbeddingScalarFieldEnum)[keyof typeof ProjectFactEmbeddingScalarFieldEnum]
+
+
 export const EvidenceEmbeddingScalarFieldEnum = {
   id: 'id',
   evidenceItemId: 'evidenceItemId',
@@ -339,6 +386,7 @@ export const ChatThreadScalarFieldEnum = {
   workItemId: 'workItemId',
   title: 'title',
   rollingSummary: 'rollingSummary',
+  conversationState: 'conversationState',
   archivedAt: 'archivedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -356,6 +404,7 @@ export const ChatMessageScalarFieldEnum = {
   status: 'status',
   content: 'content',
   metadata: 'metadata',
+  finalizedAt: 'finalizedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -369,6 +418,7 @@ export const ChatCitationScalarFieldEnum = {
   kind: 'kind',
   ordinal: 'ordinal',
   highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
   evidenceItemId: 'evidenceItemId',
   artifactId: 'artifactId',
   sourceId: 'sourceId',
@@ -403,6 +453,10 @@ export const AgentRunScalarFieldEnum = {
   attemptNumber: 'attemptNumber',
   result: 'result',
   error: 'error',
+  harnessVersion: 'harnessVersion',
+  environmentSnapshot: 'environmentSnapshot',
+  researchState: 'researchState',
+  provisionalResult: 'provisionalResult',
   startedAt: 'startedAt',
   finishedAt: 'finishedAt',
   createdAt: 'createdAt',
@@ -431,6 +485,7 @@ export const AgentRunCandidateScalarFieldEnum = {
   id: 'id',
   agentRunId: 'agentRunId',
   highlightId: 'highlightId',
+  projectFactId: 'projectFactId',
   highlightSuggestionId: 'highlightSuggestionId',
   kind: 'kind',
   status: 'status',

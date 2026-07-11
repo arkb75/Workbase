@@ -133,6 +133,8 @@ describe("BedrockConverseAgent", () => {
       messages: [userMessage()],
       maxTokens: 256,
       temperature: 0.2,
+      effort: "medium",
+      enablePromptCaching: true,
     });
 
     expect(result.text).toBe("The project uses verified highlights.");
@@ -148,8 +150,15 @@ describe("BedrockConverseAgent", () => {
     });
     expect(transport.calls[0]).toMatchObject({
       modelId: "us.anthropic.claude-sonnet-4-6",
-      system: [{ text: "Answer from project context." }],
-      inferenceConfig: { maxTokens: 256, temperature: 0.2 },
+      system: [
+        { text: "Answer from project context." },
+        { cachePoint: { type: "default" } },
+      ],
+      inferenceConfig: { maxTokens: 256, temperature: 1 },
+      additionalModelRequestFields: {
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium" },
+      },
     });
     expect(transport.calls[0]?.toolConfig).toBeUndefined();
   });
@@ -354,6 +363,33 @@ describe("BedrockConverseAgent", () => {
     expect(result.events).toContainEqual(
       expect.objectContaining({ outcome: "execution_error" }),
     );
+  });
+
+  it("preserves a safe typed tool error code without exposing its message", async () => {
+    const typedTool = defineBedrockConverseTool({
+      name: "repository_lookup",
+      description: "Fails with a safe repository error code.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute() {
+        throw Object.assign(new Error("token ghp_never-show-this"), {
+          code: "session_expired",
+        });
+      },
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [toolRequest({ id: "repo-1", name: "repository_lookup", input: {} })],
+      }),
+      assistantResponse({ stopReason: "end_turn", content: [{ text: "Recovered." }] }),
+    ]);
+
+    await agent.run({ messages: [userMessage()], tools: [typedTool] });
+
+    const serialized = JSON.stringify(transport.calls[1]?.messages?.[2]);
+    expect(serialized).toContain("session_expired");
+    expect(serialized).not.toContain("never-show-this");
   });
 
   it("reserves a response's tool calls before execution and enforces the call limit", async () => {

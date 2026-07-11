@@ -40,6 +40,7 @@ export type AgentRunCandidateMinAggregateOutputType = {
   id: string | null
   agentRunId: string | null
   highlightId: string | null
+  projectFactId: string | null
   highlightSuggestionId: string | null
   kind: $Enums.AgentRunCandidateKind | null
   status: $Enums.AgentRunCandidateStatus | null
@@ -56,6 +57,7 @@ export type AgentRunCandidateMaxAggregateOutputType = {
   id: string | null
   agentRunId: string | null
   highlightId: string | null
+  projectFactId: string | null
   highlightSuggestionId: string | null
   kind: $Enums.AgentRunCandidateKind | null
   status: $Enums.AgentRunCandidateStatus | null
@@ -72,6 +74,7 @@ export type AgentRunCandidateCountAggregateOutputType = {
   id: number
   agentRunId: number
   highlightId: number
+  projectFactId: number
   highlightSuggestionId: number
   kind: number
   status: number
@@ -101,6 +104,7 @@ export type AgentRunCandidateMinAggregateInputType = {
   id?: true
   agentRunId?: true
   highlightId?: true
+  projectFactId?: true
   highlightSuggestionId?: true
   kind?: true
   status?: true
@@ -117,6 +121,7 @@ export type AgentRunCandidateMaxAggregateInputType = {
   id?: true
   agentRunId?: true
   highlightId?: true
+  projectFactId?: true
   highlightSuggestionId?: true
   kind?: true
   status?: true
@@ -133,6 +138,7 @@ export type AgentRunCandidateCountAggregateInputType = {
   id?: true
   agentRunId?: true
   highlightId?: true
+  projectFactId?: true
   highlightSuggestionId?: true
   kind?: true
   status?: true
@@ -237,6 +243,7 @@ export type AgentRunCandidateGroupByOutputType = {
   id: string
   agentRunId: string
   highlightId: string | null
+  projectFactId: string | null
   highlightSuggestionId: string | null
   kind: $Enums.AgentRunCandidateKind
   status: $Enums.AgentRunCandidateStatus
@@ -277,6 +284,7 @@ export type AgentRunCandidateWhereInput = {
   id?: Prisma.StringFilter<"AgentRunCandidate"> | string
   agentRunId?: Prisma.StringFilter<"AgentRunCandidate"> | string
   highlightId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   highlightSuggestionId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateStatus
@@ -290,6 +298,7 @@ export type AgentRunCandidateWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"AgentRunCandidate"> | Date | string
   agentRun?: Prisma.XOR<Prisma.AgentRunScalarRelationFilter, Prisma.AgentRunWhereInput>
   highlight?: Prisma.XOR<Prisma.HighlightNullableScalarRelationFilter, Prisma.HighlightWhereInput> | null
+  projectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   highlightSuggestion?: Prisma.XOR<Prisma.HighlightSuggestionNullableScalarRelationFilter, Prisma.HighlightSuggestionWhereInput> | null
 }
 
@@ -297,6 +306,7 @@ export type AgentRunCandidateOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   agentRunId?: Prisma.SortOrder
   highlightId?: Prisma.SortOrderInput | Prisma.SortOrder
+  projectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
   highlightSuggestionId?: Prisma.SortOrderInput | Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
@@ -310,6 +320,7 @@ export type AgentRunCandidateOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   agentRun?: Prisma.AgentRunOrderByWithRelationInput
   highlight?: Prisma.HighlightOrderByWithRelationInput
+  projectFact?: Prisma.ProjectFactOrderByWithRelationInput
   highlightSuggestion?: Prisma.HighlightSuggestionOrderByWithRelationInput
 }
 
@@ -321,6 +332,7 @@ export type AgentRunCandidateWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.AgentRunCandidateWhereInput | Prisma.AgentRunCandidateWhereInput[]
   agentRunId?: Prisma.StringFilter<"AgentRunCandidate"> | string
   highlightId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   highlightSuggestionId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateStatus
@@ -334,6 +346,7 @@ export type AgentRunCandidateWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"AgentRunCandidate"> | Date | string
   agentRun?: Prisma.XOR<Prisma.AgentRunScalarRelationFilter, Prisma.AgentRunWhereInput>
   highlight?: Prisma.XOR<Prisma.HighlightNullableScalarRelationFilter, Prisma.HighlightWhereInput> | null
+  projectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
   highlightSuggestion?: Prisma.XOR<Prisma.HighlightSuggestionNullableScalarRelationFilter, Prisma.HighlightSuggestionWhereInput> | null
 }, "id" | "agentRunId_batchNumber_ordinal">
 
@@ -341,6 +354,7 @@ export type AgentRunCandidateOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   agentRunId?: Prisma.SortOrder
   highlightId?: Prisma.SortOrderInput | Prisma.SortOrder
+  projectFactId?: Prisma.SortOrderInput | Prisma.SortOrder
   highlightSuggestionId?: Prisma.SortOrderInput | Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
@@ -366,6 +380,7 @@ export type AgentRunCandidateScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"AgentRunCandidate"> | string
   agentRunId?: Prisma.StringWithAggregatesFilter<"AgentRunCandidate"> | string
   highlightId?: Prisma.StringNullableWithAggregatesFilter<"AgentRunCandidate"> | string | null
+  projectFactId?: Prisma.StringNullableWithAggregatesFilter<"AgentRunCandidate"> | string | null
   highlightSuggestionId?: Prisma.StringNullableWithAggregatesFilter<"AgentRunCandidate"> | string | null
   kind?: Prisma.EnumAgentRunCandidateKindWithAggregatesFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusWithAggregatesFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateStatus
@@ -393,6 +408,7 @@ export type AgentRunCandidateCreateInput = {
   updatedAt?: Date | string
   agentRun: Prisma.AgentRunCreateNestedOneWithoutCandidatesInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutAgentRunCandidatesInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutAgentRunCandidatesInput
   highlightSuggestion?: Prisma.HighlightSuggestionCreateNestedOneWithoutAgentRunCandidatesInput
 }
 
@@ -400,6 +416,7 @@ export type AgentRunCandidateUncheckedCreateInput = {
   id?: string
   agentRunId: string
   highlightId?: string | null
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -427,6 +444,7 @@ export type AgentRunCandidateUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   agentRun?: Prisma.AgentRunUpdateOneRequiredWithoutCandidatesNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutAgentRunCandidatesNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutAgentRunCandidatesNestedInput
   highlightSuggestion?: Prisma.HighlightSuggestionUpdateOneWithoutAgentRunCandidatesNestedInput
 }
 
@@ -434,6 +452,7 @@ export type AgentRunCandidateUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -451,6 +470,7 @@ export type AgentRunCandidateCreateManyInput = {
   id?: string
   agentRunId: string
   highlightId?: string | null
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -482,6 +502,7 @@ export type AgentRunCandidateUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -515,6 +536,7 @@ export type AgentRunCandidateCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   agentRunId?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   highlightSuggestionId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
@@ -537,6 +559,7 @@ export type AgentRunCandidateMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   agentRunId?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   highlightSuggestionId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
@@ -553,6 +576,7 @@ export type AgentRunCandidateMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   agentRunId?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  projectFactId?: Prisma.SortOrder
   highlightSuggestionId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
@@ -609,6 +633,48 @@ export type AgentRunCandidateUncheckedUpdateManyWithoutHighlightNestedInput = {
   connect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
   update?: Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutHighlightInput | Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutHighlightInput[]
   updateMany?: Prisma.AgentRunCandidateUpdateManyWithWhereWithoutHighlightInput | Prisma.AgentRunCandidateUpdateManyWithWhereWithoutHighlightInput[]
+  deleteMany?: Prisma.AgentRunCandidateScalarWhereInput | Prisma.AgentRunCandidateScalarWhereInput[]
+}
+
+export type AgentRunCandidateCreateNestedManyWithoutProjectFactInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput> | Prisma.AgentRunCandidateCreateWithoutProjectFactInput[] | Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput | Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput[]
+  createMany?: Prisma.AgentRunCandidateCreateManyProjectFactInputEnvelope
+  connect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+}
+
+export type AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput> | Prisma.AgentRunCandidateCreateWithoutProjectFactInput[] | Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput | Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput[]
+  createMany?: Prisma.AgentRunCandidateCreateManyProjectFactInputEnvelope
+  connect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+}
+
+export type AgentRunCandidateUpdateManyWithoutProjectFactNestedInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput> | Prisma.AgentRunCandidateCreateWithoutProjectFactInput[] | Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput | Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput[]
+  upsert?: Prisma.AgentRunCandidateUpsertWithWhereUniqueWithoutProjectFactInput | Prisma.AgentRunCandidateUpsertWithWhereUniqueWithoutProjectFactInput[]
+  createMany?: Prisma.AgentRunCandidateCreateManyProjectFactInputEnvelope
+  set?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  disconnect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  delete?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  connect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  update?: Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.AgentRunCandidateUpdateManyWithWhereWithoutProjectFactInput | Prisma.AgentRunCandidateUpdateManyWithWhereWithoutProjectFactInput[]
+  deleteMany?: Prisma.AgentRunCandidateScalarWhereInput | Prisma.AgentRunCandidateScalarWhereInput[]
+}
+
+export type AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput> | Prisma.AgentRunCandidateCreateWithoutProjectFactInput[] | Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput[]
+  connectOrCreate?: Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput | Prisma.AgentRunCandidateCreateOrConnectWithoutProjectFactInput[]
+  upsert?: Prisma.AgentRunCandidateUpsertWithWhereUniqueWithoutProjectFactInput | Prisma.AgentRunCandidateUpsertWithWhereUniqueWithoutProjectFactInput[]
+  createMany?: Prisma.AgentRunCandidateCreateManyProjectFactInputEnvelope
+  set?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  disconnect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  delete?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  connect?: Prisma.AgentRunCandidateWhereUniqueInput | Prisma.AgentRunCandidateWhereUniqueInput[]
+  update?: Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.AgentRunCandidateUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.AgentRunCandidateUpdateManyWithWhereWithoutProjectFactInput | Prisma.AgentRunCandidateUpdateManyWithWhereWithoutProjectFactInput[]
   deleteMany?: Prisma.AgentRunCandidateScalarWhereInput | Prisma.AgentRunCandidateScalarWhereInput[]
 }
 
@@ -717,12 +783,14 @@ export type AgentRunCandidateCreateWithoutHighlightInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   agentRun: Prisma.AgentRunCreateNestedOneWithoutCandidatesInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutAgentRunCandidatesInput
   highlightSuggestion?: Prisma.HighlightSuggestionCreateNestedOneWithoutAgentRunCandidatesInput
 }
 
 export type AgentRunCandidateUncheckedCreateWithoutHighlightInput = {
   id?: string
   agentRunId: string
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -769,6 +837,7 @@ export type AgentRunCandidateScalarWhereInput = {
   id?: Prisma.StringFilter<"AgentRunCandidate"> | string
   agentRunId?: Prisma.StringFilter<"AgentRunCandidate"> | string
   highlightId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
+  projectFactId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   highlightSuggestionId?: Prisma.StringNullableFilter<"AgentRunCandidate"> | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFilter<"AgentRunCandidate"> | $Enums.AgentRunCandidateStatus
@@ -780,6 +849,66 @@ export type AgentRunCandidateScalarWhereInput = {
   reviewedAt?: Prisma.DateTimeNullableFilter<"AgentRunCandidate"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"AgentRunCandidate"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"AgentRunCandidate"> | Date | string
+}
+
+export type AgentRunCandidateCreateWithoutProjectFactInput = {
+  id?: string
+  kind: $Enums.AgentRunCandidateKind
+  status?: $Enums.AgentRunCandidateStatus
+  batchNumber?: number
+  ordinal: number
+  snapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: string | null
+  feedback?: string | null
+  reviewedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  agentRun: Prisma.AgentRunCreateNestedOneWithoutCandidatesInput
+  highlight?: Prisma.HighlightCreateNestedOneWithoutAgentRunCandidatesInput
+  highlightSuggestion?: Prisma.HighlightSuggestionCreateNestedOneWithoutAgentRunCandidatesInput
+}
+
+export type AgentRunCandidateUncheckedCreateWithoutProjectFactInput = {
+  id?: string
+  agentRunId: string
+  highlightId?: string | null
+  highlightSuggestionId?: string | null
+  kind: $Enums.AgentRunCandidateKind
+  status?: $Enums.AgentRunCandidateStatus
+  batchNumber?: number
+  ordinal: number
+  snapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: string | null
+  feedback?: string | null
+  reviewedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type AgentRunCandidateCreateOrConnectWithoutProjectFactInput = {
+  where: Prisma.AgentRunCandidateWhereUniqueInput
+  create: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput>
+}
+
+export type AgentRunCandidateCreateManyProjectFactInputEnvelope = {
+  data: Prisma.AgentRunCandidateCreateManyProjectFactInput | Prisma.AgentRunCandidateCreateManyProjectFactInput[]
+  skipDuplicates?: boolean
+}
+
+export type AgentRunCandidateUpsertWithWhereUniqueWithoutProjectFactInput = {
+  where: Prisma.AgentRunCandidateWhereUniqueInput
+  update: Prisma.XOR<Prisma.AgentRunCandidateUpdateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedUpdateWithoutProjectFactInput>
+  create: Prisma.XOR<Prisma.AgentRunCandidateCreateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedCreateWithoutProjectFactInput>
+}
+
+export type AgentRunCandidateUpdateWithWhereUniqueWithoutProjectFactInput = {
+  where: Prisma.AgentRunCandidateWhereUniqueInput
+  data: Prisma.XOR<Prisma.AgentRunCandidateUpdateWithoutProjectFactInput, Prisma.AgentRunCandidateUncheckedUpdateWithoutProjectFactInput>
+}
+
+export type AgentRunCandidateUpdateManyWithWhereWithoutProjectFactInput = {
+  where: Prisma.AgentRunCandidateScalarWhereInput
+  data: Prisma.XOR<Prisma.AgentRunCandidateUpdateManyMutationInput, Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactInput>
 }
 
 export type AgentRunCandidateCreateWithoutHighlightSuggestionInput = {
@@ -796,12 +925,14 @@ export type AgentRunCandidateCreateWithoutHighlightSuggestionInput = {
   updatedAt?: Date | string
   agentRun: Prisma.AgentRunCreateNestedOneWithoutCandidatesInput
   highlight?: Prisma.HighlightCreateNestedOneWithoutAgentRunCandidatesInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutAgentRunCandidatesInput
 }
 
 export type AgentRunCandidateUncheckedCreateWithoutHighlightSuggestionInput = {
   id?: string
   agentRunId: string
   highlightId?: string | null
+  projectFactId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
   batchNumber?: number
@@ -853,12 +984,14 @@ export type AgentRunCandidateCreateWithoutAgentRunInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   highlight?: Prisma.HighlightCreateNestedOneWithoutAgentRunCandidatesInput
+  projectFact?: Prisma.ProjectFactCreateNestedOneWithoutAgentRunCandidatesInput
   highlightSuggestion?: Prisma.HighlightSuggestionCreateNestedOneWithoutAgentRunCandidatesInput
 }
 
 export type AgentRunCandidateUncheckedCreateWithoutAgentRunInput = {
   id?: string
   highlightId?: string | null
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -901,6 +1034,7 @@ export type AgentRunCandidateUpdateManyWithWhereWithoutAgentRunInput = {
 export type AgentRunCandidateCreateManyHighlightInput = {
   id?: string
   agentRunId: string
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -927,12 +1061,14 @@ export type AgentRunCandidateUpdateWithoutHighlightInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   agentRun?: Prisma.AgentRunUpdateOneRequiredWithoutCandidatesNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutAgentRunCandidatesNestedInput
   highlightSuggestion?: Prisma.HighlightSuggestionUpdateOneWithoutAgentRunCandidatesNestedInput
 }
 
 export type AgentRunCandidateUncheckedUpdateWithoutHighlightInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -949,6 +1085,75 @@ export type AgentRunCandidateUncheckedUpdateWithoutHighlightInput = {
 export type AgentRunCandidateUncheckedUpdateManyWithoutHighlightInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
+  status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
+  batchNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  snapshot?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  feedback?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  reviewedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type AgentRunCandidateCreateManyProjectFactInput = {
+  id?: string
+  agentRunId: string
+  highlightId?: string | null
+  highlightSuggestionId?: string | null
+  kind: $Enums.AgentRunCandidateKind
+  status?: $Enums.AgentRunCandidateStatus
+  batchNumber?: number
+  ordinal: number
+  snapshot: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: string | null
+  feedback?: string | null
+  reviewedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type AgentRunCandidateUpdateWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
+  status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
+  batchNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  snapshot?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  feedback?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  reviewedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  agentRun?: Prisma.AgentRunUpdateOneRequiredWithoutCandidatesNestedInput
+  highlight?: Prisma.HighlightUpdateOneWithoutAgentRunCandidatesNestedInput
+  highlightSuggestion?: Prisma.HighlightSuggestionUpdateOneWithoutAgentRunCandidatesNestedInput
+}
+
+export type AgentRunCandidateUncheckedUpdateWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
+  highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
+  status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
+  batchNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  ordinal?: Prisma.IntFieldUpdateOperationsInput | number
+  snapshot?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  editedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  feedback?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  reviewedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type AgentRunCandidateUncheckedUpdateManyWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
+  highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -966,6 +1171,7 @@ export type AgentRunCandidateCreateManyHighlightSuggestionInput = {
   id?: string
   agentRunId: string
   highlightId?: string | null
+  projectFactId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
   batchNumber?: number
@@ -992,12 +1198,14 @@ export type AgentRunCandidateUpdateWithoutHighlightSuggestionInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   agentRun?: Prisma.AgentRunUpdateOneRequiredWithoutCandidatesNestedInput
   highlight?: Prisma.HighlightUpdateOneWithoutAgentRunCandidatesNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutAgentRunCandidatesNestedInput
 }
 
 export type AgentRunCandidateUncheckedUpdateWithoutHighlightSuggestionInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
   batchNumber?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1014,6 +1222,7 @@ export type AgentRunCandidateUncheckedUpdateManyWithoutHighlightSuggestionInput 
   id?: Prisma.StringFieldUpdateOperationsInput | string
   agentRunId?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
   batchNumber?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1029,6 +1238,7 @@ export type AgentRunCandidateUncheckedUpdateManyWithoutHighlightSuggestionInput 
 export type AgentRunCandidateCreateManyAgentRunInput = {
   id?: string
   highlightId?: string | null
+  projectFactId?: string | null
   highlightSuggestionId?: string | null
   kind: $Enums.AgentRunCandidateKind
   status?: $Enums.AgentRunCandidateStatus
@@ -1055,12 +1265,14 @@ export type AgentRunCandidateUpdateWithoutAgentRunInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   highlight?: Prisma.HighlightUpdateOneWithoutAgentRunCandidatesNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneWithoutAgentRunCandidatesNestedInput
   highlightSuggestion?: Prisma.HighlightSuggestionUpdateOneWithoutAgentRunCandidatesNestedInput
 }
 
 export type AgentRunCandidateUncheckedUpdateWithoutAgentRunInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -1077,6 +1289,7 @@ export type AgentRunCandidateUncheckedUpdateWithoutAgentRunInput = {
 export type AgentRunCandidateUncheckedUpdateManyWithoutAgentRunInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectFactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   highlightSuggestionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kind?: Prisma.EnumAgentRunCandidateKindFieldUpdateOperationsInput | $Enums.AgentRunCandidateKind
   status?: Prisma.EnumAgentRunCandidateStatusFieldUpdateOperationsInput | $Enums.AgentRunCandidateStatus
@@ -1096,6 +1309,7 @@ export type AgentRunCandidateSelect<ExtArgs extends runtime.Types.Extensions.Int
   id?: boolean
   agentRunId?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   highlightSuggestionId?: boolean
   kind?: boolean
   status?: boolean
@@ -1109,6 +1323,7 @@ export type AgentRunCandidateSelect<ExtArgs extends runtime.Types.Extensions.Int
   updatedAt?: boolean
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }, ExtArgs["result"]["agentRunCandidate"]>
 
@@ -1116,6 +1331,7 @@ export type AgentRunCandidateSelectCreateManyAndReturn<ExtArgs extends runtime.T
   id?: boolean
   agentRunId?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   highlightSuggestionId?: boolean
   kind?: boolean
   status?: boolean
@@ -1129,6 +1345,7 @@ export type AgentRunCandidateSelectCreateManyAndReturn<ExtArgs extends runtime.T
   updatedAt?: boolean
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }, ExtArgs["result"]["agentRunCandidate"]>
 
@@ -1136,6 +1353,7 @@ export type AgentRunCandidateSelectUpdateManyAndReturn<ExtArgs extends runtime.T
   id?: boolean
   agentRunId?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   highlightSuggestionId?: boolean
   kind?: boolean
   status?: boolean
@@ -1149,6 +1367,7 @@ export type AgentRunCandidateSelectUpdateManyAndReturn<ExtArgs extends runtime.T
   updatedAt?: boolean
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }, ExtArgs["result"]["agentRunCandidate"]>
 
@@ -1156,6 +1375,7 @@ export type AgentRunCandidateSelectScalar = {
   id?: boolean
   agentRunId?: boolean
   highlightId?: boolean
+  projectFactId?: boolean
   highlightSuggestionId?: boolean
   kind?: boolean
   status?: boolean
@@ -1169,20 +1389,23 @@ export type AgentRunCandidateSelectScalar = {
   updatedAt?: boolean
 }
 
-export type AgentRunCandidateOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "agentRunId" | "highlightId" | "highlightSuggestionId" | "kind" | "status" | "batchNumber" | "ordinal" | "snapshot" | "editedText" | "feedback" | "reviewedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRunCandidate"]>
+export type AgentRunCandidateOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "agentRunId" | "highlightId" | "projectFactId" | "highlightSuggestionId" | "kind" | "status" | "batchNumber" | "ordinal" | "snapshot" | "editedText" | "feedback" | "reviewedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRunCandidate"]>
 export type AgentRunCandidateInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }
 export type AgentRunCandidateIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }
 export type AgentRunCandidateIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   agentRun?: boolean | Prisma.AgentRunDefaultArgs<ExtArgs>
   highlight?: boolean | Prisma.AgentRunCandidate$highlightArgs<ExtArgs>
+  projectFact?: boolean | Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>
   highlightSuggestion?: boolean | Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>
 }
 
@@ -1191,12 +1414,14 @@ export type $AgentRunCandidatePayload<ExtArgs extends runtime.Types.Extensions.I
   objects: {
     agentRun: Prisma.$AgentRunPayload<ExtArgs>
     highlight: Prisma.$HighlightPayload<ExtArgs> | null
+    projectFact: Prisma.$ProjectFactPayload<ExtArgs> | null
     highlightSuggestion: Prisma.$HighlightSuggestionPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     agentRunId: string
     highlightId: string | null
+    projectFactId: string | null
     highlightSuggestionId: string | null
     kind: $Enums.AgentRunCandidateKind
     status: $Enums.AgentRunCandidateStatus
@@ -1604,6 +1829,7 @@ export interface Prisma__AgentRunCandidateClient<T, Null = never, ExtArgs extend
   readonly [Symbol.toStringTag]: "PrismaPromise"
   agentRun<T extends Prisma.AgentRunDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRunDefaultArgs<ExtArgs>>): Prisma.Prisma__AgentRunClient<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   highlight<T extends Prisma.AgentRunCandidate$highlightArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRunCandidate$highlightArgs<ExtArgs>>): Prisma.Prisma__HighlightClient<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  projectFact<T extends Prisma.AgentRunCandidate$projectFactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRunCandidate$projectFactArgs<ExtArgs>>): Prisma.Prisma__ProjectFactClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   highlightSuggestion<T extends Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRunCandidate$highlightSuggestionArgs<ExtArgs>>): Prisma.Prisma__HighlightSuggestionClient<runtime.Types.Result.GetResult<Prisma.$HighlightSuggestionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1637,6 +1863,7 @@ export interface AgentRunCandidateFieldRefs {
   readonly id: Prisma.FieldRef<"AgentRunCandidate", 'String'>
   readonly agentRunId: Prisma.FieldRef<"AgentRunCandidate", 'String'>
   readonly highlightId: Prisma.FieldRef<"AgentRunCandidate", 'String'>
+  readonly projectFactId: Prisma.FieldRef<"AgentRunCandidate", 'String'>
   readonly highlightSuggestionId: Prisma.FieldRef<"AgentRunCandidate", 'String'>
   readonly kind: Prisma.FieldRef<"AgentRunCandidate", 'AgentRunCandidateKind'>
   readonly status: Prisma.FieldRef<"AgentRunCandidate", 'AgentRunCandidateStatus'>
@@ -2065,6 +2292,25 @@ export type AgentRunCandidate$highlightArgs<ExtArgs extends runtime.Types.Extens
    */
   include?: Prisma.HighlightInclude<ExtArgs> | null
   where?: Prisma.HighlightWhereInput
+}
+
+/**
+ * AgentRunCandidate.projectFact
+ */
+export type AgentRunCandidate$projectFactArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ProjectFact
+   */
+  select?: Prisma.ProjectFactSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ProjectFact
+   */
+  omit?: Prisma.ProjectFactOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ProjectFactInclude<ExtArgs> | null
+  where?: Prisma.ProjectFactWhereInput
 }
 
 /**

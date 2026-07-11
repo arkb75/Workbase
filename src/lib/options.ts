@@ -77,6 +77,18 @@ export const verificationStatusOptions = [
 export type VerificationStatus =
   (typeof verificationStatusOptions)[number]["value"];
 
+export const projectFactCategoryOptions = [
+  { value: "architecture", label: "Architecture" },
+  { value: "behavior", label: "Behavior" },
+  { value: "data_flow", label: "Data flow" },
+  { value: "code_location", label: "Code location" },
+  { value: "dependency", label: "Dependency" },
+  { value: "configuration", label: "Configuration" },
+] as const;
+
+export type ProjectFactCategory =
+  (typeof projectFactCategoryOptions)[number]["value"];
+
 export const visibilityOptions = [
   { value: "private", label: "Private" },
   { value: "resume_safe", label: "Resume-safe" },

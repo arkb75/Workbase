@@ -41,25 +41,19 @@ cp .env.example .env
 3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
 4. Add the GitHub OAuth App and encryption settings from `.env.example`
 
-5. Generate the Prisma client
+5. Generate the Prisma client and apply committed migrations
 
 ```bash
-npm run prisma:generate
+npm run db:prepare
 ```
 
-6. Apply the schema to your database
-
-```bash
-npx prisma migrate deploy
-```
-
-7. Seed the demo workspace
+6. Seed the demo workspace
 
 ```bash
 npm run db:seed
 ```
 
-8. Start the app
+7. Start the app
 
 ```bash
 npm run dev
@@ -74,6 +68,7 @@ npm run dev
 npm run lint
 npx tsc --noEmit
 npm run test
+npm run db:prepare
 ```
 
 ## Included routes

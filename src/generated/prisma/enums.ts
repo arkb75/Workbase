@@ -87,6 +87,28 @@ export const VerificationStatus = {
 export type VerificationStatus = (typeof VerificationStatus)[keyof typeof VerificationStatus]
 
 
+export const ProjectFactCategory = {
+  architecture: 'architecture',
+  behavior: 'behavior',
+  data_flow: 'data_flow',
+  code_location: 'code_location',
+  dependency: 'dependency',
+  configuration: 'configuration'
+} as const
+
+export type ProjectFactCategory = (typeof ProjectFactCategory)[keyof typeof ProjectFactCategory]
+
+
+export const ProjectFactStatus = {
+  draft: 'draft',
+  approved: 'approved',
+  rejected: 'rejected',
+  superseded: 'superseded'
+} as const
+
+export type ProjectFactStatus = (typeof ProjectFactStatus)[keyof typeof ProjectFactStatus]
+
+
 export const VisibilityLevel = {
   private: 'private',
   resume_safe: 'resume_safe',
@@ -181,6 +203,7 @@ export type ChatMessageRole = (typeof ChatMessageRole)[keyof typeof ChatMessageR
 export const ChatMessageStatus = {
   queued: 'queued',
   running: 'running',
+  awaiting_review: 'awaiting_review',
   completed: 'completed',
   failed: 'failed',
   cancelled: 'cancelled'
@@ -191,6 +214,7 @@ export type ChatMessageStatus = (typeof ChatMessageStatus)[keyof typeof ChatMess
 
 export const ChatCitationKind = {
   highlight: 'highlight',
+  project_fact: 'project_fact',
   evidence: 'evidence',
   artifact: 'artifact',
   github_file: 'github_file'
@@ -235,7 +259,9 @@ export type AgentRunEventType = (typeof AgentRunEventType)[keyof typeof AgentRun
 
 export const AgentRunCandidateKind = {
   new_highlight: 'new_highlight',
-  highlight_revision: 'highlight_revision'
+  highlight_revision: 'highlight_revision',
+  new_project_fact: 'new_project_fact',
+  project_fact_revision: 'project_fact_revision'
 } as const
 
 export type AgentRunCandidateKind = (typeof AgentRunCandidateKind)[keyof typeof AgentRunCandidateKind]

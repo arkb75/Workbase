@@ -53,20 +53,33 @@ async function main() {
     region,
     credentials: fromIni({ profile }),
   });
+  const cachePrimer = Array.from(
+    { length: 180 },
+    () => "Workbase verifies grounded multi-turn project chat, reviewed facts, bounded tools, and immutable provenance.",
+  ).join(" ");
   const converse = await runtime.send(
     new ConverseCommand({
       modelId: matchingProfile.inferenceProfileId,
+      system: [{ text: cachePrimer }, { cachePoint: { type: "default" } }],
       messages: [{ role: "user", content: [{ text: "Run the capability check." }] }],
-      inferenceConfig: { maxTokens: 32, temperature: 0 },
+      inferenceConfig: { maxTokens: 256, temperature: 0 },
       toolConfig: {
         tools: [
           {
             toolSpec: {
               name: "workbase_capability_check",
               description: "Return a successful tool-use capability check.",
-              inputSchema: { json: { type: "object", properties: {} } },
+              inputSchema: {
+                json: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false,
+                },
+              },
+              strict: true,
             },
           },
+          { cachePoint: { type: "default" } },
         ],
         toolChoice: { tool: { name: "workbase_capability_check" } },
       },
@@ -77,7 +90,42 @@ async function main() {
     throw new Error("The configured Bedrock model did not return a Converse tool-use block.");
   }
 
-  console.info("Bedrock preflight passed, including Converse tool use.");
+  const structured = await runtime.send(
+    new ConverseCommand({
+      modelId: matchingProfile.inferenceProfileId,
+      messages: [{ role: "user", content: [{ text: "Return the capability status." }] }],
+      inferenceConfig: { maxTokens: 256, temperature: 1 },
+      additionalModelRequestFields: {
+        thinking: { type: "adaptive" },
+        output_config: { effort: "high" },
+      },
+      outputConfig: {
+        textFormat: {
+          type: "json_schema",
+          structure: {
+            jsonSchema: {
+              name: "workbase_preflight",
+              description: "Structured Bedrock capability result.",
+              schema: JSON.stringify({
+                type: "object",
+                additionalProperties: false,
+                required: ["status"],
+                properties: { status: { type: "string", enum: ["ok"] } },
+              }),
+            },
+          },
+        },
+      },
+    }),
+  );
+  const structuredText = structured.output?.message?.content
+    ?.flatMap((block) => ("text" in block && block.text ? [block.text] : []))
+    .join("");
+  if (!structuredText || JSON.parse(structuredText).status !== "ok") {
+    throw new Error("The configured Bedrock model did not return valid structured output.");
+  }
+
+  console.info("Bedrock preflight passed, including adaptive effort, prompt caching, Converse tool use, and structured output.");
   console.info(
     JSON.stringify(
       {
