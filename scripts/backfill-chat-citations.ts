@@ -1,6 +1,11 @@
 import { prisma } from "../src/lib/prisma";
 
 const markerPattern = /\[citation:(\d+)\]/gi;
+const plainMarkerPattern = /\[(\d+)\]/g;
+
+function record(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
 
 function removeLegacyUncitedContext(content: string) {
   return content
@@ -15,16 +20,40 @@ function removeLegacyUncitedContext(content: string) {
 
 async function main() {
   const messages = await prisma.chatMessage.findMany({
-    where: { role: "assistant", citations: { some: {} } },
+    where: { role: "assistant", status: "completed" },
     include: { citations: { orderBy: { ordinal: "asc" } } },
   });
   let removed = 0;
   let updatedMessages = 0;
+  let unverifiableMessages = 0;
 
   for (const message of messages) {
+    const hasCanonicalMarkers = /\[citation:\d+\]/i.test(message.content);
+    const plainOrdinals = Array.from(message.content.matchAll(plainMarkerPattern)).map((match) => Number(match[1]));
+    if (!message.citations.length) {
+      if (hasCanonicalMarkers || plainOrdinals.length) {
+        await prisma.chatMessage.update({
+          where: { id: message.id },
+          data: {
+            metadata: {
+              ...record(message.metadata),
+              citationIntegrity: "legacy_unverifiable",
+              citationContractVersion: 1,
+              regenerateRecommended: true,
+            },
+          },
+        });
+        unverifiableMessages += 1;
+      }
+      continue;
+    }
+    const canNormalizePlainMarkers = !hasCanonicalMarkers && plainOrdinals.length > 0 && plainOrdinals.every((ordinal) => message.citations.some((citation) => citation.ordinal === ordinal));
+    const normalizedContent = canNormalizePlainMarkers
+      ? message.content.replace(plainMarkerPattern, (_marker, rawOrdinal: string) => `[citation:${rawOrdinal}]`)
+      : message.content;
     const referencedOrdinals = Array.from(
       new Set(
-        Array.from(message.content.matchAll(markerPattern))
+        Array.from(normalizedContent.matchAll(markerPattern))
           .map((match) => Number(match[1]))
           .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0),
       ),
@@ -35,7 +64,7 @@ async function main() {
     });
     const remap = new Map(selected.map((entry, index) => [entry.ordinal, index + 1]));
     const nextContent = removeLegacyUncitedContext(
-      message.content
+      normalizedContent
         .replace(markerPattern, (_marker, rawOrdinal: string) => {
           const ordinal = remap.get(Number(rawOrdinal));
           return ordinal ? `[citation:${ordinal}]` : "";
@@ -64,15 +93,26 @@ async function main() {
           data: { ordinal: index + 1 },
         });
       }
-      if (nextContent !== message.content) {
-        await tx.chatMessage.update({ where: { id: message.id }, data: { content: nextContent } });
+      if (nextContent !== message.content || canNormalizePlainMarkers) {
+        await tx.chatMessage.update({
+          where: { id: message.id },
+          data: {
+            content: nextContent,
+            metadata: {
+              ...record(message.metadata),
+              citationIntegrity: "verified",
+              citationContractVersion: 2,
+              renderVersion: 2,
+            },
+          },
+        });
       }
     });
     removed += deleteIds.length;
     if (deleteIds.length || nextContent !== message.content) updatedMessages += 1;
   }
 
-  console.info(`Backfilled ${updatedMessages} chat messages and removed ${removed} unused citations.`);
+  console.info(`Backfilled ${updatedMessages} chat messages, removed ${removed} unused citations, and flagged ${unverifiableMessages} unverifiable historical messages.`);
 }
 
 main()

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
-import { fallbackSubsystemSynthesis } from "@/src/services/repository-knowledge-synthesis-service";
+import {
+  derivedRepositoryKnowledgeLifecycleFact,
+  fallbackSubsystemSynthesis,
+} from "@/src/services/repository-knowledge-synthesis-service";
 
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
@@ -50,5 +53,25 @@ describe("repository synthesis limit fallback", () => {
 
     expect(result.facts[0]?.citationIndexes).toHaveLength(5);
     expect(result.facts[0]?.statement).toContain("citation, provenance");
+  });
+
+  it("retains the cross-file repository knowledge lifecycle as a ranked fact", () => {
+    const result = derivedRepositoryKnowledgeLifecycleFact([
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
+      entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
+      entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
+      entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
+    ]);
+
+    expect(result).toMatchObject({
+      category: "architecture",
+      confidence: "high",
+      productImportance: 5,
+      implementationBreadth: 5,
+      distinctiveness: 5,
+      citationIndexes: [1, 2, 3, 4, 5],
+    });
+    expect(result?.statement).toContain("end-to-end knowledge lifecycle");
   });
 });

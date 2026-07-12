@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import {
+  assertAnswerCitationContract,
+  CitationIntegrityError,
   dedupeCitationCatalog,
+  finalizeGroundedAnswer,
   selectReferencedCitations,
   splitCitationText,
 } from "@/src/services/chat-citation-service";
@@ -91,5 +94,45 @@ describe("chat citation selection", () => {
       catalog[0],
       catalog[2],
     ]);
+  });
+
+  it("serializes structured grounded blocks and writes canonical markers itself", () => {
+    const result = finalizeGroundedAnswer({
+      blocks: [
+        { heading: "Architecture", bodyMarkdown: "Built the approval-gated pipeline.", citationIndexes: [3, 1] },
+        { heading: "Reuse", bodyMarkdown: "Reused the same fact.", citationIndexes: [3] },
+      ],
+      catalog,
+    });
+    expect(result.markdown).toContain("### Architecture\nBuilt the approval-gated pipeline. [citation:1][citation:2]");
+    expect(result.markdown).toContain("Reused the same fact. [citation:1]");
+    expect(result.citations.map((citation) => citation.label)).toEqual([
+      "Artifacts require approved highlights",
+      "Workbase README",
+    ]);
+    expect(result.groundedClaims[0]?.citationIndexes).toEqual([1, 2]);
+  });
+
+  it("rejects model-authored plain or canonical citation syntax", () => {
+    for (const bodyMarkdown of ["Claim [3][5]", "Claim [citation:1]"]) {
+      expect(() => finalizeGroundedAnswer({
+        blocks: [{ bodyMarkdown, citationIndexes: [1] }],
+        catalog,
+      })).toThrow(CitationIntegrityError);
+    }
+  });
+
+  it("does not allow a factual answer with zero persisted sources to complete", () => {
+    expect(() => assertAnswerCitationContract({
+      content: "A factual project answer.",
+      citations: [],
+      policy: "required_inline",
+      groundedClaims: [],
+    })).toThrow("must include at least one persisted inline citation");
+  });
+
+  it("allows procedural answers without citations and attached artifact provenance", () => {
+    expect(() => assertAnswerCitationContract({ content: "Choose a candidate to review.", citations: [], policy: "none" })).not.toThrow();
+    expect(() => assertAnswerCitationContract({ content: "Generated artifact", citations: [catalog[0]!], policy: "attached" })).not.toThrow();
   });
 });

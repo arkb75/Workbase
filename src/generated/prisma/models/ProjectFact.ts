@@ -20,8 +20,24 @@ export type ProjectFactModel = runtime.Types.Result.DefaultSelection<Prisma.$Pro
 
 export type AggregateProjectFact = {
   _count: ProjectFactCountAggregateOutputType | null
+  _avg: ProjectFactAvgAggregateOutputType | null
+  _sum: ProjectFactSumAggregateOutputType | null
   _min: ProjectFactMinAggregateOutputType | null
   _max: ProjectFactMaxAggregateOutputType | null
+}
+
+export type ProjectFactAvgAggregateOutputType = {
+  productImportance: number | null
+  implementationBreadth: number | null
+  technicalDifficulty: number | null
+  distinctiveness: number | null
+}
+
+export type ProjectFactSumAggregateOutputType = {
+  productImportance: number | null
+  implementationBreadth: number | null
+  technicalDifficulty: number | null
+  distinctiveness: number | null
 }
 
 export type ProjectFactMinAggregateOutputType = {
@@ -44,6 +60,10 @@ export type ProjectFactMinAggregateOutputType = {
   lastValidatedAt: Date | null
   autoAppliedAt: Date | null
   subsystemKey: string | null
+  productImportance: number | null
+  implementationBreadth: number | null
+  technicalDifficulty: number | null
+  distinctiveness: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -68,6 +88,10 @@ export type ProjectFactMaxAggregateOutputType = {
   lastValidatedAt: Date | null
   autoAppliedAt: Date | null
   subsystemKey: string | null
+  productImportance: number | null
+  implementationBreadth: number | null
+  technicalDifficulty: number | null
+  distinctiveness: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -92,11 +116,29 @@ export type ProjectFactCountAggregateOutputType = {
   lastValidatedAt: number
   autoAppliedAt: number
   subsystemKey: number
+  productImportance: number
+  implementationBreadth: number
+  technicalDifficulty: number
+  distinctiveness: number
   createdAt: number
   updatedAt: number
   _all: number
 }
 
+
+export type ProjectFactAvgAggregateInputType = {
+  productImportance?: true
+  implementationBreadth?: true
+  technicalDifficulty?: true
+  distinctiveness?: true
+}
+
+export type ProjectFactSumAggregateInputType = {
+  productImportance?: true
+  implementationBreadth?: true
+  technicalDifficulty?: true
+  distinctiveness?: true
+}
 
 export type ProjectFactMinAggregateInputType = {
   id?: true
@@ -118,6 +160,10 @@ export type ProjectFactMinAggregateInputType = {
   lastValidatedAt?: true
   autoAppliedAt?: true
   subsystemKey?: true
+  productImportance?: true
+  implementationBreadth?: true
+  technicalDifficulty?: true
+  distinctiveness?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -142,6 +188,10 @@ export type ProjectFactMaxAggregateInputType = {
   lastValidatedAt?: true
   autoAppliedAt?: true
   subsystemKey?: true
+  productImportance?: true
+  implementationBreadth?: true
+  technicalDifficulty?: true
+  distinctiveness?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -166,6 +216,10 @@ export type ProjectFactCountAggregateInputType = {
   lastValidatedAt?: true
   autoAppliedAt?: true
   subsystemKey?: true
+  productImportance?: true
+  implementationBreadth?: true
+  technicalDifficulty?: true
+  distinctiveness?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -208,6 +262,18 @@ export type ProjectFactAggregateArgs<ExtArgs extends runtime.Types.Extensions.In
   _count?: true | ProjectFactCountAggregateInputType
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   *
+   * Select which fields to average
+  **/
+  _avg?: ProjectFactAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   *
+   * Select which fields to sum
+  **/
+  _sum?: ProjectFactSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
    * Select which fields to find the minimum value
   **/
@@ -239,6 +305,8 @@ export type ProjectFactGroupByArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   _count?: ProjectFactCountAggregateInputType | true
+  _avg?: ProjectFactAvgAggregateInputType
+  _sum?: ProjectFactSumAggregateInputType
   _min?: ProjectFactMinAggregateInputType
   _max?: ProjectFactMaxAggregateInputType
 }
@@ -263,9 +331,15 @@ export type ProjectFactGroupByOutputType = {
   lastValidatedAt: Date | null
   autoAppliedAt: Date | null
   subsystemKey: string | null
+  productImportance: number | null
+  implementationBreadth: number | null
+  technicalDifficulty: number | null
+  distinctiveness: number | null
   createdAt: Date
   updatedAt: Date
   _count: ProjectFactCountAggregateOutputType | null
+  _avg: ProjectFactAvgAggregateOutputType | null
+  _sum: ProjectFactSumAggregateOutputType | null
   _min: ProjectFactMinAggregateOutputType | null
   _max: ProjectFactMaxAggregateOutputType | null
 }
@@ -308,6 +382,10 @@ export type ProjectFactWhereInput = {
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  productImportance?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  implementationBreadth?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  technicalDifficulty?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  distinctiveness?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -340,6 +418,10 @@ export type ProjectFactOrderByWithRelationInput = {
   lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   subsystemKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  productImportance?: Prisma.SortOrderInput | Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrderInput | Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrderInput | Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
@@ -375,6 +457,10 @@ export type ProjectFactWhereUniqueInput = Prisma.AtLeast<{
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  productImportance?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  implementationBreadth?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  technicalDifficulty?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  distinctiveness?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
@@ -407,11 +493,17 @@ export type ProjectFactOrderByWithAggregationInput = {
   lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   subsystemKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  productImportance?: Prisma.SortOrderInput | Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrderInput | Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrderInput | Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ProjectFactCountOrderByAggregateInput
+  _avg?: Prisma.ProjectFactAvgOrderByAggregateInput
   _max?: Prisma.ProjectFactMaxOrderByAggregateInput
   _min?: Prisma.ProjectFactMinOrderByAggregateInput
+  _sum?: Prisma.ProjectFactSumOrderByAggregateInput
 }
 
 export type ProjectFactScalarWhereWithAggregatesInput = {
@@ -437,6 +529,10 @@ export type ProjectFactScalarWhereWithAggregatesInput = {
   lastValidatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ProjectFact"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ProjectFact"> | Date | string | null
   subsystemKey?: Prisma.StringNullableWithAggregatesFilter<"ProjectFact"> | string | null
+  productImportance?: Prisma.IntNullableWithAggregatesFilter<"ProjectFact"> | number | null
+  implementationBreadth?: Prisma.IntNullableWithAggregatesFilter<"ProjectFact"> | number | null
+  technicalDifficulty?: Prisma.IntNullableWithAggregatesFilter<"ProjectFact"> | number | null
+  distinctiveness?: Prisma.IntNullableWithAggregatesFilter<"ProjectFact"> | number | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFact"> | Date | string
 }
@@ -459,6 +555,10 @@ export type ProjectFactCreateInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -491,6 +591,10 @@ export type ProjectFactUncheckedCreateInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -519,6 +623,10 @@ export type ProjectFactUpdateInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -551,6 +659,10 @@ export type ProjectFactUncheckedUpdateInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -581,6 +693,10 @@ export type ProjectFactCreateManyInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -603,6 +719,10 @@ export type ProjectFactUpdateManyMutationInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -627,6 +747,10 @@ export type ProjectFactUncheckedUpdateManyInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -666,8 +790,19 @@ export type ProjectFactCountOrderByAggregateInput = {
   lastValidatedAt?: Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrder
   subsystemKey?: Prisma.SortOrder
+  productImportance?: Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type ProjectFactAvgOrderByAggregateInput = {
+  productImportance?: Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrder
 }
 
 export type ProjectFactMaxOrderByAggregateInput = {
@@ -690,6 +825,10 @@ export type ProjectFactMaxOrderByAggregateInput = {
   lastValidatedAt?: Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrder
   subsystemKey?: Prisma.SortOrder
+  productImportance?: Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -714,8 +853,19 @@ export type ProjectFactMinOrderByAggregateInput = {
   lastValidatedAt?: Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrder
   subsystemKey?: Prisma.SortOrder
+  productImportance?: Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type ProjectFactSumOrderByAggregateInput = {
+  productImportance?: Prisma.SortOrder
+  implementationBreadth?: Prisma.SortOrder
+  technicalDifficulty?: Prisma.SortOrder
+  distinctiveness?: Prisma.SortOrder
 }
 
 export type ProjectFactScalarRelationFilter = {
@@ -919,6 +1069,10 @@ export type ProjectFactCreateWithoutWorkItemInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
@@ -949,6 +1103,10 @@ export type ProjectFactUncheckedCreateWithoutWorkItemInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1008,6 +1166,10 @@ export type ProjectFactScalarWhereInput = {
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"ProjectFact"> | Date | string | null
   subsystemKey?: Prisma.StringNullableFilter<"ProjectFact"> | string | null
+  productImportance?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  implementationBreadth?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  technicalDifficulty?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
+  distinctiveness?: Prisma.IntNullableFilter<"ProjectFact"> | number | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
 }
@@ -1030,6 +1192,10 @@ export type ProjectFactCreateWithoutKnowledgeChangesInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1061,6 +1227,10 @@ export type ProjectFactUncheckedCreateWithoutKnowledgeChangesInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1104,6 +1274,10 @@ export type ProjectFactUpdateWithoutKnowledgeChangesInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1135,6 +1309,10 @@ export type ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1162,6 +1340,10 @@ export type ProjectFactCreateWithoutSupersededByProjectFactsInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1193,6 +1375,10 @@ export type ProjectFactUncheckedCreateWithoutSupersededByProjectFactsInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1225,6 +1411,10 @@ export type ProjectFactCreateWithoutSupersedesProjectFactInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1255,6 +1445,10 @@ export type ProjectFactUncheckedCreateWithoutSupersedesProjectFactInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1304,6 +1498,10 @@ export type ProjectFactUpdateWithoutSupersededByProjectFactsInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1335,6 +1533,10 @@ export type ProjectFactUncheckedUpdateWithoutSupersededByProjectFactsInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1378,6 +1580,10 @@ export type ProjectFactCreateWithoutEvidenceInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1409,6 +1615,10 @@ export type ProjectFactUncheckedCreateWithoutEvidenceInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
@@ -1452,6 +1662,10 @@ export type ProjectFactUpdateWithoutEvidenceInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1483,6 +1697,10 @@ export type ProjectFactUncheckedUpdateWithoutEvidenceInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
@@ -1510,6 +1728,10 @@ export type ProjectFactCreateWithoutEmbeddingInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1541,6 +1763,10 @@ export type ProjectFactUncheckedCreateWithoutEmbeddingInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1584,6 +1810,10 @@ export type ProjectFactUpdateWithoutEmbeddingInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1615,6 +1845,10 @@ export type ProjectFactUncheckedUpdateWithoutEmbeddingInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1642,6 +1876,10 @@ export type ProjectFactCreateWithoutChatCitationsInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1673,6 +1911,10 @@ export type ProjectFactUncheckedCreateWithoutChatCitationsInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1716,6 +1958,10 @@ export type ProjectFactUpdateWithoutChatCitationsInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1747,6 +1993,10 @@ export type ProjectFactUncheckedUpdateWithoutChatCitationsInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1774,6 +2024,10 @@ export type ProjectFactCreateWithoutAgentRunCandidatesInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
@@ -1805,6 +2059,10 @@ export type ProjectFactUncheckedCreateWithoutAgentRunCandidatesInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1848,6 +2106,10 @@ export type ProjectFactUpdateWithoutAgentRunCandidatesInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -1879,6 +2141,10 @@ export type ProjectFactUncheckedUpdateWithoutAgentRunCandidatesInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1907,6 +2173,10 @@ export type ProjectFactCreateManyWorkItemInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1929,6 +2199,10 @@ export type ProjectFactUpdateWithoutWorkItemInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
@@ -1959,6 +2233,10 @@ export type ProjectFactUncheckedUpdateWithoutWorkItemInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1988,6 +2266,10 @@ export type ProjectFactUncheckedUpdateManyWithoutWorkItemInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2011,6 +2293,10 @@ export type ProjectFactCreateManySupersedesProjectFactInput = {
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   subsystemKey?: string | null
+  productImportance?: number | null
+  implementationBreadth?: number | null
+  technicalDifficulty?: number | null
+  distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -2033,6 +2319,10 @@ export type ProjectFactUpdateWithoutSupersedesProjectFactInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
@@ -2063,6 +2353,10 @@ export type ProjectFactUncheckedUpdateWithoutSupersedesProjectFactInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -2092,6 +2386,10 @@ export type ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactInput = {
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   subsystemKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productImportance?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  implementationBreadth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  technicalDifficulty?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2183,6 +2481,10 @@ export type ProjectFactSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   subsystemKey?: boolean
+  productImportance?: boolean
+  implementationBreadth?: boolean
+  technicalDifficulty?: boolean
+  distinctiveness?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -2216,6 +2518,10 @@ export type ProjectFactSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   subsystemKey?: boolean
+  productImportance?: boolean
+  implementationBreadth?: boolean
+  technicalDifficulty?: boolean
+  distinctiveness?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -2242,6 +2548,10 @@ export type ProjectFactSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   subsystemKey?: boolean
+  productImportance?: boolean
+  implementationBreadth?: boolean
+  technicalDifficulty?: boolean
+  distinctiveness?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -2268,11 +2578,15 @@ export type ProjectFactSelectScalar = {
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   subsystemKey?: boolean
+  productImportance?: boolean
+  implementationBreadth?: boolean
+  technicalDifficulty?: boolean
+  distinctiveness?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ProjectFactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "statement" | "category" | "confidence" | "status" | "sensitivityFlag" | "reviewNotes" | "rejectionReason" | "searchText" | "supersedesProjectFactId" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "subsystemKey" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFact"]>
+export type ProjectFactOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "statement" | "category" | "confidence" | "status" | "sensitivityFlag" | "reviewNotes" | "rejectionReason" | "searchText" | "supersedesProjectFactId" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "subsystemKey" | "productImportance" | "implementationBreadth" | "technicalDifficulty" | "distinctiveness" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFact"]>
 export type ProjectFactInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.ProjectFact$evidenceArgs<ExtArgs>
@@ -2325,6 +2639,10 @@ export type $ProjectFactPayload<ExtArgs extends runtime.Types.Extensions.Interna
     lastValidatedAt: Date | null
     autoAppliedAt: Date | null
     subsystemKey: string | null
+    productImportance: number | null
+    implementationBreadth: number | null
+    technicalDifficulty: number | null
+    distinctiveness: number | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["projectFact"]>
@@ -2777,6 +3095,10 @@ export interface ProjectFactFieldRefs {
   readonly lastValidatedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
   readonly autoAppliedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
   readonly subsystemKey: Prisma.FieldRef<"ProjectFact", 'String'>
+  readonly productImportance: Prisma.FieldRef<"ProjectFact", 'Int'>
+  readonly implementationBreadth: Prisma.FieldRef<"ProjectFact", 'Int'>
+  readonly technicalDifficulty: Prisma.FieldRef<"ProjectFact", 'Int'>
+  readonly distinctiveness: Prisma.FieldRef<"ProjectFact", 'Int'>
   readonly createdAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"ProjectFact", 'DateTime'>
 }

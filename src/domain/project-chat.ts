@@ -129,6 +129,34 @@ export interface ProjectResearchResult {
   }>;
 }
 
+export type AnswerCitationPolicy = "required_inline" | "attached" | "none";
+
+export interface GroundedAnswerBlock {
+  heading?: string | null;
+  bodyMarkdown: string;
+  citationIndexes: number[];
+}
+
+export interface FinalizedChatAnswer {
+  answerKind: "project_grounded" | "process_metadata" | "conversational";
+  citationPolicy: AnswerCitationPolicy;
+  markdown: string;
+  citations: ProjectKnowledgeCitation[];
+  groundedClaims: Array<{
+    claim: string;
+    citationIndexes: number[];
+  }>;
+  freshness?: {
+    repositories: Array<{
+      name: string;
+      commitSha: string;
+      resolvedAt: string;
+    }>;
+    coverage: "complete" | "partial";
+    gaps: string[];
+  } | null;
+}
+
 export interface ProjectResearchRepositorySnapshot {
   sourceId: string;
   name: string;

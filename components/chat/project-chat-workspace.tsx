@@ -23,16 +23,17 @@ import {
   cancelAgentRunAction,
   createChatThreadAction,
   renameChatThreadAction,
+  regenerateHistoricalChatMessageAction,
   retryAgentRunAction,
   resolveAgentCandidateAction,
   sendProjectChatMessageAction,
 } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ChatMarkdown } from "@/components/chat/chat-markdown";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatDateTime, titleCase } from "@/src/lib/utils";
-import { splitCitationText } from "@/src/services/chat-citation-service";
 
 export interface ChatWorkspaceThread {
   id: string;
@@ -69,6 +70,12 @@ export interface ChatWorkspaceMessage {
   status: "pending" | "streaming" | "awaiting_review" | "completed" | "failed" | "cancelled";
   createdAt: string;
   citations: ChatWorkspaceCitation[];
+  freshness: {
+    repositories: Array<{ name: string; commitSha: string; resolvedAt: string }>;
+    coverage: "complete" | "partial";
+    gaps: string[];
+  } | null;
+  citationIntegrity: "verified" | "legacy_unverifiable" | null;
 }
 
 export interface ChatWorkspaceEvent {
@@ -146,55 +153,57 @@ export function MessageContent({
   content,
   citations,
   workItemId,
+  tone = "assistant",
 }: {
   content: string;
   citations: ChatWorkspaceCitation[];
   workItemId: string;
+  tone?: "assistant" | "user";
 }) {
+  const renderCitationGroup = (ordinals: number[]) => {
+    const referenced = ordinals.flatMap((ordinal) => {
+      const citation = citations[ordinal - 1];
+      return citation ? [{ ordinal, citation }] : [];
+    });
+    if (!referenced.length) return null;
+    return (
+      <span
+        aria-label={`Sources ${referenced.map((entry) => entry.ordinal).join(", ")}`}
+        className="mx-1 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18"
+      >
+        [
+        {referenced.map(({ ordinal, citation }, citationIndex) => {
+          const href = citationHref(citation, workItemId);
+          return (
+            <span key={citation.id}>
+              {citationIndex ? ", " : ""}
+              {href ? (
+                <a
+                  href={href}
+                  title={citation.label}
+                  target={citation.url ? "_blank" : undefined}
+                  rel={citation.url ? "noopener noreferrer" : undefined}
+                  className="hover:underline"
+                >
+                  {ordinal}
+                </a>
+              ) : (
+                <span title={citation.label}>{ordinal}</span>
+              )}
+            </span>
+          );
+        })}
+        ]
+      </span>
+    );
+  };
   return (
-    <div className="whitespace-pre-wrap">
-      {splitCitationText(content).map((segment, index) => {
-        if (segment.kind === "text") {
-          return <span key={`${index}-${segment.text.slice(0, 12)}`}>{segment.text}</span>;
-        }
-        const referenced = segment.ordinals.flatMap((ordinal) => {
-          const citation = citations[ordinal - 1];
-          return citation ? [{ ordinal, citation }] : [];
-        });
-        if (!referenced.length) return null;
-        return (
-          <span
-            key={`${index}-${referenced.map((entry) => entry.ordinal).join("-")}`}
-            aria-label={`Sources ${referenced.map((entry) => entry.ordinal).join(", ")}`}
-            className="mx-1 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18"
-          >
-            [
-            {referenced.map(({ ordinal, citation }, citationIndex) => {
-              const href = citationHref(citation, workItemId);
-              return (
-                <span key={citation.id}>
-                  {citationIndex ? ", " : ""}
-                  {href ? (
-                    <a
-                      href={href}
-                      title={citation.label}
-                      target={citation.url ? "_blank" : undefined}
-                      rel={citation.url ? "noreferrer" : undefined}
-                      className="hover:underline"
-                    >
-                      {ordinal}
-                    </a>
-                  ) : (
-                    <span title={citation.label}>{ordinal}</span>
-                  )}
-                </span>
-              );
-            })}
-            ]
-          </span>
-        );
-      })}
-    </div>
+    <ChatMarkdown
+      content={content}
+      maxCitationOrdinal={citations.length}
+      renderCitationGroup={renderCitationGroup}
+      tone={tone}
+    />
   );
 }
 
@@ -653,8 +662,29 @@ export function ProjectChatWorkspace({
                           content={message.content}
                           citations={message.citations}
                           workItemId={workItemId}
+                          tone={message.role === "user" ? "user" : "assistant"}
                         />
                       )}
+                      {message.role === "assistant" && message.freshness?.repositories.length ? (
+                        <div className="mt-4 border-t border-black/7 pt-3 text-[11px] leading-5 text-[color:var(--ink-muted)]">
+                          <span className="font-medium text-[color:var(--ink-soft)]">
+                            {message.freshness.coverage === "complete" ? "Current repository coverage" : "Partial repository coverage"}
+                          </span>
+                          {": "}
+                          {message.freshness.repositories.map((repository) => `${repository.name}@${repository.commitSha.slice(0, 8)}`).join(", ")}
+                          {message.freshness.gaps.length ? ` · ${message.freshness.gaps.join(" ")}` : ""}
+                        </div>
+                      ) : null}
+                      {message.role === "assistant" && message.citationIntegrity === "legacy_unverifiable" ? (
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                          <p>This historical answer did not retain enough source metadata to verify its citations.</p>
+                          <form action={regenerateHistoricalChatMessageAction} className="mt-2">
+                            <input type="hidden" name="workItemId" value={workItemId} />
+                            <input type="hidden" name="messageId" value={message.id} />
+                            <Button type="submit" size="sm" variant="secondary">Regenerate with current sources</Button>
+                          </form>
+                        </div>
+                      ) : null}
                       {message.role === "assistant" ? (
                         <CitationList citations={message.citations} workItemId={workItemId} />
                       ) : null}

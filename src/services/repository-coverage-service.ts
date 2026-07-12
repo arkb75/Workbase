@@ -6,7 +6,7 @@ import { normalizeWhitespace } from "@/src/lib/utils";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v1";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v2";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -32,8 +32,8 @@ const chunkAnalysisSchema = z.object({
   summary: z.string().trim().min(1).max(1_200),
   subsystemKeys: z.array(z.string().trim().min(2).max(100)).max(6),
   responsibilities: z.array(z.string().trim().min(2).max(300)).max(10),
-  symbols: z.array(z.string().trim().min(1).max(160)).max(30),
-  dependencies: z.array(z.string().trim().min(1).max(200)).max(30),
+  symbols: z.array(z.string().trim().min(1).max(160)).max(80),
+  dependencies: z.array(z.string().trim().min(1).max(200)).max(80),
   architectureSignals: z.array(z.string().trim().min(2).max(300)).max(10),
   userFacingCapabilities: z.array(z.string().trim().min(2).max(300)).max(10),
   facts: z.array(z.object({
@@ -68,8 +68,8 @@ const chunkAnalysisJsonSchema: JsonSchemaObject = {
     summary: { type: "string", minLength: 1, maxLength: 1_200 },
     subsystemKeys: { type: "array", maxItems: 6, items: { type: "string", minLength: 2, maxLength: 100 } },
     responsibilities: { type: "array", maxItems: 10, items: { type: "string", minLength: 2, maxLength: 300 } },
-    symbols: { type: "array", maxItems: 30, items: { type: "string", minLength: 1, maxLength: 160 } },
-    dependencies: { type: "array", maxItems: 30, items: { type: "string", minLength: 1, maxLength: 200 } },
+    symbols: { type: "array", maxItems: 80, items: { type: "string", minLength: 1, maxLength: 160 } },
+    dependencies: { type: "array", maxItems: 80, items: { type: "string", minLength: 1, maxLength: 200 } },
     architectureSignals: { type: "array", maxItems: 10, items: { type: "string", minLength: 2, maxLength: 300 } },
     userFacingCapabilities: { type: "array", maxItems: 10, items: { type: "string", minLength: 2, maxLength: 300 } },
     facts: {
@@ -110,6 +110,7 @@ export interface RepositoryFileAnalysis {
   unresolvedQuestions: string[];
   chunksAnalyzed: number;
   tokenUsage: unknown[];
+  analysisMode?: "static" | "semantic";
 }
 
 function unique(values: readonly string[], limit: number) {
@@ -119,6 +120,10 @@ function unique(values: readonly string[], limit: number) {
 function inferSubsystemsFromPath(path: string) {
   const value = path.toLowerCase();
   const keys: string[] = [];
+  if (/knowledge-refresh|repository-(?:coverage|knowledge-(?:sync|synthesis))|knowledge-(?:reconciliation|staleness)/.test(value)) keys.push("repository_knowledge_lifecycle");
+  if (/project-chat|chat-citation|answer-grounding|prior-turn-provenance/.test(value)) keys.push("project_chat_grounding");
+  if (/artifact-(?:workflow|generation|persistence)|artifacts?\//.test(value)) keys.push("artifact_generation");
+  if (/knowledge-(?:review|update)|candidate-review|highlight-review/.test(value)) keys.push("knowledge_review_lifecycle");
   if (/readme|package\.json|docs?\//.test(value)) keys.push("product_surface");
   if (/prisma|schema|domain|types/.test(value)) keys.push("domain_data");
   if (/bedrock|llm|model|agent/.test(value)) keys.push("ai_runtime");
@@ -129,7 +134,7 @@ function inferSubsystemsFromPath(path: string) {
   if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
   const parts = path.split("/");
   if (parts.length > 1) keys.push(`module:${parts.slice(0, 2).join("/").toLowerCase()}`);
-  return unique(keys, 6);
+  return unique(keys, 8);
 }
 
 function chunkByLines(content: string) {
@@ -153,6 +158,47 @@ function chunkByLines(content: string) {
     start = Math.max(end, start + 1);
   }
   return chunks.length ? chunks : [{ lineStart: 1, lineEnd: 1, content: "1: " }];
+}
+
+function semanticWindows(content: string) {
+  const lines = content.split("\n");
+  const totalBytes = Buffer.byteLength(content, "utf8");
+  if (totalBytes <= REPOSITORY_FILE_CHUNK_BYTES) return chunkByLines(content);
+  const signalPattern = /\b(?:export|class|interface|type|enum|function|model|datasource|generator|workflow|createHook|Converse|Bedrock|citation|provenance|retriev|artifact|highlight|github|oauth|prisma|transaction|route|page|schema|authorize|redact|encrypt)\b/i;
+  const signalIndexes = lines
+    .map((line, index) => ({ index, score: (signalPattern.test(line) ? 4 : 0) + (/^(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const)|^model\s+/.test(line.trim()) ? 3 : 0) }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const centers = [0, ...signalIndexes.map((entry) => entry.index), Math.max(0, lines.length - 1)]
+    .filter((center, index, all) => all.findIndex((candidate) => Math.abs(candidate - center) < 30) === index)
+    .slice(0, 6);
+  const ranges = centers
+    .map((center) => ({ start: Math.max(0, center - 16), end: Math.min(lines.length, center + 24) }))
+    .sort((left, right) => left.start - right.start)
+    .reduce<Array<{ start: number; end: number }>>((merged, range) => {
+      const previous = merged.at(-1);
+      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+      else merged.push({ ...range });
+      return merged;
+    }, []);
+  const chunks: Array<{ lineStart: number; lineEnd: number; content: string }> = [];
+  let remainingBytes = 20 * 1024;
+  for (const range of ranges) {
+    if (remainingBytes <= 0) break;
+    const selected: string[] = [];
+    let used = 0;
+    for (let index = range.start; index < range.end; index += 1) {
+      const numbered = `${index + 1}: ${lines[index] ?? ""}`;
+      const bytes = Buffer.byteLength(numbered, "utf8") + 1;
+      if (selected.length && used + bytes > Math.min(REPOSITORY_FILE_CHUNK_BYTES, remainingBytes)) break;
+      selected.push(numbered);
+      used += bytes;
+    }
+    if (!selected.length) continue;
+    chunks.push({ lineStart: range.start + 1, lineEnd: range.start + selected.length, content: selected.join("\n") });
+    remainingBytes -= used;
+  }
+  return chunks.length ? chunks : chunkByLines(content.slice(0, REPOSITORY_FILE_CHUNK_BYTES));
 }
 
 function mockAnalysis(path: string, lineStart: number, lineEnd: number): RepositoryChunkAnalysis {
@@ -214,6 +260,7 @@ async function analyzeChunk(input: {
     maxTokens: 8_000,
     temperature: 0,
     effort: "high",
+    transportPreference: ["strict_tool_use"],
   });
   return { data: result.data, tokenUsage: result.tokenUsage };
 }
@@ -224,7 +271,7 @@ export async function analyzeRepositoryFile(input: {
   path: string;
   content: string;
 }): Promise<RepositoryFileAnalysis> {
-  const chunks = chunkByLines(input.content);
+  const chunks = resolveWorkbaseLlmProvider() === "mock" ? chunkByLines(input.content) : semanticWindows(input.content);
   const analyses: RepositoryChunkAnalysis[] = [];
   const tokenUsage: unknown[] = [];
   for (const chunk of chunks) {
@@ -245,6 +292,7 @@ export async function analyzeRepositoryFile(input: {
     unresolvedQuestions: unique(analyses.flatMap((analysis) => analysis.unresolvedQuestions), 30),
     chunksAnalyzed: chunks.length,
     tokenUsage,
+    analysisMode: "semantic",
   };
 }
 
@@ -342,19 +390,60 @@ export async function analyzeRepositoryFiles(input: Array<{
       unresolvedQuestions: [],
       chunksAnalyzed: 1,
       tokenUsage: [],
+      analysisMode: "static",
     };
   });
 }
 
+export function mergeRepositoryFileAnalysis(staticAnalysis: RepositoryFileAnalysis, semanticAnalysis: RepositoryFileAnalysis): RepositoryFileAnalysis {
+  const factKey = (fact: RepositoryFileAnalysis["facts"][number]) => `${fact.path}:${fact.lineStart}:${normalizeWhitespace(fact.statement).toLowerCase()}`;
+  const facts = [...semanticAnalysis.facts, ...staticAnalysis.facts]
+    .filter((fact, index, all) => all.findIndex((candidate) => factKey(candidate) === factKey(fact)) === index)
+    .sort((left, right) => {
+      const leftScore = left.productImportance + left.implementationBreadth + left.technicalDifficulty;
+      const rightScore = right.productImportance + right.implementationBreadth + right.technicalDifficulty;
+      return rightScore - leftScore || left.lineStart - right.lineStart;
+    })
+    .slice(0, 40);
+  return {
+    path: staticAnalysis.path,
+    summary: unique([semanticAnalysis.summary, staticAnalysis.summary], 8).join(" ").slice(0, 4_000),
+    subsystemKeys: unique([...semanticAnalysis.subsystemKeys, ...staticAnalysis.subsystemKeys], 16),
+    responsibilities: unique([...semanticAnalysis.responsibilities, ...staticAnalysis.responsibilities], 40),
+    symbols: unique([...staticAnalysis.symbols, ...semanticAnalysis.symbols], 100),
+    dependencies: unique([...staticAnalysis.dependencies, ...semanticAnalysis.dependencies], 100),
+    architectureSignals: unique([...semanticAnalysis.architectureSignals, ...staticAnalysis.architectureSignals], 40),
+    userFacingCapabilities: unique([...semanticAnalysis.userFacingCapabilities, ...staticAnalysis.userFacingCapabilities], 40),
+    facts,
+    unresolvedQuestions: unique([...semanticAnalysis.unresolvedQuestions, ...staticAnalysis.unresolvedQuestions], 40),
+    chunksAnalyzed: semanticAnalysis.chunksAnalyzed,
+    tokenUsage: semanticAnalysis.tokenUsage,
+    analysisMode: "semantic",
+  };
+}
+
+export async function analyzeRepositoryFilesHierarchically(input: Array<{
+  repository: string;
+  commitSha: string;
+  path: string;
+  content: string;
+}>): Promise<RepositoryFileAnalysis[]> {
+  // Wave one is intentionally deterministic and exhaustive. Wave two runs once
+  // across the complete map and deep-reads the strongest file for each coverage
+  // area, instead of paying for a model call on every low-signal helper or test.
+  return analyzeRepositoryFiles(input);
+}
+
 export function buildCoverageMatrix(input: Array<{ path: string; analysis: RepositoryFileAnalysis }>) {
-  const targetMap = new Map<string, { key: string; label: string; paths: Set<string>; observations: number; unresolved: Set<string> }>();
+  const targetMap = new Map<string, { key: string; label: string; paths: Set<string>; semanticPaths: Set<string>; observations: number; unresolved: Set<string> }>();
   for (const target of BASE_COVERAGE_TARGETS) {
-    targetMap.set(target.key, { key: target.key, label: target.label, paths: new Set(), observations: 0, unresolved: new Set() });
+    targetMap.set(target.key, { key: target.key, label: target.label, paths: new Set(), semanticPaths: new Set(), observations: 0, unresolved: new Set() });
   }
   for (const file of input) {
     for (const key of file.analysis.subsystemKeys) {
-      const current = targetMap.get(key) ?? { key, label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "), paths: new Set<string>(), observations: 0, unresolved: new Set<string>() };
+      const current = targetMap.get(key) ?? { key, label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "), paths: new Set<string>(), semanticPaths: new Set<string>(), observations: 0, unresolved: new Set<string>() };
       current.paths.add(file.path);
+      if (file.analysis.analysisMode === "semantic") current.semanticPaths.add(file.path);
       current.observations += file.analysis.facts.length + file.analysis.architectureSignals.length + file.analysis.responsibilities.length;
       for (const question of file.analysis.unresolvedQuestions) current.unresolved.add(question);
       targetMap.set(key, current);
@@ -363,9 +452,11 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
   return Array.from(targetMap.values()).map((target) => ({
     key: target.key,
     label: target.label,
-    status: target.observations > 0 ? ("verified" as const) : ("gap" as const),
+    status: target.observations > 0 ? ("verified" as const) : ("not_applicable" as const),
     paths: Array.from(target.paths).sort(),
     observationCount: target.observations,
+    staticPathCount: target.paths.size,
+    semanticPathCount: target.semanticPaths.size,
     unresolvedQuestions: Array.from(target.unresolved).slice(0, 20),
   }));
 }

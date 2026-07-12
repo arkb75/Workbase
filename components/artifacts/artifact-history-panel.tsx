@@ -1,11 +1,12 @@
 "use client";
 
 import { type CSSProperties, useMemo, useState } from "react";
-import { refreshStaleArtifactAction } from "@/app/actions";
+import { editKnowledgeItemAction, refreshStaleArtifactAction, retireKnowledgeItemAction } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Clock3, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { cn, formatDateTime } from "@/src/lib/utils";
 
 type UsedHighlight = {
@@ -238,6 +239,29 @@ export function ArtifactHistoryPanel({
                   {selectedEntry.content}
                 </pre>
               </div>
+
+              {selectedEntry.lifecycleStatus === "active" || selectedEntry.lifecycleStatus === "stale" ? (
+                <details className="rounded-[22px] border border-black/8 bg-white p-4 text-xs">
+                  <summary className="cursor-pointer font-medium text-[color:var(--accent)]">Edit or retire this artifact</summary>
+                  <div className="mt-3 grid gap-3">
+                    <form action={editKnowledgeItemAction} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                      <input type="hidden" name="workItemId" value={selectedEntry.workItemId} />
+                      <input type="hidden" name="entityId" value={selectedEntry.id} />
+                      <input type="hidden" name="kind" value="artifact" />
+                      <input type="hidden" name="idempotencyKey" value={`artifact-edit:${selectedEntry.id}:${selectedEntry.createdAt}`} />
+                      <Textarea name="value" defaultValue={selectedEntry.content} className="min-h-32" aria-label="Edited artifact content" />
+                      <SubmitButton size="sm" variant="secondary" pendingLabel="Saving…">Save successor</SubmitButton>
+                    </form>
+                    <form action={retireKnowledgeItemAction} className="flex justify-end">
+                      <input type="hidden" name="workItemId" value={selectedEntry.workItemId} />
+                      <input type="hidden" name="entityId" value={selectedEntry.id} />
+                      <input type="hidden" name="kind" value="artifact" />
+                      <input type="hidden" name="reason" value="Retired from Artifact history." />
+                      <SubmitButton size="sm" variant="ghost" pendingLabel="Retiring…">Retire artifact</SubmitButton>
+                    </form>
+                  </div>
+                </details>
+              ) : null}
 
               <div className="grid gap-5 xl:grid-cols-[0.94fr_1.06fr]">
                 <div className="grid gap-4">

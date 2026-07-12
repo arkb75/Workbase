@@ -1,9 +1,13 @@
 import { Prisma } from "@/src/generated/prisma/client";
-import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
+import type {
+  AnswerCitationPolicy,
+  FinalizedChatAnswer,
+  ProjectKnowledgeCitation,
+} from "@/src/domain/project-chat";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
-import { selectReferencedCitations } from "@/src/services/chat-citation-service";
+import { assertAnswerCitationContract } from "@/src/services/chat-citation-service";
 import {
   completeProjectResearchDossier,
   parseProjectResearchDossier,
@@ -343,8 +347,12 @@ export async function markAgentRunAwaitingReview(input: {
   content: string;
   result: unknown;
   citations: ProjectKnowledgeCitation[];
+  citationPolicy: AnswerCitationPolicy;
+  groundedClaims?: Array<{ claim: string; citationIndexes: number[] }>;
+  freshness?: FinalizedChatAnswer["freshness"];
 }) {
-  const selected = selectReferencedCitations(input.content, input.citations);
+  const content = input.content.trim();
+  assertAnswerCitationContract({ content, citations: input.citations, policy: input.citationPolicy, groundedClaims: input.groundedClaims });
   await prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{ status: string }>>`
       SELECT "status"::text AS "status" FROM "AgentRun" WHERE "id" = ${input.runId} FOR UPDATE
@@ -355,16 +363,24 @@ export async function markAgentRunAwaitingReview(input: {
       orderBy: { sequence: "desc" },
     });
     await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
-    if (selected.citations.length) {
-      await tx.chatCitation.createMany({ data: citationRows(message.id, selected.citations) });
+    if (input.citations.length) {
+      await tx.chatCitation.createMany({ data: citationRows(message.id, input.citations) });
     }
     await tx.chatMessage.update({
       where: { id: message.id },
       data: {
-        content: selected.content,
+        content,
         status: "awaiting_review",
         finalizedAt: null,
-        metadata: toInputJson({ provisional: true, originatingRunId: input.runId }),
+        metadata: toInputJson({
+          provisional: true,
+          originatingRunId: input.runId,
+          citationContractVersion: 2,
+          citationIntegrity: "verified",
+          renderVersion: 2,
+          citationPolicy: input.citationPolicy,
+          freshness: input.freshness ?? null,
+        }),
       },
     });
     await tx.agentRun.update({
@@ -373,8 +389,8 @@ export async function markAgentRunAwaitingReview(input: {
         status: "awaiting_review",
         result: toInputJson(input.result),
         provisionalResult: toInputJson({
-          content: selected.content,
-          citations: selected.citations.map((citation, index) => ({
+          content,
+          citations: input.citations.map((citation, index) => ({
             ordinal: index + 1,
             kind: citation.kind,
             label: citation.label,
@@ -392,11 +408,16 @@ export async function completeAgentRun(input: {
   content: string;
   result: unknown;
   citations?: ProjectKnowledgeCitation[];
+  citationPolicy: AnswerCitationPolicy;
+  groundedClaims?: Array<{ claim: string; citationIndexes: number[] }>;
+  freshness?: FinalizedChatAnswer["freshness"];
   researchFinalization?: {
     usedProjectFactIds: string[];
   };
 }) {
-  const selected = selectReferencedCitations(input.content, input.citations ?? []);
+  const content = input.content.trim();
+  const citations = input.citations ?? [];
+  assertAnswerCitationContract({ content, citations, policy: input.citationPolicy, groundedClaims: input.groundedClaims });
   await prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{
       status: string;
@@ -425,17 +446,25 @@ export async function completeAgentRun(input: {
     });
     await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
 
-    if (selected.citations.length) {
-      await tx.chatCitation.createMany({ data: citationRows(message.id, selected.citations) });
+    if (citations.length) {
+      await tx.chatCitation.createMany({ data: citationRows(message.id, citations) });
     }
 
     await tx.chatMessage.update({
       where: { id: message.id },
       data: {
-        content: selected.content,
+        content,
         status: "completed",
         finalizedAt: new Date(),
-        metadata: toInputJson({ provisional: false, originatingRunId: input.runId }),
+        metadata: toInputJson({
+          provisional: false,
+          originatingRunId: input.runId,
+          citationContractVersion: 2,
+          citationIntegrity: "verified",
+          renderVersion: 2,
+          citationPolicy: input.citationPolicy,
+          freshness: input.freshness ?? null,
+        }),
       },
     });
     const threadMessages = await tx.chatMessage.findMany({
@@ -444,7 +473,7 @@ export async function completeAgentRun(input: {
     });
     const olderMessages = threadMessages.slice(0, Math.max(0, threadMessages.length - 12));
     const rollingSummary = olderMessages
-      .map((entry) => `${entry.role}: ${entry.id === message.id ? selected.content : entry.content}`)
+      .map((entry) => `${entry.role}: ${entry.id === message.id ? content : entry.content}`)
       .join("\n");
     await tx.chatThread.update({
       where: { id: message.threadId },
@@ -455,7 +484,7 @@ export async function completeAgentRun(input: {
           olderTurns: olderMessages.slice(-24).map((entry) => ({
             messageId: entry.id,
             role: entry.role,
-            summary: (entry.id === message.id ? selected.content : entry.content).slice(0, 800),
+            summary: (entry.id === message.id ? content : entry.content).slice(0, 800),
           })),
           lastCompletedRunId: input.runId,
           updatedAt: new Date().toISOString(),
@@ -467,8 +496,8 @@ export async function completeAgentRun(input: {
       runs[0].environmentSnapshot,
       {
         status: "completed",
-        citationCount: selected.citations.length,
-        usedProjectFactIds: input.researchFinalization?.usedProjectFactIds ?? selected.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
+        citationCount: citations.length,
+        usedProjectFactIds: input.researchFinalization?.usedProjectFactIds ?? citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
       },
     );
     const completedResult = mergeCompletedRunResult({

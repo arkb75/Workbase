@@ -2890,6 +2890,10 @@ export const ProjectFactScalarFieldEnum = {
   lastValidatedAt: 'lastValidatedAt',
   autoAppliedAt: 'autoAppliedAt',
   subsystemKey: 'subsystemKey',
+  productImportance: 'productImportance',
+  implementationBreadth: 'implementationBreadth',
+  technicalDifficulty: 'technicalDifficulty',
+  distinctiveness: 'distinctiveness',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

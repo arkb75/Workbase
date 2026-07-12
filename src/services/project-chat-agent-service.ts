@@ -1,5 +1,7 @@
 import type { Message } from "@aws-sdk/client-bedrock-runtime";
 import type {
+  AnswerCitationPolicy,
+  FinalizedChatAnswer,
   ProjectKnowledgeCitation,
   ProjectKnowledgeHit,
   ProjectResearchDossier,
@@ -12,7 +14,11 @@ import {
 import { resolveBedrockConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
-import { selectReferencedCitations, dedupeCitationCatalog } from "@/src/services/chat-citation-service";
+import {
+  dedupeCitationCatalog,
+  finalizeGroundedAnswer,
+  selectReferencedCitations,
+} from "@/src/services/chat-citation-service";
 import {
   buildProjectAgentTurnContext,
   routeProjectTurn,
@@ -50,6 +56,9 @@ export type ProjectChatAgentResult =
       answer: string;
       citations: ProjectKnowledgeCitation[];
       research: ProjectResearchResult;
+      citationPolicy: AnswerCitationPolicy;
+      groundedClaims: Array<{ claim: string; citationIndexes: number[] }>;
+      freshness: FinalizedChatAnswer["freshness"];
     }
   | { status: "artifact_requested"; brief: string };
 
@@ -289,34 +298,64 @@ function deterministicMemoryAnswer(hits: ProjectKnowledgeHit[], catalog: ReturnT
   return selectReferencedCitations(answer, catalog.citations);
 }
 
-function ensureCoverageDisclosure(answer: string, dossier: ProjectResearchDossier | null) {
-  if (!dossier?.partial || /\b(?:partial|bounded|coverage (?:gap|limitation)|not inspected|uninspected)\b/i.test(answer)) {
-    return answer;
-  }
-  const gaps = dossier.coverageGaps.slice(0, 3);
-  return [
-    answer,
-    gaps.length
-      ? `Coverage note: this was a bounded repository assessment. ${gaps.join(" ")}`
-      : "Coverage note: this was a bounded repository assessment, not an exhaustive review of every file.",
-  ].filter(Boolean).join("\n\n");
-}
-
-function appendCompleteRefreshFreshness(
-  answer: string,
-  refresh: { targetHeads: unknown; completedAt: string } | null,
-) {
-  if (!answer || !refresh || !Array.isArray(refresh.targetHeads)) return answer;
+function completeRefreshFreshness(
+  refresh: { targetHeads: unknown; coverage?: unknown; completedAt: string } | null,
+): FinalizedChatAnswer["freshness"] {
+  if (!refresh || !Array.isArray(refresh.targetHeads)) return null;
   const repositories = refresh.targetHeads.flatMap((target) => {
     if (!target || typeof target !== "object" || Array.isArray(target)) return [];
     const value = target as Record<string, unknown>;
     return typeof value.repository === "string" && typeof value.commitSha === "string"
-      ? [`${value.repository}@${value.commitSha.slice(0, 8)}`]
+      ? [{
+          name: value.repository,
+          commitSha: value.commitSha,
+          resolvedAt: typeof value.resolvedAt === "string" ? value.resolvedAt : refresh.completedAt,
+        }]
       : [];
   });
-  if (!repositories.length) return answer;
-  const line = `Current through ${repositories.join(", ")} (complete safe-file coverage resolved ${refresh.completedAt}).`;
-  return answer.includes(line) ? answer : `${answer}\n\n${line}`;
+  const coverageRows = Array.isArray(refresh.coverage) ? refresh.coverage : [];
+  const gaps = coverageRows.flatMap((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+    const value = row as Record<string, unknown>;
+    return Array.isArray(value.coverageGaps)
+      ? value.coverageGaps.filter((gap): gap is string => typeof gap === "string")
+      : [];
+  });
+  return repositories.length ? { repositories, coverage: gaps.length ? "partial" : "complete", gaps: Array.from(new Set(gaps)) } : null;
+}
+
+function compactKnowledgeRefreshForPrompt(refresh: { targetHeads: unknown; coverage: unknown; completedAt: string } | null) {
+  if (!refresh) return null;
+  const targets = Array.isArray(refresh.targetHeads) ? refresh.targetHeads.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const value = entry as Record<string, unknown>;
+    return typeof value.repository === "string" && typeof value.commitSha === "string"
+      ? [{ repository: value.repository, commitSha: value.commitSha, resolvedAt: value.resolvedAt ?? refresh.completedAt }]
+      : [];
+  }) : [];
+  const coverage = Array.isArray(refresh.coverage) ? refresh.coverage.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const value = entry as Record<string, unknown>;
+    const areas = Array.isArray(value.targets) ? value.targets.flatMap((target) => {
+      if (!target || typeof target !== "object" || Array.isArray(target)) return [];
+      const area = target as Record<string, unknown>;
+      return typeof area.key === "string"
+        ? [{ key: area.key, status: area.status, staticPathCount: area.staticPathCount, semanticPathCount: area.semanticPathCount, observationCount: area.observationCount }]
+        : [];
+    }) : [];
+    return [{
+      repository: value.repository,
+      commitSha: value.commitSha,
+      totalPaths: value.totalPaths,
+      analyzedPaths: value.analyzedPaths,
+      excludedPaths: value.excludedPaths,
+      semanticPaths: value.semanticPaths,
+      coverageStatus: value.coverageStatus,
+      coverageGaps: value.coverageGaps,
+      areas,
+    }];
+  }) : [];
+  return { targets, coverage, completedAt: refresh.completedAt };
 }
 
 function metadataString(metadata: unknown, path: string[]) {
@@ -545,6 +584,9 @@ async function executeProjectChatAgent(
         answer,
         citations: [],
         research: directResearchResult({ answer: "", citations: [], dossier: capabilityInputs.researchDossier }),
+        citationPolicy: "none",
+        groundedClaims: [],
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
       };
     }
     const finalizingDossier = mergeProjectResearchDossier(capabilityInputs.researchDossier, {
@@ -566,7 +608,7 @@ async function executeProjectChatAgent(
     const priorAssistantMessageId = input.history?.filter((message) => message.role === "assistant").at(-1)?.id;
     if (!priorAssistantMessageId) {
       const answer = "There is no earlier completed assistant answer in this thread to inspect.";
-      return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }) };
+      return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
     }
     const provenance = await priorTurnProvenanceService.inspect({
       userId: input.userId,
@@ -575,11 +617,11 @@ async function executeProjectChatAgent(
       assistantMessageId: priorAssistantMessageId,
     });
     const answer = provenanceAnswer(provenance);
-    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }) };
+    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
   }
   if (intent.kind === "candidate_review") {
     const answer = "I can apply a review only to an explicitly selected candidate. Use the approve, edit-and-approve, or deny controls on the pending candidate cards below.";
-    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }) };
+    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
   }
   if (intent.kind === "repository_research") {
     const result = await projectResearchService.research({
@@ -595,32 +637,35 @@ async function executeProjectChatAgent(
       ],
       onAgentEvent: input.onAgentEvent,
     });
+    const groundedClaims = extractClaimCitationMap(result.answer);
     return {
       status: result.status === "awaiting_review" ? "awaiting_review" : result.status === "answered" ? "answered" : "insufficient_context",
       answer: result.answer,
       citations: result.citations,
       research: result,
+      citationPolicy: groundedClaims.length ? "required_inline" : result.citations.length ? "attached" : "none",
+      groundedClaims: groundedClaims.length ? groundedClaims : result.groundedClaims ?? [],
+      freshness: null,
     };
   }
 
   if (resolveWorkbaseLlmProvider() === "mock") {
     const selected = deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
-    const groundedContent = mode === "post_review_finalization"
-      ? ensureCoverageDisclosure(selected.content, capabilityInputs.researchDossier)
-      : selected.content;
-    const answer = appendCompleteRefreshFreshness(
-      groundedContent || "I do not have enough grounded project context to answer that yet.",
-      capabilityInputs.knowledgeRefresh,
-    );
+    const groundedContent = selected.content;
+    const answer = groundedContent || "I do not have enough grounded project context to answer that yet.";
+    const groundedClaims = extractClaimCitationMap(groundedContent);
     return {
       status: groundedContent ? "answered" : "insufficient_context",
       answer,
       citations: selected.citations,
+      citationPolicy: groundedContent ? "required_inline" : "none",
+      groundedClaims,
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
       research: directResearchResult({
         answer: groundedContent,
         citations: selected.citations,
         dossier: capabilityInputs.researchDossier,
-        groundedClaims: extractClaimCitationMap(groundedContent),
+        groundedClaims,
       }),
     };
   }
@@ -644,7 +689,7 @@ async function executeProjectChatAgent(
               })}</reviewed_research>`
             : "",
           capabilityInputs.knowledgeRefresh
-            ? `<complete_repository_refresh>${JSON.stringify(capabilityInputs.knowledgeRefresh)}</complete_repository_refresh>`
+            ? `<complete_repository_refresh>${JSON.stringify(compactKnowledgeRefreshForPrompt(capabilityInputs.knowledgeRefresh))}</complete_repository_refresh>`
             : "",
         ].join("\n"),
       }],
@@ -653,7 +698,7 @@ async function executeProjectChatAgent(
   const agent = BedrockConverseAgent.fromConfig({
     ...resolveBedrockConfig(),
     // The runtime requires a positive limit even though this phase exposes no tools.
-    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 20_000 },
+    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 60_000 },
   });
   try {
     const result = await agent.run({
@@ -667,7 +712,7 @@ async function executeProjectChatAgent(
           ? "This is the continuation of a reviewed repository-research run. Prioritize every currentRun Project Fact, preserve the stated partial and coverage-gap status, and describe freshness using repository commit/inspection timestamps—not source import time."
           : "",
         capabilityInputs.knowledgeRefresh
-          ? "A complete all-safe-file repository refresh was performed for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata. Do not describe this as bounded or partial. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
+          ? "A latest-commit repository refresh mapped every eligible safe file for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata, preserve any explicit semantic coverage gaps, and never claim more completeness than that matrix supports. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
         accomplishmentSynthesisPattern.test(input.question)
           ? "For an accomplishment synthesis, rank nonredundant items by demonstrated ownership, technical difficulty, product importance, implementation breadth, evidence strength, recency, measured impact, and distinctiveness. Do not elevate routine utilities above broader systems without evidence. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact."
@@ -697,9 +742,7 @@ async function executeProjectChatAgent(
       isUserVisible: false,
     }).catch(() => null);
     const grounded = await groundProjectAnswer({
-      answer: mode === "post_review_finalization"
-        ? ensureCoverageDisclosure(result.text, capabilityInputs.researchDossier)
-        : result.text,
+      answer: result.text,
       entries: memoryCatalog.entries,
       citationCount: memoryCatalog.citations.length,
       dossier: capabilityInputs.researchDossier,
@@ -714,54 +757,37 @@ async function executeProjectChatAgent(
       },
       isUserVisible: false,
     }).catch(() => null);
-    const selected = selectReferencedCitations(grounded.answer, memoryCatalog.citations);
-    const compactCitationIndex = new Map(
-      selected.referencedIndexes.map((originalIndex, compactIndex) => [originalIndex + 1, compactIndex + 1]),
-    );
-    const groundedClaims = grounded.claims.flatMap((claim) => {
-      const citationIndexes = claim.citationIndexes.flatMap((index) => {
-        const compact = compactCitationIndex.get(index);
-        return compact ? [compact] : [];
-      });
-      return citationIndexes.length
-        ? [{ claim: claim.claim, citationIndexes: Array.from(new Set(citationIndexes)) }]
-        : [];
+    const finalized = finalizeGroundedAnswer({
+      blocks: grounded.blocks,
+      catalog: memoryCatalog.citations,
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
     });
-    const selectedContent = appendCompleteRefreshFreshness(selected.content, capabilityInputs.knowledgeRefresh);
     const research = directResearchResult({
-      answer: selectedContent,
-      citations: selected.citations,
+      answer: finalized.markdown,
+      citations: finalized.citations,
       dossier: capabilityInputs.researchDossier,
       warnings: grounded.issues,
-      groundedClaims,
+      groundedClaims: finalized.groundedClaims,
     });
     return {
-      status: selected.content ? "answered" : "insufficient_context",
-      answer: selectedContent || "I do not have enough grounded context to answer that yet.",
-      citations: selected.citations,
+      status: "answered",
+      answer: finalized.markdown,
+      citations: finalized.citations,
+      citationPolicy: finalized.citationPolicy,
+      groundedClaims: finalized.groundedClaims,
+      freshness: finalized.freshness,
       research,
     };
   } catch (error) {
-    const selected = deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
-    const warning = `Direct answer generation failed: ${error instanceof Error ? error.message : "unknown provider error"}`;
-    const groundedContent = mode === "post_review_finalization"
-      ? ensureCoverageDisclosure(selected.content, capabilityInputs.researchDossier)
-      : selected.content;
-    const answer = appendCompleteRefreshFreshness(groundedContent || (mode === "post_review_finalization"
-      ? "Workbase could not finalize an answer from the approved Project Facts. The saved repository research remains available for retry."
-      : "Workbase could not complete the grounded answer. Retry this turn; no repository research was performed automatically."), capabilityInputs.knowledgeRefresh);
-    return {
-      status: groundedContent ? "answered" : "insufficient_context",
-      answer,
-      citations: selected.citations,
-      research: directResearchResult({
-        answer: groundedContent,
-        citations: selected.citations,
-        warnings: [warning],
-        dossier: capabilityInputs.researchDossier,
-        groundedClaims: extractClaimCitationMap(groundedContent),
-      }),
-    };
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "error",
+      toolName: "verify_project_answer",
+      payload: { code: "grounding_integrity_failed" },
+      message: "The answer could not be verified against its sources.",
+      isUserVisible: true,
+    }).catch(() => null);
+    throw error;
   }
 }
 

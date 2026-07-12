@@ -108,16 +108,20 @@ function factRanking(fact: {
   confidence: string;
   category: string;
   validatedThroughSha: string | null;
+  productImportance: number | null;
+  implementationBreadth: number | null;
+  technicalDifficulty: number | null;
+  distinctiveness: number | null;
   evidence: Array<{ evidenceItem: { type: string } }>;
 }) {
   const systemCategory = fact.category === "architecture" || fact.category === "data_flow" || fact.category === "behavior";
   return {
     evidenceStrength: fact.evidence.length ? (fact.confidence === "high" ? 5 : fact.confidence === "medium" ? 4 : 2) : 1,
-    productImportance: systemCategory ? 4 : 2,
-    implementationBreadth: Math.min(5, systemCategory ? 3 + fact.evidence.length : 1 + fact.evidence.length),
-    technicalDifficulty: systemCategory ? 4 : 2,
+    productImportance: fact.productImportance ?? (systemCategory ? 4 : 2),
+    implementationBreadth: fact.implementationBreadth ?? Math.min(5, systemCategory ? 3 + fact.evidence.length : 1 + fact.evidence.length),
+    technicalDifficulty: fact.technicalDifficulty ?? (systemCategory ? 4 : 2),
     ownershipAuthority: 0,
-    distinctiveness: systemCategory ? 4 : 2,
+    distinctiveness: fact.distinctiveness ?? (systemCategory ? 4 : 2),
     freshness: fact.validatedThroughSha ? 5 : 2,
     impactBonus: 0,
     uncertainty: "Technical implementation is verified; personal ownership and impact require Highlight context.",
@@ -299,9 +303,10 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         },
       },
     });
+    const broadQuery = broadProjectQueryPattern.test(query);
     const selectedLimits = {
-      highlights: limits?.highlights ?? defaultLimits.highlights,
-      projectFacts: limits?.projectFacts ?? defaultLimits.projectFacts,
+      highlights: limits?.highlights ?? (broadQuery ? 10 : defaultLimits.highlights),
+      projectFacts: limits?.projectFacts ?? (broadQuery ? 16 : defaultLimits.projectFacts),
       evidence: limits?.evidence ?? defaultLimits.evidence,
       artifacts: limits?.artifacts ?? defaultLimits.artifacts,
     };

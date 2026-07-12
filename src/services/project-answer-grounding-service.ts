@@ -1,16 +1,17 @@
 import { z } from "zod";
-import type { ProjectResearchDossier } from "@/src/domain/project-chat";
+import type { GroundedAnswerBlock, ProjectResearchDossier } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { CitationIntegrityError } from "@/src/services/chat-citation-service";
 import { repositoryFreshnessFromDossier } from "@/src/services/project-research-dossier-service";
 
 const groundingSchema = z.object({
-  correctedAnswer: z.string().trim().min(1).max(30_000),
-  claims: z.array(z.object({
-    claim: z.string().trim().min(1).max(1_000),
+  blocks: z.array(z.object({
+    heading: z.string().trim().min(1).max(200).nullable(),
+    bodyMarkdown: z.string().trim().min(1).max(2_000),
     citationIndexes: z.array(z.number().int().min(1)).min(1).max(6),
-  })).max(40),
+  })).min(1).max(40),
   issues: z.array(z.object({
     claim: z.string().trim().min(1).max(500),
     verdict: z.enum(["partially_entailed", "unsupported", "conflicted", "freshness_mismatch", "scope_overclaim"]),
@@ -21,18 +22,19 @@ const groundingSchema = z.object({
 const groundingJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
-  required: ["correctedAnswer", "claims", "issues"],
+  required: ["blocks", "issues"],
   properties: {
-    correctedAnswer: { type: "string", minLength: 1, maxLength: 30_000 },
-    claims: {
+    blocks: {
       type: "array",
+      minItems: 1,
       maxItems: 40,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["claim", "citationIndexes"],
+        required: ["heading", "bodyMarkdown", "citationIndexes"],
         properties: {
-          claim: { type: "string", minLength: 1, maxLength: 1_000 },
+          heading: { anyOf: [{ type: "string", minLength: 1, maxLength: 200 }, { type: "null" }] },
+          bodyMarkdown: { type: "string", minLength: 1, maxLength: 2_000 },
           citationIndexes: {
             type: "array",
             minItems: 1,
@@ -132,6 +134,26 @@ export function extractClaimCitationMap(answer: string) {
     });
 }
 
+function mockGroundedBlocks(answer: string, citationCount: number): GroundedAnswerBlock[] {
+  return answer
+    .split(/\n{2,}/)
+    .flatMap((segment) => {
+      const citationIndexes = Array.from(segment.matchAll(/\[citation:(\d+)\]/gi))
+        .map((match) => Number(match[1]))
+        .filter((index) => Number.isInteger(index) && index > 0 && index <= citationCount);
+      const withoutMarkers = segment.replace(/\[citation:\d+\]/gi, "").trim();
+      if (!withoutMarkers || !citationIndexes.length) return [];
+      const lines = withoutMarkers.split("\n");
+      const first = lines[0]?.match(/^#{1,6}\s+(.+)$/);
+      return [{
+        heading: first?.[1]?.trim() ?? null,
+        bodyMarkdown: (first ? lines.slice(1).join("\n") : withoutMarkers).trim(),
+        citationIndexes: Array.from(new Set(citationIndexes)),
+      }];
+    })
+    .filter((block) => Boolean(block.bodyMarkdown));
+}
+
 export async function groundProjectAnswer(input: {
   answer: string;
   entries: ProjectAnswerGroundingEntry[];
@@ -140,22 +162,24 @@ export async function groundProjectAnswer(input: {
 }) {
   const contractIssues = detectGroundingContractIssues(input);
   if (resolveWorkbaseLlmProvider() === "mock") {
+    const blocks = mockGroundedBlocks(input.answer, input.citationCount);
+    if (!blocks.length) throw new CitationIntegrityError("The mock grounding verifier found no supported cited blocks.");
     return {
-      answer: input.answer,
-      claims: extractClaimCitationMap(input.answer),
+      blocks,
       issues: contractIssues,
       tokenUsage: null,
     };
   }
 
   const freshness = repositoryFreshnessFromDossier(input.dossier ?? null);
-  try {
-    const result = await getBedrockStructuredLlmClient().generateStructured({
+  const result = await getBedrockStructuredLlmClient().generateStructured({
       systemPrompt: [
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
         "Check each factual project claim against only the source entry referenced by a [citation:N] marker in that claim or paragraph.",
         "Topical similarity is not entailment. Narrow configurable defaults, conditional behavior, and inferred intent instead of turning them into universal guarantees.",
-        "Do not introduce new facts or citation indexes. Preserve valid [citation:N] markers exactly and remove claims that cannot be supported.",
+        "Return supported factual units as structured blocks. Do not include [citation:N], [N], footnotes, or any other citation syntax in heading or bodyMarkdown; use citationIndexes only.",
+        "Do not introduce new facts or citation indexes. Remove claims that cannot be supported.",
+        "Keep useful Markdown such as emphasis, inline code, lists, and short paragraphs inside bodyMarkdown, but each block must remain one independently supported factual unit.",
         "For repository freshness, current-through means the pinned commit or inspection time. Never present an older source-import time as the current-through date.",
         "If research is partial, do not describe representative coverage as exhaustive and retain a concise coverage limitation when material.",
       ].join(" "),
@@ -172,38 +196,32 @@ export async function groundProjectAnswer(input: {
       }),
       schema: groundingSchema,
       schemaName: "project_answer_grounding",
-      schemaDescription: "A minimally corrected answer whose factual claims are entailed by their cited project sources.",
+      schemaDescription: "Supported Markdown answer blocks whose claims are entailed by their cited project sources.",
       jsonSchema: groundingJsonSchema,
       maxTokens: 8_000,
       temperature: 0,
       effort: "high",
+      extraValidation: (value) => value.blocks.flatMap((block, index) => {
+        const errors: string[] = [];
+        if (/\[citation:\d+\]/i.test(block.bodyMarkdown) || /\[\d+\](?:\s*\[\d+\])*/.test(block.bodyMarkdown)) {
+          errors.push(`Block ${index + 1} must use citationIndexes instead of citation marker text.`);
+        }
+        if (block.heading && (/\[citation:\d+\]/i.test(block.heading) || /\[\d+\]/.test(block.heading))) {
+          errors.push(`Heading ${index + 1} must not contain citation marker text.`);
+        }
+        if (block.citationIndexes.some((citationIndex) => citationIndex > input.citationCount)) {
+          errors.push(`Block ${index + 1} references an unavailable citation index.`);
+        }
+        return errors;
+      }),
     });
-    return {
-      answer: result.data.correctedAnswer,
-      claims: result.data.claims,
-      issues: [
-        ...contractIssues,
-        ...result.data.issues.map((issue) => `${issue.verdict}: ${issue.claim} — ${issue.correction}`),
-      ],
-      tokenUsage: result.tokenUsage,
-    };
-  } catch (error) {
-    const deterministicEntries = input.entries
-      .filter((entry) => entry.citationIndexes.length > 0)
-      .filter((entry) => entry.authority === "verified_project_fact" || entry.authority === "verified_highlight")
-      .sort((left, right) => Number(right.currentRun) - Number(left.currentRun))
-      .slice(0, 6);
-    const fallbackAnswer = deterministicEntries
-      .map((entry) => `${entry.content} [citation:${entry.citationIndexes[0]}]`)
-      .join("\n\n");
-    return {
-      answer: fallbackAnswer,
-      claims: extractClaimCitationMap(fallbackAnswer),
-      issues: [
-        ...contractIssues,
-        `Grounding verification failed closed; deterministic supported statements were used: ${error instanceof Error ? error.message : "unknown provider error"}`,
-      ],
-      tokenUsage: null,
-    };
-  }
+  if (!result.data.blocks.length) throw new CitationIntegrityError("The grounding verifier returned no supported blocks.");
+  return {
+    blocks: result.data.blocks,
+    issues: [
+      ...contractIssues,
+      ...result.data.issues.map((issue) => `${issue.verdict}: ${issue.claim} — ${issue.correction}`),
+    ],
+    tokenUsage: result.tokenUsage,
+  };
 }

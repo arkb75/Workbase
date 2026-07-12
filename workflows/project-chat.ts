@@ -90,6 +90,11 @@ async function finalizeRequiredCoverage(refreshRunId: string) {
   return knowledgeRefreshService.finalizeCoverage(refreshRunId);
 }
 
+async function repairRequiredCoverage(refreshRunId: string) {
+  "use step";
+  return knowledgeRefreshService.repairCoverage(refreshRunId);
+}
+
 async function reconcileRequiredKnowledge(refreshRunId: string) {
   "use step";
   const reconciled = await knowledgeReconciliationService.reconcile(refreshRunId);
@@ -153,6 +158,10 @@ async function runRequiredKnowledgeRefresh(runId: string) {
           : "Every safe repository file has been analyzed.",
         "research",
       );
+    }
+    const repair = await repairRequiredCoverage(requirement.refreshRunId);
+    if (repair.repaired > 0) {
+      await emitProgress(runId, `Deepening ${repair.repaired} files to resolve semantic coverage gaps.`, "research");
     }
     await finalizeRequiredCoverage(requirement.refreshRunId);
     await emitProgress(runId, "Reconciling current Facts, Highlights, Evidence, and Artifacts.", "candidate");
@@ -286,6 +295,9 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       runId: run.id,
       content: result.answer,
       citations: result.citations,
+      citationPolicy: result.citationPolicy,
+      groundedClaims: result.groundedClaims,
+      freshness: result.freshness,
       result: {
         status: "awaiting_review",
         candidateIds: result.research.candidateIds,
@@ -314,6 +326,9 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       fallbackUsed: false,
     },
     citations: result.citations,
+    citationPolicy: result.citationPolicy,
+    groundedClaims: result.groundedClaims,
+    freshness: result.freshness,
     researchFinalization: {
       usedProjectFactIds: result.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
     },
@@ -500,6 +515,7 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
       const batch = await analyzeRequiredKnowledgeBatch(refreshRunId);
       remaining = batch.remaining;
     }
+    await repairRequiredCoverage(refreshRunId);
     await finalizeRequiredCoverage(refreshRunId);
     return await reconcileRequiredKnowledge(refreshRunId);
   } catch (error) {

@@ -608,6 +608,10 @@ model ProjectFact {
   lastValidatedAt          DateTime?
   autoAppliedAt            DateTime?
   subsystemKey             String?
+  productImportance        Int?
+  implementationBreadth    Int?
+  technicalDifficulty      Int?
+  distinctiveness          Int?
   workItem                 WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidence                 ProjectFactEvidence[]
   embedding                ProjectFactEmbedding?

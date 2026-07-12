@@ -42,7 +42,7 @@ describe("complete repository coverage", () => {
       status: "verified",
       paths: ["src/services/project-knowledge-retrieval-service.ts"],
     });
-    expect(matrix.find((target) => target.key === "review_ui")?.status).toBe("gap");
+    expect(matrix.find((target) => target.key === "review_ui")?.status).toBe("not_applicable");
   });
 
   it("does not misclassify ordinary RegExp.test calls as automated tests", async () => {
@@ -55,5 +55,25 @@ describe("complete repository coverage", () => {
 
     expect(analysis.architectureSignals).not.toContain("automated test coverage");
     expect(analysis.facts.some((fact) => fact.statement.includes("automated tests"))).toBe(false);
+  });
+
+  it("preserves project-specific architecture areas instead of collapsing every service into one module", async () => {
+    const analyses = await analyzeRepositoryFiles([
+      {
+        repository: "workbase/demo",
+        commitSha: "d".repeat(40),
+        path: "src/services/knowledge-refresh-service.ts",
+        content: "export async function startKnowledgeRefresh() { return true; }",
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "d".repeat(40),
+        path: "src/services/project-chat-agent-service.ts",
+        content: "export async function runProjectChatAgent() { return true; }",
+      },
+    ]);
+
+    expect(analyses[0]?.subsystemKeys).toContain("repository_knowledge_lifecycle");
+    expect(analyses[1]?.subsystemKeys).toContain("project_chat_grounding");
   });
 });

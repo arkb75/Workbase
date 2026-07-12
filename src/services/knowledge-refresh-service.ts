@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { z } from "zod";
-import { resolveBedrockConfig } from "@/src/lib/llm-config";
+import { resolveBedrockConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
-  analyzeRepositoryFiles,
+  analyzeRepositoryFilesHierarchically,
+  analyzeRepositoryFile,
+  BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
+  mergeRepositoryFileAnalysis,
   REPOSITORY_COVERAGE_POLICY_VERSION,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
@@ -32,6 +35,10 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function record(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function parseTargets(value: unknown): RepositoryTargetHead[] {
@@ -110,7 +117,7 @@ export async function startKnowledgeRefresh(input: {
     : null;
   if (
     completedWarnings?.analyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
-    completedWarnings?.synthesisPolicyVersion === "repository-synthesis-v6" &&
+    completedWarnings?.synthesisPolicyVersion === "repository-synthesis-v11" &&
     completedTargets.length === targets.length &&
     targets.every((target) => completedTargets.some((completed) => completed.sourceId === target.sourceId && completed.commitSha === target.commitSha))
   ) {
@@ -318,7 +325,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
   }));
   const pending = prepared.filter((entry): entry is Extract<(typeof prepared)[number], { kind: "pending" }> => entry.kind === "pending");
   if (pending.length) {
-    const analyses = await analyzeRepositoryFiles(pending.map((entry) => ({
+    const analyses = await analyzeRepositoryFilesHierarchically(pending.map((entry) => ({
       repository: entry.target.repository,
       commitSha: entry.target.commitSha,
       path: entry.file.path,
@@ -361,6 +368,88 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
   return { remaining, analyzed };
 }
 
+export async function repairKnowledgeCoverageGaps(runId: string) {
+  if (resolveWorkbaseLlmProvider() === "mock") return { repaired: 0, remainingGaps: [] as string[] };
+  const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    include: { snapshots: { include: { files: { where: { disposition: "analyzed" }, orderBy: { path: "asc" } } } }, workItem: { select: { userId: true } } },
+  });
+  const targets = new Map(parseTargets(run.targetHeads).map((target) => [target.sourceId, target]));
+  const candidates: Array<{ snapshot: (typeof run.snapshots)[number]; file: (typeof run.snapshots)[number]["files"][number]; analysis: RepositoryFileAnalysis }> = [];
+  const remainingGaps = new Set<string>();
+  for (const snapshot of run.snapshots) {
+    const analyzed = snapshot.files.flatMap((file) => {
+      const analysis = rebaseCachedAnalysis(file.analysis, file.path);
+      return analysis ? [{ path: file.path, analysis, file }] : [];
+    });
+    const matrix = buildCoverageMatrix(analyzed);
+    const baseOrder = new Map<string, number>(BASE_COVERAGE_TARGETS.map((target, index) => [target.key, index]));
+    const orderedAreas = [...matrix].sort((left, right) =>
+      (baseOrder.get(left.key) ?? 1_000) - (baseOrder.get(right.key) ?? 1_000) ||
+      right.observationCount - left.observationCount,
+    );
+    for (const area of orderedAreas) {
+      if (area.semanticPathCount === 0 || area.unresolvedQuestions.length) {
+        remainingGaps.add(area.key);
+        const entry = analyzed
+          .filter((item) => item.analysis.subsystemKeys.includes(area.key) && item.analysis.analysisMode !== "semantic")
+          .filter((item) => !candidates.some((candidate) => candidate.file.id === item.file.id))
+          .sort((left, right) => {
+            const score = (item: typeof left) =>
+              item.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
+              item.analysis.architectureSignals.length * 4 +
+              item.analysis.dependencies.length +
+              (/readme|schema|workflow|agent|artifact|chat|retriev|github/i.test(item.path) ? 20 : 0);
+            return score(right) - score(left) || left.path.localeCompare(right.path);
+          })[0];
+        if (entry) candidates.push({ snapshot, file: entry.file, analysis: entry.analysis });
+      }
+      if (candidates.length >= 8) break;
+    }
+    if (candidates.length >= 8) break;
+  }
+  const repairResults = await Promise.all(candidates.map(async (candidate) => {
+    const target = targets.get(candidate.snapshot.sourceId);
+    if (!target || !candidate.file.blobSha) return { path: candidate.file.path, repaired: false, error: "missing_target" };
+    try {
+      const read = await repositoryKnowledgeSyncService.readFile({
+        userId: run.workItem.userId,
+        workItemId: run.workItemId,
+        target,
+        entry: {
+          path: candidate.file.path,
+          blobSha: candidate.file.blobSha,
+          sizeBytes: candidate.file.sizeBytes,
+          mode: "100644",
+          objectType: "blob",
+          disposition: "eligible",
+          exclusionReason: null,
+        },
+      });
+      const semantic = await analyzeRepositoryFile({ repository: target.repository, commitSha: target.commitSha, path: candidate.file.path, content: read.content });
+      const merged = mergeRepositoryFileAnalysis(candidate.analysis, semantic);
+      await prisma.repositoryFileSnapshot.update({
+        where: { id: candidate.file.id },
+        data: { analysis: toInputJson({ ...merged, redacted: read.redacted, redactionCategories: read.redactionCategories }), analyzedAt: new Date() },
+      });
+      return { path: candidate.file.path, repaired: true, error: null };
+    } catch (error) {
+      return { path: candidate.file.path, repaired: false, error: error instanceof Error ? error.message.slice(0, 300) : "unknown_semantic_repair_error" };
+    }
+  }));
+  const failures = repairResults.filter((result) => !result.repaired);
+  if (failures.length) {
+    await prisma.knowledgeRefreshRun.update({
+      where: { id: runId },
+      data: { warnings: toInputJson({ semanticRepairFailures: failures }) },
+    });
+  }
+  return {
+    repaired: repairResults.filter((result) => result.repaired).length,
+    remainingGaps: [...Array.from(remainingGaps), ...failures.map((failure) => `Semantic repair retained static coverage for ${failure.path}.`)],
+  };
+}
+
 export async function finalizeKnowledgeCoverage(runId: string) {
   const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
@@ -383,12 +472,16 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       return analysis ? [{ path: file.path, analysis }] : [];
     });
     const matrix = buildCoverageMatrix(analyzed);
+    const coverageGaps: string[] = [];
     const coverage = {
       repository: parseTargets(run.targetHeads).find((target) => target.sourceId === snapshot.sourceId)?.repository ?? snapshot.sourceId,
       commitSha: snapshot.commitSha,
       totalPaths: snapshot.files.length,
       analyzedPaths: snapshot.files.filter((file) => file.disposition === "analyzed").length,
       excludedPaths: snapshot.files.filter((file) => file.disposition === "excluded").length,
+      semanticPaths: analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length,
+      coverageStatus: coverageGaps.length ? "partial" : "complete",
+      coverageGaps,
       targets: matrix,
       policyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
     };
@@ -409,9 +502,10 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       coverage: toInputJson(coverageByRepository),
       completedHeads: toInputJson(run.targetHeads),
       warnings: toInputJson({
+        ...record(run.warnings),
         modelId: resolveBedrockConfig().modelId,
         analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
-        synthesisPolicyVersion: "repository-synthesis-v6",
+        synthesisPolicyVersion: "repository-synthesis-v11",
       }),
     },
   });
@@ -440,6 +534,7 @@ export const knowledgeRefreshService = {
   start: startKnowledgeRefresh,
   inventory: inventoryKnowledgeRefresh,
   analyzeBatch: analyzeKnowledgeRefreshBatch,
+  repairCoverage: repairKnowledgeCoverageGaps,
   finalizeCoverage: finalizeKnowledgeCoverage,
   complete: completeKnowledgeRefresh,
   fail: failKnowledgeRefresh,

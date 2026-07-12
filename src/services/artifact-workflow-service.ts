@@ -614,6 +614,7 @@ export async function executeArtifactAttempt(input: {
       runId: run.id,
       content: run.artifact.content,
       result: { status: "completed", artifactId: run.artifact.id, replayed: true },
+      citationPolicy: "none",
     });
     return { status: "completed", artifactId: run.artifact.id };
   }
@@ -640,6 +641,7 @@ export async function executeArtifactAttempt(input: {
       runId: run.id,
       content: normalized.message,
       result: { status: "clarification_required" },
+      citationPolicy: "none",
     });
     return { status: "clarification_required", message: normalized.message };
   }
@@ -755,6 +757,7 @@ export async function executeArtifactAttempt(input: {
       content: artifact.content,
       result: { status: "completed", artifactId: artifact.id },
       citations,
+      citationPolicy: "attached",
     });
     return { status: "completed", artifactId: artifact.id };
   }

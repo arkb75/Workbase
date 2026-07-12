@@ -202,20 +202,14 @@ async function applyFact(input: {
           validatedThroughSha: input.commitSha,
           lastValidatedAt: new Date(),
           rejectionReason: null,
+          productImportance: input.candidate.productImportance,
+          implementationBreadth: input.candidate.implementationBreadth,
+          technicalDifficulty: input.candidate.technicalDifficulty,
+          distinctiveness: input.candidate.distinctiveness,
           evidence: { createMany: { data: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })), skipDuplicates: true } },
         },
       }),
       prisma.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } }),
-      prisma.projectFact.updateMany({
-        where: {
-          workItemId: input.workItemId,
-          id: { not: closest.fact.id },
-          subsystemKey: input.subsystem.subsystemKey,
-          approvalSource: "automation",
-          lifecycleStatus: { in: ["active", "needs_validation"] },
-        },
-        data: { status: "superseded", lifecycleStatus: "superseded" },
-      }),
     ]);
     await recordChange({
       workItemId: input.workItemId,
@@ -232,7 +226,7 @@ async function applyFact(input: {
     return closest.fact.id;
   }
 
-  const supersedes = !unsafe && closest && (closest.score >= 0.42 || closest.fact.approvalSource === "automation")
+  const supersedes = !unsafe && closest && closest.score >= 0.55
     ? closest.fact
     : null;
   const fact = await prisma.$transaction(async (tx) => {
@@ -255,22 +249,16 @@ async function applyFact(input: {
         validatedThroughSha: input.commitSha,
         lastValidatedAt: new Date(),
         autoAppliedAt: unsafe ? null : new Date(),
+        productImportance: input.candidate.productImportance,
+        implementationBreadth: input.candidate.implementationBreadth,
+        technicalDifficulty: input.candidate.technicalDifficulty,
+        distinctiveness: input.candidate.distinctiveness,
         evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
       },
     });
     if (supersedes) {
       await tx.projectFact.update({ where: { id: supersedes.id }, data: { status: "superseded", lifecycleStatus: "superseded" } });
     }
-    await tx.projectFact.updateMany({
-      where: {
-        workItemId: input.workItemId,
-        id: { not: created.id },
-        subsystemKey: input.subsystem.subsystemKey,
-        approvalSource: "automation",
-        lifecycleStatus: { in: ["active", "needs_validation"] },
-      },
-      data: { status: "superseded", lifecycleStatus: "superseded" },
-    });
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
     return created;
   });

@@ -8,8 +8,10 @@ import {
   approveAllPendingHighlightsAction,
   attachGithubRepoAction,
   createManualSourceAction,
+  editKnowledgeItemAction,
   generateArtifactAction,
   generateClaimsAction,
+  retireKnowledgeItemAction,
   toggleEvidenceInclusionAction,
 } from "@/app/actions";
 import {
@@ -68,6 +70,23 @@ function readSourceMetadata(value: unknown) {
   }
 
   return value as Record<string, unknown>;
+}
+
+function readChatFreshness(value: unknown) {
+  const metadata = readSourceMetadata(value);
+  const freshness = readSourceMetadata(metadata?.freshness);
+  if (!freshness || !Array.isArray(freshness.repositories)) return null;
+  const repositories = freshness.repositories.flatMap((entry) => {
+    const repository = readSourceMetadata(entry);
+    return typeof repository?.name === "string" && typeof repository.commitSha === "string" && typeof repository.resolvedAt === "string"
+      ? [{ name: repository.name, commitSha: repository.commitSha, resolvedAt: repository.resolvedAt }]
+      : [];
+  });
+  const coverage = freshness.coverage === "partial" ? "partial" as const : "complete" as const;
+  const gaps = Array.isArray(freshness.gaps)
+    ? freshness.gaps.filter((gap): gap is string => typeof gap === "string")
+    : [];
+  return repositories.length ? { repositories, coverage, gaps } : null;
 }
 
 function getSourceImportedAt(value: unknown) {
@@ -544,8 +563,10 @@ function ClaimSection({
 
 function ProjectFactSection({
   facts,
+  workItemId,
 }: {
   facts: Awaited<ReturnType<typeof getWorkItemForUser>>["projectFacts"];
+  workItemId: string;
 }) {
   const groups = ["approved", "draft", "rejected", "superseded"] as const;
   return (
@@ -609,6 +630,28 @@ function ProjectFactSection({
                               </p>
                             </div>
                           ))}
+                        </div>
+                      </details>
+                    ) : null}
+                    {fact.lifecycleStatus === "active" || fact.lifecycleStatus === "needs_validation" ? (
+                      <details className="text-xs sm:col-span-2">
+                        <summary className="cursor-pointer font-medium text-[color:var(--accent)]">Edit or retire</summary>
+                        <div className="mt-3 grid gap-3 border-l border-black/8 pl-3 sm:grid-cols-[1fr_auto]">
+                          <form action={editKnowledgeItemAction} className="flex gap-2">
+                            <input type="hidden" name="workItemId" value={workItemId} />
+                            <input type="hidden" name="entityId" value={fact.id} />
+                            <input type="hidden" name="kind" value="project_fact" />
+                            <input type="hidden" name="idempotencyKey" value={`project-fact-edit:${fact.id}:${fact.updatedAt.toISOString()}`} />
+                            <Input name="value" defaultValue={fact.statement} aria-label="Edited Project Fact statement" />
+                            <SubmitButton size="sm" variant="secondary" pendingLabel="Saving…">Save successor</SubmitButton>
+                          </form>
+                          <form action={retireKnowledgeItemAction}>
+                            <input type="hidden" name="workItemId" value={workItemId} />
+                            <input type="hidden" name="entityId" value={fact.id} />
+                            <input type="hidden" name="kind" value="project_fact" />
+                            <input type="hidden" name="reason" value="Retired from the Project Facts workspace." />
+                            <SubmitButton size="sm" variant="ghost" pendingLabel="Retiring…">Retire</SubmitButton>
+                          </form>
                         </div>
                       </details>
                     ) : null}
@@ -878,6 +921,12 @@ export default async function WorkItemDetailPage({
           ? ("streaming" as const)
           : message.status,
     createdAt: message.createdAt.toISOString(),
+    freshness: readChatFreshness(message.metadata),
+    citationIntegrity: readSourceMetadata(message.metadata)?.citationIntegrity === "legacy_unverifiable"
+      ? "legacy_unverifiable" as const
+      : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
+        ? "verified" as const
+        : null,
     citations: message.citations.map((citation) => ({
       id: citation.id,
       kind: citation.kind,
@@ -1238,6 +1287,28 @@ export default async function WorkItemDetailPage({
                             </SubmitButton>
                           </form>
                         </div>
+                        {item.lifecycleStatus === "active" || item.lifecycleStatus === "needs_validation" ? (
+                          <details className="mt-3 border-t border-black/7 pt-3 text-xs">
+                            <summary className="cursor-pointer font-medium text-[color:var(--accent)]">Edit or retire this evidence</summary>
+                            <div className="mt-3 grid gap-3">
+                              <form action={editKnowledgeItemAction} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                                <input type="hidden" name="workItemId" value={workItem.id} />
+                                <input type="hidden" name="entityId" value={item.id} />
+                                <input type="hidden" name="kind" value="evidence" />
+                                <input type="hidden" name="idempotencyKey" value={`evidence-edit:${item.id}:${item.updatedAt.toISOString()}`} />
+                                <Textarea name="value" defaultValue={item.content} className="min-h-24" aria-label="Edited evidence content" />
+                                <SubmitButton size="sm" variant="secondary" pendingLabel="Saving…">Save successor</SubmitButton>
+                              </form>
+                              <form action={retireKnowledgeItemAction} className="flex items-center justify-end gap-2">
+                                <input type="hidden" name="workItemId" value={workItem.id} />
+                                <input type="hidden" name="entityId" value={item.id} />
+                                <input type="hidden" name="kind" value="evidence" />
+                                <input type="hidden" name="reason" value="Retired from the Evidence workspace." />
+                                <SubmitButton size="sm" variant="ghost" pendingLabel="Retiring…">Retire evidence</SubmitButton>
+                              </form>
+                            </div>
+                          </details>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -1381,7 +1452,7 @@ export default async function WorkItemDetailPage({
                 )}
               </ClaimSection>
 
-              <ProjectFactSection facts={workItem.projectFacts} />
+              <ProjectFactSection facts={workItem.projectFacts} workItemId={workItem.id} />
 
               <KnowledgeUpdateInbox
                 workItemId={workItem.id}

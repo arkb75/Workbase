@@ -68,6 +68,10 @@ async function createEditedSuccessor(input: {
           validatedThroughSha: change.projectFact!.validatedThroughSha,
           lastValidatedAt: change.projectFact!.lastValidatedAt,
           subsystemKey: change.projectFact!.subsystemKey,
+          productImportance: change.projectFact!.productImportance,
+          implementationBreadth: change.projectFact!.implementationBreadth,
+          technicalDifficulty: change.projectFact!.technicalDifficulty,
+          distinctiveness: change.projectFact!.distinctiveness,
           evidence: { create: change.projectFact!.evidence.map((entry) => ({ evidenceItemId: entry.evidenceItemId, relevanceScore: entry.relevanceScore })) },
         },
       });

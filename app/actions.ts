@@ -66,7 +66,7 @@ import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-sta
 import { resolveAgentCandidate } from "@/src/services/candidate-review-service";
 import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
 import { repositoryKnowledgeRefreshApplicationService } from "@/src/services/repository-knowledge-refresh-application-service";
-import { knowledgeReviewService } from "@/src/services/knowledge-review-service";
+import { knowledgeLifecycleService, knowledgeReviewService } from "@/src/services/knowledge-review-service";
 import {
   artifactGenerationWorkflow,
   projectChatTurnWorkflow,
@@ -1029,6 +1029,45 @@ export async function retryAgentRunAction(formData: FormData) {
   revalidatePath(`/work-items/${workItemId}`);
 }
 
+export async function regenerateHistoricalChatMessageAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const messageId = String(formData.get("messageId") ?? "");
+  if (!workItemId || !messageId) return;
+  const message = await prisma.chatMessage.findFirst({
+    where: {
+      id: messageId,
+      role: "assistant",
+      thread: { userId: user.id, workItemId },
+      agentRun: { status: "completed" },
+    },
+    include: { agentRun: true },
+  });
+  if (!message?.agentRun?.threadId) return;
+  const metadata = message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+    ? message.metadata as Record<string, unknown>
+    : null;
+  if (metadata?.citationIntegrity !== "legacy_unverifiable") return;
+  const request = message.agentRun.request as Record<string, unknown>;
+  const prompt = typeof request.message === "string" ? request.message : typeof request.brief === "string" ? request.brief : "";
+  if (!prompt) return;
+  const run = await createProjectChatRun({
+    userId: user.id,
+    workItemId,
+    threadId: message.agentRun.threadId,
+    message: prompt,
+    kind: message.agentRun.kind === "artifact_workflow" ? "artifact_workflow" : "chat_turn",
+    idempotencyKey: `regenerate:${message.id}`,
+  });
+  await startAgentRunWorkflowOnce({
+    runId: run.id,
+    startWorkflow: () => run.kind === "artifact_workflow"
+      ? start(artifactGenerationWorkflow, [run.id])
+      : start(projectChatTurnWorkflow, [run.id]),
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
 export async function updateOnboardingAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
   const parsed = onboardingSchema.safeParse({
@@ -1559,19 +1598,30 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
     );
   }
 
-  await prisma.highlight.update({
-    where: {
-      id: claim.id,
-    },
-    data: {
-      text: parsed.data.text,
-      visibility: parsed.data.visibility,
-      sensitivityFlag: parsed.data.sensitivityFlag,
-      verificationStatus: nextStatus,
-      rejectionReason: nextRejectionReason,
-      verificationNotes: parsed.data.verificationNotes ?? null,
-    },
-  });
+  if (nextStatus === "rejected") {
+    await knowledgeLifecycleService.retire({
+      userId: demoUser.id,
+      workItemId: claim.workItemId,
+      kind: "highlight",
+      entityId: claim.id,
+      reason: nextRejectionReason ?? "Rejected during Highlight review.",
+      idempotencyKey: `highlight-review:${claim.id}:retire:${claim.updatedAt.toISOString()}`,
+    });
+  } else {
+    await knowledgeLifecycleService.edit({
+      userId: demoUser.id,
+      workItemId: claim.workItemId,
+      kind: "highlight",
+      entityId: claim.id,
+      patch: {
+        text: parsed.data.text,
+        visibility: parsed.data.visibility,
+        sensitivityFlag: parsed.data.sensitivityFlag,
+        reviewNotes: parsed.data.verificationNotes ?? null,
+      },
+      idempotencyKey: `highlight-review:${claim.id}:${parsed.data.intent}:${claim.updatedAt.toISOString()}`,
+    });
+  }
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
@@ -1826,6 +1876,47 @@ export async function resolveKnowledgeChangeAction(formData: FormData) {
     decision: decision as "keep" | "edit_and_keep" | "revert" | "retire",
     patch,
     feedback: String(formData.get("feedback") ?? "").trim() || null,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function editKnowledgeItemAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const entityId = String(formData.get("entityId") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  const value = String(formData.get("value") ?? "").trim();
+  if (!workItemId || !entityId || !value || !["evidence", "highlight", "project_fact", "artifact"].includes(kind)) {
+    throw new Error("The knowledge edit is invalid.");
+  }
+  const field = kind === "evidence" || kind === "artifact" ? "content" : kind === "highlight" ? "text" : "statement";
+  await knowledgeLifecycleService.edit({
+    userId: user.id,
+    workItemId,
+    kind: kind as "evidence" | "highlight" | "project_fact" | "artifact",
+    entityId,
+    patch: { [field]: value },
+    idempotencyKey: String(formData.get("idempotencyKey") ?? "") || `manual-edit:${entityId}:${randomUUID()}`,
+  });
+  revalidatePath(`/work-items/${workItemId}`);
+}
+
+export async function retireKnowledgeItemAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "");
+  const entityId = String(formData.get("entityId") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!workItemId || !entityId || !["evidence", "highlight", "project_fact", "artifact"].includes(kind)) {
+    throw new Error("The knowledge retirement request is invalid.");
+  }
+  await knowledgeLifecycleService.retire({
+    userId: user.id,
+    workItemId,
+    kind: kind as "evidence" | "highlight" | "project_fact" | "artifact",
+    entityId,
+    reason: reason || null,
+    idempotencyKey: String(formData.get("idempotencyKey") ?? "") || `manual-retire:${entityId}:${randomUUID()}`,
   });
   revalidatePath(`/work-items/${workItemId}`);
 }

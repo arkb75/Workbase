@@ -15,7 +15,7 @@ import {
   redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
-export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v3";
+export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v7";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 
