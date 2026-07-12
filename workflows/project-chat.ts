@@ -1,6 +1,7 @@
-import { createHook, getWritable } from "workflow";
+import { createHook, FatalError, getWritable } from "workflow";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
 import type { BedrockConverseAgentEvent } from "@/src/lib/bedrock-converse-agent";
+import { classifyWorkflowFailure } from "@/src/lib/error-message";
 import { prisma } from "@/src/lib/prisma";
 import {
   appendAgentRunEvent,
@@ -24,6 +25,17 @@ import {
 } from "@/src/services/knowledge-refresh-service";
 import { knowledgeReconciliationService } from "@/src/services/knowledge-reconciliation-service";
 import { knowledgeStalenessService } from "@/src/services/knowledge-staleness-service";
+import { runtimeReadinessService } from "@/src/services/runtime-readiness-service";
+
+async function assertApplicationRuntimeReady() {
+  "use step";
+
+  const readiness = await runtimeReadinessService.check();
+  if (readiness.ready) return;
+  const message = `${readiness.reason}: ${readiness.message} ${readiness.recovery}`;
+  if (!readiness.retryable) throw new FatalError(message);
+  throw new Error(message);
+}
 
 async function emitProgress(
   runId: string,
@@ -112,6 +124,11 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
   };
 }
 
+// This step promotes evidence and mutates versioned knowledge. Until each
+// mutation is checkpointed independently, replaying the entire synthesis and
+// reconciliation pass is less safe than surfacing one actionable failure.
+reconcileRequiredKnowledge.maxRetries = 0;
+
 async function failRequiredKnowledgeRefresh(refreshRunId: string, errorMessage: string) {
   "use step";
   return knowledgeRefreshService.fail(refreshRunId, new Error(errorMessage));
@@ -169,9 +186,10 @@ async function runRequiredKnowledgeRefresh(runId: string) {
     await attachRefreshToAgentRun(runId, requirement.refreshRunId);
     return { refreshRunId: requirement.refreshRunId, ...reconciliation };
   } catch (error) {
+    const failure = classifyWorkflowFailure(error);
     await failRequiredKnowledgeRefresh(
       requirement.refreshRunId,
-      error instanceof Error ? error.message : "Unknown repository refresh error.",
+      `${failure.message}${failure.recovery ? ` ${failure.recovery}` : ""}`,
     );
     throw error;
   }
@@ -384,12 +402,23 @@ async function hasPendingReviewCandidates(runId: string, batchNumber: number) {
   );
 }
 
-async function failWorkflowRun(runId: string, errorMessage: string) {
+async function failWorkflowRun(
+  runId: string,
+  failure: ReturnType<typeof classifyWorkflowFailure>,
+  stage: string,
+) {
   "use step";
-  const message = errorMessage
-    ? `The durable agent run failed: ${errorMessage.slice(0, 400)}`
-    : "The durable agent run failed unexpectedly.";
-  await failAgentRun({ runId, message });
+  const message = [failure.message, failure.recovery].filter(Boolean).join(" ");
+  await failAgentRun({
+    runId,
+    message,
+    failure: {
+      code: failure.code,
+      stage,
+      retryable: failure.retryable,
+      recovery: failure.recovery,
+    },
+  });
   return message;
 }
 
@@ -446,6 +475,7 @@ export async function projectChatTurnWorkflow(runId: string) {
   "use workflow";
 
   try {
+    await assertApplicationRuntimeReady();
     await runRequiredKnowledgeRefresh(runId);
     await emitProgress(runId, "Searching verified project memory.", "retrieval");
     let result = await answerProjectQuestion(runId);
@@ -478,9 +508,11 @@ export async function projectChatTurnWorkflow(runId: string) {
     );
     return result;
   } catch (error) {
+    const failure = classifyWorkflowFailure(error);
     const message = await failWorkflowRun(
       runId,
-      error instanceof Error ? error.message : "",
+      failure,
+      failure.code === "runtime_schema_mismatch" ? "Checking application readiness" : "Running project chat",
     );
     return { status: "failed" as const, message };
   } finally {
@@ -492,12 +524,15 @@ export async function artifactGenerationWorkflow(runId: string) {
   "use workflow";
 
   try {
+    await assertApplicationRuntimeReady();
     await runRequiredKnowledgeRefresh(runId);
     return await runArtifactLifecycle(runId);
   } catch (error) {
+    const failure = classifyWorkflowFailure(error);
     const message = await failWorkflowRun(
       runId,
-      error instanceof Error ? error.message : "",
+      failure,
+      failure.code === "runtime_schema_mismatch" ? "Checking application readiness" : "Generating artifact",
     );
     return { status: "failed" as const, message };
   } finally {
@@ -509,6 +544,7 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
   "use workflow";
 
   try {
+    await assertApplicationRuntimeReady();
     await inventoryRequiredKnowledge(refreshRunId);
     let remaining = 1;
     while (remaining > 0) {
@@ -519,9 +555,10 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
     await finalizeRequiredCoverage(refreshRunId);
     return await reconcileRequiredKnowledge(refreshRunId);
   } catch (error) {
+    const failure = classifyWorkflowFailure(error);
     await failRequiredKnowledgeRefresh(
       refreshRunId,
-      error instanceof Error ? error.message : "Unknown repository refresh error.",
+      `${failure.message}${failure.recovery ? ` ${failure.recovery}` : ""}`,
     );
     throw error;
   }

@@ -16,6 +16,7 @@ import {
   RotateCcw,
   SearchCode,
   Sparkles,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import {
@@ -117,6 +118,23 @@ export interface ChatWorkspaceRun {
     | "failed"
     | "cancelled";
   kind: string;
+  failure: {
+    code: string | null;
+    stage: string | null;
+    message: string;
+    recovery: string | null;
+    retryable: boolean;
+  } | null;
+}
+
+export function selectLatestRunFeedback(runs: ChatWorkspaceRun[]) {
+  const latestRun = runs.at(-1) ?? null;
+  return {
+    retryableRun: latestRun && ["failed", "insufficient_context", "cancelled"].includes(latestRun.status)
+      ? latestRun
+      : null,
+    latestFailure: latestRun?.status === "failed" ? latestRun.failure : null,
+  };
 }
 
 const starterPrompts = [
@@ -451,9 +469,7 @@ export function ProjectChatWorkspace({
     ["queued", "running", "awaiting_review"].includes(run.status),
   );
   const activeRunId = activeRuns[0]?.id ?? null;
-  const retryableRun = [...runs]
-    .reverse()
-    .find((run) => ["failed", "insufficient_context", "cancelled"].includes(run.status));
+  const { retryableRun, latestFailure } = selectLatestRunFeedback(runs);
   const latestEvents = useMemo(() => events.slice(-4), [events]);
 
   useEffect(() => {
@@ -629,6 +645,19 @@ export function ProjectChatWorkspace({
               </div>
             ) : (
               <div className="mx-auto max-w-3xl space-y-7">
+                {latestFailure ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <div className="flex items-start gap-3">
+                      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-semibold">{latestFailure.stage ?? "Agent run failed"}</p>
+                        <p className="mt-1 leading-6">{latestFailure.message}</p>
+                        {latestFailure.recovery ? <p className="mt-1 leading-6"><span className="font-medium">Recovery:</span> {latestFailure.recovery}</p> : null}
+                        <p className="mt-2 text-[11px] text-amber-800">Failure code: {latestFailure.code ?? "workflow_failed"}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 {messages.map((message) => (
                   <article
                     key={message.id}

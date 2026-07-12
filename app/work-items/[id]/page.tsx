@@ -1019,6 +1019,20 @@ export default async function WorkItemDetailPage({
     id: run.id,
     status: run.status,
     kind: run.kind,
+    failure: (() => {
+      const failure = readSourceMetadata(run.error);
+      if (!failure || typeof failure.message !== "string") return null;
+      const recovery = typeof failure.recovery === "string" ? failure.recovery : null;
+      return {
+        code: typeof failure.code === "string" ? failure.code : null,
+        stage: typeof failure.stage === "string" ? failure.stage : null,
+        message: recovery && failure.message.endsWith(recovery)
+          ? failure.message.slice(0, -recovery.length).trim()
+          : failure.message,
+        recovery,
+        retryable: failure.retryable !== false,
+      };
+    })(),
   }));
   const sourcesReturnTo = `/work-items/${workItem.id}?tab=sources`;
   const highlightsReturnTo = `/work-items/${workItem.id}?tab=highlights`;

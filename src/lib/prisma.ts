@@ -1,5 +1,9 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/src/generated/prisma/client";
+import { Prisma, PrismaClient } from "@/src/generated/prisma/client";
+import {
+  generatedPrismaSchemaSignature,
+  prismaClientRuntimeSchemaSignature,
+} from "@/src/lib/prisma-runtime-schema";
 
 declare global {
   var prisma: PrismaClient | undefined;
@@ -10,7 +14,26 @@ const connectionString =
 
 const adapter = new PrismaPg({ connectionString });
 
-export const prisma = globalThis.prisma ?? new PrismaClient({ adapter });
+const generatedSchemaSignature = generatedPrismaSchemaSignature(Prisma as unknown as Record<string, unknown>);
+const existingSchemaSignature = globalThis.prisma
+  ? prismaClientRuntimeSchemaSignature(globalThis.prisma)
+  : null;
+const canReuseDevelopmentClient = Boolean(
+  globalThis.prisma &&
+  generatedSchemaSignature &&
+  existingSchemaSignature === generatedSchemaSignature,
+);
+
+// Next.js intentionally preserves this singleton across hot reloads. Replace it
+// when `prisma generate` changes the runtime data model, otherwise new service
+// code can execute against an old in-memory Prisma contract until restart.
+if (globalThis.prisma && !canReuseDevelopmentClient) {
+  void globalThis.prisma.$disconnect();
+}
+
+export const prisma = canReuseDevelopmentClient
+  ? globalThis.prisma!
+  : new PrismaClient({ adapter });
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.prisma = prisma;

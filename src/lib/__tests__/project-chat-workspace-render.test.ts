@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   MessageContent,
+  selectLatestRunFeedback,
   type ChatWorkspaceCitation,
 } from "@/components/chat/project-chat-workspace";
 
@@ -66,5 +67,21 @@ describe("project chat citation rendering", () => {
     expect(markup).not.toContain("javascript:");
     expect(markup).not.toContain("<img");
     expect(markup).toContain("[Image: diagram]");
+  });
+});
+
+describe("project chat run feedback", () => {
+  it("clears a stale failure banner and Retry control after a successful retry", () => {
+    const result = selectLatestRunFeedback([
+      {
+        id: "failed",
+        status: "failed",
+        kind: "chat_turn",
+        failure: { code: "workflow_failed", stage: null, message: "failed", recovery: null, retryable: true },
+      },
+      { id: "success", status: "completed", kind: "chat_turn", failure: null },
+    ]);
+
+    expect(result).toEqual({ retryableRun: null, latestFailure: null });
   });
 });

@@ -522,6 +522,12 @@ export async function failAgentRun(input: {
   runId: string;
   message: string;
   insufficient?: boolean;
+  failure?: {
+    code: string;
+    stage?: string | null;
+    retryable: boolean;
+    recovery?: string | null;
+  };
 }) {
   const status = input.insufficient ? "insufficient_context" : "failed";
   await prisma.$transaction(async (tx) => {
@@ -542,7 +548,15 @@ export async function failAgentRun(input: {
       },
       data: {
         status,
-        error: toInputJson({ message: input.message }),
+        error: toInputJson({
+          message: input.message,
+          ...(input.failure ? {
+            code: input.failure.code,
+            stage: input.failure.stage ?? null,
+            retryable: input.failure.retryable,
+            recovery: input.failure.recovery ?? null,
+          } : {}),
+        }),
         ...(completedResearchState ? { researchState: toInputJson(completedResearchState) } : {}),
         finishedAt: new Date(),
       },
