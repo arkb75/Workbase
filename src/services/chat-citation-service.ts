@@ -99,6 +99,38 @@ function markerOrdinals(content: string) {
   return Array.from(content.matchAll(citationMarkerPattern)).map((match) => Number(match[1]));
 }
 
+function appendCanonicalMarkers(body: string, marker: string) {
+  const lines = body.split("\n");
+  const listItemPattern = /^\s*(?:[-*+]\s+|\d+[.)]\s+)/;
+  const fencePattern = /^\s*(?:```|~~~)/;
+  let inFence = false;
+  let sawContent = false;
+  let pureList = true;
+  for (const line of lines) {
+    if (fencePattern.test(line)) {
+      inFence = !inFence;
+      pureList = false;
+      continue;
+    }
+    if (!line.trim()) continue;
+    sawContent = true;
+    if (inFence || !listItemPattern.test(line)) pureList = false;
+  }
+  if (!sawContent || !pureList) {
+    return fencePattern.test(lines.at(-1) ?? "")
+      ? `${body}\n\n${marker}`
+      : `${body} ${marker}`;
+  }
+  // A structured block can contain several independently phrased list items,
+  // while its citationIndexes apply to the complete block. Repeat the
+  // canonical marker set on each item so the rendered source relationship and
+  // post-persistence claim audit do not accidentally apply only to the final
+  // bullet.
+  return lines
+    .map((line) => listItemPattern.test(line) ? `${line} ${marker}` : line)
+    .join("\n");
+}
+
 export function assertAnswerCitationContract(input: {
   content: string;
   citations: readonly ProjectKnowledgeCitation[];
@@ -180,7 +212,10 @@ export function finalizeGroundedAnswer(input: {
     });
     const uniqueCompactIndexes = Array.from(new Set(compactIndexes));
     const marker = uniqueCompactIndexes.map((ordinal) => `[citation:${ordinal}]`).join("");
-    serializedBlocks.push([heading ? `### ${heading}` : null, `${body} ${marker}`].filter(Boolean).join("\n"));
+    serializedBlocks.push([
+      heading ? `### ${heading}` : null,
+      appendCanonicalMarkers(body, marker),
+    ].filter(Boolean).join("\n"));
     groundedClaims.push({ claim: body, citationIndexes: uniqueCompactIndexes });
   }
 

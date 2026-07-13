@@ -654,11 +654,15 @@ export function buildDeterministicAccomplishmentBlocks(
       bodyMarkdown,
       citationIndexes: technicalCitationIndexes,
     };
-    const ownershipUnsupported = detectGroundingContractIssues({
-      answer: serializeGroundedBlocks([{ ...block, bodyMarkdown: block.bodyMarkdown.replace(/\n+/g, " ") }]),
-      citationCount,
-      entries,
-    }).some((issue) => issue.startsWith("Repository-only sources cannot establish personal ownership:"));
+    const ownershipUnsupported = requirement.members.some((member) =>
+      detectGroundingContractIssues({
+        answer: `${member.title} ${uniqueIndexes(member.citationIndexes)
+          .map((index) => `[citation:${index}]`)
+          .join("")}`,
+        citationCount,
+        entries,
+      }).some((issue) => issue.startsWith("Repository-only sources cannot establish personal ownership:"))
+    );
     if (
       ownershipUnsupported &&
       ownershipCitationIndex &&

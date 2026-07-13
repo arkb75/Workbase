@@ -358,6 +358,33 @@ describe("project answer completeness", () => {
     }
   });
 
+  it("adds ownership evidence when a later member in a combined block uses accomplishment wording", () => {
+    const neutral = entry(1, "knowledge_review_lifecycle", {
+      title: "Successor-based knowledge review lifecycle",
+      content: "Knowledge updates preserve immutable successor history.",
+    });
+    const accomplishment = entry(2, "review_ui", {
+      title: "Built a human-in-the-loop review UI",
+      content: "The review UI supports candidate approval and denial.",
+    });
+    const ownership: AccomplishmentGroundingEntry = {
+      kind: "evidence",
+      authority: "included_evidence",
+      title: "Work Item description",
+      content: "Built Workbase end to end.",
+      currentRun: false,
+      citationIndexes: [99],
+      ownershipAuthority: 3,
+      supportingSources: [],
+      subsystemKey: null,
+      accomplishmentRanking: null,
+    };
+
+    const [block] = buildDeterministicAccomplishmentBlocks([], [neutral, accomplishment, ownership]);
+    expect(block?.bodyMarkdown).toContain(accomplishment.title);
+    expect(block?.citationIndexes).toEqual([1, 2, 99]);
+  });
+
   it("publishes a validated exact-source editor fallback without calling a verifier", async () => {
     const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.map((subsystem, index) => entry(index + 1, subsystem));
     const blocks = buildDeterministicAccomplishmentBlocks([], entries);

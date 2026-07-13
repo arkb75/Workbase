@@ -114,6 +114,40 @@ describe("chat citation selection", () => {
     expect(result.groundedClaims[0]?.citationIndexes).toEqual([1, 2]);
   });
 
+  it("writes a structured block's canonical markers on every accomplishment bullet", () => {
+    const result = finalizeGroundedAnswer({
+      blocks: [{
+        heading: "Review and UI",
+        bodyMarkdown: [
+          "- Preserves immutable knowledge history.",
+          "- Built the candidate review UI.",
+        ].join("\n"),
+        citationIndexes: [3, 1],
+      }],
+      catalog,
+    });
+
+    expect(result.markdown).toContain(
+      "- Preserves immutable knowledge history. [citation:1][citation:2]\n" +
+      "- Built the candidate review UI. [citation:1][citation:2]",
+    );
+    expect(result.citations).toHaveLength(2);
+  });
+
+  it("never injects citation markers into list-looking fenced code", () => {
+    const result = finalizeGroundedAnswer({
+      blocks: [{
+        heading: "Example",
+        bodyMarkdown: ["```text", "- not a Markdown claim", "```"].join("\n"),
+        citationIndexes: [1],
+      }],
+      catalog,
+    });
+
+    expect(result.markdown).toContain("```text\n- not a Markdown claim\n```\n\n[citation:1]");
+    expect(result.markdown).not.toContain("- not a Markdown claim [citation:1]");
+  });
+
   it("rejects model-authored plain or canonical citation syntax", () => {
     for (const bodyMarkdown of ["Claim [3][5]", "Claim [citation:1]"]) {
       expect(() => finalizeGroundedAnswer({
