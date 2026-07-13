@@ -178,23 +178,85 @@ export function reusableSemanticAnalysis(input: {
   capabilityKeys: string[];
 }) {
   const analysis = parseAnalysis(input.value);
+  const capabilityKeys = Array.from(new Set(input.capabilityKeys));
   if (
     !analysis ||
     analysis.semanticStatus !== "succeeded" ||
     !analysis.facts.length ||
-    !input.capabilityKeys.length
+    !capabilityKeys.length
   ) return null;
-  // A work package can assign several capability areas to one file. Reusing a
-  // cached result is safe only when it contains supported findings for every
-  // capability that the current static map says this file represents. A
-  // partial overlap would skip the file and silently recreate coverage gaps.
-  const coveredKeys = new Set(analysis.facts.flatMap((fact) => fact.subsystemKeys ?? []));
-  if (input.capabilityKeys.some((key) => !coveredKeys.has(key))) return null;
+  const allowedKeys = new Set(capabilityKeys);
+  // Cache reuse follows the same file-local capability boundary as fresh
+  // extraction. A previous analysis may contain facts for another package,
+  // but those facts must not be copied into the current snapshot or promoted
+  // under a capability that the current static map does not assign to the
+  // file.
+  const facts = analysis.facts.flatMap((fact) => {
+    const subsystemKeys = Array.from(new Set(fact.subsystemKeys ?? []))
+      .filter((key) => allowedKeys.has(key));
+    return subsystemKeys.length
+      ? [{ ...fact, subsystemKeys, path: input.path }]
+      : [];
+  });
+  const coveredKeys = new Set(facts.flatMap((fact) => fact.subsystemKeys ?? []));
+  if (capabilityKeys.some((key) => !coveredKeys.has(key))) return null;
   return {
     ...analysis,
     path: input.path,
-    facts: analysis.facts.map((fact) => ({ ...fact, path: input.path })),
+    subsystemKeys: capabilityKeys,
+    facts,
   } satisfies RepositoryFileAnalysis;
+}
+
+export function fileRelevantCapabilityKeys(input: {
+  workPackageCapabilityKeys: string[];
+  staticSubsystemKeys: string[];
+}) {
+  const staticKeys = new Set(input.staticSubsystemKeys);
+  return Array.from(new Set(input.workPackageCapabilityKeys))
+    .filter((key) => staticKeys.has(key));
+}
+
+export function buildFileSemanticTask(input: {
+  workPackageCapabilityKeys: string[];
+  staticSubsystemKeys: string[];
+}) {
+  const capabilityKeys = fileRelevantCapabilityKeys(input);
+  if (!capabilityKeys.length) return null;
+  return {
+    objective: `Establish evidence-backed semantic coverage only for these file-relevant capabilities: ${capabilityKeys.join(", ")}.`,
+    capabilityKeys,
+    questions: capabilityKeys.map((key) => `What implemented behavior in this file directly supports ${key}?`),
+    expectedOutputs: [
+      "Evidence-backed findings only for the listed file-relevant capabilities.",
+      "Exact supporting line ranges for every finding.",
+    ],
+  };
+}
+
+export function capabilityCandidatesFromAnalysis(input: {
+  fileSnapshotId: string;
+  analysis: Pick<RepositoryFileAnalysis, "facts">;
+  relevantCapabilityKeys: string[];
+}): CapabilityCandidate[] {
+  const relevantKeys = new Set(input.relevantCapabilityKeys);
+  return input.analysis.facts.flatMap((fact) => {
+    const supportedKeys = Array.from(new Set(fact.subsystemKeys ?? []))
+      .filter((key) => relevantKeys.has(key));
+    return supportedKeys.map((key) => ({
+      key,
+      statement: fact.statement,
+      kind: fact.category === "data_flow"
+        ? "data_flow" as const
+        : fact.category === "dependency"
+          ? "integration" as const
+          : "behavior" as const,
+      evidence: [{ fileSnapshotId: input.fileSnapshotId, lineStart: fact.lineStart, lineEnd: fact.lineEnd }],
+      confidence: fact.confidence,
+      supportedQualifiers: [],
+      unresolved: [],
+    }));
+  });
 }
 
 export function immutableSemanticCacheWhere(input: {
@@ -463,6 +525,7 @@ async function runWorkPackage(input: {
   const gaps: string[] = [];
   const tokenUsage: unknown[] = [];
   const cacheHits: NonNullable<CapabilityReport["cacheHits"]> = [];
+  let relevantFileCount = 0;
   const budget = createRepositorySemanticBudget({
     maxInputBytes: input.workPackage.budget.maxInputBytes,
     maxModelCalls: input.workPackage.budget.maxModelCalls,
@@ -478,6 +541,15 @@ async function runWorkPackage(input: {
         gaps.push(`${file.path} could not be authorized or loaded from the static map.`);
         continue;
       }
+      const fileTask = buildFileSemanticTask({
+        workPackageCapabilityKeys: input.workPackage.capabilityKeys,
+        staticSubsystemKeys: staticAnalysis.subsystemKeys,
+      });
+      // Planner packages are bounded and may contain an extra file that is not
+      // statically mapped to any capability owned by this worker. Do not ask
+      // the model to invent a relationship merely to make that file fit.
+      if (!fileTask) continue;
+      relevantFileCount += 1;
       const cachedFile = await prisma.repositoryFileSnapshot.findFirst({
         where: immutableSemanticCacheWhere({
           fileSnapshotId: file.id,
@@ -492,14 +564,11 @@ async function runWorkPackage(input: {
         },
         orderBy: { semanticAnalyzedAt: "desc" },
       });
-      const fileCapabilityKeys = input.workPackage.capabilityKeys.filter((key) =>
-        staticAnalysis.subsystemKeys.includes(key),
-      );
       const cachedSemantic = cachedFile
         ? reusableSemanticAnalysis({
             value: cachedFile.semanticAnalysis,
             path: file.path,
-            capabilityKeys: fileCapabilityKeys,
+            capabilityKeys: fileTask.capabilityKeys,
           })
         : null;
       if (cachedFile && cachedSemantic) {
@@ -539,19 +608,11 @@ async function runWorkPackage(input: {
           cachedFileSnapshotId: cachedFile.id,
           blobSha: file.blobSha,
         });
-        for (const fact of reused.facts) {
-          const capabilityKey = input.workPackage.capabilityKeys.find((key) => fact.subsystemKeys?.includes(key));
-          if (!capabilityKey) continue;
-          candidates.push({
-            key: capabilityKey,
-            statement: fact.statement,
-            kind: fact.category === "data_flow" ? "data_flow" : fact.category === "dependency" ? "integration" : "behavior",
-            evidence: [{ fileSnapshotId: file.id, lineStart: fact.lineStart, lineEnd: fact.lineEnd }],
-            confidence: fact.confidence,
-            supportedQualifiers: [],
-            unresolved: [],
-          });
-        }
+        candidates.push(...capabilityCandidatesFromAnalysis({
+          fileSnapshotId: file.id,
+          analysis: reused,
+          relevantCapabilityKeys: fileTask.capabilityKeys,
+        }));
         continue;
       }
       const read = await repositoryKnowledgeSyncService.readFile({
@@ -574,12 +635,7 @@ async function runWorkPackage(input: {
         commitSha: target.commitSha,
         path: file.path,
         content: read.content,
-        task: {
-          objective: input.workPackage.objective,
-          capabilityKeys: input.workPackage.capabilityKeys,
-          questions: input.workPackage.questions,
-          expectedOutputs: input.workPackage.expectedOutputs,
-        },
+        task: fileTask,
         budget,
       });
       const semanticStatus = semantic.semanticStatus ?? (semantic.facts.length ? "succeeded" : "degraded");
@@ -601,22 +657,11 @@ async function runWorkPackage(input: {
       inspected.push(file.id);
       tokenUsage.push(...semantic.tokenUsage);
       gaps.push(...semantic.unresolvedQuestions.map((gap) => `${file.path}: ${gap}`));
-      for (const fact of semantic.facts) {
-        const capabilityKey = input.workPackage.capabilityKeys.find((key) => fact.subsystemKeys?.includes(key));
-        if (!capabilityKey) {
-          gaps.push(`${file.path}: A semantic finding was excluded because it did not support a capability assigned to this worker.`);
-          continue;
-        }
-        candidates.push({
-          key: capabilityKey,
-          statement: fact.statement,
-          kind: fact.category === "data_flow" ? "data_flow" : fact.category === "dependency" ? "integration" : "behavior",
-          evidence: [{ fileSnapshotId: file.id, lineStart: fact.lineStart, lineEnd: fact.lineEnd }],
-          confidence: fact.confidence,
-          supportedQualifiers: [],
-          unresolved: [],
-        });
-      }
+      candidates.push(...capabilityCandidatesFromAnalysis({
+        fileSnapshotId: file.id,
+        analysis: semantic,
+        relevantCapabilityKeys: fileTask.capabilityKeys,
+      }));
     } catch (error) {
       const message = errorMessage(error);
       gaps.push(`${file.path}: Semantic worker provider or persistence failure: ${message}`);
@@ -641,7 +686,7 @@ async function runWorkPackage(input: {
     gaps: Array.from(new Set(gaps)),
     tokenUsage,
     usage,
-    partial: gaps.length > 0 || inspected.length !== input.workPackage.fileSnapshotIds.length || !candidates.length,
+    partial: gaps.length > 0 || inspected.length !== relevantFileCount || !candidates.length,
     cacheHits,
   };
   try {

@@ -8,6 +8,7 @@ import {
   selectAccomplishmentRequirementSet,
   selectAccomplishmentRequirements,
   serializeGroundedBlocks,
+  validateExactSourceAccomplishmentBlocks,
   verifyCompletedAccomplishmentAnswer,
   type AccomplishmentGroundingEntry,
 } from "@/src/services/project-answer-completeness-service";
@@ -101,7 +102,7 @@ describe("project answer completeness", () => {
 
     expect(requirements.map((item) => item.subsystemKey)).toEqual(["workflow_orchestration", "ai_runtime"]);
     expect(runtime?.members).toHaveLength(2);
-    expect(runtime?.citationIndexes).toEqual([1, 2]);
+    expect(new Set(runtime?.citationIndexes)).toEqual(new Set([1, 2]));
     expect(runtime?.content).toContain("bounded Bedrock Converse tool loops");
     expect(runtime?.content).toContain("JSON schemas");
     expect(serializeGroundedBlocks([{
@@ -150,7 +151,7 @@ describe("project answer completeness", () => {
 
     expect(selection.requirements).toHaveLength(10);
     expect(selection.omittedImportantEntries).toHaveLength(1);
-    expect(selection.coverageWarning).toMatch(/10 capability areas.*1 additional supported item/i);
+    expect(selection.coverageWarning).toMatch(/10 capability areas.*1 additional supported capability area/i);
   });
 
   it("fits all twelve top-level systems into ten requirements through explicit aliases", () => {
@@ -169,7 +170,7 @@ describe("project answer completeness", () => {
     expect(selection.coverageWarning).toBeNull();
   });
 
-  it("selects one representative from each aliased subsystem before extra members", () => {
+  it("caps a broad requirement at two representatives and does not warn about dropped same-area detail", () => {
     const product = entry(1, "product_surface", {
       importance: 3,
       ranking: {
@@ -195,8 +196,57 @@ describe("project answer completeness", () => {
     expect(requirement.members.map((member) => member.subsystemKey)).toEqual([
       "product_surface",
       "artifact_generation",
-      "artifact_generation",
     ]);
+    expect(selection.coverageWarning).toBeNull();
+  });
+
+  it.each([
+    {
+      subsystem: "ingestion_integrations",
+      broadTitle: "Implemented GitHub OAuth repository import",
+      broadContent: "GitHub OAuth connect and callback routes authorize bounded repository source imports.",
+      narrowTitle: "Optimized internal source-key normalization",
+    },
+    {
+      subsystem: "domain_data",
+      broadTitle: "Designed the Prisma and PostgreSQL data model",
+      broadContent: "The Prisma schema persists normalized application state in Neon PostgreSQL.",
+      narrowTitle: "Adjusted one internal record mapper",
+    },
+    {
+      subsystem: "tests_operations",
+      broadTitle: "Built broad automated Vitest coverage",
+      broadContent: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
+      narrowTitle: "Refined one fixture helper",
+    },
+  ])("prioritizes broad $subsystem coverage anchors over a higher-scored narrow detail", ({
+    subsystem,
+    broadTitle,
+    broadContent,
+    narrowTitle,
+  }) => {
+    const broad = entry(1, subsystem, {
+      title: broadTitle,
+      content: broadContent,
+      ranking: {
+        evidenceStrength: 4,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        ownershipAuthority: 1,
+        distinctiveness: 3,
+        freshness: 5,
+        impactBonus: 0,
+        uncertainty: null,
+      },
+    });
+    const narrow = entry(2, subsystem, {
+      title: narrowTitle,
+      content: "A narrow internal implementation detail was changed.",
+    });
+
+    const requirement = selectAccomplishmentRequirementSet([narrow, broad]).requirements[0]!;
+    expect(requirement.members[0]?.title).toBe(broadTitle);
   });
 
   it("deduplicates near-identical same-subsystem facts while preserving distinct work", () => {
@@ -262,112 +312,157 @@ describe("project answer completeness", () => {
     expect(auditAccomplishmentBlocks(blocks, entries).missing).toEqual([]);
   });
 
-  it("fails safely when the second verifier is unavailable", async () => {
-    const entries = [entry(1, "ai_runtime")];
+  it("builds a complete ten-area fallback from exact durable titles and exact ownership citations", () => {
+    const technicalEntries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.map((subsystem, index) =>
+      entry(index + 1, subsystem, {
+        title: `Implemented ${subsystem.replaceAll("_", " ")}`,
+      })
+    );
+    const ownershipEntry: AccomplishmentGroundingEntry = {
+      kind: "evidence",
+      authority: "included_evidence",
+      title: "Work Item description",
+      content: "The user built Workbase.",
+      currentRun: false,
+      citationIndexes: [99],
+      ownershipAuthority: 3,
+      supportingSources: [],
+      subsystemKey: null,
+      accomplishmentRanking: null,
+    };
+    const entries = [...technicalEntries, ownershipEntry];
+    const blocks = buildDeterministicAccomplishmentBlocks([], entries);
+    const validated = validateExactSourceAccomplishmentBlocks({
+      blocks,
+      entries,
+      citationCount: 99,
+    });
+
+    expect(blocks).toHaveLength(10);
+    expect(validated.audit.complete).toBe(true);
+    expect(validated.audit.coverageWarning).toBeNull();
+    expect(blocks.every((block) => block.citationIndexes.includes(99))).toBe(true);
+    expect(blocks[0]).toMatchObject({
+      heading: "Career Content Product & Artifact Pipeline",
+      bodyMarkdown: expect.stringContaining("- Implemented product surface"),
+    });
+    for (const technicalEntry of technicalEntries) {
+      expect(blocks.some((block) => block.bodyMarkdown.includes(technicalEntry.title))).toBe(true);
+      expect(blocks.some((block) => block.citationIndexes.includes(technicalEntry.citationIndexes[0]!))).toBe(true);
+    }
+  });
+
+  it("publishes a validated exact-source editor fallback without calling a verifier", async () => {
+    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.map((subsystem, index) => entry(index + 1, subsystem));
     const blocks = buildDeterministicAccomplishmentBlocks([], entries);
     const completion = {
       blocks,
-      safeOriginalBlocks: blocks,
+      exactSourceBlocks: blocks,
       audit: auditAccomplishmentBlocks(blocks, entries),
       generationRunId: null,
       fallbackUsed: true,
       warning: "The completeness editor failed.",
     };
-
+    let calls = 0;
     const verified = await verifyCompletedAccomplishmentAnswer({
       completion,
       entries,
-      citationCount: 1,
-      verifier: (async () => { throw new Error("verifier outage"); }) as typeof groundProjectAnswer,
+      citationCount: entries.length,
+      verifier: (async () => {
+        calls += 1;
+        throw new Error("verifier should not run");
+      }) as typeof groundProjectAnswer,
     });
-    expect(verified.partial).toBe(true);
+
+    expect(calls).toBe(0);
+    expect(verified.partial).toBe(false);
     expect(verified.grounded.blocks).toEqual(blocks);
-    expect(verified.warning).toMatch(/subset already verified by the first grounding pass/i);
+    expect(verified.audit.complete).toBe(true);
   });
 
-  it("never publishes ownership language restored by a deterministic fallback", async () => {
+  it("rejects an exact-source fallback whose ownership language lacks an ownership source", () => {
     const entries = [entry(1, "product_surface", {
-      title: "Solo ownership",
+      title: "You solo-built Workbase",
       content: "You solo-built the complete Workbase product.",
     })];
     const blocks = buildDeterministicAccomplishmentBlocks([], entries);
-    const completion = {
-      blocks,
-      safeOriginalBlocks: [],
-      audit: auditAccomplishmentBlocks(blocks, entries),
-      generationRunId: null,
-      fallbackUsed: true,
-      warning: "The completeness editor failed.",
-    };
 
-    await expect(verifyCompletedAccomplishmentAnswer({
-      completion,
+    expect(() => validateExactSourceAccomplishmentBlocks({
+      blocks,
       entries,
       citationCount: 1,
-    })).rejects.toThrow(/not safe to publish and should be retried/i);
+    })).toThrow(/violated the grounding contract/i);
   });
 
-  it("recovers a complete repair through bounded grounding when the combined verifier fails", async () => {
-    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.slice(0, 8)
-      .map((subsystem, index) => entry(index + 1, subsystem));
-    const blocks = buildDeterministicAccomplishmentBlocks([], entries);
-    const completion = {
-      blocks,
-      safeOriginalBlocks: [],
-      audit: auditAccomplishmentBlocks(blocks, entries),
-      generationRunId: null,
-      fallbackUsed: true,
-      warning: "The completeness editor failed.",
-    };
-    let calls = 0;
-    const verifier = (async (input: Parameters<typeof groundProjectAnswer>[0]) => {
-      calls += 1;
-      if (calls === 1) throw new Error("combined verifier parse failure");
-      return groundProjectAnswer(input);
-    }) as typeof groundProjectAnswer;
-
-    const verified = await verifyCompletedAccomplishmentAnswer({
-      completion,
-      entries,
-      citationCount: 8,
-      verifier,
-    });
-    expect(calls).toBeGreaterThan(1);
-    expect(verified.partial).toBe(false);
-    expect(verified.audit.complete).toBe(true);
-    expect(verified.grounded.issues).toEqual(expect.arrayContaining([
-      expect.stringContaining("bounded batch grounding"),
-    ]));
-  });
-
-  it("caps batch-verifier recovery at eight total final-verifier calls", async () => {
+  it("falls back after one failed combined verifier without pair or singleton recovery fanout", async () => {
     const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS
       .map((subsystem, index) => entry(index + 1, subsystem));
+    const exactSourceBlocks = buildDeterministicAccomplishmentBlocks([], entries);
+    const completion = {
+      blocks: exactSourceBlocks.map((block) => ({
+        heading: block.heading ?? "Accomplishment",
+        bodyMarkdown: `${block.bodyMarkdown} `,
+        citationIndexes: block.citationIndexes,
+      })),
+      exactSourceBlocks,
+      audit: auditAccomplishmentBlocks(exactSourceBlocks, entries),
+      generationRunId: "generation-1",
+      fallbackUsed: false,
+      warning: null,
+    };
+    let calls = 0;
+    const verifier = (async () => {
+      calls += 1;
+      throw new Error("combined verifier parse failure");
+    }) as typeof groundProjectAnswer;
+
+    const verified = await verifyCompletedAccomplishmentAnswer({
+      completion,
+      entries,
+      citationCount: entries.length,
+      verifier,
+    });
+
+    expect(calls).toBe(1);
+    expect(verified.partial).toBe(false);
+    expect(verified.audit.complete).toBe(true);
+    expect(verified.grounded.blocks).toEqual(exactSourceBlocks);
+    expect(verified.grounded.issues).toEqual([
+      expect.stringContaining("restored from exact durable source text"),
+    ]);
+  });
+
+  it("uses one single-attempt combined verifier when the editor succeeds", async () => {
+    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.slice(0, 8).map((subsystem, index) => entry(index + 1, subsystem));
     const blocks = buildDeterministicAccomplishmentBlocks([], entries);
     const completion = {
-      blocks,
-      safeOriginalBlocks: [blocks[0]!],
+      blocks: blocks.map((block) => ({
+        heading: block.heading ?? "Accomplishment",
+        bodyMarkdown: block.bodyMarkdown,
+        citationIndexes: block.citationIndexes,
+      })),
+      exactSourceBlocks: blocks,
       audit: auditAccomplishmentBlocks(blocks, entries),
-      generationRunId: null,
-      fallbackUsed: true,
-      warning: "The completeness editor failed.",
+      generationRunId: "generation-1",
+      fallbackUsed: false,
+      warning: null,
     };
     let calls = 0;
     const verifier = (async (input: Parameters<typeof groundProjectAnswer>[0]) => {
       calls += 1;
-      const blockCount = Array.from(input.answer.matchAll(/^###\s+/gm)).length;
-      if (blockCount > 1) throw new Error("provider only accepts one recovery block");
+      expect(input.singleAttempt).toBe(true);
       return groundProjectAnswer(input);
     }) as typeof groundProjectAnswer;
 
     const verified = await verifyCompletedAccomplishmentAnswer({
       completion,
       entries,
-      citationCount: 12,
+      citationCount: entries.length,
       verifier,
     });
-    expect(calls).toBe(8);
-    expect(verified.partial).toBe(true);
-    expect(verified.grounded.blocks).toEqual([blocks[0]]);
+
+    expect(calls).toBe(1);
+    expect(verified.partial).toBe(false);
+    expect(verified.audit.complete).toBe(true);
   });
 });

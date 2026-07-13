@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { GroundedAnswerBlock, ProjectResearchDossier } from "@/src/domain/project-chat";
-import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
+import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { CitationIntegrityError } from "@/src/services/chat-citation-service";
@@ -189,6 +190,24 @@ export function extractClaimCitationMap(answer: string) {
     });
 }
 
+export function projectAnswerGroundingExecutionOptions(singleAttempt: boolean) {
+  if (!singleAttempt) {
+    return {
+      transportPreference: undefined,
+      budget: undefined,
+    };
+  }
+  return {
+    transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+    budget: createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 8_000,
+      maxTotalTokens: 60_000,
+    }),
+  };
+}
+
 function mockGroundedBlocks(answer: string, citationCount: number): GroundedAnswerBlock[] {
   return answer
     .split(/\n{2,}/)
@@ -215,6 +234,7 @@ export async function groundProjectAnswer(input: {
   citationCount: number;
   dossier?: ProjectResearchDossier | null;
   requiredBlockCount?: { minimum: number; maximum: number };
+  singleAttempt?: boolean;
 }) {
   const contractIssues = detectGroundingContractIssues(input);
   if (resolveWorkbaseLlmProvider() === "mock") {
@@ -237,6 +257,7 @@ export async function groundProjectAnswer(input: {
   }
 
   const freshness = repositoryFreshnessFromDossier(input.dossier ?? null);
+  const executionOptions = projectAnswerGroundingExecutionOptions(input.singleAttempt ?? false);
   const result = await getBedrockStructuredLlmClient().generateStructured({
       systemPrompt: [
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
@@ -268,6 +289,8 @@ export async function groundProjectAnswer(input: {
       maxTokens: 8_000,
       temperature: 0,
       effort: "high",
+      transportPreference: executionOptions.transportPreference,
+      budget: executionOptions.budget,
       extraValidation: (value) => value.blocks.flatMap((block, index) => {
         const errors: string[] = [];
         if (/\[citation:\d+\]/i.test(block.bodyMarkdown) || /\[\d+\](?:\s*\[\d+\])*/.test(block.bodyMarkdown)) {

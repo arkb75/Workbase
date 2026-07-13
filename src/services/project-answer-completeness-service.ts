@@ -4,10 +4,12 @@ import type {
   ProjectResearchDossier,
 } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { CitationIntegrityError } from "@/src/services/chat-citation-service";
 import {
+  detectGroundingContractIssues,
   groundProjectAnswer,
   type ProjectAnswerGroundingEntry,
 } from "@/src/services/project-answer-grounding-service";
@@ -15,7 +17,7 @@ import { runAuditedStructuredGeneration } from "@/src/services/structured-genera
 
 const MAX_ACCOMPLISHMENT_BLOCKS = 10;
 const MAX_CITATIONS_PER_BLOCK = 4;
-const MAX_BATCH_VERIFIER_RECOVERY_CALLS = 7;
+const MAX_MEMBERS_PER_REQUIREMENT = 2;
 export const MAX_ACCOMPLISHMENT_CITATIONS = 20;
 export const TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS = [
   "product_surface",
@@ -161,9 +163,93 @@ function nearDuplicateAccomplishment(
   return containment >= 0.72 || (overlap >= 5 && jaccard >= 0.48);
 }
 
+const subsystemCoverageAnchors: Record<string, RegExp[]> = {
+  product_surface: [
+    /\b(?:resume|linkedin|career content|project summar(?:y|ies)|work item)\b/i,
+    /\b(?:end-to-end|full-stack|product (?:surface|loop|workspace))\b/i,
+    /\b(?:source|evidence) (?:intake|ingestion|review)\b/i,
+  ],
+  repository_knowledge_lifecycle: [
+    /\brepository (?:refresh|knowledge|snapshot|coverage|synthesis)\b/i,
+    /\b(?:immutable|pinned) commit\b/i,
+    /\b(?:reconcil|supersed|stale|revalidat|semantic analys)\w*/i,
+  ],
+  project_chat_grounding: [
+    /\bmulti[- ]turn\b/i,
+    /\b(?:conversation|chat) history\b/i,
+    /\b(?:retrieval|citation|grounding|grounded answer)\b/i,
+    /\bproject chat\b/i,
+  ],
+  artifact_generation: [
+    /\b(?:resume bullet|linkedin experience|project summary|artifact generation)\w*/i,
+    /\bapproved (?:claim|highlight)\w*/i,
+    /\b(?:artifact|generation) workflow\b/i,
+  ],
+  knowledge_review_lifecycle: [
+    /\b(?:approv|reject|review|revert|retir|supersed|revalidat)\w*/i,
+    /\bknowledge (?:change|lifecycle|review)\b/i,
+    /\b(?:stale|quarantin)\w*/i,
+  ],
+  workflow_orchestration: [
+    /\bdurable workflow\w*/i,
+    /\b(?:retry|resume|idempoten|approval hook|persisted run)\w*/i,
+    /\bworkflow orchestration\b/i,
+  ],
+  ai_runtime: [
+    /\b(?:bedrock|converse|structured (?:generation|output)|tool use|tool loop)\b/i,
+    /\b(?:json schema|zod|token budget|prompt cach)\w*/i,
+    /\b(?:llm|agent) runtime\b/i,
+  ],
+  retrieval_provenance: [
+    /\b(?:hybrid|lexical|vector|embedding) retrieval\b/i,
+    /\b(?:citation|provenance|authority|ranking|re-ground)\w*/i,
+    /\bproject knowledge retrieval\b/i,
+  ],
+  ingestion_integrations: [
+    /\bgithub\b/i,
+    /\boauth\b/i,
+    /\b(?:repository|source) import\b/i,
+    /\b(?:connect|callback) route\b/i,
+  ],
+  domain_data: [
+    /\bprisma\b/i,
+    /\b(?:data model|database schema|postgres|postgresql|neon)\b/i,
+    /\bnormalized (?:store|schema|data model)\b/i,
+    /\b(?:model|relation|migration) history\b/i,
+  ],
+  review_ui: [
+    /\b(?:review|project) workspace\b/i,
+    /\b(?:chat|source|highlight|fact|artifact) (?:tab|panel|view|interface)\b/i,
+    /\b(?:citation|progress|review) (?:card|display|control)\b/i,
+  ],
+  tests_operations: [
+    /\bvitest\b/i,
+    /\bautomated test\w*/i,
+    /\btest (?:suite|coverage)\b/i,
+    /\b(?:unit|integration|end-to-end|workflow|ui) tests?\b/i,
+  ],
+};
+
+function subsystemCoverageAnchorScore(entry: AccomplishmentGroundingEntry) {
+  if (!entry.subsystemKey) return 0;
+  const value = `${entry.title} ${entry.content}`;
+  return (subsystemCoverageAnchors[entry.subsystemKey] ?? [])
+    .reduce((count, pattern) => count + Number(pattern.test(value)), 0);
+}
+
+function compareAccomplishmentCoverage(
+  left: AccomplishmentGroundingEntry,
+  right: AccomplishmentGroundingEntry,
+) {
+  return subsystemCoverageAnchorScore(right) - subsystemCoverageAnchorScore(left) ||
+    score(right) - score(left) ||
+    Number(right.currentRun) - Number(left.currentRun);
+}
+
 function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[]) {
   const representatives = new Map<string, AccomplishmentGroundingEntry>();
-  for (const entry of group) {
+  const coverageOrdered = [...group].sort(compareAccomplishmentCoverage);
+  for (const entry of coverageOrdered) {
     const key = entry.subsystemKey ?? `${entry.kind}:${entry.title.toLowerCase()}`;
     if (!representatives.has(key)) representatives.set(key, entry);
   }
@@ -173,7 +259,7 @@ function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[])
   );
   const representativeSet = new Set(representativeEntries);
   const selected = [...representativeEntries];
-  for (const candidate of group.filter((entry) => isImportant(entry) && !representativeSet.has(entry))) {
+  for (const candidate of coverageOrdered.filter((entry) => isImportant(entry) && !representativeSet.has(entry))) {
     const rawSubsystem = candidate.subsystemKey ?? `${candidate.kind}:${candidate.title.toLowerCase()}`;
     if (selected.some((existing) => {
       const existingSubsystem = existing.subsystemKey ?? `${existing.kind}:${existing.title.toLowerCase()}`;
@@ -208,6 +294,29 @@ function mergedRequirementContent(members: AccomplishmentRequirementMember[]) {
     .map((member) => `${member.title}: ${member.content.slice(0, perMember)}`)
     .join("\n")
     .slice(0, 1_600);
+}
+
+const requirementHeadings: Record<string, string> = {
+  product_and_artifact_generation: "Career Content Product & Artifact Pipeline",
+  repository_knowledge_lifecycle: "Repository Knowledge Lifecycle",
+  project_chat_grounding: "Grounded Multi-Turn Project Chat",
+  knowledge_review_experience: "Knowledge Review Lifecycle & Workspace",
+  workflow_orchestration: "Durable Workflow Orchestration",
+  ai_runtime: "Structured AI Runtime",
+  retrieval_provenance: "Knowledge Retrieval & Provenance",
+  ingestion_integrations: "GitHub Ingestion & Integrations",
+  domain_data: "Domain & Data Model",
+  tests_operations: "Automated Testing & Operations",
+};
+
+function stableRequirementHeading(requirementKeyValue: string) {
+  return requirementHeadings[requirementKeyValue] ?? requirementKeyValue
+    .replace(/^module:/, "")
+    .split("_")
+    .filter(Boolean)
+    .map((term) => `${term.slice(0, 1).toUpperCase()}${term.slice(1)}`)
+    .join(" ")
+    .slice(0, 160);
 }
 
 export function selectAccomplishmentRequirementSet(
@@ -283,6 +392,10 @@ export function selectAccomplishmentRequirementSet(
     for (const group of selectedGroups) {
       const candidate = group.candidates[depth];
       if (!candidate) continue;
+      if (group.members.length >= MAX_MEMBERS_PER_REQUIREMENT) {
+        omittedImportantEntries.push(candidate);
+        continue;
+      }
       const requirementIndexes = uniqueIndexes(group.members.flatMap((entry) => entry.member.citationIndexes));
       const firstUsableIndex = uniqueIndexes(candidate.citationIndexes).find((index) =>
         requirementIndexes.includes(index) ||
@@ -348,8 +461,14 @@ export function selectAccomplishmentRequirementSet(
   });
 
   const omitted = Array.from(new Set(omittedImportantEntries));
-  const coverageWarning = omitted.length
-    ? `This summary prioritizes ${requirements.length} capability area${requirements.length === 1 ? "" : "s"} within the 10-item and 20-source answer limits; ${omitted.length} additional supported item${omitted.length === 1 ? " was" : "s were"} not included.`
+  const selectedRequirementKeys = new Set(requirements.map((requirement) => requirement.requirementKey));
+  const omittedCapabilityKeys = new Set(
+    omitted
+      .map((entry) => requirementKey(entry))
+      .filter((key) => !selectedRequirementKeys.has(key)),
+  );
+  const coverageWarning = omittedCapabilityKeys.size
+    ? `This summary covers ${requirements.length} capability area${requirements.length === 1 ? "" : "s"} within the 10-item and 20-source answer limits; ${omittedCapabilityKeys.size} additional supported capability area${omittedCapabilityKeys.size === 1 ? " was" : "s were"} not included.`
     : null;
   return { requirements, omittedImportantEntries: omitted, coverageWarning };
 }
@@ -386,6 +505,8 @@ function semanticTokens(value: string) {
 function semanticallyCovers(block: GroundedAnswerBlock, member: AccomplishmentRequirementMember) {
   if (!block.citationIndexes.some((index) => member.citationIndexes.includes(index))) return false;
   const blockText = `${block.heading ?? ""} ${block.bodyMarkdown}`.toLowerCase().replace(/\s+/g, " ").trim();
+  const memberTitle = member.title.toLowerCase().replace(/\s+/g, " ").trim();
+  if (memberTitle.length > 2 && blockText.includes(memberTitle)) return true;
   const memberText = `${member.title} ${member.content}`.toLowerCase().replace(/\s+/g, " ").trim();
   if (memberText.length > 8 && blockText.includes(memberText)) return true;
   const expected = semanticTokens(memberText);
@@ -513,29 +634,90 @@ export function compactAlreadyGroundedAccomplishmentBlocks(
 }
 
 export function buildDeterministicAccomplishmentBlocks(
-  groundedBlocks: GroundedAnswerBlock[],
+  _groundedBlocks: GroundedAnswerBlock[],
   entries: AccomplishmentGroundingEntry[],
 ) {
-  const audit = auditAccomplishmentBlocks(groundedBlocks, entries);
+  const requirements = selectAccomplishmentRequirementSet(entries).requirements;
   const ownershipCitationIndex = selfReportedOwnershipCitationIndexes(entries)[0];
-  const blocks: GroundedAnswerBlock[] = audit.requirements.map((requirement) => ({
-    heading: requirement.title,
-    bodyMarkdown: requirement.content.slice(0, 1_600),
-    citationIndexes: uniqueIndexes([
-      ...requirement.citationIndexes,
-      ...(ownershipCitationIndex ? [ownershipCitationIndex] : []),
-    ]).slice(0, MAX_CITATIONS_PER_BLOCK),
-  }));
-  const usedCitationIndexes = new Set(blocks.flatMap((block) => block.citationIndexes));
-  for (const block of groundedBlocks) {
-    if (blocks.length >= audit.maximumBlocks) break;
-    if (blocks.some((existing) => existing.citationIndexes.some((index) => block.citationIndexes.includes(index)))) continue;
-    const nextIndexes = uniqueIndexes([...usedCitationIndexes, ...block.citationIndexes]);
-    if (nextIndexes.length > MAX_ACCOMPLISHMENT_CITATIONS) continue;
-    blocks.push(block);
-    for (const index of block.citationIndexes) usedCitationIndexes.add(index);
+  const citationCount = Math.max(0, ...entries.flatMap((entry) => entry.citationIndexes));
+  const blocks: GroundedAnswerBlock[] = requirements.map((requirement) => {
+    const bodyMarkdown = requirement.members.length === 1
+      ? requirement.members[0]!.title.trim()
+      : requirement.members.map((member) => `- ${member.title.trim()}`).join("\n");
+    const technicalCitationIndexes = uniqueIndexes(requirement.citationIndexes);
+    const block: GroundedAnswerBlock = {
+      heading: stableRequirementHeading(requirement.requirementKey),
+      bodyMarkdown,
+      citationIndexes: technicalCitationIndexes,
+    };
+    const ownershipUnsupported = detectGroundingContractIssues({
+      answer: serializeGroundedBlocks([{ ...block, bodyMarkdown: block.bodyMarkdown.replace(/\n+/g, " ") }]),
+      citationCount,
+      entries,
+    }).some((issue) => issue.startsWith("Repository-only sources cannot establish personal ownership:"));
+    if (
+      ownershipUnsupported &&
+      ownershipCitationIndex &&
+      block.citationIndexes.length < MAX_CITATIONS_PER_BLOCK
+    ) {
+      block.citationIndexes = uniqueIndexes([...block.citationIndexes, ownershipCitationIndex]);
+    }
+    return block;
+  });
+  return blocks;
+}
+
+function serializeBlocksForGroundingContract(blocks: GroundedAnswerBlock[]) {
+  return serializeGroundedBlocks(blocks.map((block) => ({
+    ...block,
+    // Structured blocks carry one citation set for their complete body. Fold
+    // list newlines only for the text-only contract parser so each bullet does
+    // not appear to have lost the block-level citation set.
+    bodyMarkdown: block.bodyMarkdown.replace(/\n+/g, " "),
+  })));
+}
+
+function sameBlockShape(left: GroundedAnswerBlock, right: GroundedAnswerBlock) {
+  return left.heading === right.heading &&
+    left.bodyMarkdown === right.bodyMarkdown &&
+    JSON.stringify(uniqueIndexes(left.citationIndexes)) === JSON.stringify(uniqueIndexes(right.citationIndexes));
+}
+
+export function validateExactSourceAccomplishmentBlocks(input: {
+  blocks: GroundedAnswerBlock[];
+  entries: AccomplishmentGroundingEntry[];
+  citationCount: number;
+  dossier?: ProjectResearchDossier | null;
+}) {
+  const expected = buildDeterministicAccomplishmentBlocks([], input.entries);
+  const shape = completionSchema.safeParse({ blocks: input.blocks });
+  if (!shape.success) {
+    throw new CitationIntegrityError("The exact-source accomplishment fallback does not match the bounded block schema.");
   }
-  return blocks.slice(0, audit.maximumBlocks);
+  if (
+    input.blocks.length !== expected.length ||
+    input.blocks.some((block, index) => !sameBlockShape(block, expected[index]!))
+  ) {
+    throw new CitationIntegrityError("The exact-source accomplishment fallback was not derived exactly from the selected durable requirements.");
+  }
+  const audit = auditAccomplishmentBlocks(input.blocks, input.entries);
+  if (!audit.complete) {
+    throw new CitationIntegrityError(
+      `The exact-source accomplishment fallback omitted ${audit.missingMembers.length} required capability member${audit.missingMembers.length === 1 ? "" : "s"}.`,
+    );
+  }
+  const contractIssues = detectGroundingContractIssues({
+    answer: serializeBlocksForGroundingContract(input.blocks),
+    citationCount: input.citationCount,
+    dossier: input.dossier,
+    entries: input.entries,
+  });
+  if (contractIssues.length) {
+    throw new CitationIntegrityError(
+      `The exact-source accomplishment fallback violated the grounding contract: ${contractIssues.join(" ")}`,
+    );
+  }
+  return { blocks: input.blocks, audit };
 }
 
 export function serializeGroundedBlocks(blocks: GroundedAnswerBlock[]) {
@@ -545,21 +727,6 @@ export function serializeGroundedBlocks(blocks: GroundedAnswerBlock[]) {
   ].filter(Boolean).join("\n")).join("\n\n");
 }
 
-function boundedPreviouslyGroundedBlocks(blocks: GroundedAnswerBlock[]) {
-  const selected: GroundedAnswerBlock[] = [];
-  const usedCitationIndexes = new Set<number>();
-  for (const block of blocks) {
-    if (selected.length >= MAX_ACCOMPLISHMENT_BLOCKS) break;
-    const blockIndexes = uniqueIndexes(block.citationIndexes);
-    if (!blockIndexes.length || blockIndexes.length > MAX_CITATIONS_PER_BLOCK) continue;
-    const nextIndexes = uniqueIndexes([...usedCitationIndexes, ...blockIndexes]);
-    if (nextIndexes.length > MAX_ACCOMPLISHMENT_CITATIONS) continue;
-    selected.push({ ...block, citationIndexes: blockIndexes });
-    for (const index of blockIndexes) usedCitationIndexes.add(index);
-  }
-  return selected;
-}
-
 export async function completeGroundedAccomplishmentAnswer(input: {
   workItemId: string;
   runId: string;
@@ -567,20 +734,31 @@ export async function completeGroundedAccomplishmentAnswer(input: {
   entries: AccomplishmentGroundingEntry[];
 }) {
   const initialAudit = auditAccomplishmentBlocks(input.blocks, input.entries);
-  const safeOriginalBlocks = boundedPreviouslyGroundedBlocks(input.blocks);
+  const exactSourceBlocks = buildDeterministicAccomplishmentBlocks([], input.entries);
+  const exactSourceCitationCount = Math.max(0, ...input.entries.flatMap((entry) => entry.citationIndexes));
   if (resolveWorkbaseLlmProvider() === "mock") {
-    const blocks = buildDeterministicAccomplishmentBlocks(input.blocks, input.entries);
+    const exactSource = validateExactSourceAccomplishmentBlocks({
+      blocks: exactSourceBlocks,
+      entries: input.entries,
+      citationCount: exactSourceCitationCount,
+    });
     return {
-      blocks,
-      safeOriginalBlocks,
-      audit: auditAccomplishmentBlocks(blocks, input.entries),
+      blocks: exactSource.blocks,
+      exactSourceBlocks: exactSource.blocks,
+      audit: exactSource.audit,
       generationRunId: null,
-      fallbackUsed: false,
+      fallbackUsed: true,
       warning: null,
     };
   }
 
   try {
+    const completionBudget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 8_000,
+      maxTotalTokens: 60_000,
+    });
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
       kind: "answer_completeness_audit",
@@ -605,7 +783,6 @@ export async function completeGroundedAccomplishmentAnswer(input: {
         userPrompt: JSON.stringify({
           alreadyGroundedBlocks: input.blocks,
           requiredEntries: initialAudit.requirements,
-          availableEntries: input.entries,
           minimumBlocks: initialAudit.minimumBlocks,
           maximumBlocks: initialAudit.maximumBlocks,
           coverageWarning: initialAudit.coverageWarning,
@@ -618,7 +795,8 @@ export async function completeGroundedAccomplishmentAnswer(input: {
         maxTokens: 8_000,
         temperature: 0,
         effort: "high",
-        repairStrategy: "repair_last_failure",
+        transportPreference: ["bedrock_json_schema"],
+        budget: completionBudget,
         extraValidation: (value) => {
           const blocks = value.blocks;
           const errors: string[] = [];
@@ -642,21 +820,22 @@ export async function completeGroundedAccomplishmentAnswer(input: {
     const blocks = result.data.blocks;
     return {
       blocks,
-      safeOriginalBlocks,
+      exactSourceBlocks,
       audit: auditAccomplishmentBlocks(blocks, input.entries),
       generationRunId: result.generationRunId,
       fallbackUsed: false,
       warning: null,
     };
   } catch (error) {
-    // The first grounding pass has already verified the existing blocks. The
-    // deterministic notebook is allowed only as input to a second verifier; it
-    // is never published directly.
-    const blocks = buildDeterministicAccomplishmentBlocks(input.blocks, input.entries);
+    const exactSource = validateExactSourceAccomplishmentBlocks({
+      blocks: exactSourceBlocks,
+      entries: input.entries,
+      citationCount: exactSourceCitationCount,
+    });
     return {
-      blocks,
-      safeOriginalBlocks,
-      audit: auditAccomplishmentBlocks(blocks, input.entries),
+      blocks: exactSource.blocks,
+      exactSourceBlocks: exactSource.blocks,
+      audit: exactSource.audit,
       generationRunId: null,
       fallbackUsed: true,
       warning: error instanceof Error ? error.message.slice(0, 500) : "The completeness editor failed validation.",
@@ -672,6 +851,28 @@ export async function verifyCompletedAccomplishmentAnswer(input: {
   verifier?: typeof groundProjectAnswer;
 }) {
   const verifier = input.verifier ?? groundProjectAnswer;
+  const exactSource = () => validateExactSourceAccomplishmentBlocks({
+    blocks: input.completion.exactSourceBlocks,
+    entries: input.entries,
+    citationCount: input.citationCount,
+    dossier: input.dossier,
+  });
+  const publishExactSource = (detail: string | null) => {
+    const validated = exactSource();
+    return {
+      grounded: {
+        blocks: validated.blocks,
+        issues: detail ? [detail] : [],
+        tokenUsage: null,
+      },
+      audit: validated.audit,
+      partial: false,
+      warning: null,
+    };
+  };
+  if (input.completion.fallbackUsed) {
+    return publishExactSource(input.completion.warning);
+  }
   try {
     const grounded = await verifier({
       answer: serializeGroundedBlocks(input.completion.blocks),
@@ -682,6 +883,7 @@ export async function verifyCompletedAccomplishmentAnswer(input: {
         minimum: input.completion.audit.minimumBlocks,
         maximum: input.completion.audit.maximumBlocks,
       },
+      singleAttempt: true,
     });
     const audit = auditAccomplishmentBlocks(grounded.blocks, input.entries);
     if (!audit.complete) {
@@ -692,95 +894,6 @@ export async function verifyCompletedAccomplishmentAnswer(input: {
     return { grounded, audit, partial: false, warning: null };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown final verifier failure.";
-    const repairAudit = auditAccomplishmentBlocks(input.completion.blocks, input.entries);
-    if (repairAudit.complete) {
-      const recoveredBlocks: GroundedAnswerBlock[] = [];
-      const recoveredIssues: string[] = [];
-      let recoveryFailed = false;
-      let recoveryCalls = 0;
-      for (let offset = 0; offset < input.completion.blocks.length; offset += 2) {
-        const batch = input.completion.blocks.slice(offset, offset + 2);
-        if (recoveryCalls >= MAX_BATCH_VERIFIER_RECOVERY_CALLS) {
-          recoveryFailed = true;
-          break;
-        }
-        try {
-          recoveryCalls += 1;
-          const groundedBatch = await verifier({
-            answer: serializeGroundedBlocks(batch),
-            entries: input.entries,
-            citationCount: input.citationCount,
-            dossier: input.dossier,
-          });
-          recoveredBlocks.push(...groundedBatch.blocks);
-          recoveredIssues.push(...groundedBatch.issues);
-        } catch {
-          // A smaller retry isolates malformed provider output or one unsafe
-          // claim without re-running the entire 7–10 block answer.
-          for (const block of batch) {
-            if (recoveryCalls >= MAX_BATCH_VERIFIER_RECOVERY_CALLS) {
-              recoveryFailed = true;
-              break;
-            }
-            try {
-              recoveryCalls += 1;
-              const groundedBlock = await verifier({
-                answer: serializeGroundedBlocks([block]),
-                entries: input.entries,
-                citationCount: input.citationCount,
-                dossier: input.dossier,
-              });
-              recoveredBlocks.push(...groundedBlock.blocks);
-              recoveredIssues.push(...groundedBlock.issues);
-            } catch {
-              recoveryFailed = true;
-              break;
-            }
-          }
-        }
-        if (recoveryFailed) break;
-      }
-      if (!recoveryFailed) {
-        const compacted = compactAlreadyGroundedAccomplishmentBlocks(recoveredBlocks, input.entries);
-        if (compacted) {
-          const audit = auditAccomplishmentBlocks(compacted, input.entries);
-          const warning = "The combined final verifier failed, so the same repair was safely recovered through bounded batch grounding.";
-          return {
-            grounded: {
-              blocks: compacted,
-              issues: [warning, detail, ...recoveredIssues],
-              tokenUsage: null,
-            },
-            audit,
-            partial: false,
-            warning: null,
-          };
-        }
-      }
-    }
-    const safeBlocks = input.completion.safeOriginalBlocks ?? [];
-    if (safeBlocks.length) {
-      const audit = auditAccomplishmentBlocks(safeBlocks, input.entries);
-      const missingCount = audit.missingMembers.length;
-      const warning = [
-        "The final completeness verifier was unavailable, so this answer shows only the subset already verified by the first grounding pass.",
-        missingCount
-          ? `${missingCount} supported capability member${missingCount === 1 ? " was" : "s were"} omitted rather than restored without verification.`
-          : null,
-      ].filter(Boolean).join(" ");
-      return {
-        grounded: {
-          blocks: safeBlocks,
-          issues: [warning, detail],
-          tokenUsage: null,
-        },
-        audit: { ...audit, coverageWarning: warning, complete: false },
-        partial: true,
-        warning,
-      };
-    }
-    throw new CitationIntegrityError(
-      `The final accomplishment verification was not safe to publish and should be retried. ${detail}`,
-    );
+    return publishExactSource(`The combined final verifier failed; the answer was restored from exact durable source text. ${detail}`);
   }
 }

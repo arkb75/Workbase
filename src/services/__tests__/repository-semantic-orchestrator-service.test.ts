@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFileSemanticTask,
+  capabilityCandidatesFromAnalysis,
   enforceMandatoryCoverage,
   immutableSemanticCacheWhere,
   preserveSettledCapabilityReports,
@@ -154,6 +156,7 @@ describe("repository semantic orchestration guardrails", () => {
       capabilityKeys: ["workflow_orchestration"],
     })).toMatchObject({
       path: "workflows/project-chat.ts",
+      subsystemKeys: ["workflow_orchestration"],
       facts: [expect.objectContaining({ path: "workflows/project-chat.ts" })],
     });
     expect(reusableSemanticAnalysis({
@@ -176,6 +179,91 @@ describe("repository semantic orchestration guardrails", () => {
       path: "workflows/project-chat.ts",
       capabilityKeys: ["workflow_orchestration"],
     })).toBeNull();
+
+    const reusedSubset = reusableSemanticAnalysis({
+      value: {
+        ...cached,
+        subsystemKeys: ["workflow_orchestration", "domain_data"],
+        facts: [
+          ...cached.facts,
+          {
+            ...cached.facts[0],
+            statement: "Persists an unrelated domain record.",
+            subsystemKeys: ["domain_data"],
+          },
+        ],
+      },
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    });
+    expect(reusedSubset?.subsystemKeys).toEqual(["workflow_orchestration"]);
+    expect(reusedSubset?.facts.map((fact) => fact.statement)).toEqual([
+      "The workflow defines retry-safe steps.",
+    ]);
+  });
+
+  it("scopes a highlight embedding file to retrieval instead of unrelated package capabilities", () => {
+    const task = buildFileSemanticTask({
+      workPackageCapabilityKeys: ["ingestion_integrations", "retrieval_provenance"],
+      staticSubsystemKeys: ["retrieval_provenance"],
+    });
+
+    expect(task).toMatchObject({
+      capabilityKeys: ["retrieval_provenance"],
+      questions: [expect.stringContaining("retrieval_provenance")],
+    });
+    expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
+
+    const candidates = capabilityCandidatesFromAnalysis({
+      fileSnapshotId: "highlight-embedding-file",
+      relevantCapabilityKeys: task!.capabilityKeys,
+      analysis: {
+        facts: [{
+          statement: "Embeds approved highlights for semantic retrieval.",
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 10,
+          lineEnd: 20,
+          productImportance: 4,
+          implementationBreadth: 3,
+          technicalDifficulty: 3,
+          subsystemKeys: ["retrieval_provenance", "ingestion_integrations"],
+          path: "src/services/highlight-embedding-service.ts",
+        }],
+      },
+    });
+
+    expect(candidates.map((candidate) => candidate.key)).toEqual(["retrieval_provenance"]);
+  });
+
+  it("emits a deliberate candidate for every relevant capability supported by a multi-key fact", () => {
+    const candidates = capabilityCandidatesFromAnalysis({
+      fileSnapshotId: "multi-purpose-file",
+      relevantCapabilityKeys: ["repository_knowledge_lifecycle", "retrieval_provenance"],
+      analysis: {
+        facts: [{
+          statement: "Reconciles repository facts into searchable project memory.",
+          category: "data_flow",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 40,
+          lineEnd: 55,
+          productImportance: 4,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          subsystemKeys: ["repository_knowledge_lifecycle", "retrieval_provenance"],
+          path: "src/services/repository-knowledge-synthesis-service.ts",
+        }],
+      },
+    });
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.key)).toEqual([
+      "repository_knowledge_lifecycle",
+      "retrieval_provenance",
+    ]);
+    expect(candidates.every((candidate) => candidate.kind === "data_flow")).toBe(true);
   });
 
   it("scopes semantic cache reuse to an immutable blob at the same attached source and path", () => {
@@ -190,7 +278,7 @@ describe("repository semantic orchestration guardrails", () => {
       blobSha: "a".repeat(40),
       disposition: "analyzed",
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v12",
+      semanticAnalyzerVersion: "repository-coverage-v13",
       snapshot: { sourceId: "attached-source" },
     });
   });

@@ -4,6 +4,7 @@ import {
   extractClaimCitationMap,
   findUnsupportedOwnershipClaims,
   groundProjectAnswer,
+  projectAnswerGroundingExecutionOptions,
 } from "@/src/services/project-answer-grounding-service";
 import { parseProjectResearchDossier } from "@/src/services/project-research-dossier-service";
 
@@ -44,6 +45,17 @@ describe("project answer grounding contract", () => {
       answer: "A supported claim [citation:1] and an invalid claim [citation:7].",
       citationCount: 2,
     })).toContain("The answer references unavailable citation [citation:7].");
+  });
+
+  it("bounds the optional final verifier to one native structured request", () => {
+    const options = projectAnswerGroundingExecutionOptions(true);
+    expect(options.transportPreference).toEqual(["bedrock_json_schema"]);
+    expect(options.budget?.limits).toEqual({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 8_000,
+      maxTotalTokens: 60_000,
+    });
   });
 
   it("records claim-level citation mappings", () => {
