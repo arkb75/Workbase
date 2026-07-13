@@ -3,7 +3,9 @@ import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge
 import {
   derivedRepositoryKnowledgeLifecycleFact,
   fallbackSubsystemSynthesis,
+  semanticFactsForSubsystem,
 } from "@/src/services/repository-knowledge-synthesis-service";
+import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
@@ -26,6 +28,22 @@ function entry(path: string, statement = `${path} defines supported repository b
 }
 
 describe("repository synthesis limit fallback", () => {
+  it("does not leak a finding from a multi-purpose file into another capability", () => {
+    const base = {
+      path: "src/services/multi-purpose.ts",
+      summary: "Multi-purpose service",
+      subsystemKeys: ["ai_runtime", "domain_data"],
+      responsibilities: [], symbols: [], dependencies: [], architectureSignals: [], userFacingCapabilities: [], unresolvedQuestions: [], chunksAnalyzed: 1, tokenUsage: [], analysisMode: "semantic" as const,
+      facts: [
+        { statement: "Uses Bedrock Converse tool results.", category: "behavior" as const, confidence: "high" as const, sensitivityFlag: false, lineStart: 1, lineEnd: 2, productImportance: 4, implementationBreadth: 3, technicalDifficulty: 4, path: "src/services/multi-purpose.ts", subsystemKeys: ["ai_runtime"] },
+        { statement: "Persists a normalized project record.", category: "data_flow" as const, confidence: "high" as const, sensitivityFlag: false, lineStart: 4, lineEnd: 5, productImportance: 3, implementationBreadth: 2, technicalDifficulty: 3, path: "src/services/multi-purpose.ts", subsystemKeys: ["domain_data"] },
+      ],
+    } satisfies RepositoryFileAnalysis;
+
+    expect(semanticFactsForSubsystem(base, "ai_runtime").map((fact) => fact.statement)).toEqual(["Uses Bedrock Converse tool results."]);
+    expect(semanticFactsForSubsystem(base, "domain_data").map((fact) => fact.statement)).toEqual(["Persists a normalized project record."]);
+  });
+
   it("creates a cross-file AI runtime fact instead of a filename-only observation", () => {
     const result = fallbackSubsystemSynthesis("ai_runtime", [
       entry("src/lib/bedrock-converse-agent.ts"),

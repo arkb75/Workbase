@@ -28,6 +28,7 @@ import {
 import { priorTurnProvenanceService } from "@/src/services/prior-turn-provenance-service";
 import { projectKnowledgeRetrievalService } from "@/src/services/project-knowledge-retrieval-service";
 import { projectResearchService } from "@/src/services/project-research-service";
+import { projectExecutionRouterService } from "@/src/services/project-execution-router-service";
 import {
   extractClaimCitationMap,
   groundProjectAnswer,
@@ -177,15 +178,22 @@ export function buildMemoryCatalog(input: {
       content: hit.content.slice(0, 2_000),
       currentRun: hit.kind === "project_fact" && preferredIds.has(hit.id),
       citationIndexes: primaryIndex >= 0 ? [primaryIndex + 1] : [],
-      supportingSources: hit.citations
-        .filter((citation) => citation !== primary)
-        .slice(0, 4)
-        .map((citation) => ({
-          type: citation.kind,
-          title: citation.label,
-          path: citation.path,
-          commitSha: citation.commitSha,
+      supportingSources: [
+        ...hit.citations
+          .filter((citation) => citation !== primary)
+          .map((citation) => ({
+            type: citation.kind,
+            title: citation.label,
+            path: citation.path,
+            commitSha: citation.commitSha,
+          })),
+        ...(primary?.provenance ?? []).map((source) => ({
+          type: "github_file" as const,
+          title: source.title,
+          path: source.path,
+          commitSha: source.commitSha,
         })),
+      ].slice(0, 8),
       accomplishmentRanking: hit.accomplishmentRanking ?? null,
       subsystemKey: hit.subsystemKey ?? null,
       validatedThroughSha: hit.validatedThroughSha ?? null,
@@ -219,13 +227,28 @@ function hitSimilarity(left: ProjectKnowledgeHit, right: ProjectKnowledgeHit) {
 }
 
 export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
+  const genericObservation = /\b(?:defines (?:the )?(?:symbol|model)|contains .* behavior|is present in|implements citation or provenance handling|reads or writes persisted application state)\b/i;
   const remaining = hits
     .filter((hit) => hit.kind === "highlight" || hit.kind === "project_fact")
+    .filter((hit) => hit.kind !== "highlight" || hit.authority === "verified_highlight")
     .filter((hit) => hit.kind !== "project_fact" || Boolean(hit.validatedThroughSha))
+    .filter((hit) => !genericObservation.test(`${hit.title} ${hit.content}`))
     .map((hit) => ({ hit, score: accomplishmentScore(hit) }))
     .sort((left, right) => right.score - left.score);
   const selected: ProjectKnowledgeHit[] = [];
   const subsystemCounts = new Map<string, number>();
+  const mandatorySubsystems = Array.from(new Set(remaining
+    .filter((entry) => (entry.hit.accomplishmentRanking?.productImportance ?? 0) >= 4 && (entry.hit.accomplishmentRanking?.implementationBreadth ?? 0) >= 3)
+    .map((entry) => entry.hit.subsystemKey)
+    .filter((value): value is string => Boolean(value))));
+  for (const subsystem of mandatorySubsystems) {
+    if (selected.length >= limit) break;
+    const next = remaining.find((entry) => entry.hit.subsystemKey === subsystem);
+    if (!next) continue;
+    selected.push(next.hit);
+    subsystemCounts.set(subsystem, 1);
+    remaining.splice(remaining.indexOf(next), 1);
+  }
   while (remaining.length && selected.length < limit) {
     const ranked = remaining
       .map((entry) => ({
@@ -296,6 +319,35 @@ function deterministicMemoryAnswer(hits: ProjectKnowledgeHit[], catalog: ReturnT
     return `${hit.content}${citationIndex ? ` [citation:${citationIndex}]` : ""}`;
   }).join("\n\n");
   return selectReferencedCitations(answer, catalog.citations);
+}
+
+export function ensureAccomplishmentCoverage(
+  answer: string,
+  entries: ReturnType<typeof buildMemoryCatalog>["entries"],
+) {
+  const used = new Set(Array.from(answer.matchAll(/\[citation:(\d+)\]/gi)).map((match) => Number(match[1])));
+  const required = entries
+    .filter((entry) => entry.citationIndexes.length > 0)
+    .filter((entry) => (entry.accomplishmentRanking?.productImportance ?? 0) >= 4)
+    .filter((entry) => (entry.accomplishmentRanking?.implementationBreadth ?? 0) >= 3)
+    .filter((entry) => !/\b(?:defines (?:the )?(?:symbol|model)|contains .* behavior|is present in)\b/i.test(`${entry.title} ${entry.content}`));
+  const bySubsystem = new Map<string, (typeof required)[number]>();
+  for (const entry of required) {
+    const key = entry.subsystemKey ?? `${entry.kind}:${entry.title}`;
+    if (!bySubsystem.has(key)) bySubsystem.set(key, entry);
+  }
+  const missing = Array.from(bySubsystem.values())
+    .filter((entry) => !entry.citationIndexes.some((index) => used.has(index)))
+    .slice(0, 8);
+  if (!missing.length) return answer;
+  return [
+    answer.trim(),
+    "## Other significant systems",
+    ...missing.map((entry) => {
+      const ordinal = entry.citationIndexes[0]!;
+      return `- **${entry.title}** — ${entry.content} [citation:${ordinal}]`;
+    }),
+  ].join("\n\n");
 }
 
 function completeRefreshFreshness(
@@ -538,12 +590,52 @@ async function executeProjectChatAgent(
     currentRunProjectFactIds: capabilityInputs.currentRunProjectFactIds,
     query: input.question,
   });
-  const routedIntent = routeProjectTurn({
+  const deterministicIntent = routeProjectTurn({
     question: input.question,
     memoryHits: memory.hits,
     pendingCandidateIds: capabilityInputs.pendingCandidateIds,
     allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh ? false : input.allowResearch,
   });
+  const executionRoute = await projectExecutionRouterService.route({
+    runId: input.runId,
+    userId: input.userId,
+    workItemId: input.workItemId,
+    question: input.question,
+    deterministicIntent,
+    memoryHits: memory.hits,
+    repositories: capabilityInputs.repositories,
+    coverageState: capabilityInputs.knowledgeRefresh?.coverage ?? null,
+  });
+  await appendAgentRunEvent({
+    runId: input.runId,
+    type: "tool_result",
+    toolName: "route_project_execution",
+    payload: {
+      mode: executionRoute.mode,
+      confidence: executionRoute.confidence,
+      breadth: executionRoute.breadth,
+      suggestedWorkerCount: executionRoute.suggestedWorkerCount,
+      rationaleCodes: executionRoute.rationaleCodes,
+      routerVersion: executionRoute.routerVersion,
+      fallbackUsed: executionRoute.fallbackUsed,
+    },
+    isUserVisible: false,
+  }).catch(() => null);
+  const routedIntent = ["artifact_request", "candidate_review", "prior_turn_provenance"].includes(deterministicIntent.kind)
+    ? deterministicIntent
+    : ["targeted_repository_research", "repository_refresh"].includes(executionRoute.mode)
+    ? {
+        ...deterministicIntent,
+        kind: "repository_research" as const,
+        coverage: executionRoute.breadth === "exhaustive" ? "bounded_comprehensive" as const : executionRoute.breadth === "broad" ? "broad_synthesis" as const : "targeted" as const,
+        confidence: executionRoute.confidence,
+        reason: `Model execution route: ${executionRoute.rationaleCodes.join(", ") || executionRoute.mode}.`,
+      }
+    : executionRoute.mode === "clarification"
+      ? { ...deterministicIntent, kind: "clarification" as const, confidence: executionRoute.confidence, reason: "The execution router requires clarification." }
+      : executionRoute.mode === "insufficient_context"
+        ? { ...deterministicIntent, kind: "direct_answer" as const, confidence: executionRoute.confidence, reason: "The execution router found no authorized supported research path." }
+        : { ...deterministicIntent, kind: "direct_answer" as const, confidence: executionRoute.confidence, reason: `Model execution route: ${executionRoute.mode}.` };
   const intent = capabilityInputs.knowledgeRefresh && routedIntent.kind === "repository_research"
     ? {
         ...routedIntent,
@@ -715,7 +807,7 @@ async function executeProjectChatAgent(
           ? "A latest-commit repository refresh mapped every eligible safe file for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata, preserve any explicit semantic coverage gaps, and never claim more completeness than that matrix supports. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
         accomplishmentSynthesisPattern.test(input.question)
-          ? "For an accomplishment synthesis, rank nonredundant items by demonstrated ownership, technical difficulty, product importance, implementation breadth, evidence strength, recency, measured impact, and distinctiveness. Do not elevate routine utilities above broader systems without evidence. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact."
+          ? "For an accomplishment synthesis, produce 7–10 nonredundant accomplishments. Lead with product and user value, then rank systems by demonstrated ownership, technical difficulty, product importance, implementation breadth, evidence strength, recency, measured impact, and distinctiveness. Represent every supplied high-importance cross-file capability exactly once, combining related implementation details under the broader capability rather than repeating them as separate accomplishments. Do not elevate routine utilities or filename-level observations above broader systems. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
           : "",
         "Cite factual project claims with [citation:N] using only citationIndexes in retrieved_project_memory.",
         "Use the minimum decisive citation set. SupportingSources are provenance previews, not extra peer citations.",
@@ -741,8 +833,11 @@ async function executeProjectChatAgent(
       },
       isUserVisible: false,
     }).catch(() => null);
+    const answerWithCoverage = accomplishmentSynthesisPattern.test(input.question)
+      ? ensureAccomplishmentCoverage(result.text, memoryCatalog.entries)
+      : result.text;
     const grounded = await groundProjectAnswer({
-      answer: result.text,
+      answer: answerWithCoverage,
       entries: memoryCatalog.entries,
       citationCount: memoryCatalog.citations.length,
       dossier: capabilityInputs.researchDossier,

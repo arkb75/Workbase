@@ -57,6 +57,7 @@ export const ModelName = {
   KnowledgeRefreshRun: 'KnowledgeRefreshRun',
   RepositorySnapshot: 'RepositorySnapshot',
   RepositoryFileSnapshot: 'RepositoryFileSnapshot',
+  RepositoryCapabilityLedger: 'RepositoryCapabilityLedger',
   KnowledgeChange: 'KnowledgeChange',
   GitHubConnection: 'GitHubConnection',
   EvidenceItem: 'EvidenceItem',
@@ -150,12 +151,15 @@ export const KnowledgeRefreshRunScalarFieldEnum = {
   idempotencyKey: 'idempotencyKey',
   trigger: 'trigger',
   status: 'status',
+  qualityStatus: 'qualityStatus',
   targetHeads: 'targetHeads',
   completedHeads: 'completedHeads',
   coverage: 'coverage',
   progress: 'progress',
   warnings: 'warnings',
   error: 'error',
+  orchestration: 'orchestration',
+  budgetUsage: 'budgetUsage',
   startedAt: 'startedAt',
   finishedAt: 'finishedAt',
   createdAt: 'createdAt',
@@ -203,11 +207,41 @@ export const RepositoryFileSnapshotScalarFieldEnum = {
   analyzerVersion: 'analyzerVersion',
   analysis: 'analysis',
   analyzedAt: 'analyzedAt',
+  semanticStatus: 'semanticStatus',
+  semanticAnalyzerVersion: 'semanticAnalyzerVersion',
+  semanticRefreshRunId: 'semanticRefreshRunId',
+  semanticAnalysis: 'semanticAnalysis',
+  semanticDiagnostics: 'semanticDiagnostics',
+  semanticAnalyzedAt: 'semanticAnalyzedAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type RepositoryFileSnapshotScalarFieldEnum = (typeof RepositoryFileSnapshotScalarFieldEnum)[keyof typeof RepositoryFileSnapshotScalarFieldEnum]
+
+
+export const RepositoryCapabilityLedgerScalarFieldEnum = {
+  id: 'id',
+  workItemId: 'workItemId',
+  snapshotId: 'snapshotId',
+  refreshRunId: 'refreshRunId',
+  capabilityKey: 'capabilityKey',
+  label: 'label',
+  status: 'status',
+  priority: 'priority',
+  representativeFileIds: 'representativeFileIds',
+  staticObservationCount: 'staticObservationCount',
+  semanticObservationCount: 'semanticObservationCount',
+  producedEntityRefs: 'producedEntityRefs',
+  gaps: 'gaps',
+  workerRunIds: 'workerRunIds',
+  analyzerVersion: 'analyzerVersion',
+  policyVersion: 'policyVersion',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RepositoryCapabilityLedgerScalarFieldEnum = (typeof RepositoryCapabilityLedgerScalarFieldEnum)[keyof typeof RepositoryCapabilityLedgerScalarFieldEnum]
 
 
 export const KnowledgeChangeScalarFieldEnum = {
@@ -317,6 +351,7 @@ export const HighlightScalarFieldEnum = {
   approvalSource: 'approvalSource',
   publicSafetyStatus: 'publicSafetyStatus',
   validatedThroughSha: 'validatedThroughSha',
+  validationHeads: 'validationHeads',
   lastValidatedAt: 'lastValidatedAt',
   autoAppliedAt: 'autoAppliedAt',
   supersedesHighlightId: 'supersedesHighlightId',
@@ -358,6 +393,7 @@ export const ProjectFactScalarFieldEnum = {
   approvalSource: 'approvalSource',
   publicSafetyStatus: 'publicSafetyStatus',
   validatedThroughSha: 'validatedThroughSha',
+  validationHeads: 'validationHeads',
   lastValidatedAt: 'lastValidatedAt',
   autoAppliedAt: 'autoAppliedAt',
   subsystemKey: 'subsystemKey',
@@ -585,6 +621,7 @@ export const AgentRunScalarFieldEnum = {
   workItemId: 'workItemId',
   threadId: 'threadId',
   parentRunId: 'parentRunId',
+  knowledgeRefreshRunId: 'knowledgeRefreshRunId',
   workflowId: 'workflowId',
   idempotencyKey: 'idempotencyKey',
   kind: 'kind',
@@ -647,6 +684,7 @@ export const GenerationRunScalarFieldEnum = {
   workItemId: 'workItemId',
   kind: 'kind',
   status: 'status',
+  idempotencyKey: 'idempotencyKey',
   provider: 'provider',
   modelId: 'modelId',
   inputSummary: 'inputSummary',

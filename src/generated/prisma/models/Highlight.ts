@@ -99,6 +99,7 @@ export type HighlightCountAggregateOutputType = {
   approvalSource: number
   publicSafetyStatus: number
   validatedThroughSha: number
+  validationHeads: number
   lastValidatedAt: number
   autoAppliedAt: number
   supersedesHighlightId: number
@@ -183,6 +184,7 @@ export type HighlightCountAggregateInputType = {
   approvalSource?: true
   publicSafetyStatus?: true
   validatedThroughSha?: true
+  validationHeads?: true
   lastValidatedAt?: true
   autoAppliedAt?: true
   supersedesHighlightId?: true
@@ -284,6 +286,7 @@ export type HighlightGroupByOutputType = {
   approvalSource: $Enums.KnowledgeApprovalSource
   publicSafetyStatus: $Enums.PublicSafetyStatus
   validatedThroughSha: string | null
+  validationHeads: runtime.JsonValue | null
   lastValidatedAt: Date | null
   autoAppliedAt: Date | null
   supersedesHighlightId: string | null
@@ -333,6 +336,7 @@ export type HighlightWhereInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Highlight"> | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Highlight"> | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.StringNullableFilter<"Highlight"> | string | null
+  validationHeads?: Prisma.JsonNullableFilter<"Highlight">
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   supersedesHighlightId?: Prisma.StringNullableFilter<"Highlight"> | string | null
@@ -372,6 +376,7 @@ export type HighlightOrderByWithRelationInput = {
   approvalSource?: Prisma.SortOrder
   publicSafetyStatus?: Prisma.SortOrder
   validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  validationHeads?: Prisma.SortOrderInput | Prisma.SortOrder
   lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   supersedesHighlightId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -414,6 +419,7 @@ export type HighlightWhereUniqueInput = Prisma.AtLeast<{
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Highlight"> | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Highlight"> | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.StringNullableFilter<"Highlight"> | string | null
+  validationHeads?: Prisma.JsonNullableFilter<"Highlight">
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   supersedesHighlightId?: Prisma.StringNullableFilter<"Highlight"> | string | null
@@ -453,6 +459,7 @@ export type HighlightOrderByWithAggregationInput = {
   approvalSource?: Prisma.SortOrder
   publicSafetyStatus?: Prisma.SortOrder
   validatedThroughSha?: Prisma.SortOrderInput | Prisma.SortOrder
+  validationHeads?: Prisma.SortOrderInput | Prisma.SortOrder
   lastValidatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   supersedesHighlightId?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -487,6 +494,7 @@ export type HighlightScalarWhereWithAggregatesInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceWithAggregatesFilter<"Highlight"> | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusWithAggregatesFilter<"Highlight"> | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.StringNullableWithAggregatesFilter<"Highlight"> | string | null
+  validationHeads?: Prisma.JsonNullableWithAggregatesFilter<"Highlight">
   lastValidatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Highlight"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Highlight"> | Date | string | null
   supersedesHighlightId?: Prisma.StringNullableWithAggregatesFilter<"Highlight"> | string | null
@@ -514,6 +522,7 @@ export type HighlightCreateInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -552,6 +561,7 @@ export type HighlightUncheckedCreateInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -588,6 +598,7 @@ export type HighlightUpdateInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -626,6 +637,7 @@ export type HighlightUncheckedUpdateInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -663,6 +675,7 @@ export type HighlightCreateManyInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -690,6 +703,7 @@ export type HighlightUpdateManyMutationInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -717,6 +731,7 @@ export type HighlightUncheckedUpdateManyInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -760,6 +775,7 @@ export type HighlightCountOrderByAggregateInput = {
   approvalSource?: Prisma.SortOrder
   publicSafetyStatus?: Prisma.SortOrder
   validatedThroughSha?: Prisma.SortOrder
+  validationHeads?: Prisma.SortOrder
   lastValidatedAt?: Prisma.SortOrder
   autoAppliedAt?: Prisma.SortOrder
   supersedesHighlightId?: Prisma.SortOrder
@@ -1076,6 +1092,7 @@ export type HighlightCreateWithoutWorkItemInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1112,6 +1129,7 @@ export type HighlightUncheckedCreateWithoutWorkItemInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -1178,6 +1196,7 @@ export type HighlightScalarWhereInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFilter<"Highlight"> | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFilter<"Highlight"> | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.StringNullableFilter<"Highlight"> | string | null
+  validationHeads?: Prisma.JsonNullableFilter<"Highlight">
   lastValidatedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   autoAppliedAt?: Prisma.DateTimeNullableFilter<"Highlight"> | Date | string | null
   supersedesHighlightId?: Prisma.StringNullableFilter<"Highlight"> | string | null
@@ -1205,6 +1224,7 @@ export type HighlightCreateWithoutKnowledgeChangesInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1242,6 +1262,7 @@ export type HighlightUncheckedCreateWithoutKnowledgeChangesInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -1293,6 +1314,7 @@ export type HighlightUpdateWithoutKnowledgeChangesInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1330,6 +1352,7 @@ export type HighlightUncheckedUpdateWithoutKnowledgeChangesInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1365,6 +1388,7 @@ export type HighlightCreateWithoutSupersededByHighlightsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1402,6 +1426,7 @@ export type HighlightUncheckedCreateWithoutSupersededByHighlightsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -1442,6 +1467,7 @@ export type HighlightCreateWithoutSupersedesHighlightInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1479,6 +1505,7 @@ export type HighlightUncheckedCreateWithoutSupersedesHighlightInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1535,6 +1562,7 @@ export type HighlightUpdateWithoutSupersededByHighlightsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1572,6 +1600,7 @@ export type HighlightUncheckedUpdateWithoutSupersededByHighlightsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1623,6 +1652,7 @@ export type HighlightCreateWithoutEmbeddingInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1660,6 +1690,7 @@ export type HighlightUncheckedCreateWithoutEmbeddingInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -1711,6 +1742,7 @@ export type HighlightUpdateWithoutEmbeddingInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1748,6 +1780,7 @@ export type HighlightUncheckedUpdateWithoutEmbeddingInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1783,6 +1816,7 @@ export type HighlightCreateWithoutSuggestionsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1820,6 +1854,7 @@ export type HighlightUncheckedCreateWithoutSuggestionsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -1871,6 +1906,7 @@ export type HighlightUpdateWithoutSuggestionsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1908,6 +1944,7 @@ export type HighlightUncheckedUpdateWithoutSuggestionsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1943,6 +1980,7 @@ export type HighlightCreateWithoutEvidenceInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -1980,6 +2018,7 @@ export type HighlightUncheckedCreateWithoutEvidenceInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2031,6 +2070,7 @@ export type HighlightUpdateWithoutEvidenceInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2068,6 +2108,7 @@ export type HighlightUncheckedUpdateWithoutEvidenceInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2103,6 +2144,7 @@ export type HighlightCreateWithoutTagsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -2140,6 +2182,7 @@ export type HighlightUncheckedCreateWithoutTagsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2191,6 +2234,7 @@ export type HighlightUpdateWithoutTagsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2228,6 +2272,7 @@ export type HighlightUncheckedUpdateWithoutTagsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2263,6 +2308,7 @@ export type HighlightCreateWithoutArtifactProvenanceInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -2300,6 +2346,7 @@ export type HighlightUncheckedCreateWithoutArtifactProvenanceInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2351,6 +2398,7 @@ export type HighlightUpdateWithoutArtifactProvenanceInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2388,6 +2436,7 @@ export type HighlightUncheckedUpdateWithoutArtifactProvenanceInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2423,6 +2472,7 @@ export type HighlightCreateWithoutChatCitationsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -2460,6 +2510,7 @@ export type HighlightUncheckedCreateWithoutChatCitationsInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2511,6 +2562,7 @@ export type HighlightUpdateWithoutChatCitationsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2548,6 +2600,7 @@ export type HighlightUncheckedUpdateWithoutChatCitationsInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2583,6 +2636,7 @@ export type HighlightCreateWithoutAgentRunCandidatesInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -2620,6 +2674,7 @@ export type HighlightUncheckedCreateWithoutAgentRunCandidatesInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2671,6 +2726,7 @@ export type HighlightUpdateWithoutAgentRunCandidatesInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2708,6 +2764,7 @@ export type HighlightUncheckedUpdateWithoutAgentRunCandidatesInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2743,6 +2800,7 @@ export type HighlightCreateManyWorkItemInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   supersedesHighlightId?: string | null
@@ -2770,6 +2828,7 @@ export type HighlightUpdateWithoutWorkItemInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2806,6 +2865,7 @@ export type HighlightUncheckedUpdateWithoutWorkItemInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2842,6 +2902,7 @@ export type HighlightUncheckedUpdateManyWithoutWorkItemInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   supersedesHighlightId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -2870,6 +2931,7 @@ export type HighlightCreateManySupersedesHighlightInput = {
   approvalSource?: $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: $Enums.PublicSafetyStatus
   validatedThroughSha?: string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Date | string | null
   autoAppliedAt?: Date | string | null
   createdAt?: Date | string
@@ -2896,6 +2958,7 @@ export type HighlightUpdateWithoutSupersedesHighlightInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2933,6 +2996,7 @@ export type HighlightUncheckedUpdateWithoutSupersedesHighlightInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2969,6 +3033,7 @@ export type HighlightUncheckedUpdateManyWithoutSupersedesHighlightInput = {
   approvalSource?: Prisma.EnumKnowledgeApprovalSourceFieldUpdateOperationsInput | $Enums.KnowledgeApprovalSource
   publicSafetyStatus?: Prisma.EnumPublicSafetyStatusFieldUpdateOperationsInput | $Enums.PublicSafetyStatus
   validatedThroughSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  validationHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   lastValidatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   autoAppliedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -3090,6 +3155,7 @@ export type HighlightSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   approvalSource?: boolean
   publicSafetyStatus?: boolean
   validatedThroughSha?: boolean
+  validationHeads?: boolean
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   supersedesHighlightId?: boolean
@@ -3130,6 +3196,7 @@ export type HighlightSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   approvalSource?: boolean
   publicSafetyStatus?: boolean
   validatedThroughSha?: boolean
+  validationHeads?: boolean
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   supersedesHighlightId?: boolean
@@ -3160,6 +3227,7 @@ export type HighlightSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ext
   approvalSource?: boolean
   publicSafetyStatus?: boolean
   validatedThroughSha?: boolean
+  validationHeads?: boolean
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   supersedesHighlightId?: boolean
@@ -3190,6 +3258,7 @@ export type HighlightSelectScalar = {
   approvalSource?: boolean
   publicSafetyStatus?: boolean
   validatedThroughSha?: boolean
+  validationHeads?: boolean
   lastValidatedAt?: boolean
   autoAppliedAt?: boolean
   supersedesHighlightId?: boolean
@@ -3197,7 +3266,7 @@ export type HighlightSelectScalar = {
   updatedAt?: boolean
 }
 
-export type HighlightOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "text" | "summary" | "searchText" | "confidence" | "ownershipClarity" | "sensitivityFlag" | "verificationStatus" | "visibility" | "risksSummary" | "missingInfo" | "rejectionReason" | "verificationNotes" | "metadata" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "lastValidatedAt" | "autoAppliedAt" | "supersedesHighlightId" | "createdAt" | "updatedAt", ExtArgs["result"]["highlight"]>
+export type HighlightOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "text" | "summary" | "searchText" | "confidence" | "ownershipClarity" | "sensitivityFlag" | "verificationStatus" | "visibility" | "risksSummary" | "missingInfo" | "rejectionReason" | "verificationNotes" | "metadata" | "lifecycleStatus" | "reviewState" | "approvalSource" | "publicSafetyStatus" | "validatedThroughSha" | "validationHeads" | "lastValidatedAt" | "autoAppliedAt" | "supersedesHighlightId" | "createdAt" | "updatedAt", ExtArgs["result"]["highlight"]>
 export type HighlightInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   supersedesHighlight?: boolean | Prisma.Highlight$supersedesHighlightArgs<ExtArgs>
@@ -3257,6 +3326,7 @@ export type $HighlightPayload<ExtArgs extends runtime.Types.Extensions.InternalA
     approvalSource: $Enums.KnowledgeApprovalSource
     publicSafetyStatus: $Enums.PublicSafetyStatus
     validatedThroughSha: string | null
+    validationHeads: runtime.JsonValue | null
     lastValidatedAt: Date | null
     autoAppliedAt: Date | null
     supersedesHighlightId: string | null
@@ -3716,6 +3786,7 @@ export interface HighlightFieldRefs {
   readonly approvalSource: Prisma.FieldRef<"Highlight", 'KnowledgeApprovalSource'>
   readonly publicSafetyStatus: Prisma.FieldRef<"Highlight", 'PublicSafetyStatus'>
   readonly validatedThroughSha: Prisma.FieldRef<"Highlight", 'String'>
+  readonly validationHeads: Prisma.FieldRef<"Highlight", 'Json'>
   readonly lastValidatedAt: Prisma.FieldRef<"Highlight", 'DateTime'>
   readonly autoAppliedAt: Prisma.FieldRef<"Highlight", 'DateTime'>
   readonly supersedesHighlightId: Prisma.FieldRef<"Highlight", 'String'>

@@ -12,8 +12,15 @@ type GenerationRunWriteInput = {
     | "highlight_verification"
     | "artifact_retrieval"
     | "artifact_generation"
-    | "evidence_clustering";
-  status: "success" | "provider_error" | "parse_error" | "validation_error";
+    | "evidence_clustering"
+    | "execution_routing"
+    | "semantic_extraction"
+    | "semantic_repair"
+    | "capability_synthesis"
+    | "coverage_audit"
+    | "answer_completeness_audit";
+  status: "queued" | "running" | "success" | "provider_error" | "parse_error" | "validation_error";
+  idempotencyKey?: string | null;
   provider: string;
   modelId: string;
   inputSummary: Prisma.InputJsonValue;

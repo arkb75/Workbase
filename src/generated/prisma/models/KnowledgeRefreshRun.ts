@@ -31,6 +31,7 @@ export type KnowledgeRefreshRunMinAggregateOutputType = {
   idempotencyKey: string | null
   trigger: $Enums.KnowledgeRefreshTrigger | null
   status: $Enums.KnowledgeRefreshStatus | null
+  qualityStatus: $Enums.KnowledgeRefreshQuality | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date | null
@@ -44,6 +45,7 @@ export type KnowledgeRefreshRunMaxAggregateOutputType = {
   idempotencyKey: string | null
   trigger: $Enums.KnowledgeRefreshTrigger | null
   status: $Enums.KnowledgeRefreshStatus | null
+  qualityStatus: $Enums.KnowledgeRefreshQuality | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date | null
@@ -57,12 +59,15 @@ export type KnowledgeRefreshRunCountAggregateOutputType = {
   idempotencyKey: number
   trigger: number
   status: number
+  qualityStatus: number
   targetHeads: number
   completedHeads: number
   coverage: number
   progress: number
   warnings: number
   error: number
+  orchestration: number
+  budgetUsage: number
   startedAt: number
   finishedAt: number
   createdAt: number
@@ -78,6 +83,7 @@ export type KnowledgeRefreshRunMinAggregateInputType = {
   idempotencyKey?: true
   trigger?: true
   status?: true
+  qualityStatus?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -91,6 +97,7 @@ export type KnowledgeRefreshRunMaxAggregateInputType = {
   idempotencyKey?: true
   trigger?: true
   status?: true
+  qualityStatus?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -104,12 +111,15 @@ export type KnowledgeRefreshRunCountAggregateInputType = {
   idempotencyKey?: true
   trigger?: true
   status?: true
+  qualityStatus?: true
   targetHeads?: true
   completedHeads?: true
   coverage?: true
   progress?: true
   warnings?: true
   error?: true
+  orchestration?: true
+  budgetUsage?: true
   startedAt?: true
   finishedAt?: true
   createdAt?: true
@@ -196,12 +206,15 @@ export type KnowledgeRefreshRunGroupByOutputType = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status: $Enums.KnowledgeRefreshStatus
+  qualityStatus: $Enums.KnowledgeRefreshQuality
   targetHeads: runtime.JsonValue
   completedHeads: runtime.JsonValue | null
   coverage: runtime.JsonValue | null
   progress: runtime.JsonValue | null
   warnings: runtime.JsonValue | null
   error: runtime.JsonValue | null
+  orchestration: runtime.JsonValue | null
+  budgetUsage: runtime.JsonValue | null
   startedAt: Date | null
   finishedAt: Date | null
   createdAt: Date
@@ -236,12 +249,15 @@ export type KnowledgeRefreshRunWhereInput = {
   idempotencyKey?: Prisma.StringFilter<"KnowledgeRefreshRun"> | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonFilter<"KnowledgeRefreshRun">
   completedHeads?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   coverage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   progress?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   warnings?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   error?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  orchestration?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  budgetUsage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   startedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"KnowledgeRefreshRun"> | Date | string
@@ -249,6 +265,8 @@ export type KnowledgeRefreshRunWhereInput = {
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   snapshots?: Prisma.RepositorySnapshotListRelationFilter
   changes?: Prisma.KnowledgeChangeListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }
 
 export type KnowledgeRefreshRunOrderByWithRelationInput = {
@@ -258,12 +276,15 @@ export type KnowledgeRefreshRunOrderByWithRelationInput = {
   idempotencyKey?: Prisma.SortOrder
   trigger?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  qualityStatus?: Prisma.SortOrder
   targetHeads?: Prisma.SortOrder
   completedHeads?: Prisma.SortOrderInput | Prisma.SortOrder
   coverage?: Prisma.SortOrderInput | Prisma.SortOrder
   progress?: Prisma.SortOrderInput | Prisma.SortOrder
   warnings?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
+  orchestration?: Prisma.SortOrderInput | Prisma.SortOrder
+  budgetUsage?: Prisma.SortOrderInput | Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -271,6 +292,8 @@ export type KnowledgeRefreshRunOrderByWithRelationInput = {
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   snapshots?: Prisma.RepositorySnapshotOrderByRelationAggregateInput
   changes?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
+  agentRuns?: Prisma.AgentRunOrderByRelationAggregateInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerOrderByRelationAggregateInput
 }
 
 export type KnowledgeRefreshRunWhereUniqueInput = Prisma.AtLeast<{
@@ -284,12 +307,15 @@ export type KnowledgeRefreshRunWhereUniqueInput = Prisma.AtLeast<{
   idempotencyKey?: Prisma.StringFilter<"KnowledgeRefreshRun"> | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonFilter<"KnowledgeRefreshRun">
   completedHeads?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   coverage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   progress?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   warnings?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   error?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  orchestration?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  budgetUsage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   startedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"KnowledgeRefreshRun"> | Date | string
@@ -297,6 +323,8 @@ export type KnowledgeRefreshRunWhereUniqueInput = Prisma.AtLeast<{
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   snapshots?: Prisma.RepositorySnapshotListRelationFilter
   changes?: Prisma.KnowledgeChangeListRelationFilter
+  agentRuns?: Prisma.AgentRunListRelationFilter
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }, "id" | "workflowId" | "workItemId_idempotencyKey">
 
 export type KnowledgeRefreshRunOrderByWithAggregationInput = {
@@ -306,12 +334,15 @@ export type KnowledgeRefreshRunOrderByWithAggregationInput = {
   idempotencyKey?: Prisma.SortOrder
   trigger?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  qualityStatus?: Prisma.SortOrder
   targetHeads?: Prisma.SortOrder
   completedHeads?: Prisma.SortOrderInput | Prisma.SortOrder
   coverage?: Prisma.SortOrderInput | Prisma.SortOrder
   progress?: Prisma.SortOrderInput | Prisma.SortOrder
   warnings?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
+  orchestration?: Prisma.SortOrderInput | Prisma.SortOrder
+  budgetUsage?: Prisma.SortOrderInput | Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -331,12 +362,15 @@ export type KnowledgeRefreshRunScalarWhereWithAggregatesInput = {
   idempotencyKey?: Prisma.StringWithAggregatesFilter<"KnowledgeRefreshRun"> | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerWithAggregatesFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusWithAggregatesFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityWithAggregatesFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonWithAggregatesFilter<"KnowledgeRefreshRun">
   completedHeads?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
   coverage?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
   progress?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
   warnings?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
   error?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
+  orchestration?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
+  budgetUsage?: Prisma.JsonNullableWithAggregatesFilter<"KnowledgeRefreshRun">
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"KnowledgeRefreshRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"KnowledgeRefreshRun"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"KnowledgeRefreshRun"> | Date | string
@@ -349,12 +383,15 @@ export type KnowledgeRefreshRunCreateInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -362,6 +399,8 @@ export type KnowledgeRefreshRunCreateInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUncheckedCreateInput = {
@@ -371,18 +410,23 @@ export type KnowledgeRefreshRunUncheckedCreateInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUpdateInput = {
@@ -391,12 +435,15 @@ export type KnowledgeRefreshRunUpdateInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -404,6 +451,8 @@ export type KnowledgeRefreshRunUpdateInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateInput = {
@@ -413,18 +462,23 @@ export type KnowledgeRefreshRunUncheckedUpdateInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunCreateManyInput = {
@@ -434,12 +488,15 @@ export type KnowledgeRefreshRunCreateManyInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -452,12 +509,15 @@ export type KnowledgeRefreshRunUpdateManyMutationInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -471,12 +531,15 @@ export type KnowledgeRefreshRunUncheckedUpdateManyInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -505,12 +568,15 @@ export type KnowledgeRefreshRunCountOrderByAggregateInput = {
   idempotencyKey?: Prisma.SortOrder
   trigger?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  qualityStatus?: Prisma.SortOrder
   targetHeads?: Prisma.SortOrder
   completedHeads?: Prisma.SortOrder
   coverage?: Prisma.SortOrder
   progress?: Prisma.SortOrder
   warnings?: Prisma.SortOrder
   error?: Prisma.SortOrder
+  orchestration?: Prisma.SortOrder
+  budgetUsage?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -524,6 +590,7 @@ export type KnowledgeRefreshRunMaxOrderByAggregateInput = {
   idempotencyKey?: Prisma.SortOrder
   trigger?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  qualityStatus?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -537,6 +604,7 @@ export type KnowledgeRefreshRunMinOrderByAggregateInput = {
   idempotencyKey?: Prisma.SortOrder
   trigger?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  qualityStatus?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -598,6 +666,10 @@ export type EnumKnowledgeRefreshStatusFieldUpdateOperationsInput = {
   set?: $Enums.KnowledgeRefreshStatus
 }
 
+export type EnumKnowledgeRefreshQualityFieldUpdateOperationsInput = {
+  set?: $Enums.KnowledgeRefreshQuality
+}
+
 export type KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput = {
   create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutSnapshotsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutSnapshotsInput>
   connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutSnapshotsInput
@@ -612,6 +684,22 @@ export type KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput = {
   delete?: Prisma.KnowledgeRefreshRunWhereInput | boolean
   connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateToOneWithWhereWithoutSnapshotsInput, Prisma.KnowledgeRefreshRunUpdateWithoutSnapshotsInput>, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutSnapshotsInput>
+}
+
+export type KnowledgeRefreshRunCreateNestedOneWithoutCapabilityLedgerInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutCapabilityLedgerInput
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+}
+
+export type KnowledgeRefreshRunUpdateOneWithoutCapabilityLedgerNestedInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutCapabilityLedgerInput
+  upsert?: Prisma.KnowledgeRefreshRunUpsertWithoutCapabilityLedgerInput
+  disconnect?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  delete?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateToOneWithWhereWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUpdateWithoutCapabilityLedgerInput>, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput>
 }
 
 export type KnowledgeRefreshRunCreateNestedOneWithoutChangesInput = {
@@ -630,24 +718,45 @@ export type KnowledgeRefreshRunUpdateOneWithoutChangesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateToOneWithWhereWithoutChangesInput, Prisma.KnowledgeRefreshRunUpdateWithoutChangesInput>, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutChangesInput>
 }
 
+export type KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutAgentRunsInput
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+}
+
+export type KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutAgentRunsInput
+  upsert?: Prisma.KnowledgeRefreshRunUpsertWithoutAgentRunsInput
+  disconnect?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  delete?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateToOneWithWhereWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUpdateWithoutAgentRunsInput>, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutAgentRunsInput>
+}
+
 export type KnowledgeRefreshRunCreateWithoutWorkItemInput = {
   id?: string
   workflowId?: string | null
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUncheckedCreateWithoutWorkItemInput = {
@@ -656,18 +765,23 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutWorkItemInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunCreateOrConnectWithoutWorkItemInput = {
@@ -706,12 +820,15 @@ export type KnowledgeRefreshRunScalarWhereInput = {
   idempotencyKey?: Prisma.StringFilter<"KnowledgeRefreshRun"> | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFilter<"KnowledgeRefreshRun"> | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonFilter<"KnowledgeRefreshRun">
   completedHeads?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   coverage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   progress?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   warnings?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   error?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  orchestration?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
+  budgetUsage?: Prisma.JsonNullableFilter<"KnowledgeRefreshRun">
   startedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"KnowledgeRefreshRun"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"KnowledgeRefreshRun"> | Date | string
@@ -724,18 +841,23 @@ export type KnowledgeRefreshRunCreateWithoutSnapshotsInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUncheckedCreateWithoutSnapshotsInput = {
@@ -745,17 +867,22 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutSnapshotsInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunCreateOrConnectWithoutSnapshotsInput = {
@@ -780,18 +907,23 @@ export type KnowledgeRefreshRunUpdateWithoutSnapshotsInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateWithoutSnapshotsInput = {
@@ -801,17 +933,138 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutSnapshotsInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
+}
+
+export type KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput = {
+  id?: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
+  snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+}
+
+export type KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput = {
+  id?: string
+  workItemId: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+}
+
+export type KnowledgeRefreshRunCreateOrConnectWithoutCapabilityLedgerInput = {
+  where: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput>
+}
+
+export type KnowledgeRefreshRunUpsertWithoutCapabilityLedgerInput = {
+  update: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput>
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput>
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+}
+
+export type KnowledgeRefreshRunUpdateToOneWithWhereWithoutCapabilityLedgerInput = {
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+  data: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutCapabilityLedgerInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput>
+}
+
+export type KnowledgeRefreshRunUpdateWithoutCapabilityLedgerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
+  snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+}
+
+export type KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunCreateWithoutChangesInput = {
@@ -820,18 +1073,23 @@ export type KnowledgeRefreshRunCreateWithoutChangesInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUncheckedCreateWithoutChangesInput = {
@@ -841,17 +1099,22 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutChangesInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunCreateOrConnectWithoutChangesInput = {
@@ -876,18 +1139,23 @@ export type KnowledgeRefreshRunUpdateWithoutChangesInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateWithoutChangesInput = {
@@ -897,17 +1165,138 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutChangesInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
+}
+
+export type KnowledgeRefreshRunCreateWithoutAgentRunsInput = {
+  id?: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
+  snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
+}
+
+export type KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput = {
+  id?: string
+  workItemId: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
+}
+
+export type KnowledgeRefreshRunCreateOrConnectWithoutAgentRunsInput = {
+  where: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput>
+}
+
+export type KnowledgeRefreshRunUpsertWithoutAgentRunsInput = {
+  update: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutAgentRunsInput>
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput>
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+}
+
+export type KnowledgeRefreshRunUpdateToOneWithWhereWithoutAgentRunsInput = {
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+  data: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutAgentRunsInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutAgentRunsInput>
+}
+
+export type KnowledgeRefreshRunUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
+  snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
+}
+
+export type KnowledgeRefreshRunUncheckedUpdateWithoutAgentRunsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunCreateManyWorkItemInput = {
@@ -916,12 +1305,15 @@ export type KnowledgeRefreshRunCreateManyWorkItemInput = {
   idempotencyKey: string
   trigger: $Enums.KnowledgeRefreshTrigger
   status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
   targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   createdAt?: Date | string
@@ -934,18 +1326,23 @@ export type KnowledgeRefreshRunUpdateWithoutWorkItemInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateWithoutWorkItemInput = {
@@ -954,18 +1351,23 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutWorkItemInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemInput = {
@@ -974,12 +1376,15 @@ export type KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemInput = {
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
   status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
   targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -994,11 +1399,15 @@ export type KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemInput = {
 export type KnowledgeRefreshRunCountOutputType = {
   snapshots: number
   changes: number
+  agentRuns: number
+  capabilityLedger: number
 }
 
 export type KnowledgeRefreshRunCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   snapshots?: boolean | KnowledgeRefreshRunCountOutputTypeCountSnapshotsArgs
   changes?: boolean | KnowledgeRefreshRunCountOutputTypeCountChangesArgs
+  agentRuns?: boolean | KnowledgeRefreshRunCountOutputTypeCountAgentRunsArgs
+  capabilityLedger?: boolean | KnowledgeRefreshRunCountOutputTypeCountCapabilityLedgerArgs
 }
 
 /**
@@ -1025,6 +1434,20 @@ export type KnowledgeRefreshRunCountOutputTypeCountChangesArgs<ExtArgs extends r
   where?: Prisma.KnowledgeChangeWhereInput
 }
 
+/**
+ * KnowledgeRefreshRunCountOutputType without action
+ */
+export type KnowledgeRefreshRunCountOutputTypeCountAgentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.AgentRunWhereInput
+}
+
+/**
+ * KnowledgeRefreshRunCountOutputType without action
+ */
+export type KnowledgeRefreshRunCountOutputTypeCountCapabilityLedgerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.RepositoryCapabilityLedgerWhereInput
+}
+
 
 export type KnowledgeRefreshRunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1033,12 +1456,15 @@ export type KnowledgeRefreshRunSelect<ExtArgs extends runtime.Types.Extensions.I
   idempotencyKey?: boolean
   trigger?: boolean
   status?: boolean
+  qualityStatus?: boolean
   targetHeads?: boolean
   completedHeads?: boolean
   coverage?: boolean
   progress?: boolean
   warnings?: boolean
   error?: boolean
+  orchestration?: boolean
+  budgetUsage?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -1046,6 +1472,8 @@ export type KnowledgeRefreshRunSelect<ExtArgs extends runtime.Types.Extensions.I
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   snapshots?: boolean | Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>
   changes?: boolean | Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>
+  capabilityLedger?: boolean | Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.KnowledgeRefreshRunCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["knowledgeRefreshRun"]>
 
@@ -1056,12 +1484,15 @@ export type KnowledgeRefreshRunSelectCreateManyAndReturn<ExtArgs extends runtime
   idempotencyKey?: boolean
   trigger?: boolean
   status?: boolean
+  qualityStatus?: boolean
   targetHeads?: boolean
   completedHeads?: boolean
   coverage?: boolean
   progress?: boolean
   warnings?: boolean
   error?: boolean
+  orchestration?: boolean
+  budgetUsage?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -1076,12 +1507,15 @@ export type KnowledgeRefreshRunSelectUpdateManyAndReturn<ExtArgs extends runtime
   idempotencyKey?: boolean
   trigger?: boolean
   status?: boolean
+  qualityStatus?: boolean
   targetHeads?: boolean
   completedHeads?: boolean
   coverage?: boolean
   progress?: boolean
   warnings?: boolean
   error?: boolean
+  orchestration?: boolean
+  budgetUsage?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
@@ -1096,23 +1530,28 @@ export type KnowledgeRefreshRunSelectScalar = {
   idempotencyKey?: boolean
   trigger?: boolean
   status?: boolean
+  qualityStatus?: boolean
   targetHeads?: boolean
   completedHeads?: boolean
   coverage?: boolean
   progress?: boolean
   warnings?: boolean
   error?: boolean
+  orchestration?: boolean
+  budgetUsage?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type KnowledgeRefreshRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "workflowId" | "idempotencyKey" | "trigger" | "status" | "targetHeads" | "completedHeads" | "coverage" | "progress" | "warnings" | "error" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["knowledgeRefreshRun"]>
+export type KnowledgeRefreshRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "workflowId" | "idempotencyKey" | "trigger" | "status" | "qualityStatus" | "targetHeads" | "completedHeads" | "coverage" | "progress" | "warnings" | "error" | "orchestration" | "budgetUsage" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["knowledgeRefreshRun"]>
 export type KnowledgeRefreshRunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   snapshots?: boolean | Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>
   changes?: boolean | Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>
+  agentRuns?: boolean | Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>
+  capabilityLedger?: boolean | Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.KnowledgeRefreshRunCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type KnowledgeRefreshRunIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1128,6 +1567,8 @@ export type $KnowledgeRefreshRunPayload<ExtArgs extends runtime.Types.Extensions
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     snapshots: Prisma.$RepositorySnapshotPayload<ExtArgs>[]
     changes: Prisma.$KnowledgeChangePayload<ExtArgs>[]
+    agentRuns: Prisma.$AgentRunPayload<ExtArgs>[]
+    capabilityLedger: Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1136,12 +1577,15 @@ export type $KnowledgeRefreshRunPayload<ExtArgs extends runtime.Types.Extensions
     idempotencyKey: string
     trigger: $Enums.KnowledgeRefreshTrigger
     status: $Enums.KnowledgeRefreshStatus
+    qualityStatus: $Enums.KnowledgeRefreshQuality
     targetHeads: runtime.JsonValue
     completedHeads: runtime.JsonValue | null
     coverage: runtime.JsonValue | null
     progress: runtime.JsonValue | null
     warnings: runtime.JsonValue | null
     error: runtime.JsonValue | null
+    orchestration: runtime.JsonValue | null
+    budgetUsage: runtime.JsonValue | null
     startedAt: Date | null
     finishedAt: Date | null
     createdAt: Date
@@ -1543,6 +1987,8 @@ export interface Prisma__KnowledgeRefreshRunClient<T, Null = never, ExtArgs exte
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   snapshots<T extends Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   changes<T extends Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  agentRuns<T extends Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  capabilityLedger<T extends Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1578,12 +2024,15 @@ export interface KnowledgeRefreshRunFieldRefs {
   readonly idempotencyKey: Prisma.FieldRef<"KnowledgeRefreshRun", 'String'>
   readonly trigger: Prisma.FieldRef<"KnowledgeRefreshRun", 'KnowledgeRefreshTrigger'>
   readonly status: Prisma.FieldRef<"KnowledgeRefreshRun", 'KnowledgeRefreshStatus'>
+  readonly qualityStatus: Prisma.FieldRef<"KnowledgeRefreshRun", 'KnowledgeRefreshQuality'>
   readonly targetHeads: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly completedHeads: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly coverage: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly progress: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly warnings: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly error: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
+  readonly orchestration: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
+  readonly budgetUsage: Prisma.FieldRef<"KnowledgeRefreshRun", 'Json'>
   readonly startedAt: Prisma.FieldRef<"KnowledgeRefreshRun", 'DateTime'>
   readonly finishedAt: Prisma.FieldRef<"KnowledgeRefreshRun", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"KnowledgeRefreshRun", 'DateTime'>
@@ -2034,6 +2483,54 @@ export type KnowledgeRefreshRun$changesArgs<ExtArgs extends runtime.Types.Extens
   take?: number
   skip?: number
   distinct?: Prisma.KnowledgeChangeScalarFieldEnum | Prisma.KnowledgeChangeScalarFieldEnum[]
+}
+
+/**
+ * KnowledgeRefreshRun.agentRuns
+ */
+export type KnowledgeRefreshRun$agentRunsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AgentRun
+   */
+  select?: Prisma.AgentRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the AgentRun
+   */
+  omit?: Prisma.AgentRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.AgentRunInclude<ExtArgs> | null
+  where?: Prisma.AgentRunWhereInput
+  orderBy?: Prisma.AgentRunOrderByWithRelationInput | Prisma.AgentRunOrderByWithRelationInput[]
+  cursor?: Prisma.AgentRunWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.AgentRunScalarFieldEnum | Prisma.AgentRunScalarFieldEnum[]
+}
+
+/**
+ * KnowledgeRefreshRun.capabilityLedger
+ */
+export type KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the RepositoryCapabilityLedger
+   */
+  select?: Prisma.RepositoryCapabilityLedgerSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the RepositoryCapabilityLedger
+   */
+  omit?: Prisma.RepositoryCapabilityLedgerOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.RepositoryCapabilityLedgerInclude<ExtArgs> | null
+  where?: Prisma.RepositoryCapabilityLedgerWhereInput
+  orderBy?: Prisma.RepositoryCapabilityLedgerOrderByWithRelationInput | Prisma.RepositoryCapabilityLedgerOrderByWithRelationInput[]
+  cursor?: Prisma.RepositoryCapabilityLedgerWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.RepositoryCapabilityLedgerScalarFieldEnum | Prisma.RepositoryCapabilityLedgerScalarFieldEnum[]
 }
 
 /**

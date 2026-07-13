@@ -37,13 +37,15 @@ function citationRows(messageId: string, citations: ProjectKnowledgeCitation[]) 
     startLine: citation.startLine ?? null,
     endLine: citation.endLine ?? null,
     contentHash: citation.contentHash ?? null,
-    metadata:
-      citation.redacted || citation.redactionCategories?.length
-        ? toInputJson({
-            redacted: citation.redacted ?? false,
-            redactionCategories: citation.redactionCategories ?? [],
-          })
-        : Prisma.JsonNull,
+    metadata: citation.redacted || citation.redactionCategories?.length || citation.provenance?.length
+      ? toInputJson({
+          redacted: citation.redacted ?? false,
+          redactionCategories: citation.redactionCategories ?? [],
+          // Snapshot nested provenance at answer time so later fact edits cannot
+          // silently rewrite the historical source panel.
+          provenance: citation.provenance ?? [],
+        })
+      : Prisma.JsonNull,
   }));
 }
 

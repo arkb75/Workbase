@@ -11,9 +11,11 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
+  REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
   type RepositoryTargetHead,
 } from "@/src/services/repository-knowledge-sync-service";
+import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 const categories = [
   "architecture",
@@ -160,12 +162,17 @@ export interface SynthesizedKnowledge {
   unresolvedQuestions: string[];
   notebook: SynthesisNotebookEntry[];
   tokenUsage: unknown;
+  approvalEligible: boolean;
 }
 
 function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
   return Array.isArray(analysis.facts) && Array.isArray(analysis.subsystemKeys) ? analysis : null;
+}
+
+export function semanticFactsForSubsystem(analysis: RepositoryFileAnalysis, subsystemKey: string) {
+  return analysis.facts.filter((fact) => !fact.subsystemKeys?.length || fact.subsystemKeys.includes(subsystemKey));
 }
 
 function importance(entry: SynthesisNotebookEntry) {
@@ -295,10 +302,18 @@ export function fallbackSubsystemSynthesis(
   };
 }
 
+type SynthesisSetResult = {
+  data: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> };
+  tokenUsage: unknown;
+  fallbackUsed: boolean;
+};
+
 async function synthesizeSubsystemSet(input: {
+  workItemId: string;
+  refreshRunId: string;
   projectTitle: string;
   subsystems: Array<{ subsystemKey: string; notebook: SynthesisNotebookEntry[] }>;
-}) {
+}): Promise<SynthesisSetResult> {
   if (resolveWorkbaseLlmProvider() === "mock") {
     return {
       data: {
@@ -308,11 +323,21 @@ async function synthesizeSubsystemSet(input: {
         })),
       },
       tokenUsage: null,
+      fallbackUsed: false,
     };
   }
   const expectedKeys = new Set(input.subsystems.map((subsystem) => subsystem.subsystemKey));
   try {
-    const result = await getBedrockStructuredLlmClient().generateStructured({
+    const result = await runAuditedStructuredGeneration({
+      workItemId: input.workItemId,
+      kind: "capability_synthesis",
+      idempotencyKey: `${input.refreshRunId}:capability-synthesis:${input.subsystems.map((entry) => entry.subsystemKey).sort().join(",")}`,
+      inputSummary: {
+        refreshRunId: input.refreshRunId,
+        subsystemKeys: input.subsystems.map((entry) => entry.subsystemKey),
+        notebookEntries: input.subsystems.reduce((total, entry) => total + entry.notebook.length, 0),
+      },
+      execute: () => getBedrockStructuredLlmClient().generateStructured({
     systemPrompt: [
       "You reduce a complete, commit-pinned repository notebook into durable technical Project Facts and only genuinely career-relevant Highlights.",
       "Return exactly one result for every supplied subsystemKey and copy each key exactly.",
@@ -334,25 +359,39 @@ async function synthesizeSubsystemSet(input: {
     schemaName: "repository_architecture_synthesis",
     schemaDescription: "One supported Project Fact and Highlight synthesis for every supplied architecture subsystem.",
     jsonSchema: repositorySynthesisJsonSchema,
-    maxTokens: 5_000,
+    maxTokens: 3_500,
     temperature: 0,
     effort: "high",
-    transportPreference: ["bedrock_json_schema"],
+    transportPreference: ["bedrock_json_schema", "strict_tool_use", "text_repair_fallback"],
+    repairStrategy: "repair_last_failure",
     extraValidation: (value) => {
       const returned = value.subsystems.map((subsystem) => subsystem.subsystemKey);
       return returned.length === expectedKeys.size && returned.every((key) => expectedKeys.has(key)) && new Set(returned).size === returned.length
         ? []
         : ["Return every supplied subsystemKey exactly once and do not add subsystem keys."];
     },
+      }),
     });
     return {
       data: {
         subsystems: result.data.subsystems,
       },
       tokenUsage: result.tokenUsage,
+      fallbackUsed: false,
     };
   } catch (error) {
     if (!(error instanceof StructuredOutputError)) throw error;
+    if (input.subsystems.length > 1) {
+      const repaired = await Promise.all(input.subsystems.map((subsystem) => synthesizeSubsystemSet({
+        ...input,
+        subsystems: [subsystem],
+      })));
+      return {
+        data: { subsystems: repaired.flatMap((result) => result.data.subsystems) },
+        tokenUsage: repaired.flatMap((result) => result.tokenUsage ? [result.tokenUsage] : []),
+        fallbackUsed: repaired.some((result) => result.fallbackUsed),
+      };
+    }
     return {
       data: {
         subsystems: input.subsystems.map((subsystem) => ({
@@ -364,6 +403,7 @@ async function synthesizeSubsystemSet(input: {
         })),
       },
       tokenUsage: error.tokenUsage,
+      fallbackUsed: true,
     };
   }
 }
@@ -384,11 +424,15 @@ export async function synthesizeRepositoryKnowledge(
     const target = (run.targetHeads as unknown as RepositoryTargetHead[]).find((entry) => entry.sourceId === snapshot.sourceId);
     if (!target) continue;
     for (const file of snapshot.files) {
-      const analysis = parseAnalysis(file.analysis);
+      // Static analysis is useful for coverage planning, but it is not semantic
+      // evidence and must never be promoted into approved durable knowledge.
+      const analysis = file.semanticRefreshRunId === runId && file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
+        ? parseAnalysis(file.semanticAnalysis)
+        : null;
       if (!analysis || !file.blobSha) continue;
       for (const subsystemKey of analysis.subsystemKeys) {
         const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
-        for (const fact of analysis.facts) {
+        for (const fact of semanticFactsForSubsystem(analysis, subsystemKey)) {
           notebook.push({
             sourceId: snapshot.sourceId,
             repository: target.repository,
@@ -427,8 +471,8 @@ export async function synthesizeRepositoryKnowledge(
       const notebook = productSystemSubsystems.has(subsystemKey)
         ? [...rankedNotebook.filter((entry) => /defines the symbol\b/.test(entry.statement)), ...rankedNotebook]
             .filter((entry, index, all) => all.findIndex((other) => other.path === entry.path && other.lineStart === entry.lineStart && other.statement === entry.statement) === index)
-            .slice(0, 40)
-        : rankedNotebook.slice(0, 25);
+            .slice(0, 20)
+        : rankedNotebook.slice(0, 12);
       return {
         subsystemKey,
         notebook,
@@ -451,10 +495,20 @@ export async function synthesizeRepositoryKnowledge(
       unresolvedQuestions: ["Reconciliation resumed from the persisted complete notebook after a partial prior attempt."],
     })));
   } else {
-    for (let start = 0; start < synthesisInputs.length; start += 4) {
-      const batch = synthesisInputs.slice(start, start + 4);
-      const result = await synthesizeSubsystemSet({ projectTitle: run.workItem.title, subsystems: batch });
-      synthesizedSubsystems.push(...result.data.subsystems);
+    const batches = Array.from({ length: Math.ceil(synthesisInputs.length / 2) }, (_, index) =>
+      synthesisInputs.slice(index * 2, index * 2 + 2),
+    );
+    const results = await Promise.all(batches.map((batch) => synthesizeSubsystemSet({
+        workItemId: run.workItemId,
+        refreshRunId: runId,
+        projectTitle: run.workItem.title,
+        subsystems: batch,
+      })));
+    for (const result of results) {
+      synthesizedSubsystems.push(...result.data.subsystems.map((entry) => ({
+        ...entry,
+        approvalEligible: !result.fallbackUsed,
+      })));
       if (result.tokenUsage) tokenUsage.push(result.tokenUsage);
     }
   }
@@ -477,6 +531,7 @@ export async function synthesizeRepositoryKnowledge(
       unresolvedQuestions: result.unresolvedQuestions,
       notebook,
       tokenUsage,
+      approvalEligible: "approvalEligible" in result ? result.approvalEligible !== false : !options.fallbackOnly,
     };
   });
 }

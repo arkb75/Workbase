@@ -2,12 +2,14 @@ import { prisma } from "@/src/lib/prisma";
 import { knowledgeSimilarity, recordChange } from "@/src/services/knowledge-reconciliation-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
+import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 type CurrentObservation = {
   statement: string;
   path: string;
   subsystemKeys: string[];
   commitSha: string;
+  sourceId: string;
 };
 
 function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
@@ -16,18 +18,21 @@ function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   return Array.isArray(analysis.facts) && Array.isArray(analysis.subsystemKeys) ? analysis : null;
 }
 
-function currentObservations(run: Awaited<ReturnType<typeof loadRun>>) {
+export function currentObservations(run: Awaited<ReturnType<typeof loadRun>>) {
   const observations: CurrentObservation[] = [];
   for (const snapshot of run.snapshots) {
     for (const file of snapshot.files) {
-      const analysis = parseAnalysis(file.analysis);
+      const analysis = file.semanticRefreshRunId === run.id && file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
+        ? parseAnalysis(file.semanticAnalysis)
+        : null;
       if (!analysis) continue;
       for (const fact of analysis.facts) {
         observations.push({
           statement: fact.statement,
           path: file.path,
-          subsystemKeys: analysis.subsystemKeys,
+          subsystemKeys: fact.subsystemKeys?.length ? fact.subsystemKeys : analysis.subsystemKeys,
           commitSha: snapshot.commitSha,
+          sourceId: snapshot.sourceId,
         });
       }
     }
@@ -58,8 +63,8 @@ function relevantObservations(assertion: string, subsystemKey: string | null, ob
 
 async function validateAssertion(input: {
   assertion: string;
-  priorPaths: string[];
-  currentPaths: Set<string>;
+  priorReferences: string[];
+  currentReferences: Set<string>;
   observations: CurrentObservation[];
 }) {
   const strongest = input.observations
@@ -72,7 +77,7 @@ async function validateAssertion(input: {
       observationIndexes: [input.observations.indexOf(strongest.observation) + 1],
     };
   }
-  if (input.priorPaths.length && input.priorPaths.every((path) => !input.currentPaths.has(path))) {
+  if (input.priorReferences.length && input.priorReferences.every((reference) => !input.currentReferences.has(reference))) {
     return {
       verdict: "removed" as const,
       reason: "Every previously cited repository path is absent from the complete current snapshot.",
@@ -90,12 +95,15 @@ function isRepositoryDerived(evidence: Array<{ evidenceItem: { type: string } }>
   return evidence.length > 0 && evidence.every((entry) => entry.evidenceItem.type.startsWith("github_"));
 }
 
-function priorPaths(evidence: Array<{ evidenceItem: { metadata: unknown } }>) {
+function priorReferences(evidence: Array<{ evidenceItem: { metadata: unknown } }>) {
   return Array.from(new Set(evidence.flatMap((entry) => {
     const metadata = entry.evidenceItem.metadata;
     if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
     const path = (metadata as Record<string, unknown>).path;
-    return typeof path === "string" ? [path] : [];
+    const sourceId = (metadata as Record<string, unknown>).sourceId;
+    const repository = (metadata as Record<string, unknown>).repository;
+    const owner = typeof sourceId === "string" ? sourceId : typeof repository === "string" ? repository : null;
+    return typeof path === "string" && owner ? [`${owner}:${path}`] : [];
   })));
 }
 
@@ -108,7 +116,11 @@ export async function reconcileStaleKnowledge(input: {
   const targets = run.targetHeads as unknown as RepositoryTargetHead[];
   const targetShas = new Set(targets.map((target) => target.commitSha));
   const observations = currentObservations(run);
-  const currentPaths = new Set(run.snapshots.flatMap((snapshot) => snapshot.files.map((file) => file.path)));
+  const targetBySource = new Map(targets.map((target) => [target.sourceId, target.repository]));
+  const currentReferences = new Set(run.snapshots.flatMap((snapshot) => snapshot.files.flatMap((file) => [
+    `${snapshot.sourceId}:${file.path}`,
+    `${targetBySource.get(snapshot.sourceId) ?? snapshot.sourceId}:${file.path}`,
+  ])));
   const activeFacts = await prisma.projectFact.findMany({
     where: {
       workItemId: run.workItemId,
@@ -127,17 +139,38 @@ export async function reconcileStaleKnowledge(input: {
   });
   const retiredFactIds: string[] = [];
   const retiredHighlightIds: string[] = [];
+  const appliedFactSubsystems = new Set((await prisma.projectFact.findMany({
+    where: { id: { in: input.appliedFactIds.length ? input.appliedFactIds : [""] } },
+    select: { subsystemKey: true },
+  })).flatMap((fact) => fact.subsystemKey ? [fact.subsystemKey] : []));
+  const appliedHighlightSubsystems = new Set((await prisma.highlight.findMany({
+    where: { id: { in: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] } },
+    select: { metadata: true },
+  })).flatMap((highlight) => {
+    const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
+      ? highlight.metadata as Record<string, unknown>
+      : null;
+    return typeof metadata?.subsystemKey === "string" ? [metadata.subsystemKey] : [];
+  }));
 
   for (const fact of activeFacts) {
     if (!isRepositoryDerived(fact.evidence)) continue;
-    const paths = priorPaths(fact.evidence);
+    if (fact.approvalSource === "automation" && fact.reviewState === "pending_review" && fact.subsystemKey && appliedFactSubsystems.has(fact.subsystemKey)) {
+      const reason = "A newer current-head synthesis replaced this unreviewed automated Project Fact in the same capability area.";
+      await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: reason } });
+      retiredFactIds.push(fact.id);
+      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "project_fact", action: "retired", entityId: fact.id, beforeSnapshot: { statement: fact.statement, lifecycleStatus: fact.lifecycleStatus }, afterSnapshot: { statement: fact.statement, lifecycleStatus: "retired" }, reason, suffix: `${fact.id}:canonical-replacement:${run.id}` });
+      continue;
+    }
+    const references = priorReferences(fact.evidence);
     const relevant = relevantObservations(fact.statement, fact.subsystemKey, observations);
-    const validation = await validateAssertion({ assertion: fact.statement, priorPaths: paths, currentPaths, observations: relevant });
+    const validation = await validateAssertion({ assertion: fact.statement, priorReferences: references, currentReferences, observations: relevant });
     const currentSha = relevant[0]?.commitSha ?? targets[0]?.commitSha ?? null;
+    const validationHeads = Object.fromEntries(relevant.map((entry) => [entry.sourceId, entry.commitSha]));
     if (validation.verdict === "supported") {
       await prisma.projectFact.update({
         where: { id: fact.id },
-        data: { lifecycleStatus: "active", status: "approved", validatedThroughSha: currentSha, lastValidatedAt: new Date() },
+        data: { lifecycleStatus: "active", status: "approved", validatedThroughSha: currentSha, validationHeads, lastValidatedAt: new Date() },
       });
       await recordChange({
         workItemId: run.workItemId,
@@ -166,7 +199,7 @@ export async function reconcileStaleKnowledge(input: {
         beforeSnapshot: { statement: fact.statement, lifecycleStatus: fact.lifecycleStatus },
         afterSnapshot: { statement: fact.statement, lifecycleStatus: "retired" },
         reason: validation.reason,
-        provenance: { priorPaths: paths, targetShas: Array.from(targetShas) },
+        provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${fact.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
     } else {
@@ -176,21 +209,34 @@ export async function reconcileStaleKnowledge(input: {
 
   for (const highlight of activeHighlights) {
     if (!isRepositoryDerived(highlight.evidence)) continue;
-    const paths = priorPaths(highlight.evidence);
+    const references = priorReferences(highlight.evidence);
     const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
       ? highlight.metadata as Record<string, unknown>
       : null;
     const subsystemKey = typeof metadata?.subsystemKey === "string" ? metadata.subsystemKey : null;
+    if (highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && subsystemKey && appliedHighlightSubsystems.has(subsystemKey)) {
+      const reason = "A newer current-head synthesis replaced this unreviewed automated Highlight in the same capability area.";
+      await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: reason } });
+      retiredHighlightIds.push(highlight.id);
+      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "highlight", action: "retired", entityId: highlight.id, beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus }, afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" }, reason, suffix: `${highlight.id}:canonical-replacement:${run.id}` });
+      continue;
+    }
+    const supportingObservations = relevantObservations(`${highlight.text} ${highlight.summary}`, subsystemKey, observations);
     const validation = await validateAssertion({
       assertion: `${highlight.text}. ${highlight.summary}`,
-      priorPaths: paths,
-      currentPaths,
-      observations: relevantObservations(`${highlight.text} ${highlight.summary}`, subsystemKey, observations),
+      priorReferences: references,
+      currentReferences,
+      observations: supportingObservations,
     });
     if (validation.verdict === "supported") {
       await prisma.highlight.update({
         where: { id: highlight.id },
-        data: { lifecycleStatus: "active", validatedThroughSha: targets[0]?.commitSha, lastValidatedAt: new Date() },
+        data: {
+          lifecycleStatus: "active",
+          validatedThroughSha: supportingObservations[0]?.commitSha ?? targets[0]?.commitSha,
+          validationHeads: Object.fromEntries(supportingObservations.map((entry) => [entry.sourceId, entry.commitSha])),
+          lastValidatedAt: new Date(),
+        },
       });
     } else if (validation.verdict === "removed") {
       await prisma.highlight.update({
@@ -207,7 +253,7 @@ export async function reconcileStaleKnowledge(input: {
         beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus },
         afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" },
         reason: validation.reason,
-        provenance: { priorPaths: paths, targetShas: Array.from(targetShas) },
+        provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${highlight.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
     } else {

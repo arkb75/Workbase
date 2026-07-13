@@ -176,6 +176,7 @@ async function applyFact(input: {
   candidate: SynthesizedKnowledge["facts"][number];
   evidenceIds: string[];
   commitSha: string;
+  validationHeads: Record<string, string>;
 }) {
   if (!input.evidenceIds.length) return null;
   const existing = await prisma.projectFact.findMany({
@@ -189,28 +190,30 @@ async function applyFact(input: {
     .map((fact) => ({ fact, score: knowledgeSimilarity(input.candidate.statement, fact.statement) }))
     .sort((left, right) => right.score - left.score);
   const closest = ranked.find((entry) => entry.fact.subsystemKey === input.subsystem.subsystemKey) ?? null;
-  const unsafe = input.candidate.sensitivityFlag || input.candidate.confidence === "low";
+  const unsafe = input.subsystem.approvalEligible === false || input.candidate.sensitivityFlag || input.candidate.confidence === "low";
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
 
   if (exact && !unsafe) {
-    await prisma.$transaction([
-      prisma.projectFact.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.projectFactEvidence.deleteMany({ where: { projectFactId: closest.fact.id } });
+      await tx.projectFact.update({
         where: { id: closest.fact.id },
         data: {
           status: "approved",
           lifecycleStatus: "active",
           validatedThroughSha: input.commitSha,
           lastValidatedAt: new Date(),
+          validationHeads: toInputJson(input.validationHeads),
           rejectionReason: null,
           productImportance: input.candidate.productImportance,
           implementationBreadth: input.candidate.implementationBreadth,
           technicalDifficulty: input.candidate.technicalDifficulty,
           distinctiveness: input.candidate.distinctiveness,
-          evidence: { createMany: { data: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })), skipDuplicates: true } },
+          evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
         },
-      }),
-      prisma.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } }),
-    ]);
+      });
+      await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+    });
     await recordChange({
       workItemId: input.workItemId,
       refreshRunId: input.runId,
@@ -248,6 +251,7 @@ async function applyFact(input: {
         subsystemKey: input.subsystem.subsystemKey,
         validatedThroughSha: input.commitSha,
         lastValidatedAt: new Date(),
+        validationHeads: toInputJson(input.validationHeads),
         autoAppliedAt: unsafe ? null : new Date(),
         productImportance: input.candidate.productImportance,
         implementationBreadth: input.candidate.implementationBreadth,
@@ -289,9 +293,10 @@ async function applyHighlight(input: {
   evidenceIds: string[];
   evidence: Array<{ title: string; excerpt: string; commitSha?: string }>;
   commitSha: string;
+  validationHeads: Record<string, string>;
 }) {
   if (!input.evidenceIds.length) return null;
-  const unsafe = input.candidate.sensitivityFlag || input.candidate.confidence === "low";
+  const unsafe = input.subsystem.approvalEligible === false || input.candidate.sensitivityFlag || input.candidate.confidence === "low";
   const publicVerification = unsafe
     ? { eligible: false, correctedText: null, reasons: ["The Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null }
     : await publicKnowledgeVerificationService.verify({
@@ -356,6 +361,7 @@ async function applyHighlight(input: {
         }),
         validatedThroughSha: input.commitSha,
         lastValidatedAt: new Date(),
+        validationHeads: toInputJson(input.validationHeads),
         autoAppliedAt: unsafe ? null : new Date(),
         supersedesHighlightId: supersedes?.id,
         evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
@@ -407,12 +413,12 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     synthesis,
     userId: run.workItem.userId,
   });
-  const appliedFactIds: string[] = [];
-  const appliedHighlightIds: string[] = [];
-  for (const subsystem of synthesis) {
+  const processSubsystem = async (subsystem: SynthesizedKnowledge) => {
+    const produced = { projectFactIds: [] as string[], highlightIds: [] as string[] };
     for (const candidate of subsystem.facts) {
       const evidenceIds = evidenceIdsForIndexes({ subsystem, citationIndexes: candidate.citationIndexes, promotedIdByReference });
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
+      const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
       const factId = await applyFact({
         runId,
         workItemId: run.workItemId,
@@ -420,8 +426,11 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         candidate,
         evidenceIds,
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
+        validationHeads,
       });
-      if (factId) appliedFactIds.push(factId);
+      if (factId) {
+        produced.projectFactIds.push(factId);
+      }
     }
     for (const candidate of subsystem.highlights) {
       const evidenceIds = evidenceIdsForIndexes({ subsystem, citationIndexes: candidate.citationIndexes, promotedIdByReference });
@@ -431,6 +440,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         commitSha: entry.commitSha,
       }));
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
+      const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
       const highlightId = await applyHighlight({
         runId,
         workItemId: run.workItemId,
@@ -439,10 +449,26 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         evidenceIds,
         evidence,
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
+        validationHeads,
       });
-      if (highlightId) appliedHighlightIds.push(highlightId);
+      if (highlightId) {
+        produced.highlightIds.push(highlightId);
+      }
     }
+    return { subsystemKey: subsystem.subsystemKey, produced };
+  };
+  const results: Array<Awaited<ReturnType<typeof processSubsystem>>> = [];
+  for (let start = 0; start < synthesis.length; start += 4) {
+    results.push(...await Promise.all(synthesis.slice(start, start + 4).map(processSubsystem)));
   }
+  for (const { subsystemKey, produced } of results) {
+    await prisma.repositoryCapabilityLedger.updateMany({
+      where: { refreshRunId: runId, capabilityKey: subsystemKey },
+      data: { producedEntityRefs: toInputJson(produced) },
+    });
+  }
+  const appliedFactIds = results.flatMap((entry) => entry.produced.projectFactIds);
+  const appliedHighlightIds = results.flatMap((entry) => entry.produced.highlightIds);
   return {
     synthesis,
     appliedFactIds: Array.from(new Set(appliedFactIds)),

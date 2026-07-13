@@ -9,6 +9,7 @@ import {
 } from "../src/services/project-chat-store";
 import { runProjectChatAgent } from "../src/services/project-chat-agent-service";
 import {
+  isKnowledgeRefreshPartial,
   knowledgeRefreshService,
   startKnowledgeRefresh,
 } from "../src/services/knowledge-refresh-service";
@@ -28,24 +29,30 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
     trigger: "chat_freshness",
     idempotencyKey: `evaluation:${input.runId}`,
   });
-  if (refresh.status !== "completed") {
-    await knowledgeRefreshService.inventory(refresh.runId);
-    let remaining = 1;
-    while (remaining > 0) {
-      const batch = await knowledgeRefreshService.analyzeBatch({ runId: refresh.runId, batchSize: 4 });
-      remaining = batch.remaining;
+  try {
+    if (refresh.status !== "completed") {
+      await knowledgeRefreshService.inventory(refresh.runId);
+      let remaining = 1;
+      while (remaining > 0) {
+        const batch = await knowledgeRefreshService.analyzeBatch({ runId: refresh.runId, batchSize: 4 });
+        remaining = batch.remaining;
+      }
+      await knowledgeRefreshService.repairCoverage(refresh.runId);
+      await knowledgeRefreshService.finalizeCoverage(refresh.runId);
+      const reconciled = await knowledgeReconciliationService.reconcile(refresh.runId);
+      await knowledgeStalenessService.reconcile({
+        runId: refresh.runId,
+        appliedFactIds: reconciled.appliedFactIds,
+        appliedHighlightIds: reconciled.appliedHighlightIds,
+      });
+      await knowledgeRefreshService.complete(refresh.runId);
     }
-    await knowledgeRefreshService.repairCoverage(refresh.runId);
-    await knowledgeRefreshService.finalizeCoverage(refresh.runId);
-    const reconciled = await knowledgeReconciliationService.reconcile(refresh.runId);
-    await knowledgeStalenessService.reconcile({
-      runId: refresh.runId,
-      appliedFactIds: reconciled.appliedFactIds,
-      appliedHighlightIds: reconciled.appliedHighlightIds,
-    });
-    await knowledgeRefreshService.complete(refresh.runId);
+  } catch (error) {
+    await knowledgeRefreshService.fail(refresh.runId, error).catch(() => null);
+    throw error;
   }
   const completed = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: refresh.runId } });
+  const partial = isKnowledgeRefreshPartial(completed);
   await prisma.agentRun.update({
     where: { id: input.runId },
     data: {
@@ -55,7 +62,7 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
         status: completed.status,
         targetHeads: completed.targetHeads,
         coverage: completed.coverage,
-        partial: records(completed.coverage).some((entry) => entry.coverageStatus === "partial"),
+        partial,
         completedAt: completed.finishedAt?.toISOString() ?? completed.updatedAt.toISOString(),
       },
     },
@@ -119,6 +126,7 @@ async function main() {
   });
   const targets = records(refresh.targetHeads);
   const coverage = records(refresh.coverage);
+  const refreshPartial = isKnowledgeRefreshPartial(refresh);
   const canonicalOrdinals = Array.from(message.content.matchAll(/\[citation:(\d+)\]/g)).map((match) => Number(match[1]));
   const plainPseudoCitations = Array.from(message.content.matchAll(/\[(\d+)\](?:\s*\[(\d+)\])*/g));
   const headings = Array.from(message.content.matchAll(/^#{2,4}\s+.+$/gm)).length;
@@ -132,15 +140,32 @@ async function main() {
     /data model|prisma|postgres/i,
     /test|ui|workspace/i,
   ].filter((pattern) => pattern.test(message.content)).length;
+  const requiredCapabilityCoverage = {
+    product: /career content|resume bullets|linkedin|project summar/i.test(message.content),
+    repositoryLifecycle: /knowledge refresh|repository refresh|snapshot|staleness|reconcil/i.test(message.content),
+    aiRuntime: /bedrock|structured llm|agent runtime|tool use/i.test(message.content),
+    workflows: /durable workflow|workflow orchestrat|approval gate/i.test(message.content),
+    retrieval: /retriev|rag|citation|provenance|ground/i.test(message.content),
+    github: /github|oauth|repository ingest/i.test(message.content),
+    reviewArtifacts: /highlight|artifact|human-in-the-loop|review/i.test(message.content),
+    dataModel: /prisma|data model|postgres|schema/i.test(message.content),
+    tests: /automated test|test coverage|vitest|workflow test/i.test(message.content),
+    ui: /user interface|workspace ui|review ui|chat workspace/i.test(message.content),
+  };
   const checks = {
     latestCommitPinned: targets.length > 0 && targets.every((target) => typeof target.commitSha === "string" && target.commitSha.length === 40),
     allEligibleFilesMapped: coverage.length > 0 && coverage.every((entry) => Number(entry.analyzedPaths) + Number(entry.excludedPaths) === Number(entry.totalPaths)),
-    noDeclaredCoverageGap: coverage.every((entry) => entry.coverageStatus === "complete"),
+    noDeclaredCoverageGap: !refreshPartial,
+    verifiedRefreshQuality: refresh.qualityStatus === "verified",
+    semanticCoverageComplete: coverage.every((entry) =>
+      entry.semanticCoverageStatus === "complete" || entry.semanticCoverageStatus === "not_required",
+    ),
     citationsPersisted: message.citations.length > 0,
     citationRowsMatchMarkers: canonicalOrdinals.length > 0 && canonicalOrdinals.every((ordinal) => message.citations.some((citation) => citation.ordinal === ordinal)) && message.citations.every((citation) => canonicalOrdinals.includes(citation.ordinal)),
     noPlainPseudoCitations: plainPseudoCitations.length === 0,
     markdownStructured: headings >= 4,
     broadArchitectureCoverage: coverageAreas >= 6,
+    mandatoryCapabilityCoverage: Object.values(requiredCapabilityCoverage).every(Boolean),
     durableSourcesOnly: message.citations.every((citation) => citation.kind !== "github_file"),
   };
   process.stdout.write(`${JSON.stringify({
@@ -148,6 +173,8 @@ async function main() {
     runId: run.id,
     threadId: thread.id,
     refreshRunId: refresh.id,
+    qualityStatus: refresh.qualityStatus,
+    partial: refreshPartial,
     targets,
     coverage: coverage.map((entry) => ({
       repository: entry.repository,
@@ -157,9 +184,12 @@ async function main() {
       excludedPaths: entry.excludedPaths,
       semanticPaths: entry.semanticPaths,
       coverageStatus: entry.coverageStatus,
+      semanticCoverageStatus: entry.semanticCoverageStatus,
+      capabilityCoverageStatus: entry.capabilityCoverageStatus,
       coverageGaps: entry.coverageGaps,
     })),
     checks,
+    requiredCapabilityCoverage,
     answer: message.content,
     sources: message.citations.map((citation) => ({ ordinal: citation.ordinal, kind: citation.kind, title: citation.label })),
   }, null, 2)}\n`);

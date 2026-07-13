@@ -121,9 +121,17 @@ enum GenerationKind {
   artifact_retrieval
   artifact_generation
   evidence_clustering
+  execution_routing
+  semantic_extraction
+  semantic_repair
+  capability_synthesis
+  coverage_audit
+  answer_completeness_audit
 }
 
 enum GenerationStatus {
+  queued
+  running
   success
   provider_error
   parse_error
@@ -162,6 +170,9 @@ enum AgentRunKind {
   chat_turn
   project_research
   artifact_workflow
+  repository_refresh
+  semantic_worker
+  coverage_audit
 }
 
 enum AgentRunStatus {
@@ -229,10 +240,36 @@ enum KnowledgeRefreshStatus {
   queued
   inventorying
   analyzing
+  routing
+  semantic_analysis
+  auditing
   reconciling
   completed
   failed
   cancelled
+}
+
+enum KnowledgeRefreshQuality {
+  pending
+  verified
+  degraded
+  failed
+}
+
+enum RepositorySemanticStatus {
+  not_selected
+  pending
+  succeeded
+  degraded
+  failed
+}
+
+enum CapabilityCoverageStatus {
+  not_applicable
+  static_only
+  semantic_verified
+  partial
+  failed
 }
 
 enum KnowledgeRefreshTrigger {
@@ -317,6 +354,7 @@ model WorkItem {
   knowledgeRefreshRuns KnowledgeRefreshRun[]
   repositorySnapshots  RepositorySnapshot[]
   knowledgeChanges     KnowledgeChange[]
+  capabilityLedger    RepositoryCapabilityLedger[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -346,17 +384,22 @@ model KnowledgeRefreshRun {
   idempotencyKey String
   trigger        KnowledgeRefreshTrigger
   status         KnowledgeRefreshStatus  @default(queued)
+  qualityStatus  KnowledgeRefreshQuality @default(pending)
   targetHeads    Json
   completedHeads Json?
   coverage       Json?
   progress       Json?
   warnings       Json?
   error          Json?
+  orchestration  Json?
+  budgetUsage    Json?
   startedAt      DateTime?
   finishedAt     DateTime?
   workItem       WorkItem                @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   snapshots      RepositorySnapshot[]
   changes        KnowledgeChange[]
+  agentRuns      AgentRun[]
+  capabilityLedger RepositoryCapabilityLedger[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
@@ -386,6 +429,7 @@ model RepositorySnapshot {
   refreshRun        KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
   files             RepositoryFileSnapshot[]
   evidenceItems     EvidenceItem[]
+  capabilityLedger RepositoryCapabilityLedger[]
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
 
@@ -408,6 +452,12 @@ model RepositoryFileSnapshot {
   analyzerVersion String?
   analysis        Json?
   analyzedAt      DateTime?
+  semanticStatus          RepositorySemanticStatus @default(not_selected)
+  semanticAnalyzerVersion String?
+  semanticRefreshRunId     String?
+  semanticAnalysis        Json?
+  semanticDiagnostics     Json?
+  semanticAnalyzedAt      DateTime?
   snapshot        RepositorySnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   createdAt       DateTime                  @default(now())
   updatedAt       DateTime                  @updatedAt
@@ -415,6 +465,36 @@ model RepositoryFileSnapshot {
   @@unique([snapshotId, path])
   @@index([snapshotId, disposition, path])
   @@index([blobSha, analyzerVersion])
+  @@index([snapshotId, semanticStatus, path])
+  @@index([semanticRefreshRunId, semanticStatus])
+}
+
+model RepositoryCapabilityLedger {
+  id                    String                   @id @default(cuid())
+  workItemId            String
+  snapshotId            String
+  refreshRunId          String?
+  capabilityKey         String
+  label                 String
+  status                CapabilityCoverageStatus
+  priority              Int                      @default(0)
+  representativeFileIds Json
+  staticObservationCount Int                     @default(0)
+  semanticObservationCount Int                   @default(0)
+  producedEntityRefs    Json?
+  gaps                  Json?
+  workerRunIds          Json?
+  analyzerVersion       String
+  policyVersion         String
+  workItem              WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  snapshot              RepositorySnapshot       @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  refreshRun            KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  @@unique([snapshotId, capabilityKey])
+  @@index([workItemId, status, priority])
+  @@index([refreshRunId])
 }
 
 model KnowledgeChange {
@@ -551,6 +631,7 @@ model Highlight {
   approvalSource         KnowledgeApprovalSource       @default(legacy)
   publicSafetyStatus     PublicSafetyStatus            @default(not_eligible)
   validatedThroughSha    String?
+  validationHeads        Json?
   lastValidatedAt        DateTime?
   autoAppliedAt          DateTime?
   supersedesHighlightId  String?
@@ -605,6 +686,7 @@ model ProjectFact {
   approvalSource           KnowledgeApprovalSource  @default(legacy)
   publicSafetyStatus       PublicSafetyStatus       @default(not_eligible)
   validatedThroughSha      String?
+  validationHeads          Json?
   lastValidatedAt          DateTime?
   autoAppliedAt            DateTime?
   subsystemKey             String?
@@ -885,6 +967,7 @@ model AgentRun {
   workItemId          String
   threadId            String?
   parentRunId         String?
+  knowledgeRefreshRunId String?
   workflowId          String?             @unique
   idempotencyKey      String
   kind                AgentRunKind
@@ -904,6 +987,7 @@ model AgentRun {
   thread              ChatThread?         @relation(fields: [threadId], references: [id], onDelete: SetNull)
   parentRun           AgentRun?           @relation("AgentRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
   childRuns           AgentRun[]          @relation("AgentRunHierarchy")
+  knowledgeRefreshRun KnowledgeRefreshRun? @relation(fields: [knowledgeRefreshRunId], references: [id], onDelete: SetNull)
   messages            ChatMessage[]
   events              AgentRunEvent[]
   candidates          AgentRunCandidate[]
@@ -915,6 +999,7 @@ model AgentRun {
   @@index([workItemId, status, updatedAt])
   @@index([threadId, createdAt])
   @@index([parentRunId])
+  @@index([knowledgeRefreshRunId])
 }
 
 model AgentRunEvent {
@@ -965,7 +1050,8 @@ model GenerationRun {
   id               String           @id @default(cuid())
   workItemId       String
   kind             GenerationKind
-  status           GenerationStatus
+  status           GenerationStatus @default(queued)
+  idempotencyKey   String?
   provider         String
   modelId          String
   inputSummary     Json
@@ -980,4 +1066,5 @@ model GenerationRun {
   updatedAt        DateTime         @updatedAt
 
   @@index([workItemId, kind, createdAt])
+  @@unique([workItemId, idempotencyKey])
 }

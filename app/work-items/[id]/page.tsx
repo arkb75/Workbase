@@ -927,30 +927,47 @@ export default async function WorkItemDetailPage({
       : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
         ? "verified" as const
         : null,
-    citations: message.citations.map((citation) => ({
-      id: citation.id,
-      kind: citation.kind,
-      label: citation.label,
-      excerpt: citation.excerpt ?? "Source excerpt unavailable.",
-      url: citation.immutableUrl,
-      path: citation.path,
-      commitSha: citation.commitSha,
-      highlightId: citation.highlightId,
-      projectFactId: citation.projectFactId,
-      evidenceItemId: citation.evidenceItemId,
-      artifactId: citation.artifactId,
-      provenance: citation.projectFact?.evidence.map((entry) => {
-        const metadata = readSourceMetadata(entry.evidenceItem.metadata);
-        return {
-          id: entry.evidenceItem.id,
-          title: entry.evidenceItem.title,
-          excerpt: entry.evidenceItem.content,
-          path: typeof metadata?.path === "string" ? metadata.path : null,
-          commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : null,
-          url: typeof metadata?.url === "string" ? metadata.url : null,
-        };
-      }) ?? [],
-    })),
+    citations: message.citations.map((citation) => {
+      const citationMetadata = readSourceMetadata(citation.metadata);
+      const snapshottedProvenance = Array.isArray(citationMetadata?.provenance)
+        ? citationMetadata.provenance.flatMap((entry) => {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+            const value = entry as Record<string, unknown>;
+            return [{
+              id: typeof value.evidenceItemId === "string" ? value.evidenceItemId : `${citation.id}:provenance`,
+              title: typeof value.title === "string" ? value.title : "Repository evidence",
+              excerpt: typeof value.excerpt === "string" ? value.excerpt : "Source excerpt unavailable.",
+              path: typeof value.path === "string" ? value.path : null,
+              commitSha: typeof value.commitSha === "string" ? value.commitSha : null,
+              url: typeof value.url === "string" ? value.url : null,
+            }];
+          })
+        : null;
+      return {
+        id: citation.id,
+        kind: citation.kind,
+        label: citation.label,
+        excerpt: citation.excerpt ?? "Source excerpt unavailable.",
+        url: citation.immutableUrl,
+        path: citation.path,
+        commitSha: citation.commitSha,
+        highlightId: citation.highlightId,
+        projectFactId: citation.projectFactId,
+        evidenceItemId: citation.evidenceItemId,
+        artifactId: citation.artifactId,
+        provenance: snapshottedProvenance ?? citation.projectFact?.evidence.map((entry) => {
+          const metadata = readSourceMetadata(entry.evidenceItem.metadata);
+          return {
+            id: entry.evidenceItem.id,
+            title: entry.evidenceItem.title,
+            excerpt: entry.evidenceItem.content,
+            path: typeof metadata?.path === "string" ? metadata.path : null,
+            commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : null,
+            url: typeof metadata?.url === "string" ? metadata.url : null,
+          };
+        }) ?? [],
+      };
+    }),
   }));
   const chatEvents = chatWorkspace.events.map((event) => ({
     id: event.id,
@@ -1476,6 +1493,10 @@ export default async function WorkItemDetailPage({
                   trigger: refresh.trigger,
                   targetHeads: refresh.targetHeads,
                   progress: refresh.progress,
+                  qualityStatus: refresh.qualityStatus,
+                  coverage: refresh.coverage,
+                  orchestration: refresh.orchestration,
+                  budgetUsage: refresh.budgetUsage,
                   createdAt: refresh.createdAt.toISOString(),
                   finishedAt: refresh.finishedAt?.toISOString() ?? null,
                 }))}

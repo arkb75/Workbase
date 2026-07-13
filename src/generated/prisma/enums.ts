@@ -167,13 +167,21 @@ export const GenerationKind = {
   highlight_verification: 'highlight_verification',
   artifact_retrieval: 'artifact_retrieval',
   artifact_generation: 'artifact_generation',
-  evidence_clustering: 'evidence_clustering'
+  evidence_clustering: 'evidence_clustering',
+  execution_routing: 'execution_routing',
+  semantic_extraction: 'semantic_extraction',
+  semantic_repair: 'semantic_repair',
+  capability_synthesis: 'capability_synthesis',
+  coverage_audit: 'coverage_audit',
+  answer_completeness_audit: 'answer_completeness_audit'
 } as const
 
 export type GenerationKind = (typeof GenerationKind)[keyof typeof GenerationKind]
 
 
 export const GenerationStatus = {
+  queued: 'queued',
+  running: 'running',
   success: 'success',
   provider_error: 'provider_error',
   parse_error: 'parse_error',
@@ -226,7 +234,10 @@ export type ChatCitationKind = (typeof ChatCitationKind)[keyof typeof ChatCitati
 export const AgentRunKind = {
   chat_turn: 'chat_turn',
   project_research: 'project_research',
-  artifact_workflow: 'artifact_workflow'
+  artifact_workflow: 'artifact_workflow',
+  repository_refresh: 'repository_refresh',
+  semantic_worker: 'semantic_worker',
+  coverage_audit: 'coverage_audit'
 } as const
 
 export type AgentRunKind = (typeof AgentRunKind)[keyof typeof AgentRunKind]
@@ -321,6 +332,9 @@ export const KnowledgeRefreshStatus = {
   queued: 'queued',
   inventorying: 'inventorying',
   analyzing: 'analyzing',
+  routing: 'routing',
+  semantic_analysis: 'semantic_analysis',
+  auditing: 'auditing',
   reconciling: 'reconciling',
   completed: 'completed',
   failed: 'failed',
@@ -328,6 +342,38 @@ export const KnowledgeRefreshStatus = {
 } as const
 
 export type KnowledgeRefreshStatus = (typeof KnowledgeRefreshStatus)[keyof typeof KnowledgeRefreshStatus]
+
+
+export const KnowledgeRefreshQuality = {
+  pending: 'pending',
+  verified: 'verified',
+  degraded: 'degraded',
+  failed: 'failed'
+} as const
+
+export type KnowledgeRefreshQuality = (typeof KnowledgeRefreshQuality)[keyof typeof KnowledgeRefreshQuality]
+
+
+export const RepositorySemanticStatus = {
+  not_selected: 'not_selected',
+  pending: 'pending',
+  succeeded: 'succeeded',
+  degraded: 'degraded',
+  failed: 'failed'
+} as const
+
+export type RepositorySemanticStatus = (typeof RepositorySemanticStatus)[keyof typeof RepositorySemanticStatus]
+
+
+export const CapabilityCoverageStatus = {
+  not_applicable: 'not_applicable',
+  static_only: 'static_only',
+  semantic_verified: 'semantic_verified',
+  partial: 'partial',
+  failed: 'failed'
+} as const
+
+export type CapabilityCoverageStatus = (typeof CapabilityCoverageStatus)[keyof typeof CapabilityCoverageStatus]
 
 
 export const KnowledgeRefreshTrigger = {

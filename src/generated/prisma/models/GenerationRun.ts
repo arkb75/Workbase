@@ -39,6 +39,7 @@ export type GenerationRunMinAggregateOutputType = {
   workItemId: string | null
   kind: $Enums.GenerationKind | null
   status: $Enums.GenerationStatus | null
+  idempotencyKey: string | null
   provider: string | null
   modelId: string | null
   rawOutput: string | null
@@ -52,6 +53,7 @@ export type GenerationRunMaxAggregateOutputType = {
   workItemId: string | null
   kind: $Enums.GenerationKind | null
   status: $Enums.GenerationStatus | null
+  idempotencyKey: string | null
   provider: string | null
   modelId: string | null
   rawOutput: string | null
@@ -65,6 +67,7 @@ export type GenerationRunCountAggregateOutputType = {
   workItemId: number
   kind: number
   status: number
+  idempotencyKey: number
   provider: number
   modelId: number
   inputSummary: number
@@ -93,6 +96,7 @@ export type GenerationRunMinAggregateInputType = {
   workItemId?: true
   kind?: true
   status?: true
+  idempotencyKey?: true
   provider?: true
   modelId?: true
   rawOutput?: true
@@ -106,6 +110,7 @@ export type GenerationRunMaxAggregateInputType = {
   workItemId?: true
   kind?: true
   status?: true
+  idempotencyKey?: true
   provider?: true
   modelId?: true
   rawOutput?: true
@@ -119,6 +124,7 @@ export type GenerationRunCountAggregateInputType = {
   workItemId?: true
   kind?: true
   status?: true
+  idempotencyKey?: true
   provider?: true
   modelId?: true
   inputSummary?: true
@@ -224,6 +230,7 @@ export type GenerationRunGroupByOutputType = {
   workItemId: string
   kind: $Enums.GenerationKind
   status: $Enums.GenerationStatus
+  idempotencyKey: string | null
   provider: string
   modelId: string
   inputSummary: runtime.JsonValue
@@ -265,6 +272,7 @@ export type GenerationRunWhereInput = {
   workItemId?: Prisma.StringFilter<"GenerationRun"> | string
   kind?: Prisma.EnumGenerationKindFilter<"GenerationRun"> | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFilter<"GenerationRun"> | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.StringNullableFilter<"GenerationRun"> | string | null
   provider?: Prisma.StringFilter<"GenerationRun"> | string
   modelId?: Prisma.StringFilter<"GenerationRun"> | string
   inputSummary?: Prisma.JsonFilter<"GenerationRun">
@@ -284,6 +292,7 @@ export type GenerationRunOrderByWithRelationInput = {
   workItemId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrderInput | Prisma.SortOrder
   provider?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   inputSummary?: Prisma.SortOrder
@@ -300,12 +309,14 @@ export type GenerationRunOrderByWithRelationInput = {
 
 export type GenerationRunWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  workItemId_idempotencyKey?: Prisma.GenerationRunWorkItemIdIdempotencyKeyCompoundUniqueInput
   AND?: Prisma.GenerationRunWhereInput | Prisma.GenerationRunWhereInput[]
   OR?: Prisma.GenerationRunWhereInput[]
   NOT?: Prisma.GenerationRunWhereInput | Prisma.GenerationRunWhereInput[]
   workItemId?: Prisma.StringFilter<"GenerationRun"> | string
   kind?: Prisma.EnumGenerationKindFilter<"GenerationRun"> | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFilter<"GenerationRun"> | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.StringNullableFilter<"GenerationRun"> | string | null
   provider?: Prisma.StringFilter<"GenerationRun"> | string
   modelId?: Prisma.StringFilter<"GenerationRun"> | string
   inputSummary?: Prisma.JsonFilter<"GenerationRun">
@@ -318,13 +329,14 @@ export type GenerationRunWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"GenerationRun"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"GenerationRun"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
-}, "id">
+}, "id" | "workItemId_idempotencyKey">
 
 export type GenerationRunOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrderInput | Prisma.SortOrder
   provider?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   inputSummary?: Prisma.SortOrder
@@ -351,6 +363,7 @@ export type GenerationRunScalarWhereWithAggregatesInput = {
   workItemId?: Prisma.StringWithAggregatesFilter<"GenerationRun"> | string
   kind?: Prisma.EnumGenerationKindWithAggregatesFilter<"GenerationRun"> | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusWithAggregatesFilter<"GenerationRun"> | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.StringNullableWithAggregatesFilter<"GenerationRun"> | string | null
   provider?: Prisma.StringWithAggregatesFilter<"GenerationRun"> | string
   modelId?: Prisma.StringWithAggregatesFilter<"GenerationRun"> | string
   inputSummary?: Prisma.JsonWithAggregatesFilter<"GenerationRun">
@@ -367,7 +380,8 @@ export type GenerationRunScalarWhereWithAggregatesInput = {
 export type GenerationRunCreateInput = {
   id?: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -386,7 +400,8 @@ export type GenerationRunUncheckedCreateInput = {
   id?: string
   workItemId: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -404,6 +419,7 @@ export type GenerationRunUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -423,6 +439,7 @@ export type GenerationRunUncheckedUpdateInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -440,7 +457,8 @@ export type GenerationRunCreateManyInput = {
   id?: string
   workItemId: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -458,6 +476,7 @@ export type GenerationRunUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -476,6 +495,7 @@ export type GenerationRunUncheckedUpdateManyInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -499,11 +519,17 @@ export type GenerationRunOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type GenerationRunWorkItemIdIdempotencyKeyCompoundUniqueInput = {
+  workItemId: string
+  idempotencyKey: string
+}
+
 export type GenerationRunCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   workItemId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   inputSummary?: Prisma.SortOrder
@@ -526,6 +552,7 @@ export type GenerationRunMaxOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   rawOutput?: Prisma.SortOrder
@@ -539,6 +566,7 @@ export type GenerationRunMinOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   rawOutput?: Prisma.SortOrder
@@ -604,7 +632,8 @@ export type EnumGenerationStatusFieldUpdateOperationsInput = {
 export type GenerationRunCreateWithoutWorkItemInput = {
   id?: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -621,7 +650,8 @@ export type GenerationRunCreateWithoutWorkItemInput = {
 export type GenerationRunUncheckedCreateWithoutWorkItemInput = {
   id?: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -669,6 +699,7 @@ export type GenerationRunScalarWhereInput = {
   workItemId?: Prisma.StringFilter<"GenerationRun"> | string
   kind?: Prisma.EnumGenerationKindFilter<"GenerationRun"> | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFilter<"GenerationRun"> | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.StringNullableFilter<"GenerationRun"> | string | null
   provider?: Prisma.StringFilter<"GenerationRun"> | string
   modelId?: Prisma.StringFilter<"GenerationRun"> | string
   inputSummary?: Prisma.JsonFilter<"GenerationRun">
@@ -685,7 +716,8 @@ export type GenerationRunScalarWhereInput = {
 export type GenerationRunCreateManyWorkItemInput = {
   id?: string
   kind: $Enums.GenerationKind
-  status: $Enums.GenerationStatus
+  status?: $Enums.GenerationStatus
+  idempotencyKey?: string | null
   provider: string
   modelId: string
   inputSummary: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -703,6 +735,7 @@ export type GenerationRunUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -720,6 +753,7 @@ export type GenerationRunUncheckedUpdateWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -737,6 +771,7 @@ export type GenerationRunUncheckedUpdateManyWithoutWorkItemInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumGenerationKindFieldUpdateOperationsInput | $Enums.GenerationKind
   status?: Prisma.EnumGenerationStatusFieldUpdateOperationsInput | $Enums.GenerationStatus
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   inputSummary?: Prisma.JsonNullValueInput | runtime.InputJsonValue
@@ -757,6 +792,7 @@ export type GenerationRunSelect<ExtArgs extends runtime.Types.Extensions.Interna
   workItemId?: boolean
   kind?: boolean
   status?: boolean
+  idempotencyKey?: boolean
   provider?: boolean
   modelId?: boolean
   inputSummary?: boolean
@@ -776,6 +812,7 @@ export type GenerationRunSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   workItemId?: boolean
   kind?: boolean
   status?: boolean
+  idempotencyKey?: boolean
   provider?: boolean
   modelId?: boolean
   inputSummary?: boolean
@@ -795,6 +832,7 @@ export type GenerationRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   workItemId?: boolean
   kind?: boolean
   status?: boolean
+  idempotencyKey?: boolean
   provider?: boolean
   modelId?: boolean
   inputSummary?: boolean
@@ -814,6 +852,7 @@ export type GenerationRunSelectScalar = {
   workItemId?: boolean
   kind?: boolean
   status?: boolean
+  idempotencyKey?: boolean
   provider?: boolean
   modelId?: boolean
   inputSummary?: boolean
@@ -827,7 +866,7 @@ export type GenerationRunSelectScalar = {
   updatedAt?: boolean
 }
 
-export type GenerationRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "kind" | "status" | "provider" | "modelId" | "inputSummary" | "rawOutput" | "parsedOutput" | "validationErrors" | "resultRefs" | "tokenUsage" | "estimatedCostUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["generationRun"]>
+export type GenerationRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workItemId" | "kind" | "status" | "idempotencyKey" | "provider" | "modelId" | "inputSummary" | "rawOutput" | "parsedOutput" | "validationErrors" | "resultRefs" | "tokenUsage" | "estimatedCostUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["generationRun"]>
 export type GenerationRunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
 }
@@ -848,6 +887,7 @@ export type $GenerationRunPayload<ExtArgs extends runtime.Types.Extensions.Inter
     workItemId: string
     kind: $Enums.GenerationKind
     status: $Enums.GenerationStatus
+    idempotencyKey: string | null
     provider: string
     modelId: string
     inputSummary: runtime.JsonValue
@@ -1287,6 +1327,7 @@ export interface GenerationRunFieldRefs {
   readonly workItemId: Prisma.FieldRef<"GenerationRun", 'String'>
   readonly kind: Prisma.FieldRef<"GenerationRun", 'GenerationKind'>
   readonly status: Prisma.FieldRef<"GenerationRun", 'GenerationStatus'>
+  readonly idempotencyKey: Prisma.FieldRef<"GenerationRun", 'String'>
   readonly provider: Prisma.FieldRef<"GenerationRun", 'String'>
   readonly modelId: Prisma.FieldRef<"GenerationRun", 'String'>
   readonly inputSummary: Prisma.FieldRef<"GenerationRun", 'Json'>

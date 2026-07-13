@@ -9,6 +9,7 @@ import {
   analyzeRepositoryFiles,
   buildCoverageMatrix,
   REPOSITORY_FILE_CHUNK_BYTES,
+  selectSemanticWindows,
 } from "@/src/services/repository-coverage-service";
 
 describe("complete repository coverage", () => {
@@ -39,7 +40,7 @@ describe("complete repository coverage", () => {
     const matrix = buildCoverageMatrix([{ path: analysis.path, analysis }]);
 
     expect(matrix.find((target) => target.key === "retrieval_provenance")).toMatchObject({
-      status: "verified",
+      status: "semantic_verified",
       paths: ["src/services/project-knowledge-retrieval-service.ts"],
     });
     expect(matrix.find((target) => target.key === "review_ui")?.status).toBe("not_applicable");
@@ -75,5 +76,16 @@ describe("complete repository coverage", () => {
 
     expect(analyses[0]?.subsystemKeys).toContain("repository_knowledge_lifecycle");
     expect(analyses[1]?.subsystemKeys).toContain("project_chat_grounding");
+  });
+
+  it("selects one bounded semantic notebook per large file", () => {
+    const content = Array.from({ length: 2_000 }, (_, index) =>
+      index % 75 === 0 ? `export async function capability${index}() { return ${index}; }` : `const local${index} = ${index};`,
+    ).join("\n");
+    const windows = selectSemanticWindows(content);
+
+    expect(windows).toHaveLength(1);
+    expect(Buffer.byteLength(windows[0]!.content, "utf8")).toBeLessThanOrEqual(8 * 1024);
+    expect(windows[0]!.content).toMatch(/^\d+:/m);
   });
 });

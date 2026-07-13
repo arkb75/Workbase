@@ -411,14 +411,6 @@ export type HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightEmbeddingUpdateToOneWithWhereWithoutHighlightInput, Prisma.HighlightEmbeddingUpdateWithoutHighlightInput>, Prisma.HighlightEmbeddingUncheckedUpdateWithoutHighlightInput>
 }
 
-export type IntFieldUpdateOperationsInput = {
-  set?: number
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type HighlightEmbeddingUpdateToOneWithWhereWithoutHighlightInput = {
   where?: Prisma.HighlightEmbeddingWhereInput
   data: Prisma.XOR<Prisma.HighlightEmbeddingUpdateWithoutHighlightInput, Prisma.HighlightEmbeddingUncheckedUpdateWithoutHighlightInput>

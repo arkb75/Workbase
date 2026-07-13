@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "components/**/*.test.tsx"],
     env: {
       WORKBASE_LLM_PROVIDER: "mock",
       VITEST: "true",

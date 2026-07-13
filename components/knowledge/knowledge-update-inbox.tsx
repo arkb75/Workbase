@@ -17,6 +17,10 @@ export interface KnowledgeUpdateInboxProps {
     trigger: string;
     targetHeads: unknown;
     progress: unknown;
+    qualityStatus: string;
+    coverage: unknown;
+    orchestration: unknown;
+    budgetUsage: unknown;
     createdAt: string;
     finishedAt: string | null;
   }>;
@@ -68,6 +72,21 @@ function compactDiff(value: unknown) {
     .join(" · ");
 }
 
+function coverageSummary(value: unknown): { semanticPaths: number; analyzedPaths: number; gaps: string[] } {
+  if (!Array.isArray(value)) return { semanticPaths: 0, analyzedPaths: 0, gaps: [] as string[] };
+  return value.reduce<{ semanticPaths: number; analyzedPaths: number; gaps: string[] }>((summary, entry) => {
+    const row = objectRecord(entry);
+    const gaps = Array.isArray(row?.coverageGaps)
+      ? row.coverageGaps.filter((gap): gap is string => typeof gap === "string")
+      : [];
+    return {
+      semanticPaths: summary.semanticPaths + (typeof row?.semanticPaths === "number" ? row.semanticPaths : 0),
+      analyzedPaths: summary.analyzedPaths + (typeof row?.analyzedPaths === "number" ? row.analyzedPaths : 0),
+      gaps: [...summary.gaps, ...gaps],
+    };
+  }, { semanticPaths: 0, analyzedPaths: 0, gaps: [] as string[] });
+}
+
 function toneForStatus(status: string) {
   if (status === "completed" || status === "active" || status === "verified") return "success" as const;
   if (status === "failed" || status === "quarantined" || status === "retired") return "danger" as const;
@@ -78,6 +97,7 @@ function toneForStatus(status: string) {
 export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: KnowledgeUpdateInboxProps) {
   const latest = refreshes[0] ?? null;
   const targets = latest ? targetLabels(latest.targetHeads) : [];
+  const coverage = coverageSummary(latest?.coverage);
   return (
     <section id="knowledge-updates" className="scroll-mt-24 border-t border-black/8 pt-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -106,13 +126,33 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
             Latest refresh
           </span>
           {latest ? <Badge tone={toneForStatus(latest.status)}>{titleCase(latest.status)}</Badge> : <Badge>Not started</Badge>}
+          {latest ? <Badge tone={toneForStatus(latest.qualityStatus)}>Quality: {titleCase(latest.qualityStatus)}</Badge> : null}
           {targets.map((target) => <Badge key={target}>{target}</Badge>)}
         </div>
         {latest ? (
-          <p className="mt-2 text-xs leading-5 text-[color:var(--ink-soft)]">
-            {titleCase(latest.trigger)} · started {formatDateTime(latest.createdAt)}
-            {latest.finishedAt ? ` · completed ${formatDateTime(latest.finishedAt)}` : ""}
-          </p>
+          <div className="mt-2 text-xs leading-5 text-[color:var(--ink-soft)]">
+            <p>
+              {titleCase(latest.trigger)} · started {formatDateTime(latest.createdAt)}
+              {latest.finishedAt ? ` · completed ${formatDateTime(latest.finishedAt)}` : ""}
+              {coverage.analyzedPaths ? ` · ${coverage.semanticPaths}/${coverage.analyzedPaths} files semantically analyzed` : ""}
+            </p>
+            {coverage.gaps.length ? (
+              <details className="mt-2">
+                <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
+                  {coverage.gaps.length} semantic coverage gap{coverage.gaps.length === 1 ? "" : "s"}
+                </summary>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {coverage.gaps.slice(0, 20).map((gap) => <li key={gap}>{gap}</li>)}
+                </ul>
+              </details>
+            ) : null}
+            {latest.orchestration || latest.budgetUsage ? (
+              <details className="mt-2">
+                <summary className="cursor-pointer font-medium text-[color:var(--accent)]">View orchestration audit</summary>
+                <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-5">{JSON.stringify({ orchestration: latest.orchestration, budgetUsage: latest.budgetUsage }, null, 2)}</pre>
+              </details>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

@@ -47,6 +47,10 @@ export type RepositoryFileSnapshotMinAggregateOutputType = {
   contentHash: string | null
   analyzerVersion: string | null
   analyzedAt: Date | null
+  semanticStatus: $Enums.RepositorySemanticStatus | null
+  semanticAnalyzerVersion: string | null
+  semanticRefreshRunId: string | null
+  semanticAnalyzedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -64,6 +68,10 @@ export type RepositoryFileSnapshotMaxAggregateOutputType = {
   contentHash: string | null
   analyzerVersion: string | null
   analyzedAt: Date | null
+  semanticStatus: $Enums.RepositorySemanticStatus | null
+  semanticAnalyzerVersion: string | null
+  semanticRefreshRunId: string | null
+  semanticAnalyzedAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -82,6 +90,12 @@ export type RepositoryFileSnapshotCountAggregateOutputType = {
   analyzerVersion: number
   analysis: number
   analyzedAt: number
+  semanticStatus: number
+  semanticAnalyzerVersion: number
+  semanticRefreshRunId: number
+  semanticAnalysis: number
+  semanticDiagnostics: number
+  semanticAnalyzedAt: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -109,6 +123,10 @@ export type RepositoryFileSnapshotMinAggregateInputType = {
   contentHash?: true
   analyzerVersion?: true
   analyzedAt?: true
+  semanticStatus?: true
+  semanticAnalyzerVersion?: true
+  semanticRefreshRunId?: true
+  semanticAnalyzedAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -126,6 +144,10 @@ export type RepositoryFileSnapshotMaxAggregateInputType = {
   contentHash?: true
   analyzerVersion?: true
   analyzedAt?: true
+  semanticStatus?: true
+  semanticAnalyzerVersion?: true
+  semanticRefreshRunId?: true
+  semanticAnalyzedAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -144,6 +166,12 @@ export type RepositoryFileSnapshotCountAggregateInputType = {
   analyzerVersion?: true
   analysis?: true
   analyzedAt?: true
+  semanticStatus?: true
+  semanticAnalyzerVersion?: true
+  semanticRefreshRunId?: true
+  semanticAnalysis?: true
+  semanticDiagnostics?: true
+  semanticAnalyzedAt?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -249,6 +277,12 @@ export type RepositoryFileSnapshotGroupByOutputType = {
   analyzerVersion: string | null
   analysis: runtime.JsonValue | null
   analyzedAt: Date | null
+  semanticStatus: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion: string | null
+  semanticRefreshRunId: string | null
+  semanticAnalysis: runtime.JsonValue | null
+  semanticDiagnostics: runtime.JsonValue | null
+  semanticAnalyzedAt: Date | null
   createdAt: Date
   updatedAt: Date
   _count: RepositoryFileSnapshotCountAggregateOutputType | null
@@ -290,6 +324,12 @@ export type RepositoryFileSnapshotWhereInput = {
   analyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
   analysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
   analyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFilter<"RepositoryFileSnapshot"> | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticRefreshRunId?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticAnalysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticDiagnostics?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticAnalyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
   snapshot?: Prisma.XOR<Prisma.RepositorySnapshotScalarRelationFilter, Prisma.RepositorySnapshotWhereInput>
@@ -309,6 +349,12 @@ export type RepositoryFileSnapshotOrderByWithRelationInput = {
   analyzerVersion?: Prisma.SortOrderInput | Prisma.SortOrder
   analysis?: Prisma.SortOrderInput | Prisma.SortOrder
   analyzedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticStatus?: Prisma.SortOrder
+  semanticAnalyzerVersion?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticRefreshRunId?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticAnalysis?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticDiagnostics?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticAnalyzedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   snapshot?: Prisma.RepositorySnapshotOrderByWithRelationInput
@@ -332,6 +378,12 @@ export type RepositoryFileSnapshotWhereUniqueInput = Prisma.AtLeast<{
   analyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
   analysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
   analyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFilter<"RepositoryFileSnapshot"> | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticRefreshRunId?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticAnalysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticDiagnostics?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticAnalyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
   snapshot?: Prisma.XOR<Prisma.RepositorySnapshotScalarRelationFilter, Prisma.RepositorySnapshotWhereInput>
@@ -351,6 +403,12 @@ export type RepositoryFileSnapshotOrderByWithAggregationInput = {
   analyzerVersion?: Prisma.SortOrderInput | Prisma.SortOrder
   analysis?: Prisma.SortOrderInput | Prisma.SortOrder
   analyzedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticStatus?: Prisma.SortOrder
+  semanticAnalyzerVersion?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticRefreshRunId?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticAnalysis?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticDiagnostics?: Prisma.SortOrderInput | Prisma.SortOrder
+  semanticAnalyzedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.RepositoryFileSnapshotCountOrderByAggregateInput
@@ -377,6 +435,12 @@ export type RepositoryFileSnapshotScalarWhereWithAggregatesInput = {
   analyzerVersion?: Prisma.StringNullableWithAggregatesFilter<"RepositoryFileSnapshot"> | string | null
   analysis?: Prisma.JsonNullableWithAggregatesFilter<"RepositoryFileSnapshot">
   analyzedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"RepositoryFileSnapshot"> | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusWithAggregatesFilter<"RepositoryFileSnapshot"> | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.StringNullableWithAggregatesFilter<"RepositoryFileSnapshot"> | string | null
+  semanticRefreshRunId?: Prisma.StringNullableWithAggregatesFilter<"RepositoryFileSnapshot"> | string | null
+  semanticAnalysis?: Prisma.JsonNullableWithAggregatesFilter<"RepositoryFileSnapshot">
+  semanticDiagnostics?: Prisma.JsonNullableWithAggregatesFilter<"RepositoryFileSnapshot">
+  semanticAnalyzedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"RepositoryFileSnapshot"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"RepositoryFileSnapshot"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"RepositoryFileSnapshot"> | Date | string
 }
@@ -394,6 +458,12 @@ export type RepositoryFileSnapshotCreateInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
   snapshot: Prisma.RepositorySnapshotCreateNestedOneWithoutFilesInput
@@ -413,6 +483,12 @@ export type RepositoryFileSnapshotUncheckedCreateInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -430,6 +506,12 @@ export type RepositoryFileSnapshotUpdateInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshot?: Prisma.RepositorySnapshotUpdateOneRequiredWithoutFilesNestedInput
@@ -449,6 +531,12 @@ export type RepositoryFileSnapshotUncheckedUpdateInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -467,6 +555,12 @@ export type RepositoryFileSnapshotCreateManyInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -484,6 +578,12 @@ export type RepositoryFileSnapshotUpdateManyMutationInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -502,6 +602,12 @@ export type RepositoryFileSnapshotUncheckedUpdateManyInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -535,6 +641,12 @@ export type RepositoryFileSnapshotCountOrderByAggregateInput = {
   analyzerVersion?: Prisma.SortOrder
   analysis?: Prisma.SortOrder
   analyzedAt?: Prisma.SortOrder
+  semanticStatus?: Prisma.SortOrder
+  semanticAnalyzerVersion?: Prisma.SortOrder
+  semanticRefreshRunId?: Prisma.SortOrder
+  semanticAnalysis?: Prisma.SortOrder
+  semanticDiagnostics?: Prisma.SortOrder
+  semanticAnalyzedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -556,6 +668,10 @@ export type RepositoryFileSnapshotMaxOrderByAggregateInput = {
   contentHash?: Prisma.SortOrder
   analyzerVersion?: Prisma.SortOrder
   analyzedAt?: Prisma.SortOrder
+  semanticStatus?: Prisma.SortOrder
+  semanticAnalyzerVersion?: Prisma.SortOrder
+  semanticRefreshRunId?: Prisma.SortOrder
+  semanticAnalyzedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -573,6 +689,10 @@ export type RepositoryFileSnapshotMinOrderByAggregateInput = {
   contentHash?: Prisma.SortOrder
   analyzerVersion?: Prisma.SortOrder
   analyzedAt?: Prisma.SortOrder
+  semanticStatus?: Prisma.SortOrder
+  semanticAnalyzerVersion?: Prisma.SortOrder
+  semanticRefreshRunId?: Prisma.SortOrder
+  semanticAnalyzedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -639,6 +759,10 @@ export type EnumRepositoryFileChangeTypeFieldUpdateOperationsInput = {
   set?: $Enums.RepositoryFileChangeType
 }
 
+export type EnumRepositorySemanticStatusFieldUpdateOperationsInput = {
+  set?: $Enums.RepositorySemanticStatus
+}
+
 export type RepositoryFileSnapshotCreateWithoutSnapshotInput = {
   id?: string
   path: string
@@ -652,6 +776,12 @@ export type RepositoryFileSnapshotCreateWithoutSnapshotInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -669,6 +799,12 @@ export type RepositoryFileSnapshotUncheckedCreateWithoutSnapshotInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -716,6 +852,12 @@ export type RepositoryFileSnapshotScalarWhereInput = {
   analyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
   analysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
   analyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFilter<"RepositoryFileSnapshot"> | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticRefreshRunId?: Prisma.StringNullableFilter<"RepositoryFileSnapshot"> | string | null
+  semanticAnalysis?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticDiagnostics?: Prisma.JsonNullableFilter<"RepositoryFileSnapshot">
+  semanticAnalyzedAt?: Prisma.DateTimeNullableFilter<"RepositoryFileSnapshot"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"RepositoryFileSnapshot"> | Date | string
 }
@@ -733,6 +875,12 @@ export type RepositoryFileSnapshotCreateManySnapshotInput = {
   analyzerVersion?: string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Date | string | null
+  semanticStatus?: $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: string | null
+  semanticRefreshRunId?: string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Date | string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -750,6 +898,12 @@ export type RepositoryFileSnapshotUpdateWithoutSnapshotInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -767,6 +921,12 @@ export type RepositoryFileSnapshotUncheckedUpdateWithoutSnapshotInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -784,6 +944,12 @@ export type RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotInput = {
   analyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   analysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   analyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  semanticStatus?: Prisma.EnumRepositorySemanticStatusFieldUpdateOperationsInput | $Enums.RepositorySemanticStatus
+  semanticAnalyzerVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  semanticAnalysis?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticDiagnostics?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  semanticAnalyzedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -804,6 +970,12 @@ export type RepositoryFileSnapshotSelect<ExtArgs extends runtime.Types.Extension
   analyzerVersion?: boolean
   analysis?: boolean
   analyzedAt?: boolean
+  semanticStatus?: boolean
+  semanticAnalyzerVersion?: boolean
+  semanticRefreshRunId?: boolean
+  semanticAnalysis?: boolean
+  semanticDiagnostics?: boolean
+  semanticAnalyzedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   snapshot?: boolean | Prisma.RepositorySnapshotDefaultArgs<ExtArgs>
@@ -823,6 +995,12 @@ export type RepositoryFileSnapshotSelectCreateManyAndReturn<ExtArgs extends runt
   analyzerVersion?: boolean
   analysis?: boolean
   analyzedAt?: boolean
+  semanticStatus?: boolean
+  semanticAnalyzerVersion?: boolean
+  semanticRefreshRunId?: boolean
+  semanticAnalysis?: boolean
+  semanticDiagnostics?: boolean
+  semanticAnalyzedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   snapshot?: boolean | Prisma.RepositorySnapshotDefaultArgs<ExtArgs>
@@ -842,6 +1020,12 @@ export type RepositoryFileSnapshotSelectUpdateManyAndReturn<ExtArgs extends runt
   analyzerVersion?: boolean
   analysis?: boolean
   analyzedAt?: boolean
+  semanticStatus?: boolean
+  semanticAnalyzerVersion?: boolean
+  semanticRefreshRunId?: boolean
+  semanticAnalysis?: boolean
+  semanticDiagnostics?: boolean
+  semanticAnalyzedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   snapshot?: boolean | Prisma.RepositorySnapshotDefaultArgs<ExtArgs>
@@ -861,11 +1045,17 @@ export type RepositoryFileSnapshotSelectScalar = {
   analyzerVersion?: boolean
   analysis?: boolean
   analyzedAt?: boolean
+  semanticStatus?: boolean
+  semanticAnalyzerVersion?: boolean
+  semanticRefreshRunId?: boolean
+  semanticAnalysis?: boolean
+  semanticDiagnostics?: boolean
+  semanticAnalyzedAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type RepositoryFileSnapshotOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "snapshotId" | "path" | "blobSha" | "sizeBytes" | "language" | "disposition" | "changeType" | "exclusionReason" | "contentHash" | "analyzerVersion" | "analysis" | "analyzedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["repositoryFileSnapshot"]>
+export type RepositoryFileSnapshotOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "snapshotId" | "path" | "blobSha" | "sizeBytes" | "language" | "disposition" | "changeType" | "exclusionReason" | "contentHash" | "analyzerVersion" | "analysis" | "analyzedAt" | "semanticStatus" | "semanticAnalyzerVersion" | "semanticRefreshRunId" | "semanticAnalysis" | "semanticDiagnostics" | "semanticAnalyzedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["repositoryFileSnapshot"]>
 export type RepositoryFileSnapshotInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   snapshot?: boolean | Prisma.RepositorySnapshotDefaultArgs<ExtArgs>
 }
@@ -895,6 +1085,12 @@ export type $RepositoryFileSnapshotPayload<ExtArgs extends runtime.Types.Extensi
     analyzerVersion: string | null
     analysis: runtime.JsonValue | null
     analyzedAt: Date | null
+    semanticStatus: $Enums.RepositorySemanticStatus
+    semanticAnalyzerVersion: string | null
+    semanticRefreshRunId: string | null
+    semanticAnalysis: runtime.JsonValue | null
+    semanticDiagnostics: runtime.JsonValue | null
+    semanticAnalyzedAt: Date | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["repositoryFileSnapshot"]>
@@ -1334,6 +1530,12 @@ export interface RepositoryFileSnapshotFieldRefs {
   readonly analyzerVersion: Prisma.FieldRef<"RepositoryFileSnapshot", 'String'>
   readonly analysis: Prisma.FieldRef<"RepositoryFileSnapshot", 'Json'>
   readonly analyzedAt: Prisma.FieldRef<"RepositoryFileSnapshot", 'DateTime'>
+  readonly semanticStatus: Prisma.FieldRef<"RepositoryFileSnapshot", 'RepositorySemanticStatus'>
+  readonly semanticAnalyzerVersion: Prisma.FieldRef<"RepositoryFileSnapshot", 'String'>
+  readonly semanticRefreshRunId: Prisma.FieldRef<"RepositoryFileSnapshot", 'String'>
+  readonly semanticAnalysis: Prisma.FieldRef<"RepositoryFileSnapshot", 'Json'>
+  readonly semanticDiagnostics: Prisma.FieldRef<"RepositoryFileSnapshot", 'Json'>
+  readonly semanticAnalyzedAt: Prisma.FieldRef<"RepositoryFileSnapshot", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"RepositoryFileSnapshot", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"RepositoryFileSnapshot", 'DateTime'>
 }

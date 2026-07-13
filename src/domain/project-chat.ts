@@ -38,6 +38,19 @@ export interface ProjectKnowledgeCitation {
   contentHash?: string;
   redacted?: boolean;
   redactionCategories?: string[];
+  provenance?: Array<{
+    evidenceItemId: string;
+    title: string;
+    excerpt: string;
+    repository?: string;
+    commitSha?: string;
+    blobSha?: string;
+    path?: string;
+    startLine?: number;
+    endLine?: number;
+    url?: string;
+    contentHash?: string;
+  }>;
 }
 
 export interface ProjectKnowledgeHit {

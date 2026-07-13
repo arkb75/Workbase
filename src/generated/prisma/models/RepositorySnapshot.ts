@@ -279,6 +279,7 @@ export type RepositorySnapshotWhereInput = {
   refreshRun?: Prisma.XOR<Prisma.KnowledgeRefreshRunNullableScalarRelationFilter, Prisma.KnowledgeRefreshRunWhereInput> | null
   files?: Prisma.RepositoryFileSnapshotListRelationFilter
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }
 
 export type RepositorySnapshotOrderByWithRelationInput = {
@@ -305,6 +306,7 @@ export type RepositorySnapshotOrderByWithRelationInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunOrderByWithRelationInput
   files?: Prisma.RepositoryFileSnapshotOrderByRelationAggregateInput
   evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerOrderByRelationAggregateInput
 }
 
 export type RepositorySnapshotWhereUniqueInput = Prisma.AtLeast<{
@@ -335,6 +337,7 @@ export type RepositorySnapshotWhereUniqueInput = Prisma.AtLeast<{
   refreshRun?: Prisma.XOR<Prisma.KnowledgeRefreshRunNullableScalarRelationFilter, Prisma.KnowledgeRefreshRunWhereInput> | null
   files?: Prisma.RepositoryFileSnapshotListRelationFilter
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }, "id" | "sourceId_commitSha">
 
 export type RepositorySnapshotOrderByWithAggregationInput = {
@@ -406,6 +409,7 @@ export type RepositorySnapshotCreateInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
   files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateInput = {
@@ -429,6 +433,7 @@ export type RepositorySnapshotUncheckedCreateInput = {
   updatedAt?: Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUpdateInput = {
@@ -452,6 +457,7 @@ export type RepositorySnapshotUpdateInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
   files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateInput = {
@@ -475,6 +481,7 @@ export type RepositorySnapshotUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotCreateManyInput = {
@@ -763,6 +770,20 @@ export type RepositorySnapshotUpdateOneRequiredWithoutFilesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.RepositorySnapshotUpdateToOneWithWhereWithoutFilesInput, Prisma.RepositorySnapshotUpdateWithoutFilesInput>, Prisma.RepositorySnapshotUncheckedUpdateWithoutFilesInput>
 }
 
+export type RepositorySnapshotCreateNestedOneWithoutCapabilityLedgerInput = {
+  create?: Prisma.XOR<Prisma.RepositorySnapshotCreateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedCreateWithoutCapabilityLedgerInput>
+  connectOrCreate?: Prisma.RepositorySnapshotCreateOrConnectWithoutCapabilityLedgerInput
+  connect?: Prisma.RepositorySnapshotWhereUniqueInput
+}
+
+export type RepositorySnapshotUpdateOneRequiredWithoutCapabilityLedgerNestedInput = {
+  create?: Prisma.XOR<Prisma.RepositorySnapshotCreateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedCreateWithoutCapabilityLedgerInput>
+  connectOrCreate?: Prisma.RepositorySnapshotCreateOrConnectWithoutCapabilityLedgerInput
+  upsert?: Prisma.RepositorySnapshotUpsertWithoutCapabilityLedgerInput
+  connect?: Prisma.RepositorySnapshotWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.RepositorySnapshotUpdateToOneWithWhereWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUpdateWithoutCapabilityLedgerInput>, Prisma.RepositorySnapshotUncheckedUpdateWithoutCapabilityLedgerInput>
+}
+
 export type RepositorySnapshotCreateNestedOneWithoutEvidenceItemsInput = {
   create?: Prisma.XOR<Prisma.RepositorySnapshotCreateWithoutEvidenceItemsInput, Prisma.RepositorySnapshotUncheckedCreateWithoutEvidenceItemsInput>
   connectOrCreate?: Prisma.RepositorySnapshotCreateOrConnectWithoutEvidenceItemsInput
@@ -799,6 +820,7 @@ export type RepositorySnapshotCreateWithoutWorkItemInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
   files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateWithoutWorkItemInput = {
@@ -821,6 +843,7 @@ export type RepositorySnapshotUncheckedCreateWithoutWorkItemInput = {
   updatedAt?: Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotCreateOrConnectWithoutWorkItemInput = {
@@ -893,6 +916,7 @@ export type RepositorySnapshotCreateWithoutSourceInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
   files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateWithoutSourceInput = {
@@ -915,6 +939,7 @@ export type RepositorySnapshotUncheckedCreateWithoutSourceInput = {
   updatedAt?: Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotCreateOrConnectWithoutSourceInput = {
@@ -963,6 +988,7 @@ export type RepositorySnapshotCreateWithoutRefreshRunInput = {
   source: Prisma.SourceCreateNestedOneWithoutRepositorySnapshotsInput
   files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateWithoutRefreshRunInput = {
@@ -985,6 +1011,7 @@ export type RepositorySnapshotUncheckedCreateWithoutRefreshRunInput = {
   updatedAt?: Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotCreateOrConnectWithoutRefreshRunInput = {
@@ -1033,6 +1060,7 @@ export type RepositorySnapshotCreateWithoutFilesInput = {
   source: Prisma.SourceCreateNestedOneWithoutRepositorySnapshotsInput
   refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateWithoutFilesInput = {
@@ -1055,6 +1083,7 @@ export type RepositorySnapshotUncheckedCreateWithoutFilesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotCreateOrConnectWithoutFilesInput = {
@@ -1093,6 +1122,7 @@ export type RepositorySnapshotUpdateWithoutFilesInput = {
   source?: Prisma.SourceUpdateOneRequiredWithoutRepositorySnapshotsNestedInput
   refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateWithoutFilesInput = {
@@ -1114,6 +1144,115 @@ export type RepositorySnapshotUncheckedUpdateWithoutFilesInput = {
   delta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
+}
+
+export type RepositorySnapshotCreateWithoutCapabilityLedgerInput = {
+  id?: string
+  branch: string
+  commitSha: string
+  treeSha: string
+  committedAt?: Date | string | null
+  resolvedAt: Date | string
+  inventoryComplete?: boolean
+  analysisComplete?: boolean
+  coverageComplete?: boolean
+  manifestHash?: string | null
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  delta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutRepositorySnapshotsInput
+  source: Prisma.SourceCreateNestedOneWithoutRepositorySnapshotsInput
+  refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
+  files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutRepositorySnapshotInput
+}
+
+export type RepositorySnapshotUncheckedCreateWithoutCapabilityLedgerInput = {
+  id?: string
+  workItemId: string
+  sourceId: string
+  refreshRunId?: string | null
+  branch: string
+  commitSha: string
+  treeSha: string
+  committedAt?: Date | string | null
+  resolvedAt: Date | string
+  inventoryComplete?: boolean
+  analysisComplete?: boolean
+  coverageComplete?: boolean
+  manifestHash?: string | null
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  delta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutRepositorySnapshotInput
+}
+
+export type RepositorySnapshotCreateOrConnectWithoutCapabilityLedgerInput = {
+  where: Prisma.RepositorySnapshotWhereUniqueInput
+  create: Prisma.XOR<Prisma.RepositorySnapshotCreateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedCreateWithoutCapabilityLedgerInput>
+}
+
+export type RepositorySnapshotUpsertWithoutCapabilityLedgerInput = {
+  update: Prisma.XOR<Prisma.RepositorySnapshotUpdateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedUpdateWithoutCapabilityLedgerInput>
+  create: Prisma.XOR<Prisma.RepositorySnapshotCreateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedCreateWithoutCapabilityLedgerInput>
+  where?: Prisma.RepositorySnapshotWhereInput
+}
+
+export type RepositorySnapshotUpdateToOneWithWhereWithoutCapabilityLedgerInput = {
+  where?: Prisma.RepositorySnapshotWhereInput
+  data: Prisma.XOR<Prisma.RepositorySnapshotUpdateWithoutCapabilityLedgerInput, Prisma.RepositorySnapshotUncheckedUpdateWithoutCapabilityLedgerInput>
+}
+
+export type RepositorySnapshotUpdateWithoutCapabilityLedgerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  branch?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.StringFieldUpdateOperationsInput | string
+  treeSha?: Prisma.StringFieldUpdateOperationsInput | string
+  committedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  resolvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  inventoryComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  analysisComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  coverageComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  manifestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  delta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutRepositorySnapshotsNestedInput
+  source?: Prisma.SourceUpdateOneRequiredWithoutRepositorySnapshotsNestedInput
+  refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
+  files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+}
+
+export type RepositorySnapshotUncheckedUpdateWithoutCapabilityLedgerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  refreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  branch?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.StringFieldUpdateOperationsInput | string
+  treeSha?: Prisma.StringFieldUpdateOperationsInput | string
+  committedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  resolvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  inventoryComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  analysisComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  coverageComplete?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  manifestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  delta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
 }
 
@@ -1137,6 +1276,7 @@ export type RepositorySnapshotCreateWithoutEvidenceItemsInput = {
   source: Prisma.SourceCreateNestedOneWithoutRepositorySnapshotsInput
   refreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput
   files?: Prisma.RepositoryFileSnapshotCreateNestedManyWithoutSnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotUncheckedCreateWithoutEvidenceItemsInput = {
@@ -1159,6 +1299,7 @@ export type RepositorySnapshotUncheckedCreateWithoutEvidenceItemsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedCreateNestedManyWithoutSnapshotInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutSnapshotInput
 }
 
 export type RepositorySnapshotCreateOrConnectWithoutEvidenceItemsInput = {
@@ -1197,6 +1338,7 @@ export type RepositorySnapshotUpdateWithoutEvidenceItemsInput = {
   source?: Prisma.SourceUpdateOneRequiredWithoutRepositorySnapshotsNestedInput
   refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
   files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateWithoutEvidenceItemsInput = {
@@ -1219,6 +1361,7 @@ export type RepositorySnapshotUncheckedUpdateWithoutEvidenceItemsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotCreateManyWorkItemInput = {
@@ -1261,6 +1404,7 @@ export type RepositorySnapshotUpdateWithoutWorkItemInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
   files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateWithoutWorkItemInput = {
@@ -1283,6 +1427,7 @@ export type RepositorySnapshotUncheckedUpdateWithoutWorkItemInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateManyWithoutWorkItemInput = {
@@ -1345,6 +1490,7 @@ export type RepositorySnapshotUpdateWithoutSourceInput = {
   refreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutSnapshotsNestedInput
   files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateWithoutSourceInput = {
@@ -1367,6 +1513,7 @@ export type RepositorySnapshotUncheckedUpdateWithoutSourceInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateManyWithoutSourceInput = {
@@ -1429,6 +1576,7 @@ export type RepositorySnapshotUpdateWithoutRefreshRunInput = {
   source?: Prisma.SourceUpdateOneRequiredWithoutRepositorySnapshotsNestedInput
   files?: Prisma.RepositoryFileSnapshotUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateWithoutRefreshRunInput = {
@@ -1451,6 +1599,7 @@ export type RepositorySnapshotUncheckedUpdateWithoutRefreshRunInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   files?: Prisma.RepositoryFileSnapshotUncheckedUpdateManyWithoutSnapshotNestedInput
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutRepositorySnapshotNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutSnapshotNestedInput
 }
 
 export type RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunInput = {
@@ -1481,11 +1630,13 @@ export type RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunInput = {
 export type RepositorySnapshotCountOutputType = {
   files: number
   evidenceItems: number
+  capabilityLedger: number
 }
 
 export type RepositorySnapshotCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   files?: boolean | RepositorySnapshotCountOutputTypeCountFilesArgs
   evidenceItems?: boolean | RepositorySnapshotCountOutputTypeCountEvidenceItemsArgs
+  capabilityLedger?: boolean | RepositorySnapshotCountOutputTypeCountCapabilityLedgerArgs
 }
 
 /**
@@ -1510,6 +1661,13 @@ export type RepositorySnapshotCountOutputTypeCountFilesArgs<ExtArgs extends runt
  */
 export type RepositorySnapshotCountOutputTypeCountEvidenceItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.EvidenceItemWhereInput
+}
+
+/**
+ * RepositorySnapshotCountOutputType without action
+ */
+export type RepositorySnapshotCountOutputTypeCountCapabilityLedgerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.RepositoryCapabilityLedgerWhereInput
 }
 
 
@@ -1537,6 +1695,7 @@ export type RepositorySnapshotSelect<ExtArgs extends runtime.Types.Extensions.In
   refreshRun?: boolean | Prisma.RepositorySnapshot$refreshRunArgs<ExtArgs>
   files?: boolean | Prisma.RepositorySnapshot$filesArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.RepositorySnapshot$evidenceItemsArgs<ExtArgs>
+  capabilityLedger?: boolean | Prisma.RepositorySnapshot$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.RepositorySnapshotCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["repositorySnapshot"]>
 
@@ -1616,6 +1775,7 @@ export type RepositorySnapshotInclude<ExtArgs extends runtime.Types.Extensions.I
   refreshRun?: boolean | Prisma.RepositorySnapshot$refreshRunArgs<ExtArgs>
   files?: boolean | Prisma.RepositorySnapshot$filesArgs<ExtArgs>
   evidenceItems?: boolean | Prisma.RepositorySnapshot$evidenceItemsArgs<ExtArgs>
+  capabilityLedger?: boolean | Prisma.RepositorySnapshot$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.RepositorySnapshotCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type RepositorySnapshotIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1637,6 +1797,7 @@ export type $RepositorySnapshotPayload<ExtArgs extends runtime.Types.Extensions.
     refreshRun: Prisma.$KnowledgeRefreshRunPayload<ExtArgs> | null
     files: Prisma.$RepositoryFileSnapshotPayload<ExtArgs>[]
     evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
+    capabilityLedger: Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -2056,6 +2217,7 @@ export interface Prisma__RepositorySnapshotClient<T, Null = never, ExtArgs exten
   refreshRun<T extends Prisma.RepositorySnapshot$refreshRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.RepositorySnapshot$refreshRunArgs<ExtArgs>>): Prisma.Prisma__KnowledgeRefreshRunClient<runtime.Types.Result.GetResult<Prisma.$KnowledgeRefreshRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   files<T extends Prisma.RepositorySnapshot$filesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.RepositorySnapshot$filesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositoryFileSnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evidenceItems<T extends Prisma.RepositorySnapshot$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.RepositorySnapshot$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  capabilityLedger<T extends Prisma.RepositorySnapshot$capabilityLedgerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.RepositorySnapshot$capabilityLedgerArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2568,6 +2730,30 @@ export type RepositorySnapshot$evidenceItemsArgs<ExtArgs extends runtime.Types.E
   take?: number
   skip?: number
   distinct?: Prisma.EvidenceItemScalarFieldEnum | Prisma.EvidenceItemScalarFieldEnum[]
+}
+
+/**
+ * RepositorySnapshot.capabilityLedger
+ */
+export type RepositorySnapshot$capabilityLedgerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the RepositoryCapabilityLedger
+   */
+  select?: Prisma.RepositoryCapabilityLedgerSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the RepositoryCapabilityLedger
+   */
+  omit?: Prisma.RepositoryCapabilityLedgerOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.RepositoryCapabilityLedgerInclude<ExtArgs> | null
+  where?: Prisma.RepositoryCapabilityLedgerWhereInput
+  orderBy?: Prisma.RepositoryCapabilityLedgerOrderByWithRelationInput | Prisma.RepositoryCapabilityLedgerOrderByWithRelationInput[]
+  cursor?: Prisma.RepositoryCapabilityLedgerWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.RepositoryCapabilityLedgerScalarFieldEnum | Prisma.RepositoryCapabilityLedgerScalarFieldEnum[]
 }
 
 /**

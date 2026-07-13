@@ -20,6 +20,7 @@ import {
 } from "@/src/services/project-chat-agent-service";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
 import {
+  isKnowledgeRefreshPartial,
   knowledgeRefreshService,
   startKnowledgeRefresh,
 } from "@/src/services/knowledge-refresh-service";
@@ -146,7 +147,7 @@ async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
         status: refresh.status,
         targetHeads: refresh.targetHeads,
         coverage: refresh.coverage,
-        partial: false,
+        partial: isKnowledgeRefreshPartial(refresh),
         completedAt: refresh.finishedAt?.toISOString() ?? new Date().toISOString(),
       },
     },

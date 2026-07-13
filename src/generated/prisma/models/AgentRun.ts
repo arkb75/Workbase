@@ -40,6 +40,7 @@ export type AgentRunMinAggregateOutputType = {
   workItemId: string | null
   threadId: string | null
   parentRunId: string | null
+  knowledgeRefreshRunId: string | null
   workflowId: string | null
   idempotencyKey: string | null
   kind: $Enums.AgentRunKind | null
@@ -58,6 +59,7 @@ export type AgentRunMaxAggregateOutputType = {
   workItemId: string | null
   threadId: string | null
   parentRunId: string | null
+  knowledgeRefreshRunId: string | null
   workflowId: string | null
   idempotencyKey: string | null
   kind: $Enums.AgentRunKind | null
@@ -76,6 +78,7 @@ export type AgentRunCountAggregateOutputType = {
   workItemId: number
   threadId: number
   parentRunId: number
+  knowledgeRefreshRunId: number
   workflowId: number
   idempotencyKey: number
   kind: number
@@ -110,6 +113,7 @@ export type AgentRunMinAggregateInputType = {
   workItemId?: true
   threadId?: true
   parentRunId?: true
+  knowledgeRefreshRunId?: true
   workflowId?: true
   idempotencyKey?: true
   kind?: true
@@ -128,6 +132,7 @@ export type AgentRunMaxAggregateInputType = {
   workItemId?: true
   threadId?: true
   parentRunId?: true
+  knowledgeRefreshRunId?: true
   workflowId?: true
   idempotencyKey?: true
   kind?: true
@@ -146,6 +151,7 @@ export type AgentRunCountAggregateInputType = {
   workItemId?: true
   threadId?: true
   parentRunId?: true
+  knowledgeRefreshRunId?: true
   workflowId?: true
   idempotencyKey?: true
   kind?: true
@@ -257,6 +263,7 @@ export type AgentRunGroupByOutputType = {
   workItemId: string
   threadId: string | null
   parentRunId: string | null
+  knowledgeRefreshRunId: string | null
   workflowId: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -304,6 +311,7 @@ export type AgentRunWhereInput = {
   workItemId?: Prisma.StringFilter<"AgentRun"> | string
   threadId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   parentRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
+  knowledgeRefreshRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   workflowId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   idempotencyKey?: Prisma.StringFilter<"AgentRun"> | string
   kind?: Prisma.EnumAgentRunKindFilter<"AgentRun"> | $Enums.AgentRunKind
@@ -325,6 +333,7 @@ export type AgentRunWhereInput = {
   thread?: Prisma.XOR<Prisma.ChatThreadNullableScalarRelationFilter, Prisma.ChatThreadWhereInput> | null
   parentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
   childRuns?: Prisma.AgentRunListRelationFilter
+  knowledgeRefreshRun?: Prisma.XOR<Prisma.KnowledgeRefreshRunNullableScalarRelationFilter, Prisma.KnowledgeRefreshRunWhereInput> | null
   messages?: Prisma.ChatMessageListRelationFilter
   events?: Prisma.AgentRunEventListRelationFilter
   candidates?: Prisma.AgentRunCandidateListRelationFilter
@@ -337,6 +346,7 @@ export type AgentRunOrderByWithRelationInput = {
   workItemId?: Prisma.SortOrder
   threadId?: Prisma.SortOrderInput | Prisma.SortOrder
   parentRunId?: Prisma.SortOrderInput | Prisma.SortOrder
+  knowledgeRefreshRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   workflowId?: Prisma.SortOrderInput | Prisma.SortOrder
   idempotencyKey?: Prisma.SortOrder
   kind?: Prisma.SortOrder
@@ -358,6 +368,7 @@ export type AgentRunOrderByWithRelationInput = {
   thread?: Prisma.ChatThreadOrderByWithRelationInput
   parentRun?: Prisma.AgentRunOrderByWithRelationInput
   childRuns?: Prisma.AgentRunOrderByRelationAggregateInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunOrderByWithRelationInput
   messages?: Prisma.ChatMessageOrderByRelationAggregateInput
   events?: Prisma.AgentRunEventOrderByRelationAggregateInput
   candidates?: Prisma.AgentRunCandidateOrderByRelationAggregateInput
@@ -375,6 +386,7 @@ export type AgentRunWhereUniqueInput = Prisma.AtLeast<{
   workItemId?: Prisma.StringFilter<"AgentRun"> | string
   threadId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   parentRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
+  knowledgeRefreshRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   idempotencyKey?: Prisma.StringFilter<"AgentRun"> | string
   kind?: Prisma.EnumAgentRunKindFilter<"AgentRun"> | $Enums.AgentRunKind
   status?: Prisma.EnumAgentRunStatusFilter<"AgentRun"> | $Enums.AgentRunStatus
@@ -395,6 +407,7 @@ export type AgentRunWhereUniqueInput = Prisma.AtLeast<{
   thread?: Prisma.XOR<Prisma.ChatThreadNullableScalarRelationFilter, Prisma.ChatThreadWhereInput> | null
   parentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
   childRuns?: Prisma.AgentRunListRelationFilter
+  knowledgeRefreshRun?: Prisma.XOR<Prisma.KnowledgeRefreshRunNullableScalarRelationFilter, Prisma.KnowledgeRefreshRunWhereInput> | null
   messages?: Prisma.ChatMessageListRelationFilter
   events?: Prisma.AgentRunEventListRelationFilter
   candidates?: Prisma.AgentRunCandidateListRelationFilter
@@ -407,6 +420,7 @@ export type AgentRunOrderByWithAggregationInput = {
   workItemId?: Prisma.SortOrder
   threadId?: Prisma.SortOrderInput | Prisma.SortOrder
   parentRunId?: Prisma.SortOrderInput | Prisma.SortOrder
+  knowledgeRefreshRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   workflowId?: Prisma.SortOrderInput | Prisma.SortOrder
   idempotencyKey?: Prisma.SortOrder
   kind?: Prisma.SortOrder
@@ -439,6 +453,7 @@ export type AgentRunScalarWhereWithAggregatesInput = {
   workItemId?: Prisma.StringWithAggregatesFilter<"AgentRun"> | string
   threadId?: Prisma.StringNullableWithAggregatesFilter<"AgentRun"> | string | null
   parentRunId?: Prisma.StringNullableWithAggregatesFilter<"AgentRun"> | string | null
+  knowledgeRefreshRunId?: Prisma.StringNullableWithAggregatesFilter<"AgentRun"> | string | null
   workflowId?: Prisma.StringNullableWithAggregatesFilter<"AgentRun"> | string | null
   idempotencyKey?: Prisma.StringWithAggregatesFilter<"AgentRun"> | string
   kind?: Prisma.EnumAgentRunKindWithAggregatesFilter<"AgentRun"> | $Enums.AgentRunKind
@@ -480,6 +495,7 @@ export type AgentRunCreateInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -492,6 +508,7 @@ export type AgentRunUncheckedCreateInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -538,6 +555,7 @@ export type AgentRunUpdateInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -550,6 +568,7 @@ export type AgentRunUncheckedUpdateInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -579,6 +598,7 @@ export type AgentRunCreateManyInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -623,6 +643,7 @@ export type AgentRunUncheckedUpdateManyInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -667,6 +688,7 @@ export type AgentRunCountOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
   parentRunId?: Prisma.SortOrder
+  knowledgeRefreshRunId?: Prisma.SortOrder
   workflowId?: Prisma.SortOrder
   idempotencyKey?: Prisma.SortOrder
   kind?: Prisma.SortOrder
@@ -695,6 +717,7 @@ export type AgentRunMaxOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
   parentRunId?: Prisma.SortOrder
+  knowledgeRefreshRunId?: Prisma.SortOrder
   workflowId?: Prisma.SortOrder
   idempotencyKey?: Prisma.SortOrder
   kind?: Prisma.SortOrder
@@ -713,6 +736,7 @@ export type AgentRunMinOrderByAggregateInput = {
   workItemId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
   parentRunId?: Prisma.SortOrder
+  knowledgeRefreshRunId?: Prisma.SortOrder
   workflowId?: Prisma.SortOrder
   idempotencyKey?: Prisma.SortOrder
   kind?: Prisma.SortOrder
@@ -815,6 +839,48 @@ export type AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput = {
   connect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
   update?: Prisma.AgentRunUpdateWithWhereUniqueWithoutWorkItemInput | Prisma.AgentRunUpdateWithWhereUniqueWithoutWorkItemInput[]
   updateMany?: Prisma.AgentRunUpdateManyWithWhereWithoutWorkItemInput | Prisma.AgentRunUpdateManyWithWhereWithoutWorkItemInput[]
+  deleteMany?: Prisma.AgentRunScalarWhereInput | Prisma.AgentRunScalarWhereInput[]
+}
+
+export type AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput> | Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput[] | Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput[]
+  connectOrCreate?: Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput | Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput[]
+  createMany?: Prisma.AgentRunCreateManyKnowledgeRefreshRunInputEnvelope
+  connect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+}
+
+export type AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput> | Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput[] | Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput[]
+  connectOrCreate?: Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput | Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput[]
+  createMany?: Prisma.AgentRunCreateManyKnowledgeRefreshRunInputEnvelope
+  connect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+}
+
+export type AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput> | Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput[] | Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput[]
+  connectOrCreate?: Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput | Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput[]
+  upsert?: Prisma.AgentRunUpsertWithWhereUniqueWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpsertWithWhereUniqueWithoutKnowledgeRefreshRunInput[]
+  createMany?: Prisma.AgentRunCreateManyKnowledgeRefreshRunInputEnvelope
+  set?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  disconnect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  delete?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  connect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  update?: Prisma.AgentRunUpdateWithWhereUniqueWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpdateWithWhereUniqueWithoutKnowledgeRefreshRunInput[]
+  updateMany?: Prisma.AgentRunUpdateManyWithWhereWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpdateManyWithWhereWithoutKnowledgeRefreshRunInput[]
+  deleteMany?: Prisma.AgentRunScalarWhereInput | Prisma.AgentRunScalarWhereInput[]
+}
+
+export type AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput = {
+  create?: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput> | Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput[] | Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput[]
+  connectOrCreate?: Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput | Prisma.AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput[]
+  upsert?: Prisma.AgentRunUpsertWithWhereUniqueWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpsertWithWhereUniqueWithoutKnowledgeRefreshRunInput[]
+  createMany?: Prisma.AgentRunCreateManyKnowledgeRefreshRunInputEnvelope
+  set?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  disconnect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  delete?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  connect?: Prisma.AgentRunWhereUniqueInput | Prisma.AgentRunWhereUniqueInput[]
+  update?: Prisma.AgentRunUpdateWithWhereUniqueWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpdateWithWhereUniqueWithoutKnowledgeRefreshRunInput[]
+  updateMany?: Prisma.AgentRunUpdateManyWithWhereWithoutKnowledgeRefreshRunInput | Prisma.AgentRunUpdateManyWithWhereWithoutKnowledgeRefreshRunInput[]
   deleteMany?: Prisma.AgentRunScalarWhereInput | Prisma.AgentRunScalarWhereInput[]
 }
 
@@ -1008,6 +1074,7 @@ export type AgentRunCreateWithoutUserInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -1019,6 +1086,7 @@ export type AgentRunUncheckedCreateWithoutUserInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1077,6 +1145,7 @@ export type AgentRunScalarWhereInput = {
   workItemId?: Prisma.StringFilter<"AgentRun"> | string
   threadId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   parentRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
+  knowledgeRefreshRunId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   workflowId?: Prisma.StringNullableFilter<"AgentRun"> | string | null
   idempotencyKey?: Prisma.StringFilter<"AgentRun"> | string
   kind?: Prisma.EnumAgentRunKindFilter<"AgentRun"> | $Enums.AgentRunKind
@@ -1117,6 +1186,7 @@ export type AgentRunCreateWithoutWorkItemInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -1128,6 +1198,7 @@ export type AgentRunUncheckedCreateWithoutWorkItemInput = {
   userId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1177,7 +1248,7 @@ export type AgentRunUpdateManyWithWhereWithoutWorkItemInput = {
   data: Prisma.XOR<Prisma.AgentRunUpdateManyMutationInput, Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemInput>
 }
 
-export type AgentRunCreateWithoutArtifactInput = {
+export type AgentRunCreateWithoutKnowledgeRefreshRunInput = {
   id?: string
   workflowId?: string | null
   idempotencyKey: string
@@ -1203,6 +1274,91 @@ export type AgentRunCreateWithoutArtifactInput = {
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
+  artifact?: Prisma.ArtifactCreateNestedOneWithoutOriginatingAgentRunInput
+}
+
+export type AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput = {
+  id?: string
+  userId: string
+  workItemId: string
+  threadId?: string | null
+  parentRunId?: string | null
+  workflowId?: string | null
+  idempotencyKey: string
+  kind: $Enums.AgentRunKind
+  status?: $Enums.AgentRunStatus
+  request: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  childRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutParentRunInput
+  messages?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutAgentRunInput
+  events?: Prisma.AgentRunEventUncheckedCreateNestedManyWithoutAgentRunInput
+  candidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutAgentRunInput
+  artifact?: Prisma.ArtifactUncheckedCreateNestedOneWithoutOriginatingAgentRunInput
+}
+
+export type AgentRunCreateOrConnectWithoutKnowledgeRefreshRunInput = {
+  where: Prisma.AgentRunWhereUniqueInput
+  create: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput>
+}
+
+export type AgentRunCreateManyKnowledgeRefreshRunInputEnvelope = {
+  data: Prisma.AgentRunCreateManyKnowledgeRefreshRunInput | Prisma.AgentRunCreateManyKnowledgeRefreshRunInput[]
+  skipDuplicates?: boolean
+}
+
+export type AgentRunUpsertWithWhereUniqueWithoutKnowledgeRefreshRunInput = {
+  where: Prisma.AgentRunWhereUniqueInput
+  update: Prisma.XOR<Prisma.AgentRunUpdateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedUpdateWithoutKnowledgeRefreshRunInput>
+  create: Prisma.XOR<Prisma.AgentRunCreateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput>
+}
+
+export type AgentRunUpdateWithWhereUniqueWithoutKnowledgeRefreshRunInput = {
+  where: Prisma.AgentRunWhereUniqueInput
+  data: Prisma.XOR<Prisma.AgentRunUpdateWithoutKnowledgeRefreshRunInput, Prisma.AgentRunUncheckedUpdateWithoutKnowledgeRefreshRunInput>
+}
+
+export type AgentRunUpdateManyWithWhereWithoutKnowledgeRefreshRunInput = {
+  where: Prisma.AgentRunScalarWhereInput
+  data: Prisma.XOR<Prisma.AgentRunUpdateManyMutationInput, Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunInput>
+}
+
+export type AgentRunCreateWithoutArtifactInput = {
+  id?: string
+  workflowId?: string | null
+  idempotencyKey: string
+  kind: $Enums.AgentRunKind
+  status?: $Enums.AgentRunStatus
+  request: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutAgentRunsInput
+  workItem: Prisma.WorkItemCreateNestedOneWithoutAgentRunsInput
+  thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
+  parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
+  childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
+  messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
+  events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
+  candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
 }
 
 export type AgentRunUncheckedCreateWithoutArtifactInput = {
@@ -1211,6 +1367,7 @@ export type AgentRunUncheckedCreateWithoutArtifactInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1272,6 +1429,7 @@ export type AgentRunUpdateWithoutArtifactInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -1283,6 +1441,7 @@ export type AgentRunUncheckedUpdateWithoutArtifactInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -1327,6 +1486,7 @@ export type AgentRunCreateWithoutThreadInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -1338,6 +1498,7 @@ export type AgentRunUncheckedCreateWithoutThreadInput = {
   userId: string
   workItemId: string
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1410,6 +1571,7 @@ export type AgentRunCreateWithoutMessagesInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutOriginatingAgentRunInput
@@ -1421,6 +1583,7 @@ export type AgentRunUncheckedCreateWithoutMessagesInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1482,6 +1645,7 @@ export type AgentRunUpdateWithoutMessagesInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutOriginatingAgentRunNestedInput
@@ -1493,6 +1657,7 @@ export type AgentRunUncheckedUpdateWithoutMessagesInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -1537,6 +1702,7 @@ export type AgentRunCreateWithoutChildRunsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutAgentRunsInput
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -1549,6 +1715,7 @@ export type AgentRunUncheckedCreateWithoutChildRunsInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1598,6 +1765,7 @@ export type AgentRunCreateWithoutParentRunInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutAgentRunsInput
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
@@ -1609,6 +1777,7 @@ export type AgentRunUncheckedCreateWithoutParentRunInput = {
   userId: string
   workItemId: string
   threadId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1675,6 +1844,7 @@ export type AgentRunUpdateWithoutChildRunsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutAgentRunsNestedInput
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -1687,6 +1857,7 @@ export type AgentRunUncheckedUpdateWithoutChildRunsInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -1748,6 +1919,7 @@ export type AgentRunCreateWithoutEventsInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   candidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutAgentRunInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutOriginatingAgentRunInput
@@ -1759,6 +1931,7 @@ export type AgentRunUncheckedCreateWithoutEventsInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1820,6 +1993,7 @@ export type AgentRunUpdateWithoutEventsInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutOriginatingAgentRunNestedInput
@@ -1831,6 +2005,7 @@ export type AgentRunUncheckedUpdateWithoutEventsInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -1876,6 +2051,7 @@ export type AgentRunCreateWithoutCandidatesInput = {
   thread?: Prisma.ChatThreadCreateNestedOneWithoutAgentRunsInput
   parentRun?: Prisma.AgentRunCreateNestedOneWithoutChildRunsInput
   childRuns?: Prisma.AgentRunCreateNestedManyWithoutParentRunInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunCreateNestedOneWithoutAgentRunsInput
   messages?: Prisma.ChatMessageCreateNestedManyWithoutAgentRunInput
   events?: Prisma.AgentRunEventCreateNestedManyWithoutAgentRunInput
   artifact?: Prisma.ArtifactCreateNestedOneWithoutOriginatingAgentRunInput
@@ -1887,6 +2063,7 @@ export type AgentRunUncheckedCreateWithoutCandidatesInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -1948,6 +2125,7 @@ export type AgentRunUpdateWithoutCandidatesInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   artifact?: Prisma.ArtifactUpdateOneWithoutOriginatingAgentRunNestedInput
@@ -1959,6 +2137,7 @@ export type AgentRunUncheckedUpdateWithoutCandidatesInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -1986,6 +2165,7 @@ export type AgentRunCreateManyUserInput = {
   workItemId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -2026,6 +2206,7 @@ export type AgentRunUpdateWithoutUserInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -2037,6 +2218,7 @@ export type AgentRunUncheckedUpdateWithoutUserInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2065,6 +2247,7 @@ export type AgentRunUncheckedUpdateManyWithoutUserInput = {
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2088,6 +2271,7 @@ export type AgentRunCreateManyWorkItemInput = {
   userId: string
   threadId?: string | null
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -2128,6 +2312,7 @@ export type AgentRunUpdateWithoutWorkItemInput = {
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -2139,6 +2324,7 @@ export type AgentRunUncheckedUpdateWithoutWorkItemInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2167,6 +2353,113 @@ export type AgentRunUncheckedUpdateManyWithoutWorkItemInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
+  status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
+  request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type AgentRunCreateManyKnowledgeRefreshRunInput = {
+  id?: string
+  userId: string
+  workItemId: string
+  threadId?: string | null
+  parentRunId?: string | null
+  workflowId?: string | null
+  idempotencyKey: string
+  kind: $Enums.AgentRunKind
+  status?: $Enums.AgentRunStatus
+  request: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type AgentRunUpdateWithoutKnowledgeRefreshRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
+  status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
+  request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutAgentRunsNestedInput
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutAgentRunsNestedInput
+  thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
+  parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
+  childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
+  events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
+  candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
+  artifact?: Prisma.ArtifactUpdateOneWithoutOriginatingAgentRunNestedInput
+}
+
+export type AgentRunUncheckedUpdateWithoutKnowledgeRefreshRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
+  status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
+  request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
+  environmentSnapshot?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  researchState?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  provisionalResult?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  childRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutParentRunNestedInput
+  messages?: Prisma.ChatMessageUncheckedUpdateManyWithoutAgentRunNestedInput
+  events?: Prisma.AgentRunEventUncheckedUpdateManyWithoutAgentRunNestedInput
+  candidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutAgentRunNestedInput
+  artifact?: Prisma.ArtifactUncheckedUpdateOneWithoutOriginatingAgentRunNestedInput
+}
+
+export type AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2190,6 +2483,7 @@ export type AgentRunCreateManyThreadInput = {
   userId: string
   workItemId: string
   parentRunId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -2230,6 +2524,7 @@ export type AgentRunUpdateWithoutThreadInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutAgentRunsNestedInput
   parentRun?: Prisma.AgentRunUpdateOneWithoutChildRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -2241,6 +2536,7 @@ export type AgentRunUncheckedUpdateWithoutThreadInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2269,6 +2565,7 @@ export type AgentRunUncheckedUpdateManyWithoutThreadInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   parentRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2292,6 +2589,7 @@ export type AgentRunCreateManyParentRunInput = {
   userId: string
   workItemId: string
   threadId?: string | null
+  knowledgeRefreshRunId?: string | null
   workflowId?: string | null
   idempotencyKey: string
   kind: $Enums.AgentRunKind
@@ -2332,6 +2630,7 @@ export type AgentRunUpdateWithoutParentRunInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutAgentRunsNestedInput
   thread?: Prisma.ChatThreadUpdateOneWithoutAgentRunsNestedInput
   childRuns?: Prisma.AgentRunUpdateManyWithoutParentRunNestedInput
+  knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunUpdateOneWithoutAgentRunsNestedInput
   messages?: Prisma.ChatMessageUpdateManyWithoutAgentRunNestedInput
   events?: Prisma.AgentRunEventUpdateManyWithoutAgentRunNestedInput
   candidates?: Prisma.AgentRunCandidateUpdateManyWithoutAgentRunNestedInput
@@ -2343,6 +2642,7 @@ export type AgentRunUncheckedUpdateWithoutParentRunInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2371,6 +2671,7 @@ export type AgentRunUncheckedUpdateManyWithoutParentRunInput = {
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   threadId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  knowledgeRefreshRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.EnumAgentRunKindFieldUpdateOperationsInput | $Enums.AgentRunKind
@@ -2453,6 +2754,7 @@ export type AgentRunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   workItemId?: boolean
   threadId?: boolean
   parentRunId?: boolean
+  knowledgeRefreshRunId?: boolean
   workflowId?: boolean
   idempotencyKey?: boolean
   kind?: boolean
@@ -2474,6 +2776,7 @@ export type AgentRunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
   childRuns?: boolean | Prisma.AgentRun$childRunsArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
   messages?: boolean | Prisma.AgentRun$messagesArgs<ExtArgs>
   events?: boolean | Prisma.AgentRun$eventsArgs<ExtArgs>
   candidates?: boolean | Prisma.AgentRun$candidatesArgs<ExtArgs>
@@ -2487,6 +2790,7 @@ export type AgentRunSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   workItemId?: boolean
   threadId?: boolean
   parentRunId?: boolean
+  knowledgeRefreshRunId?: boolean
   workflowId?: boolean
   idempotencyKey?: boolean
   kind?: boolean
@@ -2507,6 +2811,7 @@ export type AgentRunSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
 }, ExtArgs["result"]["agentRun"]>
 
 export type AgentRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -2515,6 +2820,7 @@ export type AgentRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   workItemId?: boolean
   threadId?: boolean
   parentRunId?: boolean
+  knowledgeRefreshRunId?: boolean
   workflowId?: boolean
   idempotencyKey?: boolean
   kind?: boolean
@@ -2535,6 +2841,7 @@ export type AgentRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
 }, ExtArgs["result"]["agentRun"]>
 
 export type AgentRunSelectScalar = {
@@ -2543,6 +2850,7 @@ export type AgentRunSelectScalar = {
   workItemId?: boolean
   threadId?: boolean
   parentRunId?: boolean
+  knowledgeRefreshRunId?: boolean
   workflowId?: boolean
   idempotencyKey?: boolean
   kind?: boolean
@@ -2561,13 +2869,14 @@ export type AgentRunSelectScalar = {
   updatedAt?: boolean
 }
 
-export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "result" | "error" | "harnessVersion" | "environmentSnapshot" | "researchState" | "provisionalResult" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
+export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "knowledgeRefreshRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "result" | "error" | "harnessVersion" | "environmentSnapshot" | "researchState" | "provisionalResult" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
 export type AgentRunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
   childRuns?: boolean | Prisma.AgentRun$childRunsArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
   messages?: boolean | Prisma.AgentRun$messagesArgs<ExtArgs>
   events?: boolean | Prisma.AgentRun$eventsArgs<ExtArgs>
   candidates?: boolean | Prisma.AgentRun$candidatesArgs<ExtArgs>
@@ -2579,12 +2888,14 @@ export type AgentRunIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
 }
 export type AgentRunIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.AgentRun$threadArgs<ExtArgs>
   parentRun?: boolean | Prisma.AgentRun$parentRunArgs<ExtArgs>
+  knowledgeRefreshRun?: boolean | Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>
 }
 
 export type $AgentRunPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2595,6 +2906,7 @@ export type $AgentRunPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     thread: Prisma.$ChatThreadPayload<ExtArgs> | null
     parentRun: Prisma.$AgentRunPayload<ExtArgs> | null
     childRuns: Prisma.$AgentRunPayload<ExtArgs>[]
+    knowledgeRefreshRun: Prisma.$KnowledgeRefreshRunPayload<ExtArgs> | null
     messages: Prisma.$ChatMessagePayload<ExtArgs>[]
     events: Prisma.$AgentRunEventPayload<ExtArgs>[]
     candidates: Prisma.$AgentRunCandidatePayload<ExtArgs>[]
@@ -2606,6 +2918,7 @@ export type $AgentRunPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     workItemId: string
     threadId: string | null
     parentRunId: string | null
+    knowledgeRefreshRunId: string | null
     workflowId: string | null
     idempotencyKey: string
     kind: $Enums.AgentRunKind
@@ -3021,6 +3334,7 @@ export interface Prisma__AgentRunClient<T, Null = never, ExtArgs extends runtime
   thread<T extends Prisma.AgentRun$threadArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$threadArgs<ExtArgs>>): Prisma.Prisma__ChatThreadClient<runtime.Types.Result.GetResult<Prisma.$ChatThreadPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   parentRun<T extends Prisma.AgentRun$parentRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$parentRunArgs<ExtArgs>>): Prisma.Prisma__AgentRunClient<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   childRuns<T extends Prisma.AgentRun$childRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$childRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  knowledgeRefreshRun<T extends Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$knowledgeRefreshRunArgs<ExtArgs>>): Prisma.Prisma__KnowledgeRefreshRunClient<runtime.Types.Result.GetResult<Prisma.$KnowledgeRefreshRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   messages<T extends Prisma.AgentRun$messagesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$messagesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatMessagePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   events<T extends Prisma.AgentRun$eventsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$eventsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   candidates<T extends Prisma.AgentRun$candidatesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AgentRun$candidatesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunCandidatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -3059,6 +3373,7 @@ export interface AgentRunFieldRefs {
   readonly workItemId: Prisma.FieldRef<"AgentRun", 'String'>
   readonly threadId: Prisma.FieldRef<"AgentRun", 'String'>
   readonly parentRunId: Prisma.FieldRef<"AgentRun", 'String'>
+  readonly knowledgeRefreshRunId: Prisma.FieldRef<"AgentRun", 'String'>
   readonly workflowId: Prisma.FieldRef<"AgentRun", 'String'>
   readonly idempotencyKey: Prisma.FieldRef<"AgentRun", 'String'>
   readonly kind: Prisma.FieldRef<"AgentRun", 'AgentRunKind'>
@@ -3535,6 +3850,25 @@ export type AgentRun$childRunsArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   distinct?: Prisma.AgentRunScalarFieldEnum | Prisma.AgentRunScalarFieldEnum[]
+}
+
+/**
+ * AgentRun.knowledgeRefreshRun
+ */
+export type AgentRun$knowledgeRefreshRunArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the KnowledgeRefreshRun
+   */
+  select?: Prisma.KnowledgeRefreshRunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the KnowledgeRefreshRun
+   */
+  omit?: Prisma.KnowledgeRefreshRunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.KnowledgeRefreshRunInclude<ExtArgs> | null
+  where?: Prisma.KnowledgeRefreshRunWhereInput
 }
 
 /**

@@ -305,8 +305,8 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
     });
     const broadQuery = broadProjectQueryPattern.test(query);
     const selectedLimits = {
-      highlights: limits?.highlights ?? (broadQuery ? 10 : defaultLimits.highlights),
-      projectFacts: limits?.projectFacts ?? (broadQuery ? 16 : defaultLimits.projectFacts),
+      highlights: limits?.highlights ?? (broadQuery ? 100 : defaultLimits.highlights),
+      projectFacts: limits?.projectFacts ?? (broadQuery ? 100 : defaultLimits.projectFacts),
       evidence: limits?.evidence ?? defaultLimits.evidence,
       artifacts: limits?.artifacts ?? defaultLimits.artifacts,
     };
@@ -464,39 +464,29 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
                   label: fact.statement,
                   excerpt: fact.statement,
                   projectFactId: fact.id,
+                  provenance: fact.evidence
+                    .filter((entry) => entry.evidenceItem.included)
+                    .slice(0, 8)
+                    .map((entry) => {
+                      const item = entry.evidenceItem;
+                      const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+                        ? item.metadata as Record<string, unknown>
+                        : null;
+                      return {
+                        evidenceItemId: item.id,
+                        title: item.title,
+                        excerpt: item.content,
+                        repository: typeof metadata?.repository === "string" ? metadata.repository : undefined,
+                        commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : undefined,
+                        blobSha: typeof metadata?.blobSha === "string" ? metadata.blobSha : undefined,
+                        path: typeof metadata?.path === "string" ? metadata.path : undefined,
+                        startLine: typeof metadata?.startLine === "number" ? metadata.startLine : undefined,
+                        endLine: typeof metadata?.endLine === "number" ? metadata.endLine : undefined,
+                        url: typeof metadata?.url === "string" ? metadata.url : undefined,
+                        contentHash: typeof metadata?.excerptHash === "string" ? metadata.excerptHash : undefined,
+                      };
+                    }),
                 },
-                ...fact.evidence
-                  .filter((entry) => entry.evidenceItem.included)
-                  .slice(0, 4)
-                  .map((entry): ProjectKnowledgeCitation => {
-                    const item = entry.evidenceItem;
-                    const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-                      ? item.metadata as Record<string, unknown>
-                      : null;
-                    return item.type === "github_file_excerpt"
-                      ? {
-                          kind: "github_file",
-                          label: item.title,
-                          excerpt: item.content,
-                          evidenceItemId: item.id,
-                          sourceId: item.sourceId,
-                          repository: typeof metadata?.repository === "string" ? metadata.repository : undefined,
-                          commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : undefined,
-                          blobSha: typeof metadata?.blobSha === "string" ? metadata.blobSha : undefined,
-                          path: typeof metadata?.path === "string" ? metadata.path : undefined,
-                          startLine: typeof metadata?.startLine === "number" ? metadata.startLine : undefined,
-                          endLine: typeof metadata?.endLine === "number" ? metadata.endLine : undefined,
-                          url: typeof metadata?.url === "string" ? metadata.url : undefined,
-                          contentHash: typeof metadata?.excerptHash === "string" ? metadata.excerptHash : undefined,
-                        }
-                      : {
-                          kind: "evidence",
-                          label: item.title,
-                          excerpt: item.content,
-                          evidenceItemId: item.id,
-                          sourceId: item.sourceId,
-                        };
-                  }),
               ],
             };
           })

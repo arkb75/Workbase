@@ -479,6 +479,7 @@ export class BedrockStructuredLlmClient {
     requiredFieldPaths?: readonly string[];
     repairMappings?: readonly string[];
     transportPreference?: StructuredOutputTransportMode[];
+    repairStrategy?: "fresh_then_repair" | "repair_last_failure";
     maxTokens: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
@@ -598,35 +599,44 @@ export class BedrockStructuredLlmClient {
       );
     }
 
-    let firstTextResponse;
+    let firstTextResponse: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
+    const repairSource = params.repairStrategy === "repair_last_failure" ? lastFailure : null;
 
-    try {
-      firstTextResponse = await this.runtime.converse({
-        systemPrompt: params.systemPrompt,
-        userPrompt: params.userPrompt,
-        maxTokens: params.maxTokens,
-        temperature,
-        effort,
-        enablePromptCaching: true,
-      });
-    } catch (error) {
-      attempts.push({
-        mode: "text_repair_fallback",
-        phase: "generation",
-        status: "provider_error",
-        validationErrors: null,
-        errorMessage: error instanceof Error ? error.message : "Bedrock request failed.",
-      });
+    if (repairSource?.rawOutput) {
+      firstTextResponse = {
+        text: repairSource.rawOutput,
+        structuredData: null,
+        tokenUsage: repairSource.tokenUsage,
+      };
+    } else {
+      try {
+        firstTextResponse = await this.runtime.converse({
+          systemPrompt: params.systemPrompt,
+          userPrompt: params.userPrompt,
+          maxTokens: params.maxTokens,
+          temperature,
+          effort,
+          enablePromptCaching: true,
+        });
+      } catch (error) {
+        attempts.push({
+          mode: "text_repair_fallback",
+          phase: "generation",
+          status: "provider_error",
+          validationErrors: null,
+          errorMessage: error instanceof Error ? error.message : "Bedrock request failed.",
+        });
 
-      throw new StructuredOutputError(
-        error instanceof Error ? error.message : "Bedrock request failed.",
-        "provider_error",
-        lastFailure?.rawOutput ?? null,
-        lastFailure?.validationErrors ?? null,
-        lastFailure?.tokenUsage ?? null,
-        "text_repair_fallback",
-        normalizeAttemptRecords(attempts),
-      );
+        throw new StructuredOutputError(
+          error instanceof Error ? error.message : "Bedrock request failed.",
+          "provider_error",
+          lastFailure?.rawOutput ?? null,
+          lastFailure?.validationErrors ?? null,
+          lastFailure?.tokenUsage ?? null,
+          "text_repair_fallback",
+          normalizeAttemptRecords(attempts),
+        );
+      }
     }
 
     const firstAttempt = this.parseStructuredResponse({
@@ -637,13 +647,15 @@ export class BedrockStructuredLlmClient {
     });
 
     if (firstAttempt.success) {
-      attempts.push({
-        mode: "text_repair_fallback",
-        phase: "generation",
-        status: "success",
-        validationErrors: null,
-        errorMessage: null,
-      });
+      if (!repairSource?.rawOutput) {
+        attempts.push({
+          mode: "text_repair_fallback",
+          phase: "generation",
+          status: "success",
+          validationErrors: null,
+          errorMessage: null,
+        });
+      }
 
       return {
         data: firstAttempt.data,
@@ -659,13 +671,15 @@ export class BedrockStructuredLlmClient {
       };
     }
 
-    attempts.push({
-      mode: "text_repair_fallback",
-      phase: "generation",
-      status: firstAttempt.status,
-      validationErrors: firstAttempt.validationErrors as JsonValue,
-      errorMessage: null,
-    });
+    if (!repairSource?.rawOutput) {
+      attempts.push({
+        mode: "text_repair_fallback",
+        phase: "generation",
+        status: firstAttempt.status,
+        validationErrors: firstAttempt.validationErrors as JsonValue,
+        errorMessage: null,
+      });
+    }
 
     let repairResponse;
 

@@ -45,7 +45,9 @@ describe("accomplishment synthesis ranking", () => {
       hit({ id: "utility", subsystem: "demo_utility", score: 1 }),
     ], 5);
 
-    expect(ranked.slice(0, 2).map((entry) => entry.id)).toEqual(["core-1", "core-2"]);
+    // High-importance capabilities from distinct subsystems must be represented
+    // before a second, redundant item from the same subsystem.
+    expect(ranked.slice(0, 2).map((entry) => entry.id)).toEqual(["core-1", "workflow"]);
     expect(ranked.filter((entry) => entry.subsystemKey === "ai_runtime")).toHaveLength(2);
     expect(ranked.map((entry) => entry.id)).toContain("workflow");
     expect(ranked.map((entry) => entry.id)).toContain("retrieval");
