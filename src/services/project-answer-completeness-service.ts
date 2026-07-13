@@ -223,6 +223,7 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\b(?:citation|progress|review) (?:card|display|control)\b/i,
   ],
   tests_operations: [
+    /\bautomated tests? cover\b/i,
     /\bvitest\b/i,
     /\bautomated test\w*/i,
     /\btest (?:suite|coverage)\b/i,

@@ -119,9 +119,9 @@ describe("accomplishment synthesis ranking", () => {
     },
     {
       subsystem: "tests_operations",
-      broadTitle: "Built broad automated Vitest coverage",
-      broadContent: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
-      narrowTitle: "Designed a three-tier semantic fallback",
+      broadTitle: "Automated tests cover the complete project surface",
+      broadContent: "Automated tests cover domain policies, Bedrock clients, GitHub ingestion, retrieval, project chat, artifacts, and durable workflows.",
+      narrowTitle: "Test suite validates a three-level semantic fallback",
     },
   ])("chooses broad $subsystem coverage before a higher-ranked narrow implementation detail", ({
     subsystem,
@@ -166,8 +166,8 @@ describe("accomplishment synthesis ranking", () => {
         content: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
       },
       tests_operations: {
-        title: "Built broad automated Vitest coverage",
-        content: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
+        title: "Automated tests cover the complete project surface",
+        content: "Automated tests cover domain policies, Bedrock clients, GitHub ingestion, retrieval, project chat, artifacts, and durable workflows.",
       },
     };
     const hits = subsystems.flatMap((subsystem, index) => {
