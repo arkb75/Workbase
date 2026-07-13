@@ -15,6 +15,7 @@ import { runAuditedStructuredGeneration } from "@/src/services/structured-genera
 
 const MAX_ACCOMPLISHMENT_BLOCKS = 10;
 const MAX_CITATIONS_PER_BLOCK = 4;
+const MAX_BATCH_VERIFIER_RECOVERY_CALLS = 7;
 export const MAX_ACCOMPLISHMENT_CITATIONS = 20;
 export const TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS = [
   "product_surface",
@@ -147,6 +148,42 @@ function isImportant(entry: AccomplishmentGroundingEntry) {
     (ranking?.implementationBreadth ?? 0) >= 3;
 }
 
+function nearDuplicateAccomplishment(
+  left: AccomplishmentGroundingEntry,
+  right: AccomplishmentGroundingEntry,
+) {
+  const leftTerms = semanticTokens(`${left.title} ${left.content}`);
+  const rightTerms = semanticTokens(`${right.title} ${right.content}`);
+  if (!leftTerms.size || !rightTerms.size) return false;
+  const overlap = Array.from(leftTerms).filter((term) => rightTerms.has(term)).length;
+  const containment = overlap / Math.min(leftTerms.size, rightTerms.size);
+  const jaccard = overlap / new Set([...leftTerms, ...rightTerms]).size;
+  return containment >= 0.72 || (overlap >= 5 && jaccard >= 0.48);
+}
+
+function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[]) {
+  const representatives = new Map<string, AccomplishmentGroundingEntry>();
+  for (const entry of group) {
+    const key = entry.subsystemKey ?? `${entry.kind}:${entry.title.toLowerCase()}`;
+    if (!representatives.has(key)) representatives.set(key, entry);
+  }
+  const representativeEntries = Array.from(representatives.values()).sort((left, right) =>
+    accomplishmentSubsystemPriority(left.subsystemKey) - accomplishmentSubsystemPriority(right.subsystemKey) ||
+    score(right) - score(left),
+  );
+  const representativeSet = new Set(representativeEntries);
+  const selected = [...representativeEntries];
+  for (const candidate of group.filter((entry) => isImportant(entry) && !representativeSet.has(entry))) {
+    const rawSubsystem = candidate.subsystemKey ?? `${candidate.kind}:${candidate.title.toLowerCase()}`;
+    if (selected.some((existing) => {
+      const existingSubsystem = existing.subsystemKey ?? `${existing.kind}:${existing.title.toLowerCase()}`;
+      return existingSubsystem === rawSubsystem && nearDuplicateAccomplishment(existing, candidate);
+    })) continue;
+    selected.push(candidate);
+  }
+  return selected;
+}
+
 function uniqueIndexes(indexes: readonly number[]) {
   return Array.from(new Set(indexes.filter((index) => Number.isInteger(index) && index > 0)));
 }
@@ -214,8 +251,7 @@ export function selectAccomplishmentRequirementSet(
   const technicalCitationLimit = MAX_ACCOMPLISHMENT_CITATIONS - (ownershipCitationIndexes.length ? 1 : 0);
   const technicalCitationsPerBlock = MAX_CITATIONS_PER_BLOCK - (ownershipCitationIndexes.length ? 1 : 0);
   const selectedGroups = orderedGroups.slice(0, MAX_ACCOMPLISHMENT_BLOCKS).map(([key, group]) => {
-    const important = group.filter(isImportant);
-    const candidates = important.length ? important : [group[0]!];
+    const candidates = accomplishmentCandidatesForGroup(group);
     const primary = candidates[0]!;
     const primaryCitationIndex = uniqueIndexes(primary.citationIndexes)[0]!;
     usedCitationIndexes.add(primaryCitationIndex);
@@ -236,8 +272,7 @@ export function selectAccomplishmentRequirementSet(
     };
   });
   for (const [, group] of orderedGroups.slice(MAX_ACCOMPLISHMENT_BLOCKS)) {
-    const important = group.filter(isImportant);
-    omittedImportantEntries.push(...(important.length ? important : [group[0]!]));
+    omittedImportantEntries.push(...accomplishmentCandidatesForGroup(group));
   }
 
   // Give every selected capability area one representative before allowing a
@@ -395,6 +430,86 @@ export function auditAccomplishmentBlocks(
       uniqueCitationCount <= MAX_ACCOMPLISHMENT_CITATIONS &&
       !perBlockCitationBudgetExceeded,
   };
+}
+
+/**
+ * Structurally folds already-grounded factual units into one block per broad
+ * requirement. It never pulls prose from raw memory, changes a grounded unit,
+ * or removes citations from that unit, so it can safely avoid another model
+ * call when the first verifier covered everything but returned too many blocks.
+ */
+export function compactAlreadyGroundedAccomplishmentBlocks(
+  blocks: GroundedAnswerBlock[],
+  entries: AccomplishmentGroundingEntry[],
+) {
+  const initialAudit = auditAccomplishmentBlocks(blocks, entries);
+  if (initialAudit.missingMembers.length) return null;
+
+  const ownershipIndexes = selfReportedOwnershipCitationIndexes(entries).slice(0, 1);
+  const usedCitationIndexes = new Set<number>();
+  const usedBlockIndexes = new Set<number>();
+  const compacted: GroundedAnswerBlock[] = [];
+  for (const requirement of initialAudit.requirements) {
+    const allowedIndexes = new Set([...requirement.citationIndexes, ...ownershipIndexes]);
+    const selectedBlockIndexes = new Set<number>();
+    for (const member of requirement.members) {
+      if (Array.from(selectedBlockIndexes).some((index) => semanticallyCovers(blocks[index]!, member))) {
+        continue;
+      }
+      const currentIndexes = uniqueIndexes(Array.from(selectedBlockIndexes)
+        .flatMap((index) => blocks[index]!.citationIndexes));
+      const candidate = blocks
+        .map((block, index) => ({ block, index }))
+        .filter(({ block }) => semanticallyCovers(block, member))
+        .map(({ block, index }) => {
+          const requirementIndexes = uniqueIndexes([...currentIndexes, ...block.citationIndexes]);
+          const globalIndexes = uniqueIndexes([...usedCitationIndexes, ...requirementIndexes]);
+          return {
+            block,
+            index,
+            feasible:
+              requirementIndexes.length <= MAX_CITATIONS_PER_BLOCK &&
+              globalIndexes.length <= MAX_ACCOMPLISHMENT_CITATIONS,
+            outsideAllowed: block.citationIndexes.filter((citationIndex) => !allowedIndexes.has(citationIndex)).length,
+            addedCitations: requirementIndexes.length - currentIndexes.length,
+          };
+        })
+        .filter((entry) => entry.feasible)
+        .sort((left, right) =>
+          left.outsideAllowed - right.outsideAllowed ||
+          Number(usedBlockIndexes.has(left.index)) - Number(usedBlockIndexes.has(right.index)) ||
+          left.addedCitations - right.addedCitations ||
+          left.block.bodyMarkdown.length - right.block.bodyMarkdown.length,
+        )[0];
+      if (!candidate) return null;
+      selectedBlockIndexes.add(candidate.index);
+    }
+
+    const selectedBlocks = Array.from(selectedBlockIndexes).map((index) => blocks[index]!);
+    const citationIndexes = uniqueIndexes(selectedBlocks.flatMap((block) => block.citationIndexes));
+    const globalIndexes = uniqueIndexes([...usedCitationIndexes, ...citationIndexes]);
+    if (
+      !selectedBlocks.length ||
+      citationIndexes.length > MAX_CITATIONS_PER_BLOCK ||
+      globalIndexes.length > MAX_ACCOMPLISHMENT_CITATIONS
+    ) return null;
+    const heading = selectedBlocks.find((block) => block.heading)?.heading ??
+      requirement.requirementKey
+        .split("_")
+        .map((term) => `${term.slice(0, 1).toUpperCase()}${term.slice(1)}`)
+        .join(" ");
+    const bodyMarkdown = selectedBlocks.map((block, index) => {
+      const nestedHeading = index > 0 && block.heading && block.heading !== heading
+        ? `**${block.heading.replace(/^#{1,6}\s*/, "")}**\n`
+        : "";
+      return `${nestedHeading}${block.bodyMarkdown}`;
+    }).join("\n\n");
+    compacted.push({ heading, bodyMarkdown, citationIndexes });
+    for (const index of selectedBlockIndexes) usedBlockIndexes.add(index);
+    for (const index of citationIndexes) usedCitationIndexes.add(index);
+  }
+
+  return auditAccomplishmentBlocks(compacted, entries).complete ? compacted : null;
 }
 
 export function buildDeterministicAccomplishmentBlocks(
@@ -577,6 +692,72 @@ export async function verifyCompletedAccomplishmentAnswer(input: {
     return { grounded, audit, partial: false, warning: null };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown final verifier failure.";
+    const repairAudit = auditAccomplishmentBlocks(input.completion.blocks, input.entries);
+    if (repairAudit.complete) {
+      const recoveredBlocks: GroundedAnswerBlock[] = [];
+      const recoveredIssues: string[] = [];
+      let recoveryFailed = false;
+      let recoveryCalls = 0;
+      for (let offset = 0; offset < input.completion.blocks.length; offset += 2) {
+        const batch = input.completion.blocks.slice(offset, offset + 2);
+        if (recoveryCalls >= MAX_BATCH_VERIFIER_RECOVERY_CALLS) {
+          recoveryFailed = true;
+          break;
+        }
+        try {
+          recoveryCalls += 1;
+          const groundedBatch = await verifier({
+            answer: serializeGroundedBlocks(batch),
+            entries: input.entries,
+            citationCount: input.citationCount,
+            dossier: input.dossier,
+          });
+          recoveredBlocks.push(...groundedBatch.blocks);
+          recoveredIssues.push(...groundedBatch.issues);
+        } catch {
+          // A smaller retry isolates malformed provider output or one unsafe
+          // claim without re-running the entire 7–10 block answer.
+          for (const block of batch) {
+            if (recoveryCalls >= MAX_BATCH_VERIFIER_RECOVERY_CALLS) {
+              recoveryFailed = true;
+              break;
+            }
+            try {
+              recoveryCalls += 1;
+              const groundedBlock = await verifier({
+                answer: serializeGroundedBlocks([block]),
+                entries: input.entries,
+                citationCount: input.citationCount,
+                dossier: input.dossier,
+              });
+              recoveredBlocks.push(...groundedBlock.blocks);
+              recoveredIssues.push(...groundedBlock.issues);
+            } catch {
+              recoveryFailed = true;
+              break;
+            }
+          }
+        }
+        if (recoveryFailed) break;
+      }
+      if (!recoveryFailed) {
+        const compacted = compactAlreadyGroundedAccomplishmentBlocks(recoveredBlocks, input.entries);
+        if (compacted) {
+          const audit = auditAccomplishmentBlocks(compacted, input.entries);
+          const warning = "The combined final verifier failed, so the same repair was safely recovered through bounded batch grounding.";
+          return {
+            grounded: {
+              blocks: compacted,
+              issues: [warning, detail, ...recoveredIssues],
+              tokenUsage: null,
+            },
+            audit,
+            partial: false,
+            warning: null,
+          };
+        }
+      }
+    }
     const safeBlocks = input.completion.safeOriginalBlocks ?? [];
     if (safeBlocks.length) {
       const audit = auditAccomplishmentBlocks(safeBlocks, input.entries);

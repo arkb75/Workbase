@@ -4,6 +4,7 @@ import {
   TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS,
   auditAccomplishmentBlocks,
   buildDeterministicAccomplishmentBlocks,
+  compactAlreadyGroundedAccomplishmentBlocks,
   selectAccomplishmentRequirementSet,
   selectAccomplishmentRequirements,
   serializeGroundedBlocks,
@@ -168,6 +169,79 @@ describe("project answer completeness", () => {
     expect(selection.coverageWarning).toBeNull();
   });
 
+  it("selects one representative from each aliased subsystem before extra members", () => {
+    const product = entry(1, "product_surface", {
+      importance: 3,
+      ranking: {
+        evidenceStrength: 5,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        ownershipAuthority: 1,
+        distinctiveness: 4,
+        freshness: 5,
+        impactBonus: 0,
+        uncertainty: null,
+      },
+    });
+    const artifactPrimary = entry(2, "artifact_generation");
+    const artifactExtra = entry(3, "artifact_generation", {
+      content: "Persists immutable artifact evidence snapshots and refreshed embeddings.",
+    });
+    const selection = selectAccomplishmentRequirementSet([artifactPrimary, artifactExtra, product]);
+    const requirement = selection.requirements[0]!;
+
+    expect(requirement.requirementKey).toBe("product_and_artifact_generation");
+    expect(requirement.members.map((member) => member.subsystemKey)).toEqual([
+      "product_surface",
+      "artifact_generation",
+      "artifact_generation",
+    ]);
+  });
+
+  it("deduplicates near-identical same-subsystem facts while preserving distinct work", () => {
+    const primary = entry(1, "repository_knowledge_lifecycle", {
+      title: "Audited multi-subsystem LLM synthesis with deterministic fallback",
+      content: "Repository knowledge synthesis batches subsystems through audited LLM generation with deterministic regex fallback and provenance citation indexes.",
+    });
+    const duplicate = entry(2, "repository_knowledge_lifecycle", {
+      title: "Repository knowledge synthesis with audited LLM fallback",
+      content: "Audited repository knowledge synthesis batches multiple subsystems, emits provenance citation indexes, and uses a deterministic regex fallback when LLM generation is unavailable.",
+    });
+    const distinct = entry(3, "repository_knowledge_lifecycle", {
+      title: "Knowledge change supersession and invalidation",
+      content: "Quarantine guards, supersession detection, transactional reverts, embedding refresh, and cascading artifact invalidation govern reviewed knowledge changes.",
+    });
+
+    const requirement = selectAccomplishmentRequirementSet([primary, duplicate, distinct]).requirements[0]!;
+    expect(requirement.members.map((member) => member.title)).toEqual([
+      primary.title,
+      distinct.title,
+    ]);
+    expect(requirement.citationIndexes).toEqual([1, 3]);
+  });
+
+  it("safely compacts overlong already-grounded coverage without adding prose", () => {
+    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS
+      .map((subsystem, index) => entry(index + 1, subsystem));
+    const originalBlocks = entries.map((item) => ({
+      heading: null,
+      bodyMarkdown: item.content,
+      citationIndexes: item.citationIndexes,
+    }));
+    expect(auditAccomplishmentBlocks(originalBlocks, entries).complete).toBe(false);
+    expect(auditAccomplishmentBlocks(originalBlocks, entries).missingMembers).toEqual([]);
+
+    const compacted = compactAlreadyGroundedAccomplishmentBlocks(originalBlocks, entries);
+    expect(compacted).not.toBeNull();
+    expect(compacted).toHaveLength(10);
+    expect(compacted!.every((block) => Boolean(block.heading))).toBe(true);
+    expect(auditAccomplishmentBlocks(compacted!, entries).complete).toBe(true);
+    for (const paragraph of compacted!.flatMap((block) => block.bodyMarkdown.split("\n\n"))) {
+      expect(originalBlocks.map((block) => block.bodyMarkdown)).toContain(paragraph);
+    }
+  });
+
   it("never selects more than twenty unique citations", () => {
     const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.slice(0, 10).map((subsystem, index) => {
       const start = index * 3 + 1;
@@ -231,5 +305,69 @@ describe("project answer completeness", () => {
       entries,
       citationCount: 1,
     })).rejects.toThrow(/not safe to publish and should be retried/i);
+  });
+
+  it("recovers a complete repair through bounded grounding when the combined verifier fails", async () => {
+    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.slice(0, 8)
+      .map((subsystem, index) => entry(index + 1, subsystem));
+    const blocks = buildDeterministicAccomplishmentBlocks([], entries);
+    const completion = {
+      blocks,
+      safeOriginalBlocks: [],
+      audit: auditAccomplishmentBlocks(blocks, entries),
+      generationRunId: null,
+      fallbackUsed: true,
+      warning: "The completeness editor failed.",
+    };
+    let calls = 0;
+    const verifier = (async (input: Parameters<typeof groundProjectAnswer>[0]) => {
+      calls += 1;
+      if (calls === 1) throw new Error("combined verifier parse failure");
+      return groundProjectAnswer(input);
+    }) as typeof groundProjectAnswer;
+
+    const verified = await verifyCompletedAccomplishmentAnswer({
+      completion,
+      entries,
+      citationCount: 8,
+      verifier,
+    });
+    expect(calls).toBeGreaterThan(1);
+    expect(verified.partial).toBe(false);
+    expect(verified.audit.complete).toBe(true);
+    expect(verified.grounded.issues).toEqual(expect.arrayContaining([
+      expect.stringContaining("bounded batch grounding"),
+    ]));
+  });
+
+  it("caps batch-verifier recovery at eight total final-verifier calls", async () => {
+    const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS
+      .map((subsystem, index) => entry(index + 1, subsystem));
+    const blocks = buildDeterministicAccomplishmentBlocks([], entries);
+    const completion = {
+      blocks,
+      safeOriginalBlocks: [blocks[0]!],
+      audit: auditAccomplishmentBlocks(blocks, entries),
+      generationRunId: null,
+      fallbackUsed: true,
+      warning: "The completeness editor failed.",
+    };
+    let calls = 0;
+    const verifier = (async (input: Parameters<typeof groundProjectAnswer>[0]) => {
+      calls += 1;
+      const blockCount = Array.from(input.answer.matchAll(/^###\s+/gm)).length;
+      if (blockCount > 1) throw new Error("provider only accepts one recovery block");
+      return groundProjectAnswer(input);
+    }) as typeof groundProjectAnswer;
+
+    const verified = await verifyCompletedAccomplishmentAnswer({
+      completion,
+      entries,
+      citationCount: 12,
+      verifier,
+    });
+    expect(calls).toBe(8);
+    expect(verified.partial).toBe(true);
+    expect(verified.grounded.blocks).toEqual([blocks[0]]);
   });
 });

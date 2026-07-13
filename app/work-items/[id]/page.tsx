@@ -702,6 +702,7 @@ function mapKnowledgeChangeForInbox(
       : null;
   return {
     id: change.id,
+    entityId: change.projectFactId ?? change.highlightId ?? change.evidenceItemId ?? change.artifactId ?? change.id,
     entityKind: change.entityKind,
     action: change.action,
     reason: change.reason,
@@ -1550,6 +1551,7 @@ export default async function WorkItemDetailPage({
                   finishedAt: refresh.finishedAt?.toISOString() ?? null,
                 }))}
                 changes={workItem.knowledgeChanges.map(mapKnowledgeChangeForInbox)}
+                counts={workItem.knowledgeChangeCounts}
               />
 
               <GenerationTracePanel
@@ -1570,9 +1572,9 @@ export default async function WorkItemDetailPage({
                 <CardContent className="grid gap-3">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     <div className="rounded-[24px] bg-white/8 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Pending updates</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Knowledge updates</p>
                       <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
-                        {workItem.knowledgeChanges.length}
+                        {workItem.knowledgeChangeCounts.totalKnowledgeCount}
                       </p>
                     </div>
                     <div className="rounded-[24px] bg-white/8 p-4">

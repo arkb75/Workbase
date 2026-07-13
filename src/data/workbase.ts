@@ -1,3 +1,8 @@
+import type { Prisma } from "@/src/generated/prisma/client";
+import {
+  KNOWLEDGE_REVIEW_CARD_LIMIT,
+  PROVENANCE_REVIEW_CARD_LIMIT,
+} from "@/src/lib/knowledge-review-inbox";
 import { prisma } from "@/src/lib/prisma";
 
 function toSortTime(value: Date | null) {
@@ -51,7 +56,7 @@ export async function listWorkItemsForUser(userId: string) {
 }
 
 export async function getWorkItemForUser(userId: string, workItemId: string) {
-  return prisma.workItem.findFirstOrThrow({
+  const workItem = await prisma.workItem.findFirstOrThrow({
     where: {
       id: workItemId,
       userId,
@@ -161,19 +166,102 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
         orderBy: { createdAt: "desc" },
         take: 10,
       },
-      knowledgeChanges: {
-        where: { decision: "pending" },
-        include: {
-          evidenceItem: true,
-          highlight: true,
-          projectFact: true,
-          artifact: true,
-          refreshRun: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
     },
   });
+
+  const pendingWhere = {
+    workItemId,
+    decision: "pending",
+  } satisfies Prisma.KnowledgeChangeWhereInput;
+  const attentionPredicate = {
+    OR: [
+      { action: { in: ["quarantined", "retired"] } },
+      { evidenceItem: { lifecycleStatus: { in: ["quarantined", "stale", "needs_validation"] } } },
+      { highlight: { lifecycleStatus: { in: ["quarantined", "stale", "needs_validation"] } } },
+      { projectFact: { lifecycleStatus: { in: ["quarantined", "stale", "needs_validation"] } } },
+      { artifact: { lifecycleStatus: { in: ["quarantined", "stale", "needs_validation"] } } },
+      { evidenceItemId: { not: null }, evidenceItem: null },
+      { highlightId: { not: null }, highlight: null },
+      { projectFactId: { not: null }, projectFact: null },
+      { artifactId: { not: null }, artifact: null },
+      {
+        evidenceItemId: null,
+        highlightId: null,
+        projectFactId: null,
+        artifactId: null,
+      },
+    ],
+  } satisfies Prisma.KnowledgeChangeWhereInput;
+  const relationInclude = {
+    evidenceItem: true,
+    highlight: true,
+    projectFact: true,
+    artifact: true,
+    refreshRun: true,
+  } satisfies Prisma.KnowledgeChangeInclude;
+  const pendingKnowledgeWhere = {
+    ...pendingWhere,
+    entityKind: { not: "evidence" },
+  } satisfies Prisma.KnowledgeChangeWhereInput;
+  const attentionWhere = {
+    ...pendingKnowledgeWhere,
+    ...attentionPredicate,
+  } satisfies Prisma.KnowledgeChangeWhereInput;
+  const routineWhere = {
+    ...pendingKnowledgeWhere,
+    NOT: attentionPredicate,
+  } satisfies Prisma.KnowledgeChangeWhereInput;
+
+  const [
+    attentionChanges,
+    routineChanges,
+    provenanceChanges,
+    totalKnowledgeCount,
+    totalProvenanceCount,
+    newOrUpdatedKnowledgeCount,
+    needsAttentionCount,
+  ] = await prisma.$transaction([
+    prisma.knowledgeChange.findMany({
+      where: attentionWhere,
+      include: relationInclude,
+      orderBy: { createdAt: "desc" },
+      take: KNOWLEDGE_REVIEW_CARD_LIMIT,
+    }),
+    prisma.knowledgeChange.findMany({
+      where: routineWhere,
+      include: relationInclude,
+      orderBy: { createdAt: "desc" },
+      take: KNOWLEDGE_REVIEW_CARD_LIMIT,
+    }),
+    prisma.knowledgeChange.findMany({
+      where: { ...pendingWhere, entityKind: "evidence" },
+      include: relationInclude,
+      orderBy: { createdAt: "desc" },
+      take: PROVENANCE_REVIEW_CARD_LIMIT,
+    }),
+    prisma.knowledgeChange.count({ where: pendingKnowledgeWhere }),
+    prisma.knowledgeChange.count({ where: { ...pendingWhere, entityKind: "evidence" } }),
+    prisma.knowledgeChange.count({
+      where: {
+        ...pendingKnowledgeWhere,
+        action: { in: ["created", "updated", "revalidated"] },
+      },
+    }),
+    prisma.knowledgeChange.count({ where: attentionWhere }),
+  ]);
+
+  return {
+    ...workItem,
+    // The UI needs at most one balanced page of full review records. Counts
+    // remain exact without materializing every pending relation and snapshot.
+    knowledgeChanges: [...attentionChanges, ...routineChanges, ...provenanceChanges],
+    knowledgeChangeCounts: {
+      totalKnowledgeCount,
+      totalProvenanceCount,
+      newOrUpdatedKnowledgeCount,
+      needsAttentionCount,
+    },
+  };
 }
 
 export async function getArtifactForUser(

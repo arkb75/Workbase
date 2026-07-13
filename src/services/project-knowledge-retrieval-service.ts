@@ -11,6 +11,7 @@ import {
   buildHighlightEmbeddingText,
   ensureHighlightEmbeddings,
 } from "@/src/services/highlight-embedding-service";
+import { explicitSelfReportedOwnershipAuthority } from "@/src/services/evidence-ownership-authority";
 import {
   ensureProjectKnowledgeEmbeddings,
   findNearestProjectKnowledge,
@@ -75,17 +76,6 @@ function repositoryProvenance(entries: LinkedEvidence[]) {
 function highlightSubsystemKey(metadata: unknown) {
   const value = objectValue(metadata);
   return typeof value?.subsystemKey === "string" ? value.subsystemKey : null;
-}
-
-function isExplicitSelfReportedOwnershipEvidence(item: {
-  type: string;
-  metadata: unknown;
-  source: { metadata?: unknown };
-}) {
-  if (item.type === "chat_user_statement") return true;
-  if (item.type !== "manual_note_excerpt") return false;
-  return objectValue(item.metadata)?.kind === "work_item_description" ||
-    objectValue(item.source.metadata)?.kind === "work_item_description";
 }
 
 function artifactSnapshotText(snapshot: unknown, key: string, fallback: string) {
@@ -616,8 +606,8 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           title: item.title,
           content: item.content,
           ownershipAuthority:
-            purpose === "private_chat" && isExplicitSelfReportedOwnershipEvidence(item)
-              ? 3
+            purpose === "private_chat"
+              ? explicitSelfReportedOwnershipAuthority(item)
               : 0,
           score:
             authorityWeight("included_evidence") +
@@ -670,7 +660,10 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           (lexicalRanks.evidence.get(hit.id) ?? 0) > 0 ||
           (vectorRanks.evidence.get(hit.id) ?? 0) >= 0.16,
       )
-      .sort((left, right) => right.score - left.score)
+      .sort((left, right) =>
+        Number((right.ownershipAuthority ?? 0) >= 3) - Number((left.ownershipAuthority ?? 0) >= 3) ||
+        right.score - left.score
+      )
       .slice(0, selectedLimits.evidence);
 
     const regroundArtifactSources = requiresRegroundedArtifactSources(query, purpose);

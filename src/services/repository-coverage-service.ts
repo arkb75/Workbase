@@ -43,7 +43,7 @@ const semanticFindingKindOptions = [
 
 const semanticAnalysisSchema = z.object({
   summary: z.string().trim().min(1).max(1_200),
-  subsystemKeys: z.array(z.string().trim().min(2).max(100)),
+  subsystemKeys: z.array(z.string().trim().min(2).max(100)).max(12),
   findings: z.array(z.object({
     statement: z.string().trim().min(10).max(500),
     kind: z.enum(semanticFindingKindOptions),
@@ -52,8 +52,8 @@ const semanticAnalysisSchema = z.object({
     sensitivityFlag: z.boolean(),
     lineStart: z.number().int().min(1),
     lineEnd: z.number().int().min(1),
-  })),
-  unresolvedQuestions: z.array(z.string().trim().min(2).max(300)),
+  })).max(8),
+  unresolvedQuestions: z.array(z.string().trim().min(2).max(300)).max(4),
 });
 
 const semanticAnalysisJsonSchema: JsonSchemaObject = {
@@ -62,9 +62,10 @@ const semanticAnalysisJsonSchema: JsonSchemaObject = {
   required: ["summary", "subsystemKeys", "findings", "unresolvedQuestions"],
   properties: {
     summary: { type: "string", minLength: 1, maxLength: 1_200 },
-    subsystemKeys: { type: "array", items: { type: "string", minLength: 2, maxLength: 100 } },
+    subsystemKeys: { type: "array", maxItems: 12, items: { type: "string", minLength: 2, maxLength: 100 } },
     findings: {
       type: "array",
+      maxItems: 8,
       items: {
         type: "object",
         additionalProperties: false,
@@ -80,7 +81,7 @@ const semanticAnalysisJsonSchema: JsonSchemaObject = {
         },
       },
     },
-    unresolvedQuestions: { type: "array", items: { type: "string", minLength: 2, maxLength: 300 } },
+    unresolvedQuestions: { type: "array", maxItems: 4, items: { type: "string", minLength: 2, maxLength: 300 } },
   },
 };
 export type RepositorySemanticAnalysis = z.infer<typeof semanticAnalysisSchema>;
@@ -157,7 +158,7 @@ export interface RepositoryChunkAnalysis {
     implementationBreadth: number;
     technicalDifficulty: number;
     subsystemKeys?: string[];
-    evidenceMode?: "static" | "semantic";
+    evidenceMode?: "static" | "semantic" | "deterministic_fallback";
   }>;
   unresolvedQuestions: string[];
 }
@@ -177,6 +178,7 @@ export interface RepositoryFileAnalysis {
   tokenUsage: unknown[];
   analysisMode?: "static" | "semantic";
   semanticStatus?: "not_selected" | "pending" | "succeeded" | "degraded" | "failed";
+  semanticSource?: "model" | "deterministic_fallback";
   semanticDiagnostics?: unknown[];
   semanticBudgetUsage?: RepositorySemanticBudgetUsage;
 }
@@ -359,6 +361,7 @@ async function analyzeChunk(input: {
         "Describe implemented behavior, data flow, invariants, integrations, configuration, and user-facing capabilities only when the supplied lines support them.",
         "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
+        "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
         "Use stable snake_case subsystem keys and mark security-sensitive findings as sensitive.",
         "Assign each finding only to the capabilityKeys it directly supports; do not copy every file-level subsystem key onto every finding.",
         "Follow the supplied research task: answer its objective and questions, target its expected outputs, and use only its allowed capability keys.",
@@ -384,10 +387,11 @@ async function analyzeChunk(input: {
       },
       requiredFieldPaths: ["summary", "subsystemKeys", "findings", "unresolvedQuestions"],
       repairMappings: ["Map facts or observations to findings without inventing content.", "Map category to the closest supported finding kind."],
-      maxTokens: input.budget?.model.limits.maxOutputTokens ?? 8_000,
+      maxTokens: Math.min(input.budget?.model.limits.maxOutputTokens ?? 4_000, 4_000),
       temperature: 0,
       effort: "high",
       repairStrategy: "repair_last_failure",
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
       budget: input.budget?.model,
       extraValidation: (value) => value.findings.flatMap((finding, index) =>
         finding.capabilityKeys
@@ -455,6 +459,98 @@ async function analyzeChunk(input: {
   };
 }
 
+function isMeaningfulDeterministicFallbackFact(fact: RepositoryFileAnalysis["facts"][number]) {
+  if (fact.confidence !== "high" || fact.sensitivityFlag || fact.lineEnd < fact.lineStart) return false;
+  if (/\bis present in the (?:current|complete) (?:repository )?snapshot\b/i.test(fact.statement)) return false;
+  if (isDeterministicFallbackAnchor(fact)) return true;
+  if (fact.category !== "code_location") {
+    return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states)/i.test(fact.statement);
+  }
+  return /(?:persisted model|defines (?:the )?symbol (?:[A-Za-z_$][\w$]*(?:Workflow|Service|Workspace|Review|Artifact|Chat|Knowledge|GitHub|OAuth|Citation|Highlight|Agent)[A-Za-z_$\d]*|(?:fetch|resolve|get|list|search|read|persist|create|update|delete|generate|synthesize|reconcile|refresh|review|approve|verify|retrieve|ingest|import|upsert)[A-Z][\w$]*))/i.test(fact.statement);
+}
+
+function isDeterministicFallbackAnchor(fact: RepositoryFileAnalysis["facts"][number]) {
+  if (fact.category === "code_location") return /persisted model/i.test(fact.statement);
+  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after)/i.test(fact.statement);
+}
+
+/**
+ * Recovers bounded capability coverage from deterministic, exact-line facts
+ * when every structured semantic attempt for a file failed. This is not
+ * presented as model extraction: the source and original failure remain in
+ * diagnostics, and a generic file-presence or symbol observation is never
+ * enough to qualify.
+ */
+export function recoverRepositorySemanticAnalysisFromStatic(input: {
+  staticAnalysis: RepositoryFileAnalysis;
+  failedAnalysis: RepositoryFileAnalysis;
+  task: RepositorySemanticTask;
+}): RepositoryFileAnalysis {
+  const allowedKeys = new Set(input.task.capabilityKeys);
+  const supportedKeys = input.staticAnalysis.subsystemKeys.filter((key) => allowedKeys.has(key));
+  if (!supportedKeys.length) return input.failedAnalysis;
+
+  const eligibleFacts = input.staticAnalysis.facts
+    .filter(isMeaningfulDeterministicFallbackFact)
+    .flatMap((fact) => {
+      const capabilityKeys = (fact.subsystemKeys ?? []).filter((key) => supportedKeys.includes(key));
+      if (!capabilityKeys.length) return [];
+      return [{
+        ...fact,
+        subsystemKeys: capabilityKeys,
+        evidenceMode: "deterministic_fallback" as const,
+      }];
+    });
+  // A generic persistence call or capability-shaped symbol is useful
+  // supplementary evidence, but cannot by itself establish product-level
+  // lifecycle coverage.
+  if (!eligibleFacts.some(isDeterministicFallbackAnchor)) return input.failedAnalysis;
+
+  const fallbackFacts = eligibleFacts
+    .sort((left, right) => {
+      const score = (fact: typeof left) =>
+        fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty;
+      return score(right) - score(left) || left.lineStart - right.lineStart;
+    })
+    .slice(0, 6);
+  if (!fallbackFacts.length) return input.failedAnalysis;
+
+  return {
+    ...input.failedAnalysis,
+    summary: `Deterministic exact-line analysis recovered ${fallbackFacts.length} supported observation${fallbackFacts.length === 1 ? "" : "s"} for ${supportedKeys.join(", ")}.`,
+    subsystemKeys: unique([...supportedKeys, ...input.staticAnalysis.subsystemKeys], 12),
+    responsibilities: unique(fallbackFacts.map((fact) => fact.statement), 30),
+    symbols: input.staticAnalysis.symbols,
+    dependencies: input.staticAnalysis.dependencies,
+    architectureSignals: unique([
+      "deterministic exact-line semantic fallback",
+      ...input.staticAnalysis.architectureSignals,
+    ], 30),
+    userFacingCapabilities: input.staticAnalysis.userFacingCapabilities,
+    facts: fallbackFacts,
+    // Preserve the extraction failure as an explicit gap. Exact-line fallback
+    // findings remain usable for partial synthesis, but they must not silently
+    // upgrade a provider/budget failure into fully verified semantic coverage.
+    unresolvedQuestions: unique([
+      "Structured semantic extraction failed; deterministic exact-line observations recovered only partial coverage.",
+      ...input.failedAnalysis.unresolvedQuestions,
+    ], 20),
+    analysisMode: "semantic",
+    semanticStatus: "degraded",
+    semanticSource: "deterministic_fallback",
+    semanticDiagnostics: [
+      ...(input.failedAnalysis.semanticDiagnostics ?? []),
+      {
+        status: "deterministic_exact_line_fallback",
+        structuredSemanticStatus: input.failedAnalysis.semanticStatus ?? "failed",
+        structuredFailureGaps: input.failedAnalysis.unresolvedQuestions,
+        capabilityKeys: supportedKeys,
+        findingCount: fallbackFacts.length,
+      },
+    ],
+  };
+}
+
 export async function analyzeRepositoryFile(input: {
   workItemId?: string;
   refreshRunId?: string;
@@ -506,7 +602,7 @@ export async function analyzeRepositoryFile(input: {
     : failedChunks || !validFacts.length
       ? "degraded"
       : "succeeded";
-  return {
+  const failedOrCompletedAnalysis: RepositoryFileAnalysis = {
     path: input.path,
     summary: unique(analyses.map((analysis) => analysis.summary), 8).join(" ").slice(0, 4_000),
     subsystemKeys: unique([
@@ -529,9 +625,25 @@ export async function analyzeRepositoryFile(input: {
     tokenUsage,
     analysisMode: "semantic",
     semanticStatus,
+    semanticSource: validFacts.length ? "model" : undefined,
     semanticDiagnostics,
     semanticBudgetUsage: input.budget ? snapshotRepositorySemanticBudget(input.budget) : undefined,
   };
+  if (validFacts.length || !input.task) return failedOrCompletedAnalysis;
+
+  const [staticAnalysis] = await analyzeRepositoryFiles([{
+    repository: input.repository,
+    commitSha: input.commitSha,
+    path: input.path,
+    content: input.content,
+  }]);
+  return staticAnalysis
+    ? recoverRepositorySemanticAnalysisFromStatic({
+        staticAnalysis,
+        failedAnalysis: failedOrCompletedAnalysis,
+        task: input.task,
+      })
+    : failedOrCompletedAnalysis;
 }
 
 export async function analyzeRepositoryFiles(input: Array<{
@@ -551,16 +663,23 @@ export async function analyzeRepositoryFiles(input: Array<{
     const facts: RepositoryFileAnalysis["facts"] = [];
     const isTest = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(file.path);
     const baseImportance = isTest ? 1 : /(?:workflow|artifact|chat|research|retriev|github|schema|bedrock|highlight)/i.test(file.path) ? 4 : 2;
-    const addFact = (statement: string, category: ProjectFactCategory, line: number, breadth = baseImportance) => {
-      if (facts.length >= 12 || facts.some((fact) => fact.statement === statement)) return;
+    const addFact = (
+      statement: string,
+      category: ProjectFactCategory,
+      line: number,
+      breadth = baseImportance,
+      lineEnd = line,
+      productImportance = baseImportance,
+    ) => {
+      if (facts.length >= 24 || facts.some((fact) => fact.statement === statement)) return;
       facts.push({
         statement: normalizeWhitespace(statement),
         category,
         confidence: "high",
         sensitivityFlag: false,
         lineStart: line,
-        lineEnd: line,
-        productImportance: Math.min(5, baseImportance),
+        lineEnd,
+        productImportance: Math.min(5, productImportance),
         implementationBreadth: Math.min(5, breadth),
         technicalDifficulty: Math.min(5, /workflow|agent|bedrock|embedding|oauth|encrypt|retriev/i.test(statement) ? 4 : 2),
         subsystemKeys: inferSubsystemsFromPath(file.path),
@@ -607,6 +726,114 @@ export async function analyzeRepositoryFiles(input: Array<{
         const readable = line.replace(/^#+\s*/, "").replace(/^[-*]\s*/, "");
         if (readable.length >= 12) addFact(`${file.path} states: ${readable}`, "behavior", lineNumber, 4);
       }
+    }
+
+    const addRangeFact = (input: {
+      patterns: RegExp[];
+      statement: string;
+      category: ProjectFactCategory;
+      breadth: number;
+      productImportance?: number;
+    }) => {
+      const matchedLines = input.patterns.map((pattern) => lines.findIndex((line) => pattern.test(line)));
+      if (matchedLines.some((line) => line < 0)) return;
+      const lineStart = Math.min(...matchedLines) + 1;
+      const lineEnd = Math.max(...matchedLines) + 1;
+      addFact(input.statement, input.category, lineStart, input.breadth, lineEnd, input.productImportance ?? 4);
+    };
+
+    // These cross-line recognizers are deliberately syntax-shaped rather than
+    // path-shaped. They recover high-value lifecycle behavior from exact code
+    // even when model extraction fails, without inferring it from a filename or
+    // a lone generic symbol.
+    addRangeFact({
+      patterns: [
+        /input\.decision\s*===\s*["']keep["']/,
+        /input\.decision\s*===\s*["']edit_and_keep["']/,
+        /input\.decision\s*===\s*["']revert["']/,
+        /await\s+retireEntity\s*\(/,
+      ],
+      statement: `${file.path} dispatches keep, edit-and-keep, revert, and retire review decisions through separate handlers.`,
+      category: "behavior",
+      breadth: 5,
+      productImportance: 5,
+    });
+    addRangeFact({
+      patterns: [
+        /repositoryKnowledgeRefreshApplicationService\.start\s*\(/,
+        /trigger:\s*["']backfill["']/,
+        /idempotencyKey:\s*`knowledge-edit:/,
+      ],
+      statement: `${file.path} queues an idempotent repository revalidation pass for an edited knowledge successor.`,
+      category: "data_flow",
+      breadth: 5,
+      productImportance: 5,
+    });
+    addRangeFact({
+      patterns: [
+        /reviewSnapshotMatchesEntity\s*\(/,
+        /activeSuccessor/,
+        /decision:\s*["']retired["']/,
+      ],
+      statement: `${file.path} retires a review card when its snapshot no longer matches the current entity or a newer successor exists.`,
+      category: "behavior",
+      breadth: 4,
+      productImportance: 4,
+    });
+    addRangeFact({
+      patterns: [
+        /action\s*===\s*["']retired["'].*["']restore_retired["']/,
+        /["']restore_in_place["']/,
+        /["']retire_applied_revision["']/,
+      ],
+      statement: `${file.path} maps lifecycle actions to restore-retired, restore-in-place, or retire-applied-revision modes.`,
+      category: "behavior",
+      breadth: 5,
+      productImportance: 5,
+    });
+    addRangeFact({
+      patterns: [
+        /mode\s*===\s*["']restore_in_place["']/,
+        /validationHeads\s*=/,
+        /projectFactEvidence\.deleteMany\s*\(/,
+        /projectFactEvidence\.createMany\s*\(/,
+      ],
+      statement: `${file.path} restores validation state and exact Project Fact evidence relations from a recorded pre-change snapshot.`,
+      category: "data_flow",
+      breadth: 5,
+      productImportance: 5,
+    });
+    addRangeFact({
+      patterns: [
+        /supersedesProjectFactId:/,
+        /tx\.projectFact\.update\s*\([^\n]*lifecycleStatus:\s*["']superseded["']/,
+      ],
+      statement: `${file.path} creates a successor Project Fact linked to its predecessor and marks the predecessor superseded.`,
+      category: "data_flow",
+      breadth: 4,
+      productImportance: 4,
+    });
+    const highlightInvalidation = lines.findIndex((line) => /await\s+invalidateHighlightDependents\s*\(/.test(line));
+    if (highlightInvalidation >= 0) {
+      addFact(
+        `${file.path} invalidates downstream dependents after a supporting Highlight changes.`,
+        "data_flow",
+        highlightInvalidation + 1,
+        5,
+        highlightInvalidation + 1,
+        5,
+      );
+    }
+    const evidenceInvalidation = lines.findIndex((line) => /await\s+invalidateEvidenceDependents\s*\(/.test(line));
+    if (evidenceInvalidation >= 0) {
+      addFact(
+        `${file.path} invalidates downstream dependents after supporting Evidence changes.`,
+        "data_flow",
+        evidenceInvalidation + 1,
+        5,
+        evidenceInvalidation + 1,
+        5,
+      );
     }
 
     if (/\/(?:page|route)\.(?:ts|tsx|js|jsx)$/.test(file.path)) {
@@ -662,6 +889,7 @@ export function mergeRepositoryFileAnalysis(staticAnalysis: RepositoryFileAnalys
     tokenUsage: semanticAnalysis.tokenUsage,
     analysisMode: "semantic",
     semanticStatus: semanticAnalysis.semanticStatus ?? (semanticAnalysis.facts.length ? "succeeded" : "degraded"),
+    semanticSource: semanticAnalysis.semanticSource ?? "model",
     semanticDiagnostics: semanticAnalysis.semanticDiagnostics ?? [],
   };
 }
@@ -679,17 +907,56 @@ export async function analyzeRepositoryFilesHierarchically(input: Array<{
 }
 
 export function buildCoverageMatrix(input: Array<{ path: string; analysis: RepositoryFileAnalysis }>) {
-  const targetMap = new Map<string, { key: string; label: string; paths: Set<string>; semanticPaths: Set<string>; observations: number; unresolved: Set<string> }>();
+  const targetMap = new Map<string, {
+    key: string;
+    label: string;
+    paths: Set<string>;
+    semanticPaths: Set<string>;
+    modelSemanticPaths: Set<string>;
+    deterministicFallbackPaths: Set<string>;
+    observations: number;
+    unresolved: Set<string>;
+  }>();
   for (const target of BASE_COVERAGE_TARGETS) {
-    targetMap.set(target.key, { key: target.key, label: target.label, paths: new Set(), semanticPaths: new Set(), observations: 0, unresolved: new Set() });
+    targetMap.set(target.key, {
+      key: target.key,
+      label: target.label,
+      paths: new Set(),
+      semanticPaths: new Set(),
+      modelSemanticPaths: new Set(),
+      deterministicFallbackPaths: new Set(),
+      observations: 0,
+      unresolved: new Set(),
+    });
   }
   for (const file of input) {
     for (const key of file.analysis.subsystemKeys) {
-      const current = targetMap.get(key) ?? { key, label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "), paths: new Set<string>(), semanticPaths: new Set<string>(), observations: 0, unresolved: new Set<string>() };
+      const current = targetMap.get(key) ?? {
+        key,
+        label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "),
+        paths: new Set<string>(),
+        semanticPaths: new Set<string>(),
+        modelSemanticPaths: new Set<string>(),
+        deterministicFallbackPaths: new Set<string>(),
+        observations: 0,
+        unresolved: new Set<string>(),
+      };
       const factsForCapability = file.analysis.facts.filter((fact) => fact.subsystemKeys?.includes(key));
       const semanticFactsForCapability = factsForCapability.filter((fact) => fact.evidenceMode !== "static");
       current.paths.add(file.path);
-      if (file.analysis.analysisMode === "semantic" && semanticFactsForCapability.length > 0) current.semanticPaths.add(file.path);
+      const successfulSemanticAnalysis =
+        file.analysis.analysisMode === "semantic" &&
+        file.analysis.semanticStatus === "succeeded";
+      if (successfulSemanticAnalysis && semanticFactsForCapability.length > 0) {
+        current.semanticPaths.add(file.path);
+        if (file.analysis.semanticSource === "deterministic_fallback") current.deterministicFallbackPaths.add(file.path);
+        else current.modelSemanticPaths.add(file.path);
+      } else if (
+        file.analysis.semanticSource === "deterministic_fallback" &&
+        semanticFactsForCapability.length > 0
+      ) {
+        current.deterministicFallbackPaths.add(file.path);
+      }
       current.observations += factsForCapability.length + file.analysis.architectureSignals.length + file.analysis.responsibilities.length;
       for (const question of file.analysis.unresolvedQuestions) current.unresolved.add(question);
       targetMap.set(key, current);
@@ -707,6 +974,8 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
     observationCount: target.observations,
     staticPathCount: target.paths.size,
     semanticPathCount: target.semanticPaths.size,
+    modelSemanticPathCount: target.modelSemanticPaths.size,
+    deterministicFallbackPathCount: target.deterministicFallbackPaths.size,
     unresolvedQuestions: Array.from(target.unresolved).slice(0, 20),
   }));
 }

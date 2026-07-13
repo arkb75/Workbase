@@ -154,4 +154,116 @@ describe("repository semantic task and budget", () => {
       expect.objectContaining({ status: "provider_error" }),
     ]));
   });
+
+  it("recovers safe capability coverage from exact-line deterministic facts after structured extraction fails", async () => {
+    generateStructuredMock.mockRejectedValueOnce(new Error("Bedrock temporarily unavailable"));
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 16_000,
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "workbase/demo",
+      commitSha: "d".repeat(40),
+      path: "workflows/project-chat.ts",
+      content: [
+        '"use step";',
+        "await prisma.chatMessage.update({ where: { id } });",
+        '"use workflow";',
+      ].join("\n"),
+      task: {
+        objective: "Determine how project chat is durably orchestrated.",
+        capabilityKeys: ["workflow_orchestration"],
+        questions: ["Where are retry-safe boundaries defined?"],
+        expectedOutputs: ["A supported workflow observation"],
+      },
+      budget,
+    });
+
+    expect(analysis.semanticStatus).toBe("degraded");
+    expect(analysis.semanticSource).toBe("deterministic_fallback");
+    expect(analysis.unresolvedQuestions).toEqual(expect.arrayContaining([
+      expect.stringContaining("partial coverage"),
+      expect.stringContaining("Bedrock temporarily unavailable"),
+    ]));
+    expect(analysis.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        evidenceMode: "deterministic_fallback",
+        subsystemKeys: ["workflow_orchestration"],
+      }),
+    ]));
+    expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "provider_error" }),
+      expect.objectContaining({ status: "deterministic_exact_line_fallback" }),
+    ]));
+  });
+
+  it("recovers review lifecycle semantics from decisions, restoration, invalidation, and revalidation patterns", async () => {
+    generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
+    const analysis = await analyzeRepositoryFile({
+      repository: "workbase/demo",
+      commitSha: "e".repeat(40),
+      path: "src/services/knowledge-review-service.ts",
+      content: [
+        "await repositoryKnowledgeRefreshApplicationService.start({",
+        '  trigger: "backfill",',
+        "  idempotencyKey: `knowledge-edit:${successor.id}`",
+        "});",
+        'if (input.decision === "keep") await keep(change);',
+        'if (input.decision === "edit_and_keep") await edit(change);',
+        'if (input.decision === "revert") await revert(change);',
+        "await retireEntity(change);",
+        'if (action === "retired") return "restore_retired";',
+        'if (action === "updated") return "restore_in_place";',
+        'return "retire_applied_revision";',
+        'if (mode === "restore_in_place") {',
+        "  const validationHeads = before.validationHeads;",
+        "  await tx.projectFactEvidence.deleteMany({ where: { projectFactId } });",
+        "  await tx.projectFactEvidence.createMany({ data: evidence });",
+        "}",
+        "await invalidateHighlightDependents({ highlightId });",
+      ].join("\n"),
+      task: {
+        objective: "Determine how reviewed knowledge can be edited, restored, and revalidated.",
+        capabilityKeys: ["knowledge_review_lifecycle"],
+        questions: [],
+        expectedOutputs: ["Supported review lifecycle observations"],
+      },
+    });
+
+    expect(analysis.semanticStatus).toBe("degraded");
+    expect(analysis.semanticSource).toBe("deterministic_fallback");
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/dispatches keep, edit-and-keep, revert, and retire/);
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/repository revalidation pass/);
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/restores validation state and exact Project Fact evidence relations/);
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/invalidates downstream dependents/);
+  });
+
+  it("does not mark lifecycle coverage complete from generic Prisma and symbol observations alone", async () => {
+    generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
+    const analysis = await analyzeRepositoryFile({
+      repository: "workbase/demo",
+      commitSha: "f".repeat(40),
+      path: "src/services/knowledge-review-service.ts",
+      content: [
+        "export async function resolveKnowledgeChange() {",
+        "  return prisma.knowledgeChange.findMany();",
+        "}",
+        "export const knowledgeReviewService = { resolve: resolveKnowledgeChange };",
+      ].join("\n"),
+      task: {
+        objective: "Determine the complete knowledge review lifecycle.",
+        capabilityKeys: ["knowledge_review_lifecycle"],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+
+    expect(analysis.semanticStatus).toBe("failed");
+    expect(analysis.semanticSource).toBeUndefined();
+    expect(analysis.facts).toEqual([]);
+  });
 });

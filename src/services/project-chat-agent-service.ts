@@ -32,6 +32,7 @@ import { projectExecutionRouterService } from "@/src/services/project-execution-
 import {
   accomplishmentSubsystemPriority,
   auditAccomplishmentBlocks,
+  compactAlreadyGroundedAccomplishmentBlocks,
   completeGroundedAccomplishmentAnswer,
   isTopLevelAccomplishmentSubsystem,
   selectAccomplishmentRequirementSet,
@@ -275,7 +276,13 @@ export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
   const selected: ProjectKnowledgeHit[] = [];
   const subsystemCounts = new Map<string, number>();
   const mandatorySubsystems = Array.from(new Set(remaining
-    .filter((entry) => (entry.hit.accomplishmentRanking?.productImportance ?? 0) >= 4 && (entry.hit.accomplishmentRanking?.implementationBreadth ?? 0) >= 3)
+    .filter((entry) =>
+      isTopLevelAccomplishmentSubsystem(entry.hit.subsystemKey) ||
+      (
+        (entry.hit.accomplishmentRanking?.productImportance ?? 0) >= 4 &&
+        (entry.hit.accomplishmentRanking?.implementationBreadth ?? 0) >= 3
+      )
+    )
     .map((entry) => entry.hit.subsystemKey)
     .filter((value): value is string => Boolean(value))));
   for (const subsystem of mandatorySubsystems) {
@@ -863,10 +870,13 @@ async function executeProjectChatAgent(
         dossier: capabilityInputs.researchDossier,
       });
       const initialAudit = auditAccomplishmentBlocks(initialGrounding.blocks, memoryCatalog.entries);
-      const verified = initialAudit.complete
+      const compactedGrounding = initialAudit.complete
+        ? initialGrounding.blocks
+        : compactAlreadyGroundedAccomplishmentBlocks(initialGrounding.blocks, memoryCatalog.entries);
+      const verified = compactedGrounding
         ? {
-            grounded: initialGrounding,
-            audit: initialAudit,
+            grounded: { ...initialGrounding, blocks: compactedGrounding },
+            audit: auditAccomplishmentBlocks(compactedGrounding, memoryCatalog.entries),
             partial: false,
             warning: null,
           }
@@ -1024,8 +1034,19 @@ async function executeProjectChatAgent(
       let fallbackUsed = false;
       let completionWarning: string | null = null;
       let finalAudit = initialAudit;
-      if (initialAudit.complete) {
-        accomplishmentCoverageWarning = initialAudit.coverageWarning;
+      const compactedGrounding = initialAudit.complete
+        ? grounded.blocks
+        : compactAlreadyGroundedAccomplishmentBlocks(grounded.blocks, memoryCatalog.entries);
+      if (compactedGrounding) {
+        finalGrounded = {
+          ...grounded,
+          blocks: compactedGrounding.map((block) => ({ ...block, heading: block.heading ?? null })),
+        };
+        finalAudit = auditAccomplishmentBlocks(compactedGrounding, memoryCatalog.entries);
+        accomplishmentCoverageWarning = finalAudit.coverageWarning;
+        completionState = initialAudit.complete
+          ? "skipped_initial_answer_complete"
+          : "compacted_already_grounded_blocks";
       } else {
         const completion = await completeGroundedAccomplishmentAnswer({
           workItemId: input.workItemId,

@@ -102,6 +102,11 @@ export interface CapabilityReport {
   tokenUsage: unknown[];
   usage: RepositorySemanticBudgetUsage;
   partial: boolean;
+  cacheHits?: Array<{
+    fileSnapshotId: string;
+    cachedFileSnapshotId: string;
+    blobSha: string;
+  }>;
 }
 
 const emptyUsage = (): RepositorySemanticBudgetUsage => ({
@@ -156,6 +161,58 @@ function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
   return Array.isArray(analysis.facts) && Array.isArray(analysis.subsystemKeys) ? analysis : null;
+}
+
+function isImmutableSemanticCacheHitDiagnostic(value: unknown) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { status?: unknown }).status === "immutable_blob_semantic_cache_hit",
+  );
+}
+
+export function reusableSemanticAnalysis(input: {
+  value: unknown;
+  path: string;
+  capabilityKeys: string[];
+}) {
+  const analysis = parseAnalysis(input.value);
+  if (
+    !analysis ||
+    analysis.semanticStatus !== "succeeded" ||
+    !analysis.facts.length ||
+    !input.capabilityKeys.length
+  ) return null;
+  // A work package can assign several capability areas to one file. Reusing a
+  // cached result is safe only when it contains supported findings for every
+  // capability that the current static map says this file represents. A
+  // partial overlap would skip the file and silently recreate coverage gaps.
+  const coveredKeys = new Set(analysis.facts.flatMap((fact) => fact.subsystemKeys ?? []));
+  if (input.capabilityKeys.some((key) => !coveredKeys.has(key))) return null;
+  return {
+    ...analysis,
+    path: input.path,
+    facts: analysis.facts.map((fact) => ({ ...fact, path: input.path })),
+  } satisfies RepositoryFileAnalysis;
+}
+
+export function immutableSemanticCacheWhere(input: {
+  fileSnapshotId: string;
+  sourceId: string;
+  path: string;
+  blobSha: string;
+}): Prisma.RepositoryFileSnapshotWhereInput {
+  return {
+    id: { not: input.fileSnapshotId },
+    path: input.path,
+    blobSha: input.blobSha,
+    disposition: "analyzed",
+    semanticStatus: "succeeded",
+    semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+    semanticAnalysis: { not: Prisma.DbNull },
+    snapshot: { sourceId: input.sourceId },
+  };
 }
 
 function stablePackageId(refreshRunId: string, capabilityKeys: string[], fileSnapshotIds: string[]) {
@@ -405,6 +462,7 @@ async function runWorkPackage(input: {
   const candidates: CapabilityCandidate[] = [];
   const gaps: string[] = [];
   const tokenUsage: unknown[] = [];
+  const cacheHits: NonNullable<CapabilityReport["cacheHits"]> = [];
   const budget = createRepositorySemanticBudget({
     maxInputBytes: input.workPackage.budget.maxInputBytes,
     maxModelCalls: input.workPackage.budget.maxModelCalls,
@@ -418,6 +476,82 @@ async function runWorkPackage(input: {
       const staticAnalysis = parseAnalysis(file.analysis);
       if (!target || !file.blobSha || !staticAnalysis) {
         gaps.push(`${file.path} could not be authorized or loaded from the static map.`);
+        continue;
+      }
+      const cachedFile = await prisma.repositoryFileSnapshot.findFirst({
+        where: immutableSemanticCacheWhere({
+          fileSnapshotId: file.id,
+          sourceId: file.snapshot.sourceId,
+          path: file.path,
+          blobSha: file.blobSha,
+        }),
+        select: {
+          id: true,
+          semanticAnalysis: true,
+          semanticDiagnostics: true,
+        },
+        orderBy: { semanticAnalyzedAt: "desc" },
+      });
+      const fileCapabilityKeys = input.workPackage.capabilityKeys.filter((key) =>
+        staticAnalysis.subsystemKeys.includes(key),
+      );
+      const cachedSemantic = cachedFile
+        ? reusableSemanticAnalysis({
+            value: cachedFile.semanticAnalysis,
+            path: file.path,
+            capabilityKeys: fileCapabilityKeys,
+          })
+        : null;
+      if (cachedFile && cachedSemantic) {
+        const semanticDiagnostics = [
+          ...(Array.isArray(cachedSemantic.semanticDiagnostics)
+            ? cachedSemantic.semanticDiagnostics.filter((entry) => !isImmutableSemanticCacheHitDiagnostic(entry))
+            : []),
+          {
+            status: "immutable_blob_semantic_cache_hit",
+            cachedFileSnapshotId: cachedFile.id,
+            blobSha: file.blobSha,
+            analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          },
+        ];
+        const reused = {
+          ...cachedSemantic,
+          // Current-run telemetry records a cache hit, not the provider usage
+          // incurred when the immutable blob was first analyzed.
+          tokenUsage: [],
+          semanticBudgetUsage: undefined,
+          semanticDiagnostics,
+        };
+        await prisma.repositoryFileSnapshot.update({
+          where: { id: file.id },
+          data: {
+            semanticStatus: "succeeded",
+            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticRefreshRunId: input.refreshRunId,
+            semanticAnalysis: inputJson(reused),
+            semanticDiagnostics: inputJson(semanticDiagnostics),
+            semanticAnalyzedAt: new Date(),
+          },
+        });
+        inspected.push(file.id);
+        cacheHits.push({
+          fileSnapshotId: file.id,
+          cachedFileSnapshotId: cachedFile.id,
+          blobSha: file.blobSha,
+        });
+        for (const fact of reused.facts) {
+          const capabilityKey = input.workPackage.capabilityKeys.find((key) => fact.subsystemKeys?.includes(key));
+          if (!capabilityKey) continue;
+          candidates.push({
+            key: capabilityKey,
+            statement: fact.statement,
+            kind: fact.category === "data_flow" ? "data_flow" : fact.category === "dependency" ? "integration" : "behavior",
+            evidence: [{ fileSnapshotId: file.id, lineStart: fact.lineStart, lineEnd: fact.lineEnd }],
+            confidence: fact.confidence,
+            supportedQualifiers: [],
+            unresolved: [],
+          });
+        }
         continue;
       }
       const read = await repositoryKnowledgeSyncService.readFile({
@@ -508,6 +642,7 @@ async function runWorkPackage(input: {
     tokenUsage,
     usage,
     partial: gaps.length > 0 || inspected.length !== input.workPackage.fileSnapshotIds.length || !candidates.length,
+    cacheHits,
   };
   try {
     await prisma.agentRun.update({

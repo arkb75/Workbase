@@ -117,7 +117,27 @@ describe("project knowledge retrieval mappings", () => {
       id: "work-item-1",
       highlights: [highlight],
       projectFacts: [],
-      evidenceItems: [{
+      evidenceItems: [
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `evidence-commit-${index}`,
+          sourceId: "source-repository",
+          included: true,
+          type: "github_commit",
+          title: `High-scoring repository commit ${index}`,
+          content: `Implemented repository capability ${index} with current code evidence.`,
+          searchText: `strongest accomplishments current repository capability ${index}`,
+          metadata: {},
+          createdAt: now,
+          updatedAt: now,
+          tags: [],
+          source: {
+            id: "source-repository",
+            label: "Workbase repository",
+            type: "github_repo",
+            metadata: {},
+          },
+        })),
+        {
         id: "evidence-work-item-description",
         sourceId: "source-description",
         included: true,
@@ -135,7 +155,8 @@ describe("project knowledge retrieval mappings", () => {
           type: "manual_note",
           metadata: { kind: "work_item_description" },
         },
-      }],
+        },
+      ],
       artifacts: [
         {
           id: "artifact-grounded",

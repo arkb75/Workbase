@@ -42,6 +42,8 @@ describe("complete repository coverage", () => {
     expect(matrix.find((target) => target.key === "retrieval_provenance")).toMatchObject({
       status: "semantic_verified",
       paths: ["src/services/project-knowledge-retrieval-service.ts"],
+      modelSemanticPathCount: 1,
+      deterministicFallbackPathCount: 0,
     });
     expect(matrix.find((target) => target.key === "review_ui")?.status).toBe("not_applicable");
   });
@@ -147,6 +149,50 @@ describe("complete repository coverage", () => {
     expect(matrix.find((target) => target.key === "domain_data")).toMatchObject({
       status: "static_mapped",
       semanticPathCount: 0,
+    });
+  });
+
+  it("reports deterministic fallback coverage separately from model semantic coverage", () => {
+    const matrix = buildCoverageMatrix([{
+      path: "workflows/project-chat.ts",
+      analysis: {
+        path: "workflows/project-chat.ts",
+        summary: "Deterministic exact-line workflow observations.",
+        subsystemKeys: ["workflow_orchestration"],
+        responsibilities: ["Defines retry-safe workflow steps."],
+        symbols: [],
+        dependencies: [],
+        architectureSignals: ["deterministic exact-line semantic fallback"],
+        userFacingCapabilities: [],
+        facts: [{
+          statement: "workflows/project-chat.ts defines retry-safe workflow steps.",
+          category: "architecture",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+          productImportance: 4,
+          implementationBreadth: 5,
+          technicalDifficulty: 4,
+          subsystemKeys: ["workflow_orchestration"],
+          evidenceMode: "deterministic_fallback",
+          path: "workflows/project-chat.ts",
+        }],
+        unresolvedQuestions: [],
+        chunksAnalyzed: 1,
+        tokenUsage: [],
+        analysisMode: "semantic",
+        semanticStatus: "degraded",
+        semanticSource: "deterministic_fallback",
+        semanticDiagnostics: [{ status: "deterministic_exact_line_fallback" }],
+      },
+    }]);
+
+    expect(matrix.find((target) => target.key === "workflow_orchestration")).toMatchObject({
+      status: "static_mapped",
+      semanticPathCount: 0,
+      modelSemanticPathCount: 0,
+      deterministicFallbackPathCount: 1,
     });
   });
 });

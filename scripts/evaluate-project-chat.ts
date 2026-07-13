@@ -22,6 +22,7 @@ import {
   parseRuntimeAccomplishmentAudit,
 } from "../src/services/project-answer-evaluation-service";
 import { findUnsupportedOwnershipClaims } from "../src/services/project-answer-grounding-service";
+import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
 
 const prompt = process.argv.slice(2).join(" ").trim() || "Summarize my strongest accomplishments and make sure your information is up to date";
 
@@ -175,7 +176,8 @@ async function main() {
   const usedOrdinals = new Set(canonicalOrdinals);
   const citedProjectFactIds = message.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []);
   const citedHighlightIds = message.citations.flatMap((citation) => citation.highlightId ? [citation.highlightId] : []);
-  const [highPriorityLedger, citedProjectFacts, citedHighlights, completenessEvent] = await Promise.all([
+  const citedEvidenceItemIds = message.citations.flatMap((citation) => citation.evidenceItemId ? [citation.evidenceItemId] : []);
+  const [highPriorityLedger, citedProjectFacts, citedHighlights, citedEvidenceItems, completenessEvent] = await Promise.all([
     prisma.repositoryCapabilityLedger.findMany({
       where: { refreshRunId: refresh.id, priority: { gte: 5 }, status: "semantic_verified" },
       orderBy: [{ priority: "desc" }, { capabilityKey: "asc" }],
@@ -187,6 +189,10 @@ async function main() {
     prisma.highlight.findMany({
       where: { id: { in: citedHighlightIds.length ? citedHighlightIds : [""] } },
       include: { evidence: { include: { evidenceItem: true } } },
+    }),
+    prisma.evidenceItem.findMany({
+      where: { id: { in: citedEvidenceItemIds.length ? citedEvidenceItemIds : [""] } },
+      include: { source: true },
     }),
     prisma.agentRunEvent.findFirst({
       where: { agentRunId: run.id, toolName: "audit_answer_completeness" },
@@ -208,6 +214,9 @@ async function main() {
   ));
   const citationByHighlightId = new Map(message.citations.flatMap((citation) =>
     citation.highlightId ? [[citation.highlightId, citation] as const] : [],
+  ));
+  const citationByEvidenceItemId = new Map(message.citations.flatMap((citation) =>
+    citation.evidenceItemId ? [[citation.evidenceItemId, citation] as const] : [],
   ));
   const citedRuntimeSources = message.citations.flatMap((citation) => {
     const sourceId = citation.projectFactId ?? citation.highlightId ?? citation.evidenceItemId ?? citation.artifactId ?? citation.sourceId;
@@ -249,20 +258,37 @@ async function main() {
   });
   const unsupportedOwnershipClaims = findUnsupportedOwnershipClaims({
     answer: message.content,
-    entries: citedHighlights.flatMap((highlight) => {
-      const citation = citationByHighlightId.get(highlight.id);
-      if (!citation) return [];
-      return [{
-        kind: "highlight",
-        authority: highlight.verificationStatus === "approved" ? "verified_highlight" : "candidate_highlight",
-        title: highlight.text,
-        content: highlight.summary,
-        currentRun: false,
-        citationIndexes: [citation.ordinal],
-        ownershipAuthority: highlight.ownershipClarity === "clear" ? 5 : highlight.ownershipClarity === "partial" ? 3 : 1,
-        supportingSources: [],
-      }];
-    }),
+    entries: [
+      ...citedHighlights.flatMap((highlight) => {
+        const citation = citationByHighlightId.get(highlight.id);
+        if (!citation) return [];
+        return [{
+          kind: "highlight",
+          authority: highlight.verificationStatus === "approved" ? "verified_highlight" : "candidate_highlight",
+          title: highlight.text,
+          content: highlight.summary,
+          currentRun: false,
+          citationIndexes: [citation.ordinal],
+          ownershipAuthority: highlight.ownershipClarity === "clear" ? 5 : highlight.ownershipClarity === "partial" ? 3 : 1,
+          supportingSources: [],
+        }];
+      }),
+      ...citedEvidenceItems.flatMap((evidence) => {
+        const citation = citationByEvidenceItemId.get(evidence.id);
+        if (!citation) return [];
+        const eligible = evidence.included && evidence.lifecycleStatus === "active";
+        return [{
+          kind: "evidence",
+          authority: eligible ? "included_evidence" : "excluded_evidence",
+          title: evidence.title,
+          content: evidence.content,
+          currentRun: false,
+          citationIndexes: [citation.ordinal],
+          ownershipAuthority: eligible ? explicitSelfReportedOwnershipAuthority(evidence) : 0,
+          supportingSources: [],
+        }];
+      }),
+    ],
   });
   const checks = {
     latestCommitPinned: targets.length > 0 && targets.every((target) => typeof target.commitSha === "string" && target.commitSha.length === 40),

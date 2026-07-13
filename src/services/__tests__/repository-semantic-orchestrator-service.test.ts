@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   enforceMandatoryCoverage,
+  immutableSemanticCacheWhere,
   preserveSettledCapabilityReports,
+  reusableSemanticAnalysis,
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
@@ -111,6 +113,85 @@ describe("repository semantic orchestration guardrails", () => {
       inspectedFileSnapshotIds: [],
       partial: true,
       gaps: [expect.stringContaining("provider unavailable")],
+    });
+  });
+
+  it("reuses immutable-blob semantic analysis only when it supports the assigned capability", () => {
+    const cached = {
+      path: "src/old-path.ts",
+      summary: "Implements durable chat orchestration.",
+      subsystemKeys: ["workflow_orchestration"],
+      responsibilities: ["Defines retry-safe workflow steps."],
+      symbols: ["projectChatWorkflow"],
+      dependencies: [],
+      architectureSignals: ["retry-safe workflow step"],
+      userFacingCapabilities: [],
+      facts: [{
+        statement: "The workflow defines retry-safe steps.",
+        category: "architecture" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        lineStart: 4,
+        lineEnd: 4,
+        productImportance: 4,
+        implementationBreadth: 5,
+        technicalDifficulty: 4,
+        subsystemKeys: ["workflow_orchestration"],
+        evidenceMode: "semantic" as const,
+        path: "src/old-path.ts",
+      }],
+      unresolvedQuestions: [],
+      chunksAnalyzed: 1,
+      tokenUsage: [],
+      analysisMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSource: "model" as const,
+    };
+
+    expect(reusableSemanticAnalysis({
+      value: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    })).toMatchObject({
+      path: "workflows/project-chat.ts",
+      facts: [expect.objectContaining({ path: "workflows/project-chat.ts" })],
+    });
+    expect(reusableSemanticAnalysis({
+      value: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["domain_data"],
+    })).toBeNull();
+    expect(reusableSemanticAnalysis({
+      value: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration", "project_chat_grounding"],
+    })).toBeNull();
+    expect(reusableSemanticAnalysis({
+      value: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: [],
+    })).toBeNull();
+    expect(reusableSemanticAnalysis({
+      value: { ...cached, semanticStatus: "degraded" },
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    })).toBeNull();
+  });
+
+  it("scopes semantic cache reuse to an immutable blob at the same attached source and path", () => {
+    expect(immutableSemanticCacheWhere({
+      fileSnapshotId: "current-file",
+      sourceId: "attached-source",
+      path: "workflows/project-chat.ts",
+      blobSha: "a".repeat(40),
+    })).toMatchObject({
+      id: { not: "current-file" },
+      path: "workflows/project-chat.ts",
+      blobSha: "a".repeat(40),
+      disposition: "analyzed",
+      semanticStatus: "succeeded",
+      semanticAnalyzerVersion: "repository-coverage-v12",
+      snapshot: { sourceId: "attached-source" },
     });
   });
 });

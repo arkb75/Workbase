@@ -84,6 +84,19 @@ describe("accomplishment synthesis ranking", () => {
     expect(ranked.map((entry) => entry.id)).not.toContain("module-helper");
   });
 
+  it("selects one top-level subsystem representative before an extra member", () => {
+    const ranked = rankAccomplishmentHits([
+      hit({ id: "artifact-primary", subsystem: "artifact_generation", score: 5 }),
+      hit({ id: "artifact-extra", subsystem: "artifact_generation", score: 5 }),
+      hit({ id: "product-representative", subsystem: "product_surface", score: 1 }),
+    ], 2);
+
+    expect(ranked.map((entry) => entry.id)).toEqual([
+      "product-representative",
+      "artifact-primary",
+    ]);
+  });
+
   it("reserves explicit self-reported ownership evidence before ordinary evidence", () => {
     const ordinaryEvidence: ProjectKnowledgeHit[] = Array.from({ length: 6 }, (_, index) => ({
       id: `commit-${index + 1}`,
