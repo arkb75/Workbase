@@ -10,6 +10,7 @@ function hit(input: {
   subsystem: string;
   score: number;
   title?: string;
+  content?: string;
   kind?: "highlight" | "project_fact";
 }): ProjectKnowledgeHit {
   const kind = input.kind ?? "project_fact";
@@ -18,7 +19,7 @@ function hit(input: {
     kind,
     authority: kind === "highlight" ? "verified_highlight" : "verified_project_fact",
     title: input.title ?? `Capability ${input.id}`,
-    content: `Evidence-backed implementation for ${input.id}`,
+    content: input.content ?? `Evidence-backed implementation for ${input.id}`,
     score: input.score,
     subsystemKey: input.subsystem,
     validatedThroughSha: "c".repeat(40),
@@ -95,6 +96,101 @@ describe("accomplishment synthesis ranking", () => {
       "product-representative",
       "artifact-primary",
     ]);
+  });
+
+  it.each([
+    {
+      subsystem: "ingestion_integrations",
+      broadTitle: "Implemented GitHub OAuth repository import",
+      broadContent: "GitHub OAuth connect and callback routes authorize bounded repository source imports.",
+      narrowTitle: "Added an internal byte-budget counter",
+    },
+    {
+      subsystem: "domain_data",
+      broadTitle: "Designed the Prisma and PostgreSQL data model",
+      broadContent: "The Prisma schema persists normalized application state in Neon PostgreSQL.",
+      narrowTitle: "Versioned one capability-ledger column",
+    },
+    {
+      subsystem: "review_ui",
+      broadTitle: "Built the project workspace user interface",
+      broadContent: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+      narrowTitle: "Rendered a citation popover",
+    },
+    {
+      subsystem: "tests_operations",
+      broadTitle: "Built broad automated Vitest coverage",
+      broadContent: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
+      narrowTitle: "Designed a three-tier semantic fallback",
+    },
+  ])("chooses broad $subsystem coverage before a higher-ranked narrow implementation detail", ({
+    subsystem,
+    broadTitle,
+    broadContent,
+    narrowTitle,
+  }) => {
+    const ranked = rankAccomplishmentHits([
+      hit({ id: "narrow", subsystem, score: 5, title: narrowTitle }),
+      hit({ id: "broad", subsystem, score: 3, title: broadTitle, content: broadContent }),
+    ], 1);
+
+    expect(ranked.map((entry) => entry.id)).toEqual(["broad"]);
+  });
+
+  it("preserves broad representatives before the 12-item accomplishment catalog is pruned", () => {
+    const subsystems = [
+      "product_surface",
+      "repository_knowledge_lifecycle",
+      "project_chat_grounding",
+      "artifact_generation",
+      "knowledge_review_lifecycle",
+      "workflow_orchestration",
+      "ai_runtime",
+      "retrieval_provenance",
+      "ingestion_integrations",
+      "domain_data",
+      "review_ui",
+      "tests_operations",
+    ];
+    const broadBySubsystem: Record<string, { title: string; content: string }> = {
+      ingestion_integrations: {
+        title: "Implemented GitHub OAuth repository import",
+        content: "GitHub OAuth connect and callback routes authorize bounded repository source imports.",
+      },
+      domain_data: {
+        title: "Designed the Prisma and PostgreSQL data model",
+        content: "The Prisma schema persists normalized application state in Neon PostgreSQL.",
+      },
+      review_ui: {
+        title: "Built the project workspace user interface",
+        content: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+      },
+      tests_operations: {
+        title: "Built broad automated Vitest coverage",
+        content: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
+      },
+    };
+    const hits = subsystems.flatMap((subsystem, index) => {
+      const broad = broadBySubsystem[subsystem] ?? {
+        title: `Broad ${subsystem} capability`,
+        content: `Broad evidence-backed ${subsystem} implementation.`,
+      };
+      return [
+        hit({ id: `narrow-${index}`, subsystem, score: 5, title: `Narrow ${subsystem} detail` }),
+        hit({ id: `broad-${index}`, subsystem, score: 3, title: broad.title, content: broad.content }),
+      ];
+    });
+
+    const catalog = buildMemoryCatalog({
+      hits,
+      query: "Summarize my strongest accomplishments and make sure your information is up to date",
+    });
+
+    for (const subsystem of Object.keys(broadBySubsystem)) {
+      expect(catalog.selectedHits.some((entry) =>
+        entry.subsystemKey === subsystem && entry.title === broadBySubsystem[subsystem]!.title
+      )).toBe(true);
+    }
   });
 
   it("reserves explicit self-reported ownership evidence before ordinary evidence", () => {

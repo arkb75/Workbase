@@ -219,6 +219,12 @@ describe("project answer completeness", () => {
       broadContent: "Automated unit, integration, workflow, and UI tests run through the Vitest test suite.",
       narrowTitle: "Refined one fixture helper",
     },
+    {
+      subsystem: "review_ui",
+      broadTitle: "Built the project workspace user interface",
+      broadContent: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+      narrowTitle: "Refined one citation popover",
+    },
   ])("prioritizes broad $subsystem coverage anchors over a higher-scored narrow detail", ({
     subsystem,
     broadTitle,

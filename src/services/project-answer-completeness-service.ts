@@ -230,7 +230,11 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
   ],
 };
 
-function subsystemCoverageAnchorScore(entry: AccomplishmentGroundingEntry) {
+export function accomplishmentCoverageAnchorScore(entry: {
+  subsystemKey?: string | null;
+  title: string;
+  content: string;
+}) {
   if (!entry.subsystemKey) return 0;
   const value = `${entry.title} ${entry.content}`;
   return (subsystemCoverageAnchors[entry.subsystemKey] ?? [])
@@ -241,7 +245,7 @@ function compareAccomplishmentCoverage(
   left: AccomplishmentGroundingEntry,
   right: AccomplishmentGroundingEntry,
 ) {
-  return subsystemCoverageAnchorScore(right) - subsystemCoverageAnchorScore(left) ||
+  return accomplishmentCoverageAnchorScore(right) - accomplishmentCoverageAnchorScore(left) ||
     score(right) - score(left) ||
     Number(right.currentRun) - Number(left.currentRun);
 }

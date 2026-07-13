@@ -30,6 +30,7 @@ import { projectKnowledgeRetrievalService } from "@/src/services/project-knowled
 import { projectResearchService } from "@/src/services/project-research-service";
 import { projectExecutionRouterService } from "@/src/services/project-execution-router-service";
 import {
+  accomplishmentCoverageAnchorScore,
   accomplishmentSubsystemPriority,
   auditAccomplishmentBlocks,
   compactAlreadyGroundedAccomplishmentBlocks,
@@ -271,6 +272,7 @@ export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
     .map((hit) => ({ hit, score: accomplishmentScore(hit) }))
     .sort((left, right) =>
       accomplishmentSubsystemPriority(left.hit.subsystemKey) - accomplishmentSubsystemPriority(right.hit.subsystemKey) ||
+      accomplishmentCoverageAnchorScore(right.hit) - accomplishmentCoverageAnchorScore(left.hit) ||
       right.score - left.score,
     );
   const selected: ProjectKnowledgeHit[] = [];

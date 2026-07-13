@@ -19,7 +19,12 @@ import {
   type RepositoryInventoryEntry,
   type RepositoryTargetHead,
 } from "@/src/services/repository-knowledge-sync-service";
-import { repositorySemanticOrchestratorService } from "@/src/services/repository-semantic-orchestrator-service";
+import {
+  REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+  repositorySemanticOrchestratorService,
+} from "@/src/services/repository-semantic-orchestrator-service";
+
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v15";
 
 const targetHeadSchema = z.object({
   sourceId: z.string(),
@@ -37,6 +42,20 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function currentKnowledgeRefreshPolicyMetadata() {
+  return {
+    analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+    coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
+    orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+    synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
+  };
+}
+
+export function policyScopedKnowledgeRefreshIdempotencyKey(baseKey: string) {
+  const policyHash = hash(JSON.stringify(currentKnowledgeRefreshPolicyMetadata())).slice(0, 16);
+  return `${baseKey}:policy:${policyHash}`;
 }
 
 function record(value: unknown) {
@@ -63,14 +82,27 @@ export function isKnowledgeRefreshPartial(input: { qualityStatus: unknown; cover
   });
 }
 
-function blockingSemanticGaps(questions: string[]) {
-  return questions.filter((question) =>
-    /(?:failed|could not|insufficient|missing decisive|no supported|unreadable|coverage blocker)/i.test(question),
-  );
-}
-
 function parseTargets(value: unknown): RepositoryTargetHead[] {
   return z.array(targetHeadSchema).parse(value);
+}
+
+export function isReusableKnowledgeRefresh(input: {
+  warnings: unknown;
+  qualityStatus: unknown;
+  completedTargets: RepositoryTargetHead[];
+  targets: RepositoryTargetHead[];
+}) {
+  const warnings = record(input.warnings);
+  const policy = currentKnowledgeRefreshPolicyMetadata();
+  return warnings.analyzerVersion === policy.analyzerVersion &&
+    warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
+    warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
+    warnings.synthesisPolicyVersion === policy.synthesisPolicyVersion &&
+    input.qualityStatus === "verified" &&
+    input.completedTargets.length === input.targets.length &&
+    input.targets.every((target) => input.completedTargets.some((completed) =>
+      completed.sourceId === target.sourceId && completed.commitSha === target.commitSha
+    ));
 }
 
 function languageForPath(path: string) {
@@ -140,22 +172,22 @@ export async function startKnowledgeRefresh(input: {
   const completedTargets = latestCompleted?.completedHeads && Array.isArray(latestCompleted.completedHeads)
     ? parseTargets(latestCompleted.completedHeads)
     : [];
-  const completedWarnings = latestCompleted?.warnings && typeof latestCompleted.warnings === "object" && !Array.isArray(latestCompleted.warnings)
-    ? latestCompleted.warnings as Record<string, unknown>
-    : null;
   const forceRevalidation = input.trigger === "backfill" && input.idempotencyKey?.startsWith("knowledge-edit:");
   if (
     !forceRevalidation &&
-    completedWarnings?.analyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
-    completedWarnings?.synthesisPolicyVersion === "repository-synthesis-v15" &&
-    latestCompleted?.qualityStatus === "verified" &&
-    completedTargets.length === targets.length &&
-    targets.every((target) => completedTargets.some((completed) => completed.sourceId === target.sourceId && completed.commitSha === target.commitSha))
+    isReusableKnowledgeRefresh({
+      warnings: latestCompleted?.warnings,
+      qualityStatus: latestCompleted?.qualityStatus,
+      completedTargets,
+      targets,
+    })
   ) {
     return { runId: latestCompleted!.id, status: latestCompleted!.status, targets };
   }
   const headsHash = hash(targets.map((target) => `${target.sourceId}:${target.commitSha}`).join("|"));
-  const idempotencyKey = input.idempotencyKey ?? `${input.trigger}:${headsHash}`;
+  const idempotencyKey = policyScopedKnowledgeRefreshIdempotencyKey(
+    input.idempotencyKey ?? `${input.trigger}:${headsHash}`,
+  );
   const run = await prisma.knowledgeRefreshRun.upsert({
     where: { workItemId_idempotencyKey: { workItemId: input.workItemId, idempotencyKey } },
     create: {
@@ -581,13 +613,12 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       file.semanticRefreshRunId === runId &&
       file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
       (file.semanticStatus === "degraded" || file.semanticStatus === "failed" || file.semanticStatus === "pending")
-        ? [`Semantic analysis ${file.semanticStatus} for ${file.path}.`]
+        ? [{ path: file.path, message: `Semantic analysis ${file.semanticStatus} for ${file.path}.` }]
         : [],
     );
     const coverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
       ...(area.semanticPathCount === 0 ? [`${area.label} has static coverage but no successful semantic analysis.`] : []),
-      ...blockingSemanticGaps(area.unresolvedQuestions).map((question) => `${area.label}: ${question}`),
-    ]), ...semanticDegradations]));
+    ]), ...semanticDegradations.map((entry) => entry.message)]));
     const semanticPaths = analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length;
     const semanticCoverageStatus = requiredAreas.length === 0 && semanticDegradations.length === 0
       ? "not_required"
@@ -637,7 +668,13 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         : area.observationCount >= 8
           ? 3
           : 1;
-      const blockingGaps = blockingSemanticGaps(area.unresolvedQuestions);
+      // Model-authored unresolved questions are useful diagnostics, but they
+      // are not a trustworthy quality signal. Coverage is blocked only by a
+      // structural absence of supported semantic evidence or by an explicit
+      // semantic execution failure recorded on a representative file.
+      const blockingGaps = semanticDegradations
+        .filter((entry) => area.paths.includes(entry.path))
+        .map((entry) => entry.message);
       const status = area.status === "not_applicable"
         ? "not_applicable"
         : area.semanticPathCount > 0 && !blockingGaps.length
@@ -707,8 +744,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       warnings: toInputJson({
         ...record(run.warnings),
         modelId: resolveBedrockConfig().modelId,
-        analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
-        synthesisPolicyVersion: "repository-synthesis-v15",
+        ...currentKnowledgeRefreshPolicyMetadata(),
       }),
     },
   });

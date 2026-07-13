@@ -27,7 +27,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v3";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v4";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 160_000;
 const MAX_FILES_PER_WORKER = 3;
@@ -102,11 +102,42 @@ export interface CapabilityReport {
   tokenUsage: unknown[];
   usage: RepositorySemanticBudgetUsage;
   partial: boolean;
+  diagnosticNotes?: string[];
   cacheHits?: Array<{
     fileSnapshotId: string;
     cachedFileSnapshotId: string;
     blobSha: string;
   }>;
+}
+
+export function semanticFileReportSignals(input: {
+  path: string;
+  semanticStatus: RepositoryFileAnalysis["semanticStatus"];
+  unresolvedQuestions: string[];
+}) {
+  return {
+    gaps: input.semanticStatus === "succeeded"
+      ? []
+      : [`${input.path}: Semantic analysis ${input.semanticStatus ?? "degraded"}.`],
+    diagnosticNotes: input.unresolvedQuestions.map((question) => `${input.path}: ${question}`),
+  };
+}
+
+export function missingCapabilityCandidateGaps(input: {
+  capabilityKeys: string[];
+  candidates: Array<Pick<CapabilityCandidate, "key">>;
+}) {
+  const coveredKeys = new Set(input.candidates.map((candidate) => candidate.key));
+  return Array.from(new Set(input.capabilityKeys))
+    .filter((key) => !coveredKeys.has(key))
+    .map((key) => `No supported semantic finding was produced for required capability ${key}.`);
+}
+
+export function partitionCapabilityReports(reports: Array<Pick<CapabilityReport, "packageId" | "partial">>) {
+  return {
+    completePackages: reports.filter((report) => !report.partial).map((report) => report.packageId),
+    incompletePackages: reports.filter((report) => report.partial).map((report) => report.packageId),
+  };
 }
 
 const emptyUsage = (): RepositorySemanticBudgetUsage => ({
@@ -524,6 +555,7 @@ async function runWorkPackage(input: {
   const candidates: CapabilityCandidate[] = [];
   const gaps: string[] = [];
   const tokenUsage: unknown[] = [];
+  const diagnosticNotes: string[] = [];
   const cacheHits: NonNullable<CapabilityReport["cacheHits"]> = [];
   let relevantFileCount = 0;
   const budget = createRepositorySemanticBudget({
@@ -613,6 +645,7 @@ async function runWorkPackage(input: {
           analysis: reused,
           relevantCapabilityKeys: fileTask.capabilityKeys,
         }));
+        diagnosticNotes.push(...cachedSemantic.unresolvedQuestions.map((question) => `${file.path}: ${question}`));
         continue;
       }
       const read = await repositoryKnowledgeSyncService.readFile({
@@ -656,7 +689,13 @@ async function runWorkPackage(input: {
       });
       inspected.push(file.id);
       tokenUsage.push(...semantic.tokenUsage);
-      gaps.push(...semantic.unresolvedQuestions.map((gap) => `${file.path}: ${gap}`));
+      const reportSignals = semanticFileReportSignals({
+        path: file.path,
+        semanticStatus,
+        unresolvedQuestions: semantic.unresolvedQuestions,
+      });
+      gaps.push(...reportSignals.gaps);
+      diagnosticNotes.push(...reportSignals.diagnosticNotes);
       candidates.push(...capabilityCandidatesFromAnalysis({
         fileSnapshotId: file.id,
         analysis: semantic,
@@ -677,6 +716,10 @@ async function runWorkPackage(input: {
       }).catch(() => null);
     }
   }
+  gaps.push(...missingCapabilityCandidateGaps({
+    capabilityKeys: input.workPackage.capabilityKeys,
+    candidates,
+  }));
   const usage = snapshotRepositorySemanticBudget(budget);
   const report: CapabilityReport = {
     packageId: input.workPackage.id,
@@ -687,6 +730,7 @@ async function runWorkPackage(input: {
     tokenUsage,
     usage,
     partial: gaps.length > 0 || inspected.length !== relevantFileCount || !candidates.length,
+    diagnosticNotes: Array.from(new Set(diagnosticNotes)),
     cacheHits,
   };
   try {
@@ -771,6 +815,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       })]
     : []));
   const remainingGaps = Array.from(new Set(finalReports.flatMap((report) => report.gaps)));
+  const packageCompletion = partitionCapabilityReports(finalReports);
   const workerUsage = aggregateWorkerUsage(finalReports);
   const actualUsage = {
     inputBytes: workerUsage.inputBytes,
@@ -793,8 +838,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       status: "completed",
       request: inputJson({ packageIds: packages.map((entry) => entry.id) }),
       result: inputJson({
-        completePackages: finalReports.filter((entry) => entry.inspectedFileSnapshotIds.length && entry.candidates.length).map((entry) => entry.packageId),
-        incompletePackages: finalReports.filter((entry) => !entry.inspectedFileSnapshotIds.length || !entry.candidates.length).map((entry) => entry.packageId),
+        ...packageCompletion,
         remainingGaps,
         usage: actualUsage,
       }),
@@ -805,8 +849,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     update: {
       status: "completed",
       result: inputJson({
-        completePackages: finalReports.filter((entry) => entry.inspectedFileSnapshotIds.length && entry.candidates.length).map((entry) => entry.packageId),
-        incompletePackages: finalReports.filter((entry) => !entry.inspectedFileSnapshotIds.length || !entry.candidates.length).map((entry) => entry.packageId),
+        ...packageCompletion,
         remainingGaps,
         usage: actualUsage,
       }),

@@ -18,10 +18,16 @@ vi.mock("@/src/lib/llm-config", () => ({
 
 import {
   finalizeKnowledgeCoverage,
+  isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
+  policyScopedKnowledgeRefreshIdempotencyKey,
 } from "@/src/services/knowledge-refresh-service";
 
-function analysis(input: { mode: "static" | "semantic"; status?: "succeeded" | "degraded" }) {
+function analysis(input: {
+  mode: "static" | "semantic";
+  status?: "succeeded" | "degraded";
+  unresolvedQuestions?: string[];
+}) {
   return {
     path: "src/agent.ts",
     summary: "Implements the project agent runtime.",
@@ -44,7 +50,7 @@ function analysis(input: { mode: "static" | "semantic"; status?: "succeeded" | "
       subsystemKeys: ["ai_runtime"],
       path: "src/agent.ts",
     }],
-    unresolvedQuestions: [],
+    unresolvedQuestions: input.unresolvedQuestions ?? [],
     chunksAnalyzed: 1,
     tokenUsage: [],
     analysisMode: input.mode,
@@ -60,6 +66,45 @@ describe("latest-commit freshness barrier", () => {
     prismaMock.repositoryCapabilityLedger.upsert.mockResolvedValue({});
     prismaMock.repositorySnapshot.update.mockResolvedValue({});
     prismaMock.knowledgeRefreshRun.update.mockResolvedValue({});
+  });
+
+  it("invalidates same-head refresh reuse when a coverage or orchestration policy is stale", () => {
+    const target = {
+      sourceId: "source-1",
+      repository: "workbase/demo",
+      branch: "main",
+      commitSha: "d".repeat(40),
+      treeSha: "e".repeat(40),
+      committedAt: null,
+      resolvedAt: new Date().toISOString(),
+    };
+    const currentWarnings = {
+      analyzerVersion: "repository-coverage-v13",
+      coveragePolicyVersion: "repository-coverage-v5",
+      orchestrationPolicyVersion: "repository-orchestration-v4",
+      synthesisPolicyVersion: "repository-synthesis-v15",
+    };
+
+    expect(isReusableKnowledgeRefresh({
+      warnings: { ...currentWarnings, coveragePolicyVersion: "repository-coverage-v4" },
+      qualityStatus: "verified",
+      completedTargets: [target],
+      targets: [target],
+    })).toBe(false);
+    expect(isReusableKnowledgeRefresh({
+      warnings: { ...currentWarnings, orchestrationPolicyVersion: "repository-orchestration-v3" },
+      qualityStatus: "verified",
+      completedTargets: [target],
+      targets: [target],
+    })).toBe(false);
+    expect(isReusableKnowledgeRefresh({
+      warnings: currentWarnings,
+      qualityStatus: "verified",
+      completedTargets: [target],
+      targets: [target],
+    })).toBe(true);
+    expect(policyScopedKnowledgeRefreshIdempotencyKey("chat:same-head"))
+      .toMatch(/^chat:same-head:policy:[a-f0-9]{16}$/);
   });
 
   it("refuses to finalize while any eligible repository file lacks analysis", async () => {
@@ -140,6 +185,75 @@ describe("latest-commit freshness barrier", () => {
     }));
     expect(prismaMock.knowledgeRefreshRun.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ qualityStatus: "degraded" }),
+    }));
+  });
+
+  it("does not let a successful model's informational question degrade verified coverage", async () => {
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
+      id: "refresh-1",
+      workItemId: "work-item-1",
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "workbase/demo",
+        branch: "main",
+        commitSha: "d".repeat(40),
+        treeSha: "e".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      warnings: null,
+      snapshots: [{
+        id: "snapshot-1",
+        sourceId: "source-1",
+        commitSha: "d".repeat(40),
+        files: [{
+          id: "file-1",
+          path: "src/agent.ts",
+          disposition: "analyzed",
+          analyzerVersion: "repository-coverage-v13",
+          analysis: analysis({ mode: "static" }),
+          semanticStatus: "succeeded",
+          semanticAnalyzerVersion: "repository-coverage-v13",
+          semanticRefreshRunId: "refresh-1",
+          semanticAnalysis: analysis({
+            mode: "semantic",
+            status: "succeeded",
+            unresolvedQuestions: [
+              "What condition distinguishes a degraded fallback from a failed outcome in omitted lines?",
+            ],
+          }),
+        }],
+      }],
+    });
+
+    const result = await finalizeKnowledgeCoverage("refresh-1");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        semanticPaths: 1,
+        coverageGaps: [],
+      }),
+    ]);
+    const aiRuntimeLedgerCall = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.create.capabilityKey === "ai_runtime");
+    expect(aiRuntimeLedgerCall).toMatchObject({
+      create: { status: "semantic_verified", gaps: [] },
+      update: { status: "semantic_verified", gaps: [] },
+    });
+    expect(prismaMock.knowledgeRefreshRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        qualityStatus: "verified",
+        warnings: expect.objectContaining({
+          analyzerVersion: "repository-coverage-v13",
+          coveragePolicyVersion: "repository-coverage-v5",
+          orchestrationPolicyVersion: "repository-orchestration-v4",
+          synthesisPolicyVersion: "repository-synthesis-v15",
+        }),
+      }),
     }));
   });
 

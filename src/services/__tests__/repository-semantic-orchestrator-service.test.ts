@@ -4,8 +4,11 @@ import {
   capabilityCandidatesFromAnalysis,
   enforceMandatoryCoverage,
   immutableSemanticCacheWhere,
+  missingCapabilityCandidateGaps,
+  partitionCapabilityReports,
   preserveSettledCapabilityReports,
   reusableSemanticAnalysis,
+  semanticFileReportSignals,
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
@@ -115,6 +118,49 @@ describe("repository semantic orchestration guardrails", () => {
       inspectedFileSnapshotIds: [],
       partial: true,
       gaps: [expect.stringContaining("provider unavailable")],
+    });
+  });
+
+  it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {
+    const signals = semanticFileReportSignals({
+      path: "src/services/__tests__/repository-semantic-budget-service.test.ts",
+      semanticStatus: "succeeded",
+      unresolvedQuestions: [
+        "What condition distinguishes a degraded fallback from a failed outcome in omitted lines?",
+      ],
+    });
+
+    expect(signals.gaps).toEqual([]);
+    expect(signals.diagnosticNotes).toEqual([
+      expect.stringContaining("failed outcome"),
+    ]);
+  });
+
+  it("keeps execution failures and missing required capabilities as deterministic gaps", () => {
+    expect(semanticFileReportSignals({
+      path: "src/services/provider.ts",
+      semanticStatus: "failed",
+      unresolvedQuestions: ["The provider request timed out."],
+    })).toMatchObject({
+      gaps: ["src/services/provider.ts: Semantic analysis failed."],
+      diagnosticNotes: [expect.stringContaining("timed out")],
+    });
+
+    expect(missingCapabilityCandidateGaps({
+      capabilityKeys: ["ai_runtime", "domain_data", "ai_runtime"],
+      candidates: [{ key: "ai_runtime" }],
+    })).toEqual([
+      "No supported semantic finding was produced for required capability domain_data.",
+    ]);
+  });
+
+  it("classifies structurally partial reports as incomplete even when they inspected files and emitted candidates", () => {
+    expect(partitionCapabilityReports([
+      { packageId: "complete", partial: false },
+      { packageId: "missing-one-capability", partial: true },
+    ])).toEqual({
+      completePackages: ["complete"],
+      incompletePackages: ["missing-one-capability"],
     });
   });
 
