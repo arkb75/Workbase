@@ -4,6 +4,7 @@ import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { resolveBedrockConfig } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
+import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
 import {
   buildHighlightEmbeddingText,
   upsertHighlightEmbedding,
@@ -12,7 +13,6 @@ import {
   buildProjectFactEmbeddingText,
   upsertProjectFactEmbedding,
 } from "@/src/services/knowledge-embedding-service";
-import { publicKnowledgeVerificationService } from "@/src/services/public-knowledge-verification-service";
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
 import {
   materializeSynthesisCitations,
@@ -30,6 +30,25 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function shouldQuarantineSynthesizedCandidate(candidate: {
+  sensitivityFlag: boolean;
+  confidence: string;
+}) {
+  return candidate.sensitivityFlag || candidate.confidence === "low";
+}
+
+export function repositoryHighlightPublicDisposition(unsafe: boolean) {
+  return {
+    eligible: false,
+    correctedText: null,
+    reasons: [unsafe
+      ? "The Highlight failed the automatic safety gate."
+      : "Repository evidence verifies implementation, but public use requires reviewed ownership context."],
+    claimChecks: [],
+    tokenUsage: null,
+  };
 }
 
 function tokens(value: string) {
@@ -87,36 +106,13 @@ async function recordChange(input: {
   downstreamImpact?: unknown;
   suffix: string;
 }) {
-  const relation = input.entityKind === "evidence"
-    ? { evidenceItemId: input.entityId }
-    : input.entityKind === "highlight"
-      ? { highlightId: input.entityId }
-      : input.entityKind === "project_fact"
-        ? { projectFactId: input.entityId }
-        : { artifactId: input.entityId };
-  return prisma.knowledgeChange.upsert({
-    where: {
-      workItemId_idempotencyKey: {
-        workItemId: input.workItemId,
-        idempotencyKey: `${input.refreshRunId ?? "direct"}:${input.entityKind}:${input.action}:${input.suffix}`,
-      },
-    },
-    create: {
-      workItemId: input.workItemId,
-      refreshRunId: input.refreshRunId,
-      entityKind: input.entityKind,
-      action: input.action,
-      ...relation,
-      beforeSnapshot: input.beforeSnapshot === undefined ? undefined : toInputJson(input.beforeSnapshot),
-      afterSnapshot: input.afterSnapshot === undefined ? undefined : toInputJson(input.afterSnapshot),
-      reason: input.reason,
-      provenance: input.provenance === undefined ? undefined : toInputJson(input.provenance),
-      downstreamImpact: input.downstreamImpact === undefined ? undefined : toInputJson(input.downstreamImpact),
-      policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
-      modelId: resolveBedrockConfig().modelId,
-      idempotencyKey: `${input.refreshRunId ?? "direct"}:${input.entityKind}:${input.action}:${input.suffix}`,
-    },
-    update: {},
+  const idempotencyKey = `${input.refreshRunId ?? "direct"}:${input.entityKind}:${input.action}:${input.suffix}`;
+  return upsertReviewableKnowledgeChange({
+    ...input,
+    refreshRunId: input.refreshRunId ?? null,
+    policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+    modelId: resolveBedrockConfig().modelId,
+    idempotencyKey,
   });
 }
 
@@ -137,6 +133,8 @@ async function preparePromotedEvidence(input: {
   const promoted = await promoteRepositoryCitations({
     workItemId: input.workItemId,
     citations: entries.map(([, citation]) => citation),
+    reviewScope: `knowledge-refresh:${input.runId}`,
+    refreshRunId: input.runId,
   });
   const promotedIdByReference = new Map<string, string>();
   for (const [index, [key]] of entries.entries()) {
@@ -190,10 +188,16 @@ async function applyFact(input: {
     .map((fact) => ({ fact, score: knowledgeSimilarity(input.candidate.statement, fact.statement) }))
     .sort((left, right) => right.score - left.score);
   const closest = ranked.find((entry) => entry.fact.subsystemKey === input.subsystem.subsystemKey) ?? null;
-  const unsafe = input.subsystem.approvalEligible === false || input.candidate.sensitivityFlag || input.candidate.confidence === "low";
+  const unsafe = shouldQuarantineSynthesizedCandidate(input.candidate);
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
+  const validatesUserEdit = Boolean(
+    closest &&
+    closest.score >= 0.35 &&
+    closest.fact.approvalSource === "user" &&
+    closest.fact.lifecycleStatus === "needs_validation",
+  );
 
-  if (exact && !unsafe) {
+  if ((exact || validatesUserEdit) && !unsafe && closest) {
     await prisma.$transaction(async (tx) => {
       await tx.projectFactEvidence.deleteMany({ where: { projectFactId: closest.fact.id } });
       await tx.projectFact.update({
@@ -201,9 +205,11 @@ async function applyFact(input: {
         data: {
           status: "approved",
           lifecycleStatus: "active",
+          reviewState: "pending_review",
           validatedThroughSha: input.commitSha,
           lastValidatedAt: new Date(),
           validationHeads: toInputJson(input.validationHeads),
+          autoAppliedAt: new Date(),
           rejectionReason: null,
           productImportance: input.candidate.productImportance,
           implementationBreadth: input.candidate.implementationBreadth,
@@ -220,10 +226,41 @@ async function applyFact(input: {
       entityKind: "project_fact",
       action: "revalidated",
       entityId: closest.fact.id,
-      beforeSnapshot: { statement: closest.fact.statement, validatedThroughSha: closest.fact.validatedThroughSha },
-      afterSnapshot: { statement: closest.fact.statement, validatedThroughSha: input.commitSha },
-      reason: "Current repository evidence revalidated this Project Fact.",
-      provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha },
+      beforeSnapshot: {
+        id: closest.fact.id,
+        statement: closest.fact.statement,
+        status: closest.fact.status,
+        lifecycleStatus: closest.fact.lifecycleStatus,
+        reviewState: closest.fact.reviewState,
+        approvalSource: closest.fact.approvalSource,
+        publicSafetyStatus: closest.fact.publicSafetyStatus,
+        validatedThroughSha: closest.fact.validatedThroughSha,
+        validationHeads: closest.fact.validationHeads,
+        lastValidatedAt: closest.fact.lastValidatedAt,
+        autoAppliedAt: closest.fact.autoAppliedAt,
+        evidenceItemIds: closest.fact.evidence.map((entry) => entry.evidenceItemId),
+      },
+      afterSnapshot: {
+        id: closest.fact.id,
+        statement: closest.fact.statement,
+        status: "approved",
+        lifecycleStatus: "active",
+        reviewState: "pending_review",
+        approvalSource: closest.fact.approvalSource,
+        publicSafetyStatus: closest.fact.publicSafetyStatus,
+        validatedThroughSha: input.commitSha,
+        validationHeads: input.validationHeads,
+        autoAppliedAt: new Date(),
+        evidenceItemIds: input.evidenceIds,
+      },
+      reason: validatesUserEdit
+        ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
+        : "Current repository evidence revalidated this Project Fact.",
+      provenance: {
+        evidenceIds: input.evidenceIds,
+        commitSha: input.commitSha,
+        preservedUserEdit: validatesUserEdit,
+      },
       suffix: `${closest.fact.id}:${input.commitSha}`,
     });
     return closest.fact.id;
@@ -296,17 +333,13 @@ async function applyHighlight(input: {
   validationHeads: Record<string, string>;
 }) {
   if (!input.evidenceIds.length) return null;
-  const unsafe = input.subsystem.approvalEligible === false || input.candidate.sensitivityFlag || input.candidate.confidence === "low";
-  const publicVerification = unsafe
-    ? { eligible: false, correctedText: null, reasons: ["The Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null }
-    : await publicKnowledgeVerificationService.verify({
-        text: input.candidate.text,
-        summary: input.candidate.summary,
-        confidence: input.candidate.confidence,
-        ownershipClarity: "unclear",
-        sensitivityFlag: input.candidate.sensitivityFlag,
-        evidence: input.evidence,
-      });
+  const unsafe = shouldQuarantineSynthesizedCandidate(input.candidate);
+  // Repository contents can verify implementation but cannot establish who
+  // personally performed the work. Running a public-claim verifier for every
+  // repository-derived Highlight is both expensive and guaranteed to fail the
+  // ownership gate in the normal case. Auto-apply it as private memory and let
+  // later reviewed ownership context drive a separate public verification.
+  const publicVerification = repositoryHighlightPublicDisposition(unsafe);
   const text = publicVerification.eligible && publicVerification.correctedText
     ? publicVerification.correctedText
     : input.candidate.text;
@@ -323,6 +356,81 @@ async function applyHighlight(input: {
     })
     .map((highlight) => ({ highlight, score: knowledgeSimilarity(text, highlight.text) }))
     .sort((left, right) => right.score - left.score)[0] ?? null;
+  const exact = Boolean(
+    closest &&
+    closest.score >= 0.9 &&
+    normalizeWhitespace(closest.highlight.text).toLowerCase() === normalizeWhitespace(text).toLowerCase(),
+  );
+  const validatesUserEdit = Boolean(
+    closest &&
+    closest.score >= 0.35 &&
+    closest.highlight.approvalSource === "user" &&
+    closest.highlight.lifecycleStatus === "needs_validation",
+  );
+  if ((exact || validatesUserEdit) && !unsafe && closest) {
+    await prisma.$transaction(async (tx) => {
+      await tx.highlightEvidence.deleteMany({ where: { highlightId: closest.highlight.id } });
+      await tx.highlight.update({
+        where: { id: closest.highlight.id },
+        data: {
+          verificationStatus: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          validatedThroughSha: input.commitSha,
+          lastValidatedAt: new Date(),
+          validationHeads: toInputJson(input.validationHeads),
+          autoAppliedAt: new Date(),
+          rejectionReason: null,
+          evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
+        },
+      });
+      await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+    });
+    await recordChange({
+      workItemId: input.workItemId,
+      refreshRunId: input.runId,
+      entityKind: "highlight",
+      action: "revalidated",
+      entityId: closest.highlight.id,
+      beforeSnapshot: {
+        id: closest.highlight.id,
+        text: closest.highlight.text,
+        verificationStatus: closest.highlight.verificationStatus,
+        lifecycleStatus: closest.highlight.lifecycleStatus,
+        reviewState: closest.highlight.reviewState,
+        approvalSource: closest.highlight.approvalSource,
+        publicSafetyStatus: closest.highlight.publicSafetyStatus,
+        validatedThroughSha: closest.highlight.validatedThroughSha,
+        validationHeads: closest.highlight.validationHeads,
+        lastValidatedAt: closest.highlight.lastValidatedAt,
+        autoAppliedAt: closest.highlight.autoAppliedAt,
+        evidenceItemIds: closest.highlight.evidence.map((entry) => entry.evidenceItemId),
+      },
+      afterSnapshot: {
+        id: closest.highlight.id,
+        text: closest.highlight.text,
+        verificationStatus: "approved",
+        lifecycleStatus: "active",
+        reviewState: "pending_review",
+        approvalSource: closest.highlight.approvalSource,
+        publicSafetyStatus: closest.highlight.publicSafetyStatus,
+        validatedThroughSha: input.commitSha,
+        validationHeads: input.validationHeads,
+        autoAppliedAt: new Date(),
+        evidenceItemIds: input.evidenceIds,
+      },
+      reason: validatesUserEdit
+        ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
+        : "Current repository evidence revalidated this Highlight.",
+      provenance: {
+        evidenceIds: input.evidenceIds,
+        commitSha: input.commitSha,
+        preservedUserEdit: validatesUserEdit,
+      },
+      suffix: `${closest.highlight.id}:${input.commitSha}`,
+    });
+    return closest.highlight.id;
+  }
   const supersedes = !unsafe && closest && closest.score >= 0.55 ? closest.highlight : null;
   const tags = inferHighlightTags({
     text,

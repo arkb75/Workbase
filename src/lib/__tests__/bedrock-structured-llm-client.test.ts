@@ -5,6 +5,8 @@ import { toBedrockCompatibleJsonSchema } from "@/src/lib/llm-json-schemas";
 import {
   AwsBedrockConverseRuntime,
   BedrockStructuredLlmClient,
+  createStructuredGenerationBudget,
+  StructuredGenerationBudgetError,
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 
@@ -212,6 +214,71 @@ describe("BedrockStructuredLlmClient", () => {
       status: "provider_error",
       transportMode: "text_repair_fallback",
     });
+  });
+
+  it("enforces the shared model-call budget across structured transports", async () => {
+    const { client, calls } = makeClient([
+      { text: "not valid json" },
+      { structuredData: { ok: true } },
+    ]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 1,
+      maxOutputTokens: 128,
+      maxTotalTokens: 10_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 512,
+      budget,
+    })).rejects.toBeInstanceOf(StructuredGenerationBudgetError);
+
+    expect(calls).toHaveLength(1);
+    expect(budget.usage).toMatchObject({ modelCalls: 1, inputTokens: 10, outputTokens: 20, totalTokens: 30 });
+  });
+
+  it("enforces output, repair, and cumulative token ceilings before another call", async () => {
+    const { client, calls } = makeClient([{ text: "not valid json" }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 4,
+      maxRepairPasses: 0,
+      maxOutputTokens: 64,
+      maxTotalTokens: 10_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+      maxTokens: 512,
+      budget,
+    })).rejects.toMatchObject({ code: "repair_budget_exhausted" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxTokens).toBe(64);
+    budget.usage.totalTokens = budget.limits.maxTotalTokens;
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 512,
+      budget,
+    })).rejects.toMatchObject({ code: "token_budget_exhausted" });
+    expect(calls).toHaveLength(1);
   });
 });
 

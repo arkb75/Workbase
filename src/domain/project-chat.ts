@@ -63,6 +63,7 @@ export interface ProjectKnowledgeHit {
   status?: VerificationStatus;
   visibility?: VisibilityLevel;
   sensitivityFlag?: boolean;
+  ownershipAuthority?: number;
   subsystemKey?: string | null;
   validatedThroughSha?: string | null;
   accomplishmentRanking?: {

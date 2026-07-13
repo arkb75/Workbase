@@ -264,7 +264,7 @@ function CitationList({
                   {citation.commitSha ? ` · ${citation.commitSha.slice(0, 8)}` : ""}
                 </p>
               ) : null}
-              {citation.kind === "project_fact" && citation.provenance.length ? (
+              {(citation.kind === "project_fact" || citation.kind === "highlight") && citation.provenance.length ? (
                 <details className="mt-1 text-xs text-[color:var(--ink-muted)]">
                   <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
                     View underlying repository evidence

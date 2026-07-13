@@ -259,6 +259,7 @@ export async function createProjectFactCandidates(input: {
   const promoted = await promoteRepositoryCitations({
     workItemId: input.workItemId,
     citations: selectedCitations,
+    reviewScope: `project-fact-research:${input.runId}`,
   });
   const localIndexByOriginal = new Map(
     selectedOriginalIndexes.map((originalIndex, localIndex) => [originalIndex, localIndex]),

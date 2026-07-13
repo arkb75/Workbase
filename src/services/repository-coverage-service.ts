@@ -4,11 +4,18 @@ import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
-import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  createStructuredGenerationBudget,
+  snapshotStructuredGenerationBudget,
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+  type StructuredGenerationBudget,
+  type StructuredGenerationBudgetUsage,
+} from "@/src/lib/bedrock-structured-llm-client";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v2";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v4";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -17,6 +24,10 @@ export const BASE_COVERAGE_TARGETS = [
   { key: "ingestion_integrations", label: "Ingestion and integrations" },
   { key: "retrieval_provenance", label: "Retrieval and provenance" },
   { key: "workflow_orchestration", label: "Workflow and orchestration" },
+  { key: "repository_knowledge_lifecycle", label: "Repository knowledge lifecycle" },
+  { key: "project_chat_grounding", label: "Project chat and answer grounding" },
+  { key: "artifact_generation", label: "Artifact generation" },
+  { key: "knowledge_review_lifecycle", label: "Knowledge review lifecycle" },
   { key: "review_ui", label: "Review and UI" },
   { key: "tests_operations", label: "Tests and operations" },
 ] as const;
@@ -74,6 +85,59 @@ const semanticAnalysisJsonSchema: JsonSchemaObject = {
 };
 export type RepositorySemanticAnalysis = z.infer<typeof semanticAnalysisSchema>;
 
+export interface RepositorySemanticTask {
+  objective: string;
+  capabilityKeys: string[];
+  questions: string[];
+  expectedOutputs: string[];
+}
+
+export interface RepositorySemanticBudget {
+  maxInputBytes: number;
+  inputBytes: number;
+  model: StructuredGenerationBudget;
+}
+
+export interface RepositorySemanticBudgetUsage extends StructuredGenerationBudgetUsage {
+  inputBytes: number;
+}
+
+export class RepositorySemanticBudgetError extends Error {
+  constructor(
+    public readonly code: "input_byte_budget_exhausted",
+    message: string,
+  ) {
+    super(message);
+    this.name = "RepositorySemanticBudgetError";
+  }
+}
+
+export function createRepositorySemanticBudget(input: {
+  maxInputBytes: number;
+  maxModelCalls: number;
+  maxRepairPasses: number;
+  maxOutputTokens: number;
+  maxTotalTokens: number;
+}): RepositorySemanticBudget {
+  if (!Number.isInteger(input.maxInputBytes) || input.maxInputBytes < 0) {
+    throw new Error("maxInputBytes must be a non-negative integer.");
+  }
+  return {
+    maxInputBytes: input.maxInputBytes,
+    inputBytes: 0,
+    model: createStructuredGenerationBudget({
+      maxModelCalls: input.maxModelCalls,
+      maxRepairPasses: input.maxRepairPasses,
+      maxOutputTokens: input.maxOutputTokens,
+      maxTotalTokens: input.maxTotalTokens,
+    }),
+  };
+}
+
+export function snapshotRepositorySemanticBudget(budget: RepositorySemanticBudget): RepositorySemanticBudgetUsage {
+  return { inputBytes: budget.inputBytes, ...snapshotStructuredGenerationBudget(budget.model) };
+}
+
 export interface RepositoryChunkAnalysis {
   summary: string;
   subsystemKeys: string[];
@@ -93,6 +157,7 @@ export interface RepositoryChunkAnalysis {
     implementationBreadth: number;
     technicalDifficulty: number;
     subsystemKeys?: string[];
+    evidenceMode?: "static" | "semantic";
   }>;
   unresolvedQuestions: string[];
 }
@@ -113,6 +178,7 @@ export interface RepositoryFileAnalysis {
   analysisMode?: "static" | "semantic";
   semanticStatus?: "not_selected" | "pending" | "succeeded" | "degraded" | "failed";
   semanticDiagnostics?: unknown[];
+  semanticBudgetUsage?: RepositorySemanticBudgetUsage;
 }
 
 function unique(values: readonly string[], limit: number) {
@@ -203,7 +269,8 @@ export function selectSemanticWindows(content: string) {
     : chunkByLines(content.slice(0, semanticByteLimit));
 }
 
-function mockAnalysis(path: string, lineStart: number, lineEnd: number): RepositoryChunkAnalysis {
+function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabilityKeys?: string[]): RepositoryChunkAnalysis {
+  const supportedKeys = capabilityKeys?.length ? capabilityKeys : inferSubsystemsFromPath(path);
   return {
     summary: `${path} is an analyzed repository source file.`,
     subsystemKeys: inferSubsystemsFromPath(path),
@@ -222,7 +289,8 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number): Reposit
       productImportance: 1,
       implementationBreadth: 1,
       technicalDifficulty: 1,
-      subsystemKeys: inferSubsystemsFromPath(path),
+      subsystemKeys: supportedKeys,
+      evidenceMode: "semantic",
     }],
     unresolvedQuestions: [],
   };
@@ -237,9 +305,38 @@ async function analyzeChunk(input: {
   lineStart: number;
   lineEnd: number;
   content: string;
+  task?: RepositorySemanticTask;
+  budget?: RepositorySemanticBudget;
 }) {
   if (resolveWorkbaseLlmProvider() === "mock") {
-    return { data: mockAnalysis(input.path, input.lineStart, input.lineEnd), tokenUsage: null, diagnostics: null };
+    return { data: mockAnalysis(input.path, input.lineStart, input.lineEnd, input.task?.capabilityKeys), tokenUsage: null, diagnostics: null };
+  }
+  const allowedCapabilityKeys = input.task?.capabilityKeys.length
+    ? Array.from(new Set(input.task.capabilityKeys))
+    : BASE_COVERAGE_TARGETS.map((target) => target.key);
+  const userPrompt = JSON.stringify({
+    repository: input.repository,
+    commitSha: input.commitSha,
+    path: input.path,
+    lineRange: [input.lineStart, input.lineEnd],
+    researchTask: input.task ? {
+      objective: input.task.objective,
+      capabilityKeys: allowedCapabilityKeys,
+      questions: input.task.questions,
+      expectedOutputs: input.task.expectedOutputs,
+    } : null,
+    allowedCapabilityKeys,
+    content: input.content,
+  });
+  const inputBytes = Buffer.byteLength(userPrompt, "utf8");
+  if (input.budget) {
+    if (input.budget.inputBytes + inputBytes > input.budget.maxInputBytes) {
+      throw new RepositorySemanticBudgetError(
+        "input_byte_budget_exhausted",
+        `The semantic input-byte budget would be exceeded by ${input.path}:${input.lineStart}-${input.lineEnd}.`,
+      );
+    }
+    input.budget.inputBytes += inputBytes;
   }
   const result = await runAuditedStructuredGeneration({
     workItemId: input.workItemId,
@@ -252,7 +349,8 @@ async function analyzeChunk(input: {
       commitSha: input.commitSha,
       path: input.path,
       lineRange: [input.lineStart, input.lineEnd],
-      inputBytes: Buffer.byteLength(input.content, "utf8"),
+      inputBytes,
+      capabilityKeys: allowedCapabilityKeys,
     },
     execute: () => getBedrockStructuredLlmClient().generateStructured({
       systemPrompt: [
@@ -263,15 +361,9 @@ async function analyzeChunk(input: {
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
         "Use stable snake_case subsystem keys and mark security-sensitive findings as sensitive.",
         "Assign each finding only to the capabilityKeys it directly supports; do not copy every file-level subsystem key onto every finding.",
+        "Follow the supplied research task: answer its objective and questions, target its expected outputs, and use only its allowed capability keys.",
       ].join(" "),
-      userPrompt: JSON.stringify({
-        repository: input.repository,
-        commitSha: input.commitSha,
-        path: input.path,
-        lineRange: [input.lineStart, input.lineEnd],
-        baselineSubsystemKeys: BASE_COVERAGE_TARGETS.map((target) => target.key),
-        content: input.content,
-      }),
+      userPrompt,
       schema: semanticAnalysisSchema,
       schemaName: "repository_semantic_observations",
       schemaDescription: "Evidence-backed semantic findings and exact line ranges from one immutable repository window.",
@@ -292,10 +384,16 @@ async function analyzeChunk(input: {
       },
       requiredFieldPaths: ["summary", "subsystemKeys", "findings", "unresolvedQuestions"],
       repairMappings: ["Map facts or observations to findings without inventing content.", "Map category to the closest supported finding kind."],
-      maxTokens: 8_000,
+      maxTokens: input.budget?.model.limits.maxOutputTokens ?? 8_000,
       temperature: 0,
       effort: "high",
       repairStrategy: "repair_last_failure",
+      budget: input.budget?.model,
+      extraValidation: (value) => value.findings.flatMap((finding, index) =>
+        finding.capabilityKeys
+          .filter((key) => !allowedCapabilityKeys.includes(key))
+          .map((key) => `Finding ${index + 1} uses capability key ${key}, which is outside the work package.`),
+      ),
     }),
   });
   const rejected: string[] = [];
@@ -332,6 +430,7 @@ async function analyzeChunk(input: {
       implementationBreadth: 2,
       technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
       subsystemKeys: unique(finding.capabilityKeys, 6),
+      evidenceMode: "semantic" as const,
     }];
   });
   return {
@@ -363,11 +462,14 @@ export async function analyzeRepositoryFile(input: {
   commitSha: string;
   path: string;
   content: string;
+  task?: RepositorySemanticTask;
+  budget?: RepositorySemanticBudget;
 }): Promise<RepositoryFileAnalysis> {
   const chunks = resolveWorkbaseLlmProvider() === "mock" ? chunkByLines(input.content) : selectSemanticWindows(input.content);
   const analyses: RepositoryChunkAnalysis[] = [];
   const tokenUsage: unknown[] = [];
   const semanticDiagnostics: unknown[] = [];
+  const failureGaps: string[] = [];
   let failedChunks = 0;
   for (const chunk of chunks) {
     try {
@@ -378,12 +480,20 @@ export async function analyzeRepositoryFile(input: {
     } catch (error) {
       failedChunks += 1;
       const structured = error instanceof StructuredOutputError ? error : null;
+      const budgetError = error instanceof RepositorySemanticBudgetError || error instanceof StructuredGenerationBudgetError
+        ? error
+        : null;
+      const message = error instanceof Error ? error.message.slice(0, 500) : "Unknown semantic extraction error.";
+      failureGaps.push(budgetError
+        ? `Semantic extraction stopped because ${message}`
+        : `Semantic extraction failed because ${message}`);
+      if (structured?.tokenUsage) tokenUsage.push(structured.tokenUsage);
       semanticDiagnostics.push({
         lineRange: [chunk.lineStart, chunk.lineEnd],
-        status: structured?.status ?? "provider_error",
+        status: budgetError?.code ?? structured?.status ?? "provider_error",
         validationErrors: structured?.validationErrors ?? null,
         attempts: structured?.attempts ?? null,
-        message: error instanceof Error ? error.message.slice(0, 500) : "Unknown semantic extraction error.",
+        message,
       });
     }
   }
@@ -399,7 +509,11 @@ export async function analyzeRepositoryFile(input: {
   return {
     path: input.path,
     summary: unique(analyses.map((analysis) => analysis.summary), 8).join(" ").slice(0, 4_000),
-    subsystemKeys: unique([...inferSubsystemsFromPath(input.path), ...analyses.flatMap((analysis) => analysis.subsystemKeys)], 12),
+    subsystemKeys: unique([
+      ...inferSubsystemsFromPath(input.path),
+      ...analyses.flatMap((analysis) => analysis.subsystemKeys),
+      ...validFacts.flatMap((fact) => fact.subsystemKeys ?? []),
+    ], 12),
     responsibilities: unique(analyses.flatMap((analysis) => analysis.responsibilities), 30),
     symbols: unique(analyses.flatMap((analysis) => analysis.symbols), 80),
     dependencies: unique(analyses.flatMap((analysis) => analysis.dependencies), 80),
@@ -408,6 +522,7 @@ export async function analyzeRepositoryFile(input: {
     facts: validFacts,
     unresolvedQuestions: unique([
       ...analyses.flatMap((analysis) => analysis.unresolvedQuestions),
+      ...failureGaps,
       ...(failedChunks ? [`${failedChunks} of ${chunks.length} semantic windows failed.`] : []),
     ], 30),
     chunksAnalyzed: chunks.length,
@@ -415,6 +530,7 @@ export async function analyzeRepositoryFile(input: {
     analysisMode: "semantic",
     semanticStatus,
     semanticDiagnostics,
+    semanticBudgetUsage: input.budget ? snapshotRepositorySemanticBudget(input.budget) : undefined,
   };
 }
 
@@ -448,6 +564,7 @@ export async function analyzeRepositoryFiles(input: Array<{
         implementationBreadth: Math.min(5, breadth),
         technicalDifficulty: Math.min(5, /workflow|agent|bedrock|embedding|oauth|encrypt|retriev/i.test(statement) ? 4 : 2),
         subsystemKeys: inferSubsystemsFromPath(file.path),
+        evidenceMode: "static",
         path: file.path,
       });
     };
@@ -569,9 +686,11 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
   for (const file of input) {
     for (const key of file.analysis.subsystemKeys) {
       const current = targetMap.get(key) ?? { key, label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "), paths: new Set<string>(), semanticPaths: new Set<string>(), observations: 0, unresolved: new Set<string>() };
+      const factsForCapability = file.analysis.facts.filter((fact) => fact.subsystemKeys?.includes(key));
+      const semanticFactsForCapability = factsForCapability.filter((fact) => fact.evidenceMode !== "static");
       current.paths.add(file.path);
-      if (file.analysis.analysisMode === "semantic") current.semanticPaths.add(file.path);
-      current.observations += file.analysis.facts.length + file.analysis.architectureSignals.length + file.analysis.responsibilities.length;
+      if (file.analysis.analysisMode === "semantic" && semanticFactsForCapability.length > 0) current.semanticPaths.add(file.path);
+      current.observations += factsForCapability.length + file.analysis.architectureSignals.length + file.analysis.responsibilities.length;
       for (const question of file.analysis.unresolvedQuestions) current.unresolved.add(question);
       targetMap.set(key, current);
     }

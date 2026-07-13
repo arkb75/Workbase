@@ -54,6 +54,8 @@ function mapHighlightForCard(
     ownershipClarity: highlight.ownershipClarity,
     sensitivityFlag: highlight.sensitivityFlag,
     verificationStatus: highlight.verificationStatus,
+    lifecycleStatus: highlight.lifecycleStatus,
+    reviewState: highlight.reviewState,
     visibility: highlight.visibility,
     risksSummary: highlight.risksSummary,
     missingInfo: highlight.missingInfo,
@@ -97,15 +99,25 @@ export default async function HighlightReviewPage({
   const generateHighlights = generateClaimsAction.bind(null, workItem.id);
   const approveAllPendingHighlights = approveAllPendingHighlightsAction;
 
-  const pendingHighlights = workItem.highlights.filter(
+  const activeHighlights = workItem.highlights.filter(
+    (highlight) => highlight.lifecycleStatus === "active",
+  );
+  const lifecycleHighlights = workItem.highlights.filter(
+    (highlight) => highlight.lifecycleStatus !== "active",
+  );
+  const pendingHighlights = activeHighlights.filter(
     (highlight) =>
       highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
   );
-  const approvedHighlights = workItem.highlights.filter(
+  const approvedHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "approved",
   );
-  const rejectedHighlights = workItem.highlights.filter(
+  const rejectedHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "rejected",
+  );
+  const canApproveAllPendingHighlights = pendingHighlights.length > 0 && !lifecycleHighlights.some(
+    (highlight) =>
+      highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
   );
   const pendingSuggestions = workItem.highlightSuggestions;
   const sensitiveHighlights = workItem.highlights.filter((highlight) => highlight.sensitivityFlag);
@@ -125,7 +137,7 @@ export default async function HighlightReviewPage({
         description="Scan the highlight groups, edit only what needs intervention, and keep approved material clearly separated from everything still under review."
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            {pendingHighlights.length ? (
+            {canApproveAllPendingHighlights ? (
               <form action={approveAllPendingHighlights}>
                 <input type="hidden" name="workItemId" value={workItem.id} />
                 <SubmitButton pendingLabel="Approving highlights..." variant="secondary">
@@ -177,7 +189,7 @@ export default async function HighlightReviewPage({
           <CardContent className="py-4">
             <p className="text-sm leading-6 text-emerald-900">
               {result === "approved"
-                ? "Highlight approved. It has moved into the approved section."
+                ? "Highlight review saved. Lifecycle status still determines whether it appears in the active approved section."
                 : result === "approved-all"
                   ? "All pending highlights were approved."
                 : result === "rejected"
@@ -245,7 +257,7 @@ export default async function HighlightReviewPage({
 
           <ClaimSection
             title="Approved"
-            description="Approved highlights remain compact here until you need to edit or remove one."
+            description="Only approved highlights with an active lifecycle appear here and participate in normal retrieval when visibility allows."
             count={approvedHighlights.length}
             tone="success"
           >
@@ -261,6 +273,28 @@ export default async function HighlightReviewPage({
             ) : (
               <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
                 No approved highlights yet.
+              </p>
+            )}
+          </ClaimSection>
+
+          <ClaimSection
+            title="Lifecycle review"
+            description="Needs-validation, stale, quarantined, superseded, and retired versions stay outside the ordinary active lanes and remain visible for audit or successor edits."
+            count={lifecycleHighlights.length}
+            tone="warning"
+          >
+            {lifecycleHighlights.length ? (
+              <div className="space-y-4">
+                {lifecycleHighlights.map((highlight) => (
+                  <ClaimCard
+                    key={highlight.id}
+                    claim={mapHighlightForCard(workItem.id, highlight)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                No highlights need lifecycle attention right now.
               </p>
             )}
           </ClaimSection>
@@ -318,11 +352,17 @@ export default async function HighlightReviewPage({
                   </p>
                 </div>
                 <div className="rounded-[24px] bg-white/8 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/60">Approved</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/60">Active approved</p>
                   <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em]">
                     {approvedHighlights.length}
                   </p>
                 </div>
+              </div>
+              <div className="rounded-[24px] bg-white/8 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/60">Lifecycle review</p>
+                <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em]">
+                  {lifecycleHighlights.length}
+                </p>
               </div>
               <div className="rounded-[24px] bg-white/8 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/60">Sensitive</p>

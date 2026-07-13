@@ -7,7 +7,6 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn(),
     deleteMany: vi.fn(),
   },
-  knowledgeChange: { upsert: vi.fn() },
   evidenceTag: {
     deleteMany: vi.fn(),
     createMany: vi.fn(),
@@ -30,9 +29,17 @@ const prismaMock = vi.hoisted(() => ({
     findUniqueOrThrow: vi.fn(),
   },
 }));
+const invalidateEvidenceDependentsMock = vi.hoisted(() => vi.fn());
+const upsertReviewableKnowledgeChangeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/src/lib/prisma", () => ({
   prisma: prismaMock,
+}));
+vi.mock("@/src/services/knowledge-dependency-service", () => ({
+  invalidateEvidenceDependents: invalidateEvidenceDependentsMock,
+}));
+vi.mock("@/src/services/knowledge-change-service", () => ({
+  upsertReviewableKnowledgeChange: upsertReviewableKnowledgeChangeMock,
 }));
 
 import {
@@ -136,7 +143,15 @@ describe("evidence persistence", () => {
       where: { id: "existing-2" },
       data: expect.objectContaining({ lifecycleStatus: "retired", included: false }),
     }));
-    expect(prismaMock.knowledgeChange.upsert).toHaveBeenCalled();
+    expect(upsertReviewableKnowledgeChangeMock).toHaveBeenCalled();
+    expect(invalidateEvidenceDependentsMock).toHaveBeenCalledWith(expect.objectContaining({
+      evidenceItemId: "existing-2",
+      reason: expect.stringContaining("retired"),
+    }));
+    expect(invalidateEvidenceDependentsMock).toHaveBeenCalledWith(expect.objectContaining({
+      evidenceItemId: "existing-1",
+      reason: expect.stringContaining("superseded"),
+    }));
 
     expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledTimes(2);
     expect(persistedItems).toEqual([
@@ -170,6 +185,59 @@ describe("evidence persistence", () => {
       }),
     );
     expect(prismaMock.evidenceTag.deleteMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates a new review transition when previously retired repository Evidence reappears", async () => {
+    prismaMock.evidenceItem.findMany.mockResolvedValue([{
+      id: "evidence-retired",
+      sourceId: "source-1",
+      externalId: "commit:sha-1",
+      logicalKey: "commit:sha-1",
+      type: "github_commit",
+      title: "Commit",
+      content: "Same content",
+      included: false,
+      lifecycleStatus: "retired",
+      workItemId: "work-1",
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    }]);
+    prismaMock.evidenceItem.upsert.mockResolvedValue({
+      id: "evidence-retired",
+      externalId: "commit:sha-1",
+      type: "github_commit",
+      title: "Commit",
+      content: "Same content",
+      included: false,
+    });
+
+    await upsertEvidenceItemsForSource("source-1", [{
+      workItemId: "work-1",
+      sourceId: "source-1",
+      externalId: "commit:sha-1",
+      sourceType: "github_repo",
+      type: "github_commit",
+      title: "Commit",
+      content: "Same content",
+      searchText: "Commit Same content",
+      parentKind: "source",
+      parentKey: "source-1",
+      included: true,
+      metadata: null,
+    }]);
+
+    expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({
+        lifecycleStatus: "active",
+        reviewState: "pending_review",
+        approvalSource: "automation",
+      }),
+    }));
+    expect(upsertReviewableKnowledgeChangeMock).toHaveBeenCalledWith(expect.objectContaining({
+      entityKind: "evidence",
+      entityId: "evidence-retired",
+      action: "revalidated",
+      idempotencyKey: expect.stringContaining("2026-01-02T00:00:00.000Z"),
+    }));
   });
 
   it("creates a highlight with evidence and tag relations", async () => {

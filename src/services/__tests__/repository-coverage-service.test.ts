@@ -88,4 +88,65 @@ describe("complete repository coverage", () => {
     expect(Buffer.byteLength(windows[0]!.content, "utf8")).toBeLessThanOrEqual(8 * 1024);
     expect(windows[0]!.content).toMatch(/^\d+:/m);
   });
+
+  it("gives semantic credit only to capability keys supported by semantic findings", () => {
+    const matrix = buildCoverageMatrix([{
+      path: "src/services/multi-purpose.ts",
+      analysis: {
+        path: "src/services/multi-purpose.ts",
+        summary: "A multipurpose service.",
+        subsystemKeys: ["ai_runtime", "domain_data"],
+        responsibilities: [],
+        symbols: [],
+        dependencies: [],
+        architectureSignals: [],
+        userFacingCapabilities: [],
+        facts: [
+          {
+            statement: "Invokes a schema-constrained model.",
+            category: "behavior",
+            confidence: "high",
+            sensitivityFlag: false,
+            lineStart: 10,
+            lineEnd: 12,
+            productImportance: 4,
+            implementationBreadth: 3,
+            technicalDifficulty: 4,
+            subsystemKeys: ["ai_runtime"],
+            evidenceMode: "semantic",
+            path: "src/services/multi-purpose.ts",
+          },
+          {
+            statement: "Imports a persisted record type.",
+            category: "data_flow",
+            confidence: "high",
+            sensitivityFlag: false,
+            lineStart: 1,
+            lineEnd: 1,
+            productImportance: 2,
+            implementationBreadth: 1,
+            technicalDifficulty: 1,
+            subsystemKeys: ["domain_data"],
+            evidenceMode: "static",
+            path: "src/services/multi-purpose.ts",
+          },
+        ],
+        unresolvedQuestions: [],
+        chunksAnalyzed: 1,
+        tokenUsage: [],
+        analysisMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticDiagnostics: [],
+      },
+    }]);
+
+    expect(matrix.find((target) => target.key === "ai_runtime")).toMatchObject({
+      status: "semantic_verified",
+      semanticPathCount: 1,
+    });
+    expect(matrix.find((target) => target.key === "domain_data")).toMatchObject({
+      status: "static_mapped",
+      semanticPathCount: 0,
+    });
+  });
 });

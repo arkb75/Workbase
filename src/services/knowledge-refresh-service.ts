@@ -143,9 +143,11 @@ export async function startKnowledgeRefresh(input: {
   const completedWarnings = latestCompleted?.warnings && typeof latestCompleted.warnings === "object" && !Array.isArray(latestCompleted.warnings)
     ? latestCompleted.warnings as Record<string, unknown>
     : null;
+  const forceRevalidation = input.trigger === "backfill" && input.idempotencyKey?.startsWith("knowledge-edit:");
   if (
+    !forceRevalidation &&
     completedWarnings?.analyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
-    completedWarnings?.synthesisPolicyVersion === "repository-synthesis-v14" &&
+    completedWarnings?.synthesisPolicyVersion === "repository-synthesis-v15" &&
     latestCompleted?.qualityStatus === "verified" &&
     completedTargets.length === targets.length &&
     targets.every((target) => completedTargets.some((completed) => completed.sourceId === target.sourceId && completed.commitSha === target.commitSha))
@@ -706,7 +708,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         ...record(run.warnings),
         modelId: resolveBedrockConfig().modelId,
         analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
-        synthesisPolicyVersion: "repository-synthesis-v14",
+        synthesisPolicyVersion: "repository-synthesis-v15",
       }),
     },
   });

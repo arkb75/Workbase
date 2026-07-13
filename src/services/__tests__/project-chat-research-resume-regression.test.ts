@@ -311,6 +311,18 @@ describe("project chat research approval resume regression", () => {
         expect.objectContaining({ citationIndexes: [2] }),
       ]),
     });
+    for (const expected of currentFactCitations) {
+      const ordinal = finalized.citations.findIndex((citation) =>
+        citation.kind === "project_fact" && citation.projectFactId === expected.projectFactId
+      ) + 1;
+      expect(ordinal).toBeGreaterThan(0);
+      expect(finalized.groundedClaims).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          claim: expect.stringContaining(expected.excerpt),
+          citationIndexes: expect.arrayContaining([ordinal]),
+        }),
+      ]));
+    }
 
     expect(retrievalMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
       preferredProjectFactIds: ["fact-current-1", "fact-current-2"],

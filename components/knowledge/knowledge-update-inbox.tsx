@@ -109,7 +109,7 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
             Knowledge updates
           </h3>
           <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-            Verified repository changes are active immediately. Keep, edit, revert, or retire them without losing their previous versions.
+            Verified repository changes can be active immediately. Quarantined changes stay outside active knowledge; review, revise, revert, or retire every update without losing its previous versions.
           </p>
         </div>
         <form action={startProjectKnowledgeRefreshAction}>
@@ -160,6 +160,8 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
         {changes.map((change) => {
           const before = compactDiff(change.beforeSnapshot);
           const after = compactDiff(change.afterSnapshot);
+          const isQuarantined =
+            change.action === "quarantined" || change.lifecycleStatus === "quarantined";
           return (
             <article key={change.id} className="grid gap-4 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
               <div className="min-w-0">
@@ -177,6 +179,11 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
                 <p className="mt-3 text-sm font-medium leading-6 text-[color:var(--ink-strong)]">{change.primary}</p>
                 {change.secondary ? <p className="mt-1 line-clamp-3 text-sm leading-6 text-[color:var(--ink-soft)]">{change.secondary}</p> : null}
                 <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">{change.reason}</p>
+                {isQuarantined ? (
+                  <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
+                    This item failed an automatic safety or validation gate and is not active. Edit it to create a reviewed successor, revert the automated change, or retire it explicitly.
+                  </p>
+                ) : null}
                 {before || after ? (
                   <details className="mt-3 text-xs">
                     <summary className="cursor-pointer font-medium text-[color:var(--accent)]">View version diff and provenance</summary>
@@ -190,12 +197,14 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
               </div>
 
               <div className="flex flex-wrap gap-2 lg:max-w-80 lg:justify-end">
-                <form action={resolveKnowledgeChangeAction}>
-                  <input type="hidden" name="changeId" value={change.id} />
-                  <input type="hidden" name="workItemId" value={workItemId} />
-                  <input type="hidden" name="decision" value="keep" />
-                  <SubmitButton pendingLabel="Keeping..." size="sm">Keep</SubmitButton>
-                </form>
+                {!isQuarantined ? (
+                  <form action={resolveKnowledgeChangeAction}>
+                    <input type="hidden" name="changeId" value={change.id} />
+                    <input type="hidden" name="workItemId" value={workItemId} />
+                    <input type="hidden" name="decision" value="keep" />
+                    <SubmitButton pendingLabel="Keeping..." size="sm">Keep</SubmitButton>
+                  </form>
+                ) : null}
                 <form action={resolveKnowledgeChangeAction}>
                   <input type="hidden" name="changeId" value={change.id} />
                   <input type="hidden" name="workItemId" value={workItemId} />
@@ -209,7 +218,9 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
                   <SubmitButton pendingLabel="Retiring..." variant="danger" size="sm">Retire</SubmitButton>
                 </form>
                 <details className="w-full text-xs lg:text-right">
-                  <summary className="cursor-pointer py-2 font-medium text-[color:var(--accent)]">Edit and keep</summary>
+                  <summary className="cursor-pointer py-2 font-medium text-[color:var(--accent)]">
+                    {isQuarantined ? "Edit into a reviewed successor" : "Edit and keep"}
+                  </summary>
                   <form action={resolveKnowledgeChangeAction} className="mt-2 grid gap-2 text-left">
                     <input type="hidden" name="changeId" value={change.id} />
                     <input type="hidden" name="workItemId" value={workItemId} />
@@ -232,7 +243,9 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes }: Knowled
                       </Select>
                     ) : null}
                     <Textarea name="reviewNotes" placeholder="Review notes" />
-                    <SubmitButton pendingLabel="Saving successor..." size="sm">Save successor</SubmitButton>
+                    <SubmitButton pendingLabel="Saving successor..." size="sm">
+                      {isQuarantined ? "Save reviewed successor" : "Save successor"}
+                    </SubmitButton>
                   </form>
                 </details>
               </div>

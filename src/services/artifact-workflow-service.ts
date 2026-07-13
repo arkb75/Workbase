@@ -379,6 +379,7 @@ async function generateCandidateBatch(input: {
   const promoted = await promoteRepositoryCitations({
     workItemId: input.workItemId,
     citations: research.citations,
+    reviewScope: `artifact-research:${input.runId}:batch:${input.batchNumber}`,
   });
   const knowledge = await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,

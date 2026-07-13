@@ -71,12 +71,61 @@ export interface ProjectAnswerGroundingEntry {
   content: string;
   currentRun: boolean;
   citationIndexes: number[];
+  ownershipAuthority?: number;
   supportingSources: Array<{
     type: string;
     title: string;
     path?: string;
     commitSha?: string;
   }>;
+  subsystemKey?: string | null;
+  accomplishmentRanking?: {
+    evidenceStrength: number;
+    productImportance: number;
+    implementationBreadth: number;
+    technicalDifficulty: number;
+    ownershipAuthority: number;
+    distinctiveness: number;
+    freshness: number;
+    impactBonus: number;
+    uncertainty: string | null;
+  } | null;
+}
+
+const personalOwnershipPattern = /(?:\b(?:i|we|you)\s+(?:(?:personally|independently|solely|single-handedly)\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)|(?:\b(?:solo[- ]built|single-handedly built|solely (?:built|implemented|designed|created|developed|architected|shipped|owned))\b)|(?:^(?:#{1,6}\s+)?(?:\d+[.)]\s+|[-*]\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)/i;
+
+function hasPersonalOwnershipLanguage(value: string) {
+  return value
+    .split(/\n+/)
+    .some((line) => personalOwnershipPattern.test(line.trim()));
+}
+
+function citationSupportsOwnership(
+  citationIndexes: readonly number[],
+  entries: readonly ProjectAnswerGroundingEntry[],
+) {
+  return citationIndexes.some((ordinal) => entries.some((entry) =>
+    entry.citationIndexes.includes(ordinal) &&
+    (entry.authority === "verified_highlight" || entry.authority === "included_evidence") &&
+    (entry.ownershipAuthority ?? 0) >= 3
+  ));
+}
+
+export function findUnsupportedOwnershipClaims(input: {
+  answer: string;
+  entries: readonly ProjectAnswerGroundingEntry[];
+}) {
+  return input.answer
+    .split(/\n{2,}|\n(?=[-*#]|\d+[.)]\s)/)
+    .flatMap((segment) => {
+      if (!hasPersonalOwnershipLanguage(segment)) return [];
+      const citationIndexes = Array.from(segment.matchAll(/\[citation:(\d+)\]/gi))
+        .map((match) => Number(match[1]))
+        .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0);
+      return citationSupportsOwnership(citationIndexes, input.entries)
+        ? []
+        : [segment.replace(/\[citation:\d+\]/gi, "").trim()];
+    });
 }
 
 function dateLabels(value: string | null) {
@@ -94,6 +143,7 @@ export function detectGroundingContractIssues(input: {
   answer: string;
   citationCount: number;
   dossier?: ProjectResearchDossier | null;
+  entries?: readonly ProjectAnswerGroundingEntry[];
 }) {
   const issues: string[] = [];
   const markers = Array.from(input.answer.matchAll(/\[citation:(\d+)\]/g));
@@ -111,6 +161,11 @@ export function detectGroundingContractIssues(input: {
         issues.push("The answer labels the source import date as current even though a newer repository inspection exists.");
         break;
       }
+    }
+  }
+  if (input.entries?.length) {
+    for (const claim of findUnsupportedOwnershipClaims({ answer: input.answer, entries: input.entries })) {
+      issues.push(`Repository-only sources cannot establish personal ownership: ${claim}`);
     }
   }
   return Array.from(new Set(issues));
@@ -159,11 +214,21 @@ export async function groundProjectAnswer(input: {
   entries: ProjectAnswerGroundingEntry[];
   citationCount: number;
   dossier?: ProjectResearchDossier | null;
+  requiredBlockCount?: { minimum: number; maximum: number };
 }) {
   const contractIssues = detectGroundingContractIssues(input);
   if (resolveWorkbaseLlmProvider() === "mock") {
-    const blocks = mockGroundedBlocks(input.answer, input.citationCount);
+    const blocks = mockGroundedBlocks(input.answer, input.citationCount).filter((block) =>
+      !hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) ||
+      citationSupportsOwnership(block.citationIndexes, input.entries)
+    );
     if (!blocks.length) throw new CitationIntegrityError("The mock grounding verifier found no supported cited blocks.");
+    if (input.requiredBlockCount && blocks.length < input.requiredBlockCount.minimum) {
+      throw new CitationIntegrityError(`The mock grounding verifier returned fewer than ${input.requiredBlockCount.minimum} required blocks.`);
+    }
+    if (input.requiredBlockCount && blocks.length > input.requiredBlockCount.maximum) {
+      throw new CitationIntegrityError(`The mock grounding verifier returned more than ${input.requiredBlockCount.maximum} allowed blocks.`);
+    }
     return {
       blocks,
       issues: contractIssues,
@@ -177,6 +242,7 @@ export async function groundProjectAnswer(input: {
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
         "Check each factual project claim against only the source entry referenced by a [citation:N] marker in that claim or paragraph.",
         "Topical similarity is not entailment. Narrow configurable defaults, conditional behavior, and inferred intent instead of turning them into universal guarantees.",
+        "Repository-only Project Facts establish implementation, not who personally built it. Remove or neutralize first-person, second-person, solo-built, sole-owner, and subjectless accomplishment language unless at least one cited verified Highlight or explicit included self-reported evidence item has ownershipAuthority of 3 or greater. A work-item description or chat user statement may provide that private-chat ownership authority; included repository evidence may not.",
         "Return supported factual units as structured blocks. Do not include [citation:N], [N], footnotes, or any other citation syntax in heading or bodyMarkdown; use citationIndexes only.",
         "Do not introduce new facts or citation indexes. Remove claims that cannot be supported.",
         "Keep useful Markdown such as emphasis, inline code, lists, and short paragraphs inside bodyMarkdown, but each block must remain one independently supported factual unit.",
@@ -192,6 +258,7 @@ export async function groundProjectAnswer(input: {
           coverage: input.dossier.coverage,
           coverageGaps: input.dossier.coverageGaps,
         } : null,
+        requiredBlockCount: input.requiredBlockCount ?? null,
         deterministicContractIssues: contractIssues,
       }),
       schema: groundingSchema,
@@ -212,10 +279,29 @@ export async function groundProjectAnswer(input: {
         if (block.citationIndexes.some((citationIndex) => citationIndex > input.citationCount)) {
           errors.push(`Block ${index + 1} references an unavailable citation index.`);
         }
+        if (
+          hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) &&
+          !citationSupportsOwnership(block.citationIndexes, input.entries)
+        ) {
+          errors.push(`Block ${index + 1} assigns personal ownership using repository-only sources.`);
+        }
         return errors;
-      }),
+      }).concat(
+        input.requiredBlockCount && value.blocks.length < input.requiredBlockCount.minimum
+          ? [`At least ${input.requiredBlockCount.minimum} grounded blocks are required.`]
+          : [],
+        input.requiredBlockCount && value.blocks.length > input.requiredBlockCount.maximum
+          ? [`No more than ${input.requiredBlockCount.maximum} grounded blocks are allowed.`]
+          : [],
+      ),
     });
   if (!result.data.blocks.length) throw new CitationIntegrityError("The grounding verifier returned no supported blocks.");
+  if (result.data.blocks.some((block) =>
+    hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) &&
+    !citationSupportsOwnership(block.citationIndexes, input.entries)
+  )) {
+    throw new CitationIntegrityError("The grounding verifier assigned personal ownership using repository-only sources.");
+  }
   return {
     blocks: result.data.blocks,
     issues: [

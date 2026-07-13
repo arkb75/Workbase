@@ -8,6 +8,7 @@ import {
   selectReferencedCitations,
   splitCitationText,
 } from "@/src/services/chat-citation-service";
+import { buildChatCitationRows } from "@/src/services/project-chat-store";
 
 const catalog: ProjectKnowledgeCitation[] = [
   {
@@ -134,5 +135,36 @@ describe("chat citation selection", () => {
   it("allows procedural answers without citations and attached artifact provenance", () => {
     expect(() => assertAnswerCitationContract({ content: "Choose a candidate to review.", citations: [], policy: "none" })).not.toThrow();
     expect(() => assertAnswerCitationContract({ content: "Generated artifact", citations: [catalog[0]!], policy: "attached" })).not.toThrow();
+  });
+
+  it("snapshots immutable nested provenance for a used Highlight citation", () => {
+    const provenance = [{
+      evidenceItemId: "evidence-file-1",
+      title: "src/services/project-chat-agent-service.ts",
+      excerpt: "Builds the grounded memory catalog.",
+      repository: "arkb75/Workbase",
+      commitSha: "d".repeat(40),
+      blobSha: "e".repeat(40),
+      path: "src/services/project-chat-agent-service.ts",
+      startLine: 130,
+      endLine: 210,
+      url: "https://github.com/arkb75/Workbase/blob/immutable/src/services/project-chat-agent-service.ts#L130-L210",
+      contentHash: "f".repeat(64),
+    }];
+    const [row] = buildChatCitationRows("message-1", [{
+      kind: "highlight",
+      label: "Built grounded project chat",
+      excerpt: "A reviewed Highlight.",
+      highlightId: "highlight-1",
+      provenance,
+    }]);
+
+    expect(row).toMatchObject({
+      messageId: "message-1",
+      kind: "highlight",
+      highlightId: "highlight-1",
+      ordinal: 1,
+    });
+    expect(row?.metadata).toMatchObject({ provenance });
   });
 });

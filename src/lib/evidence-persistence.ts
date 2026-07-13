@@ -8,6 +8,8 @@ import type {
 import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-tags";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { prisma } from "@/src/lib/prisma";
+import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
+import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
 
 export const WORK_ITEM_DESCRIPTION_SOURCE_KIND = "work_item_description";
 
@@ -48,6 +50,12 @@ function readMetadataRecord(value: unknown) {
   }
 
   return value as Record<string, unknown>;
+}
+
+function lifecycleTransitionVersion(item: { updatedAt?: Date; lifecycleStatus: string; externalId: string }) {
+  return item.updatedAt instanceof Date
+    ? item.updatedAt.toISOString()
+    : createHash("sha256").update(`${item.externalId}:${item.lifecycleStatus}`).digest("hex").slice(0, 16);
 }
 
 export function isWorkItemDescriptionSourceMetadata(value: unknown) {
@@ -100,22 +108,29 @@ export async function upsertEvidenceItemsForSource(
           purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
         },
       });
-      const idempotencyKey = `github-import:evidence:retired:${retired.id}`;
-      await prisma.knowledgeChange.upsert({
-        where: { workItemId_idempotencyKey: { workItemId: retired.workItemId, idempotencyKey } },
-        create: {
-          workItemId: retired.workItemId,
-          entityKind: "evidence",
-          action: "retired",
-          evidenceItemId: retired.id,
-          beforeSnapshot: { id: retired.id, title: retired.title, lifecycleStatus: retired.lifecycleStatus },
-          afterSnapshot: { id: retired.id, title: retired.title, lifecycleStatus: "retired" },
-          reason: "The current GitHub import no longer contains this Evidence item.",
-          provenance: { sourceId, logicalKey: retired.logicalKey ?? retired.externalId },
-          policyVersion: "knowledge-lifecycle-v1",
-          idempotencyKey,
+      const idempotencyKey = `github-import:evidence:retired:${retired.id}:${lifecycleTransitionVersion(retired)}`;
+      await upsertReviewableKnowledgeChange({
+        workItemId: retired.workItemId,
+        entityKind: "evidence",
+        action: "retired",
+        entityId: retired.id,
+        beforeSnapshot: {
+          id: retired.id,
+          title: retired.title,
+          lifecycleStatus: retired.lifecycleStatus,
+          included: retired.included,
         },
-        update: {},
+        afterSnapshot: { id: retired.id, title: retired.title, lifecycleStatus: "retired" },
+        reason: "The current GitHub import no longer contains this Evidence item.",
+        provenance: { sourceId, logicalKey: retired.logicalKey ?? retired.externalId },
+        policyVersion: "knowledge-lifecycle-v2",
+        idempotencyKey,
+      });
+      await invalidateEvidenceDependents({
+        workItemId: retired.workItemId,
+        evidenceItemId: retired.id,
+        reason: "Supporting repository Evidence was retired because it is absent from the current import.",
+        idempotencyScope: idempotencyKey,
       });
     }
   }
@@ -141,6 +156,13 @@ export async function upsertEvidenceItemsForSource(
       item.sourceType === "github_repo" &&
       existing &&
       (existing.title !== item.title || existing.content !== item.content || existing.type !== item.type),
+    );
+    const isReactivatedRepositoryEvidence = Boolean(
+      item.sourceType === "github_repo" &&
+      existing &&
+      existing.lifecycleStatus !== "active" &&
+      existing.lifecycleStatus !== "needs_validation" &&
+      !isChangedRepositoryEvidence,
     );
     const persistedExternalId = isChangedRepositoryEvidence
       ? `${logicalKey}:revision:${contentVersion}`
@@ -181,7 +203,10 @@ export async function upsertEvidenceItemsForSource(
         ...(item.sourceType === "github_repo"
           ? {
               lifecycleStatus: "active" as const,
+              reviewState: "pending_review" as const,
+              approvalSource: "automation" as const,
               lastValidatedAt: new Date(),
+              autoAppliedAt: new Date(),
             }
           : {
               title: item.title,
@@ -221,38 +246,41 @@ export async function upsertEvidenceItemsForSource(
       });
     }
 
-    if (item.sourceType === "github_repo" && (!existing || isChangedRepositoryEvidence)) {
-      const idempotencyKey = `github-import:evidence:${persisted.id}:${contentVersion}`;
-      await prisma.knowledgeChange.upsert({
-        where: {
-          workItemId_idempotencyKey: {
-            workItemId: item.workItemId,
-            idempotencyKey,
-          },
+    if (item.sourceType === "github_repo" && (!existing || isChangedRepositoryEvidence || isReactivatedRepositoryEvidence)) {
+      const transitionVersion = existing ? lifecycleTransitionVersion(existing) : contentVersion;
+      const idempotencyKey = `github-import:evidence:${persisted.id}:${contentVersion}:${transitionVersion}`;
+      await upsertReviewableKnowledgeChange({
+        workItemId: item.workItemId,
+        entityKind: "evidence",
+        action: isChangedRepositoryEvidence ? "updated" : isReactivatedRepositoryEvidence ? "revalidated" : "created",
+        entityId: persisted.id,
+        beforeSnapshot: existing
+          ? { id: existing.id, title: existing.title, content: existing.content, lifecycleStatus: existing.lifecycleStatus }
+          : undefined,
+        afterSnapshot: {
+          id: persisted.id,
+          title: persisted.title,
+          content: persisted.content,
+          type: persisted.type,
+          lifecycleStatus: "active",
         },
-        create: {
-          workItemId: item.workItemId,
-          entityKind: "evidence",
-          action: isChangedRepositoryEvidence ? "updated" : "created",
-          evidenceItemId: persisted.id,
-          beforeSnapshot: existing
-            ? ({ id: existing.id, title: existing.title, content: existing.content } as Prisma.InputJsonValue)
-            : undefined,
-          afterSnapshot: {
-            id: persisted.id,
-            title: persisted.title,
-            content: persisted.content,
-            type: persisted.type,
-          } as Prisma.InputJsonValue,
-          reason: isChangedRepositoryEvidence
-            ? "A GitHub import produced a new immutable Evidence revision."
+        reason: isChangedRepositoryEvidence
+          ? "A GitHub import produced a new immutable Evidence revision."
+          : isReactivatedRepositoryEvidence
+            ? "A GitHub import reactivated Evidence that is present again."
             : "A GitHub import added new Evidence.",
-          provenance: { sourceId, logicalKey } as Prisma.InputJsonValue,
-          policyVersion: "knowledge-lifecycle-v1",
-          idempotencyKey,
-        },
-        update: {},
+        provenance: { sourceId, logicalKey },
+        policyVersion: "knowledge-lifecycle-v2",
+        idempotencyKey,
       });
+      if (isChangedRepositoryEvidence && existing) {
+        await invalidateEvidenceDependents({
+          workItemId: item.workItemId,
+          evidenceItemId: existing.id,
+          reason: "Supporting repository Evidence was superseded by a new immutable revision.",
+          idempotencyScope: idempotencyKey,
+        });
+      }
     }
 
     persistedItems.push({

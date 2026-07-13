@@ -227,11 +227,7 @@ function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemS
   };
 }
 
-export function fallbackSubsystemSynthesis(
-  subsystemKey: string,
-  notebook: SynthesisNotebookEntry[],
-): RepositorySubsystemSynthesis {
-  const definitions: Record<string, { statement: string; category: ProjectFactCategory; patterns: RegExp[] }> = {
+const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, { statement: string; category: ProjectFactCategory; patterns: RegExp[] }> = {
     product_surface: {
       statement: "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
       category: "behavior",
@@ -262,6 +258,26 @@ export function fallbackSubsystemSynthesis(
       category: "architecture",
       patterns: [/workflows\/project-chat/i, /artifact-workflow-service/i, /agent-run-workflow-start/i, /workbase-workflows/i],
     },
+    repository_knowledge_lifecycle: {
+      statement: "The repository knowledge lifecycle inventories every eligible file at an immutable commit, performs bounded semantic analysis, synthesizes durable Project Facts and Highlights, reconciles updates, and invalidates stale downstream knowledge.",
+      category: "architecture",
+      patterns: [/knowledge-refresh-service/i, /repository-knowledge-synthesis/i, /knowledge-reconciliation/i, /knowledge-staleness/i],
+    },
+    project_chat_grounding: {
+      statement: "Project chat combines real multi-turn history with retrieved durable memory, bounded specialist research, citation filtering, answer grounding, and prior-turn provenance inspection.",
+      category: "architecture",
+      patterns: [/project-chat-agent-service/i, /project-knowledge-retrieval/i, /project-answer-grounding/i, /chat-citation-service/i, /prior-turn-provenance/i],
+    },
+    artifact_generation: {
+      statement: "Artifact generation maps freeform briefs to supported career-content types, retrieves eligible Highlights, checks adequacy, and persists citation-backed outputs through a durable workflow.",
+      category: "data_flow",
+      patterns: [/artifact-workflow-service/i, /artifact-generation-service/i, /artifact-persistence/i, /workflows\/artifact/i],
+    },
+    knowledge_review_lifecycle: {
+      statement: "Knowledge changes are auto-applied when safe, recorded for later review, and propagated through revalidation, supersession, retirement, and downstream invalidation rules.",
+      category: "data_flow",
+      patterns: [/knowledge-change-service/i, /knowledge-review-service/i, /knowledge-reconciliation/i, /knowledge-staleness/i, /knowledge-update-inbox/i],
+    },
     review_ui: {
       statement: "The user interface provides project workspaces for chat, source management, highlight review, artifact generation/history, citations, and run progress.",
       category: "behavior",
@@ -272,8 +288,13 @@ export function fallbackSubsystemSynthesis(
       category: "behavior",
       patterns: [/domain.*__tests__/i, /bedrock.*test/i, /github.*test/i, /project-knowledge.*test/i, /project-chat.*test/i, /artifact.*test/i],
     },
-  };
-  const definition = definitions[subsystemKey];
+};
+
+export function fallbackSubsystemSynthesis(
+  subsystemKey: string,
+  notebook: SynthesisNotebookEntry[],
+): RepositorySubsystemSynthesis {
+  const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
   if (!definition) return mockSynthesis(notebook);
   const selected: number[] = [];
   for (const pattern of definition.patterns) {
@@ -359,7 +380,11 @@ async function synthesizeSubsystemSet(input: {
     schemaName: "repository_architecture_synthesis",
     schemaDescription: "One supported Project Fact and Highlight synthesis for every supplied architecture subsystem.",
     jsonSchema: repositorySynthesisJsonSchema,
-    maxTokens: 3_500,
+    // Two subsystems can legitimately return several 500–1,000 character
+    // records plus schema overhead. A 3.5K ceiling repeatedly truncated valid
+    // Sonnet responses into unparsable JSON and unnecessarily forced the
+    // deterministic recovery path.
+    maxTokens: 8_000,
     temperature: 0,
     effort: "high",
     transportPreference: ["bedrock_json_schema", "strict_tool_use", "text_repair_fallback"],
@@ -519,7 +544,12 @@ export async function synthesizeRepositoryKnowledge(
     const derivedFact = subsystemKey === "repository_knowledge_lifecycle"
       ? derivedRepositoryKnowledgeLifecycleFact(notebook)
       : null;
-    const facts = [derivedFact, ...result.facts]
+    const deterministicBaseline = derivedFact ?? (
+      SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey]
+        ? fallbackSubsystemSynthesis(subsystemKey, notebook).facts[0] ?? null
+        : null
+    );
+    const facts = [deterministicBaseline, ...result.facts]
       .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] => Boolean(fact))
       .filter((fact, index, all) => all.findIndex((candidate) => normalizeWhitespace(candidate.statement).toLowerCase() === normalizeWhitespace(fact.statement).toLowerCase()) === index)
       .filter((fact) => fact.citationIndexes.every((index) => validIndexes.has(index)))
@@ -531,7 +561,10 @@ export async function synthesizeRepositoryKnowledge(
       unresolvedQuestions: result.unresolvedQuestions,
       notebook,
       tokenUsage,
-      approvalEligible: "approvalEligible" in result ? result.approvalEligible !== false : !options.fallbackOnly,
+      // Structured-output transport failures must not discard exact-line,
+      // deterministic synthesis. Candidate-level confidence and sensitivity
+      // gates still quarantine unsafe content during reconciliation.
+      approvalEligible: true,
     };
   });
 }

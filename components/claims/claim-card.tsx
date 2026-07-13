@@ -9,8 +9,8 @@ import { visibilityOptions } from "@/src/lib/options";
 import { titleCase } from "@/src/lib/utils";
 import { ChevronDown, Info, ShieldAlert } from "lucide-react";
 
-function toneForStatus(status: string) {
-  if (status === "approved") {
+function toneForStatus(status: string, lifecycleStatus: string) {
+  if (status === "approved" && lifecycleStatus === "active") {
     return "success" as const;
   }
 
@@ -19,6 +19,34 @@ function toneForStatus(status: string) {
   }
 
   if (status === "flagged") {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
+
+function toneForLifecycleStatus(status: string) {
+  if (status === "active") {
+    return "success" as const;
+  }
+
+  if (status === "quarantined" || status === "retired") {
+    return "danger" as const;
+  }
+
+  if (status === "needs_validation" || status === "stale") {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
+
+function toneForReviewState(state: string) {
+  if (state === "pending_review") {
+    return "accent" as const;
+  }
+
+  if (state === "reverted") {
     return "warning" as const;
   }
 
@@ -39,12 +67,36 @@ function toneForConfidence(confidence: string) {
 
 function summarizeSignal(claim: {
   verificationStatus: string;
+  lifecycleStatus: string;
+  reviewState: string;
   risksSummary: string | null;
   missingInfo: string | null;
   summary: string;
 }) {
+  if (claim.lifecycleStatus === "quarantined") {
+    return "Quarantined after automated review. It stays out of normal retrieval until a reviewed successor clears the concern.";
+  }
+
+  if (claim.lifecycleStatus === "stale") {
+    return "Stale against the current knowledge state and excluded from active retrieval until it is revised or revalidated.";
+  }
+
+  if (claim.lifecycleStatus === "superseded") {
+    return "Superseded by a newer version and retained here only for lifecycle history.";
+  }
+
+  if (claim.lifecycleStatus === "retired") {
+    return "Retired from active knowledge and retained here only for review history.";
+  }
+
+  if (claim.lifecycleStatus === "needs_validation") {
+    return "This reviewed successor still needs validation before it can return to the active retrieval pool.";
+  }
+
   if (claim.verificationStatus === "approved") {
-    return "Approved and available for retrieval-driven artifact generation when visibility allows it.";
+    return claim.reviewState === "pending_review"
+      ? "Active and approved by automation, but still waiting for a human review decision."
+      : "Active, approved, and available for retrieval-driven artifact generation when visibility allows it.";
   }
 
   if (claim.verificationStatus === "rejected") {
@@ -105,6 +157,8 @@ export function ClaimCard({
     ownershipClarity: string;
     sensitivityFlag: boolean;
     verificationStatus: string;
+    lifecycleStatus: string;
+    reviewState: string;
     visibility: string;
     risksSummary: string | null;
     missingInfo: string | null;
@@ -133,6 +187,9 @@ export function ClaimCard({
   const isRejected = claim.verificationStatus === "rejected";
   const isPending =
     claim.verificationStatus === "draft" || claim.verificationStatus === "flagged";
+  const isActiveLifecycle = claim.lifecycleStatus === "active";
+  const isHistoricalLifecycle =
+    claim.lifecycleStatus === "superseded" || claim.lifecycleStatus === "retired";
   const summaryCopy = summarizeSignal(claim);
   const compactSourceRefs = sourceRefs.slice(0, 3);
   const compactTags = claim.tags.slice(0, 4);
@@ -142,21 +199,33 @@ export function ClaimCard({
       open={defaultOpen}
       className={[
         "group rounded-[28px] border bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)]",
-        isApproved
-          ? "border-emerald-200/80"
-          : isRejected
-            ? "border-rose-200/80 bg-rose-50/55"
-            : claim.verificationStatus === "flagged"
-              ? "border-amber-200/80"
-              : "border-black/8",
+        claim.lifecycleStatus === "quarantined"
+          ? "border-rose-300/80 bg-rose-50/65"
+          : claim.lifecycleStatus === "stale" || claim.lifecycleStatus === "needs_validation"
+            ? "border-amber-300/80 bg-amber-50/45"
+            : isHistoricalLifecycle
+              ? "border-black/10 bg-[color:var(--panel-muted)] shadow-none"
+              : isApproved
+                ? "border-emerald-200/80"
+                : isRejected
+                  ? "border-rose-200/80 bg-rose-50/55"
+                  : claim.verificationStatus === "flagged"
+                    ? "border-amber-200/80"
+                    : "border-black/8",
       ].join(" ")}
     >
       <summary className="list-none cursor-pointer p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={toneForStatus(claim.verificationStatus)}>
-                {titleCase(claim.verificationStatus)}
+              <Badge tone={toneForStatus(claim.verificationStatus, claim.lifecycleStatus)}>
+                Verification: {titleCase(claim.verificationStatus)}
+              </Badge>
+              <Badge tone={toneForLifecycleStatus(claim.lifecycleStatus)}>
+                Lifecycle: {titleCase(claim.lifecycleStatus)}
+              </Badge>
+              <Badge tone={toneForReviewState(claim.reviewState)}>
+                Review: {titleCase(claim.reviewState)}
               </Badge>
               <Badge tone={toneForConfidence(claim.confidence)}>
                 {titleCase(claim.confidence)} confidence
@@ -341,7 +410,22 @@ export function ClaimCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-black/6 bg-[color:var(--panel-muted)] p-5 sm:p-6">
-          {isRejected ? (
+          {!isActiveLifecycle ? (
+            <>
+              <button
+                type="submit"
+                name="intent"
+                value="save"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white transition hover:bg-[color:var(--accent-strong)] [color:white]"
+              >
+                Create edited successor
+              </button>
+              <p className="max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
+                This {titleCase(claim.lifecycleStatus).toLowerCase()} version is not active.
+                Editing creates a reviewed successor; it does not silently reactivate this version.
+              </p>
+            </>
+          ) : isRejected ? (
             <>
               <label className="grid min-w-[15rem] gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
@@ -352,7 +436,7 @@ export function ClaimCard({
                   defaultValue="save"
                   className="h-10 min-w-[12rem] rounded-full bg-white"
                 >
-                  <option value="save">Save edits</option>
+                  <option value="save">Create edited successor</option>
                   <option value="approve">Approve highlight</option>
                   <option value="restore">Restore to review</option>
                 </Select>
@@ -375,17 +459,17 @@ export function ClaimCard({
                 value="save"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--surface)]"
               >
-                Save edits
+                Create edited successor
               </button>
               {isPending ? (
-              <button
-                type="submit"
-                name="intent"
-                value="approve"
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white transition hover:bg-[color:var(--accent-strong)] [color:white]"
-              >
-                Approve highlight
-              </button>
+                <button
+                  type="submit"
+                  name="intent"
+                  value="approve"
+                  className="inline-flex h-11 items-center justify-center rounded-full bg-[color:var(--accent)] px-4 text-sm font-medium text-white transition hover:bg-[color:var(--accent-strong)] [color:white]"
+                >
+                  Approve highlight
+                </button>
               ) : null}
               <button
                 type="submit"
@@ -393,7 +477,7 @@ export function ClaimCard({
                 value="reject"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-4 text-sm font-medium text-white transition hover:bg-rose-700"
               >
-                {isApproved ? "Move to rejected" : "Reject highlight"}
+                {isApproved ? "Retire highlight" : "Reject and retire"}
               </button>
             </>
           )}

@@ -17,7 +17,7 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function citationRows(messageId: string, citations: ProjectKnowledgeCitation[]) {
+export function buildChatCitationRows(messageId: string, citations: ProjectKnowledgeCitation[]) {
   return citations.map((citation, index) => ({
     messageId,
     kind: citation.kind,
@@ -366,7 +366,7 @@ export async function markAgentRunAwaitingReview(input: {
     });
     await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
     if (input.citations.length) {
-      await tx.chatCitation.createMany({ data: citationRows(message.id, input.citations) });
+      await tx.chatCitation.createMany({ data: buildChatCitationRows(message.id, input.citations) });
     }
     await tx.chatMessage.update({
       where: { id: message.id },
@@ -449,7 +449,7 @@ export async function completeAgentRun(input: {
     await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
 
     if (citations.length) {
-      await tx.chatCitation.createMany({ data: citationRows(message.id, citations) });
+      await tx.chatCitation.createMany({ data: buildChatCitationRows(message.id, citations) });
     }
 
     await tx.chatMessage.update({

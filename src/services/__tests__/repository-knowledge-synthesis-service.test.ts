@@ -92,4 +92,43 @@ describe("repository synthesis limit fallback", () => {
     });
     expect(result?.statement).toContain("end-to-end knowledge lifecycle");
   });
+
+  it.each([
+    [
+      "project_chat_grounding",
+      [
+        "src/services/project-chat-agent-service.ts",
+        "src/services/project-knowledge-retrieval-service.ts",
+        "src/services/project-answer-grounding-service.ts",
+        "src/services/chat-citation-service.ts",
+      ],
+      "real multi-turn history",
+    ],
+    [
+      "artifact_generation",
+      [
+        "src/services/artifact-workflow-service.ts",
+        "src/services/artifact-generation-service.ts",
+        "src/services/artifact-persistence-service.ts",
+      ],
+      "freeform briefs",
+    ],
+    [
+      "knowledge_review_lifecycle",
+      [
+        "src/services/knowledge-change-service.ts",
+        "src/services/knowledge-review-service.ts",
+        "src/services/knowledge-staleness-service.ts",
+      ],
+      "auto-applied when safe",
+    ],
+  ])("creates a broad deterministic baseline for %s", (subsystemKey, paths, expected) => {
+    const result = fallbackSubsystemSynthesis(subsystemKey, paths.map((path) => entry(path)));
+
+    expect(result.facts).toEqual([expect.objectContaining({
+      statement: expect.stringContaining(expected),
+      confidence: "high",
+    })]);
+    expect(result.facts[0]?.citationIndexes.length).toBeGreaterThanOrEqual(3);
+  });
 });

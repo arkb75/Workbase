@@ -343,6 +343,8 @@ function mapHighlightForCard(
     ownershipClarity: highlight.ownershipClarity,
     sensitivityFlag: highlight.sensitivityFlag,
     verificationStatus: highlight.verificationStatus,
+    lifecycleStatus: highlight.lifecycleStatus,
+    reviewState: highlight.reviewState,
     visibility: highlight.visibility,
     risksSummary: highlight.risksSummary,
     missingInfo: highlight.missingInfo,
@@ -633,7 +635,9 @@ function ProjectFactSection({
                         </div>
                       </details>
                     ) : null}
-                    {fact.lifecycleStatus === "active" || fact.lifecycleStatus === "needs_validation" ? (
+                    {fact.lifecycleStatus === "active" ||
+                    fact.lifecycleStatus === "needs_validation" ||
+                    fact.lifecycleStatus === "stale" ? (
                       <details className="text-xs sm:col-span-2">
                         <summary className="cursor-pointer font-medium text-[color:var(--accent)]">Edit or retire</summary>
                         <div className="mt-3 grid gap-3 border-l border-black/8 pl-3 sm:grid-cols-[1fr_auto]">
@@ -777,17 +781,30 @@ export default async function WorkItemDetailPage({
     }
   }
 
-  const approvedHighlightCount = workItem.highlights.filter(
-    (highlight) => highlight.verificationStatus === "approved",
-  ).length;
-  const pendingHighlightCount = workItem.highlights.filter(
+  const activeHighlights = workItem.highlights.filter(
+    (highlight) => highlight.lifecycleStatus === "active",
+  );
+  const lifecycleHighlights = workItem.highlights.filter(
+    (highlight) => highlight.lifecycleStatus !== "active",
+  );
+  const pendingHighlights = activeHighlights.filter(
     (highlight) =>
       highlight.verificationStatus === "draft" ||
       highlight.verificationStatus === "flagged",
-  ).length;
-  const rejectedHighlightCount = workItem.highlights.filter(
+  );
+  const approvedHighlights = activeHighlights.filter(
+    (highlight) => highlight.verificationStatus === "approved",
+  );
+  const rejectedHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "rejected",
-  ).length;
+  );
+  const canApproveAllPendingHighlights = pendingHighlights.length > 0 && !lifecycleHighlights.some(
+    (highlight) =>
+      highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
+  );
+  const approvedHighlightCount = approvedHighlights.length;
+  const pendingHighlightCount = pendingHighlights.length;
+  const rejectedHighlightCount = rejectedHighlights.length;
   const visibleSources = workItem.sources.filter(
     (source) => !isWorkItemDescriptionSourceMetadata(source.metadata),
   );
@@ -801,19 +818,11 @@ export default async function WorkItemDetailPage({
   );
   const evidenceTypeCounts = getEvidenceTypeCounts(workItem.evidenceItems);
   const pendingSuggestionCount = workItem.highlightSuggestions.length;
-  const pendingHighlights = workItem.highlights.filter(
-    (highlight) =>
-      highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
+  const sensitiveHighlights = activeHighlights.filter((highlight) => highlight.sensitivityFlag);
+  const sensitiveProjectFacts = workItem.projectFacts.filter(
+    (fact) => fact.lifecycleStatus === "active" && fact.sensitivityFlag,
   );
-  const approvedHighlights = workItem.highlights.filter(
-    (highlight) => highlight.verificationStatus === "approved",
-  );
-  const rejectedHighlights = workItem.highlights.filter(
-    (highlight) => highlight.verificationStatus === "rejected",
-  );
-  const sensitiveHighlights = workItem.highlights.filter((highlight) => highlight.sensitivityFlag);
-  const sensitiveProjectFacts = workItem.projectFacts.filter((fact) => fact.sensitivityFlag);
-  const approvedRetrievalHighlights = workItem.highlights.filter(
+  const approvedRetrievalHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
   );
   const highlightTraces = workItem.generationRuns.filter(
@@ -1283,6 +1292,20 @@ export default async function WorkItemDetailPage({
                               </Badge>
                               <Badge>{titleCase(item.type)}</Badge>
                               <Badge>{item.source.label}</Badge>
+                              <Badge
+                                tone={
+                                  item.lifecycleStatus === "active"
+                                    ? "success"
+                                    : item.lifecycleStatus === "quarantined" || item.lifecycleStatus === "retired"
+                                      ? "danger"
+                                      : "warning"
+                                }
+                              >
+                                Lifecycle: {titleCase(item.lifecycleStatus)}
+                              </Badge>
+                              {item.reviewState === "pending_review" ? (
+                                <Badge tone="accent">Review: Pending review</Badge>
+                              ) : null}
                               {item.tags.slice(0, 2).map((tag) => (
                                 <Badge key={`${item.id}-${tag.dimension}-${tag.tag}`}>
                                   {titleCase(tag.tag)}
@@ -1318,7 +1341,9 @@ export default async function WorkItemDetailPage({
                             </SubmitButton>
                           </form>
                         </div>
-                        {item.lifecycleStatus === "active" || item.lifecycleStatus === "needs_validation" ? (
+                        {item.lifecycleStatus === "active" ||
+                        item.lifecycleStatus === "needs_validation" ||
+                        item.lifecycleStatus === "stale" ? (
                           <details className="mt-3 border-t border-black/7 pt-3 text-xs">
                             <summary className="cursor-pointer font-medium text-[color:var(--accent)]">Edit or retire this evidence</summary>
                             <div className="mt-3 grid gap-3">
@@ -1364,7 +1389,7 @@ export default async function WorkItemDetailPage({
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    {pendingHighlights.length ? (
+                    {canApproveAllPendingHighlights ? (
                       <form action={approveAllPendingHighlightsAction}>
                         <input type="hidden" name="workItemId" value={workItem.id} />
                         <input type="hidden" name="returnTo" value={highlightsReturnTo} />
@@ -1380,10 +1405,11 @@ export default async function WorkItemDetailPage({
                     </form>
                   </div>
                 </CardHeader>
-                <CardContent className="grid gap-3 sm:grid-cols-4">
-                  <KeyValue label="Approved" value={approvedHighlightCount} />
+                <CardContent className="grid gap-3 sm:grid-cols-5">
+                  <KeyValue label="Active approved" value={approvedHighlightCount} />
                   <KeyValue label="Pending" value={pendingHighlightCount} />
                   <KeyValue label="Suggested" value={pendingSuggestionCount} />
+                  <KeyValue label="Lifecycle review" value={lifecycleHighlights.length} />
                   <KeyValue label="Rejected" value={rejectedHighlightCount} />
                 </CardContent>
               </Card>
@@ -1439,7 +1465,7 @@ export default async function WorkItemDetailPage({
 
               <ClaimSection
                 title="Approved"
-                description="Approved highlights are reusable by artifacts."
+                description="Only approved highlights with an active lifecycle appear here and participate in normal retrieval when visibility allows."
                 count={approvedHighlights.length}
                 tone="success"
               >
@@ -1456,6 +1482,29 @@ export default async function WorkItemDetailPage({
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
                     No approved highlights yet.
+                  </p>
+                )}
+              </ClaimSection>
+
+              <ClaimSection
+                title="Lifecycle review"
+                description="Needs-validation, stale, quarantined, superseded, and retired versions stay outside the ordinary active lanes and remain visible for audit or successor edits."
+                count={lifecycleHighlights.length}
+                tone="warning"
+              >
+                {lifecycleHighlights.length ? (
+                  <div className="space-y-4">
+                    {lifecycleHighlights.map((highlight) => (
+                      <ClaimCard
+                        key={highlight.id}
+                        claim={mapHighlightForCard(workItem.id, highlight)}
+                        returnTo={highlightsReturnTo}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                    No highlights need lifecycle attention right now.
                   </p>
                 )}
               </ClaimSection>
@@ -1654,6 +1703,10 @@ export default async function WorkItemDetailPage({
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge tone="success">Approved</Badge>
+                        <Badge tone="success">Lifecycle: Active</Badge>
+                        <Badge tone={highlight.reviewState === "pending_review" ? "accent" : "neutral"}>
+                          Review: {titleCase(highlight.reviewState)}
+                        </Badge>
                         <Badge>{highlight.visibility.replace("_", " ")}</Badge>
                         <Badge>{highlight.confidence}</Badge>
                         {highlight.tags.slice(0, 3).map((tag) => (

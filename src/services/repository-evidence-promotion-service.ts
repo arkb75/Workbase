@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-tags";
 import { prisma } from "@/src/lib/prisma";
+import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
 
 export async function promoteRepositoryCitations(input: {
   workItemId: string;
   citations: readonly ProjectKnowledgeCitation[];
+  reviewScope?: string;
+  refreshRunId?: string | null;
 }) {
   const promotedIds: string[] = [];
   const newIds: string[] = [];
@@ -54,7 +57,19 @@ export async function promoteRepositoryCitations(input: {
     };
     const existing = await prisma.evidenceItem.findUnique({
       where: { sourceId_externalId: { sourceId: source.id, externalId } },
-      select: { id: true },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        included: true,
+        lifecycleStatus: true,
+        reviewState: true,
+        approvalSource: true,
+        publicSafetyStatus: true,
+        validatedThroughSha: true,
+        lastValidatedAt: true,
+        autoAppliedAt: true,
+      },
     });
     const evidence = await prisma.evidenceItem.upsert({
       where: { sourceId_externalId: { sourceId: source.id, externalId } },
@@ -73,6 +88,76 @@ export async function promoteRepositoryCitations(input: {
       },
       update: { content: citation.excerpt, searchText: buildEvidenceSearchText({ title: citation.path, content: citation.excerpt, metadata }), metadata },
     });
+    const reviewScope = input.reviewScope ?? `citation:${citation.commitSha}:${citation.blobSha}`;
+    const reviewKey = `${reviewScope}:promoted-evidence:${evidence.id}`;
+    const priorReview = await prisma.knowledgeChange.findUnique({
+      where: {
+        workItemId_idempotencyKey: {
+          workItemId: input.workItemId,
+          idempotencyKey: reviewKey,
+        },
+      },
+      select: { id: true },
+    });
+    if (!priorReview) {
+      await prisma.evidenceItem.update({
+        where: { id: evidence.id },
+        data: {
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+          validatedThroughSha: citation.commitSha,
+          lastValidatedAt: new Date(),
+          autoAppliedAt: new Date(),
+        },
+      });
+      await upsertReviewableKnowledgeChange({
+        workItemId: input.workItemId,
+        refreshRunId: input.refreshRunId,
+        entityKind: "evidence",
+        action: existing ? "revalidated" : "created",
+        entityId: evidence.id,
+        beforeSnapshot: existing
+          ? {
+              id: existing.id,
+              title: existing.title,
+              content: existing.content,
+              included: existing.included,
+              lifecycleStatus: existing.lifecycleStatus,
+              reviewState: existing.reviewState,
+              approvalSource: existing.approvalSource,
+              publicSafetyStatus: existing.publicSafetyStatus,
+              validatedThroughSha: existing.validatedThroughSha,
+              lastValidatedAt: existing.lastValidatedAt,
+              autoAppliedAt: existing.autoAppliedAt,
+            }
+          : undefined,
+        afterSnapshot: {
+          id: evidence.id,
+          title: evidence.title,
+          content: evidence.content,
+          included: existing?.included ?? false,
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+          validatedThroughSha: citation.commitSha,
+        },
+        reason: existing
+          ? "A repository workflow revalidated this immutable excerpt for later review."
+          : "A repository workflow promoted this immutable excerpt for later review.",
+        provenance: {
+          sourceId: citation.sourceId,
+          repository: citation.repository,
+          commitSha: citation.commitSha,
+          blobSha: citation.blobSha,
+          path: citation.path,
+          startLine: citation.startLine,
+          endLine: citation.endLine,
+        },
+        policyVersion: "knowledge-lifecycle-v2",
+        idempotencyKey: reviewKey,
+      });
+    }
     const tags = inferEvidenceTags({
       title: evidence.title,
       content: evidence.content,

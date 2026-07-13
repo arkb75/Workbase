@@ -27,6 +27,66 @@ export interface StructuredOutputAttemptRecord {
   errorMessage?: string | null;
 }
 
+export interface StructuredGenerationBudgetUsage {
+  modelCalls: number;
+  repairPasses: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  unknownUsageCalls: number;
+}
+
+export interface StructuredGenerationBudget {
+  limits: {
+    maxModelCalls: number;
+    maxRepairPasses: number;
+    maxOutputTokens: number;
+    maxTotalTokens: number;
+  };
+  usage: StructuredGenerationBudgetUsage;
+}
+
+export class StructuredGenerationBudgetError extends Error {
+  constructor(
+    public readonly code:
+      | "model_call_budget_exhausted"
+      | "repair_budget_exhausted"
+      | "token_budget_exhausted",
+    message: string,
+    public readonly usage: StructuredGenerationBudgetUsage,
+  ) {
+    super(message);
+    this.name = "StructuredGenerationBudgetError";
+  }
+}
+
+export function createStructuredGenerationBudget(input: StructuredGenerationBudget["limits"]): StructuredGenerationBudget {
+  const positiveInteger = (value: number, label: string) => {
+    if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer.`);
+    return value;
+  };
+  return {
+    limits: {
+      maxModelCalls: positiveInteger(input.maxModelCalls, "maxModelCalls"),
+      maxRepairPasses: positiveInteger(input.maxRepairPasses, "maxRepairPasses"),
+      maxOutputTokens: positiveInteger(input.maxOutputTokens, "maxOutputTokens"),
+      maxTotalTokens: positiveInteger(input.maxTotalTokens, "maxTotalTokens"),
+    },
+    usage: {
+      modelCalls: 0,
+      repairPasses: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      unknownUsageCalls: 0,
+    },
+  };
+}
+
+export function snapshotStructuredGenerationBudget(budget: StructuredGenerationBudget): StructuredGenerationBudgetUsage {
+  return { ...budget.usage };
+}
+
 export interface ConverseTextRuntime {
   converse(input: {
     systemPrompt: string;
@@ -72,6 +132,28 @@ function normalizeJsonValue(value: unknown): JsonValue | null {
 
 function normalizeAttemptRecords(attempts: StructuredOutputAttemptRecord[]) {
   return normalizeJsonValue(attempts);
+}
+
+function numericTokenUsage(value: JsonValue | null, key: "inputTokens" | "outputTokens" | "totalTokens") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const candidate = value[key];
+  return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0
+    ? Math.floor(candidate)
+    : 0;
+}
+
+function estimatedInputTokenUpperBound(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
+  const schemaBytes = input.structuredOutput
+    ? Buffer.byteLength(JSON.stringify(input.structuredOutput.jsonSchema), "utf8") +
+      Buffer.byteLength(input.structuredOutput.schemaName, "utf8") +
+      Buffer.byteLength(input.structuredOutput.schemaDescription, "utf8")
+    : 0;
+  // A token cannot encode less than one source byte. The fixed reserve covers
+  // Bedrock's message/tool envelope, which is not represented in the strings.
+  return Buffer.byteLength(input.systemPrompt, "utf8") +
+    Buffer.byteLength(input.userPrompt, "utf8") +
+    schemaBytes +
+    512;
 }
 
 function readTextFromContent(content: ContentBlock[] | undefined) {
@@ -483,6 +565,7 @@ export class BedrockStructuredLlmClient {
     maxTokens: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
+    budget?: StructuredGenerationBudget;
     extraValidation?: (value: T) => string[];
   }) {
     const temperature = params.temperature ?? 0;
@@ -496,6 +579,66 @@ export class BedrockStructuredLlmClient {
       (mode): mode is NativeStructuredOutputMode => mode !== "text_repair_fallback",
     );
     const attempts: StructuredOutputAttemptRecord[] = [];
+    const converse = async (
+      request: Parameters<ConverseTextRuntime["converse"]>[0],
+      phase: StructuredGenerationPhase,
+    ) => {
+      const budget = params.budget;
+      if (!budget) return this.runtime.converse(request);
+      if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
+        throw new StructuredGenerationBudgetError(
+          "model_call_budget_exhausted",
+          `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
+          snapshotStructuredGenerationBudget(budget),
+        );
+      }
+      if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
+        throw new StructuredGenerationBudgetError(
+          "repair_budget_exhausted",
+          `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
+          snapshotStructuredGenerationBudget(budget),
+        );
+      }
+      const remainingTokens = budget.limits.maxTotalTokens - budget.usage.totalTokens;
+      const inputTokenReserve = estimatedInputTokenUpperBound(request);
+      const permittedOutputTokens = Math.min(
+        request.maxTokens,
+        budget.limits.maxOutputTokens,
+        remainingTokens - inputTokenReserve,
+      );
+      if (permittedOutputTokens < 1) {
+        throw new StructuredGenerationBudgetError(
+          "token_budget_exhausted",
+          `The structured-generation token budget is exhausted before another bounded request can start.`,
+          snapshotStructuredGenerationBudget(budget),
+        );
+      }
+      budget.usage.modelCalls += 1;
+      if (phase === "repair") budget.usage.repairPasses += 1;
+      let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
+      try {
+        response = await this.runtime.converse({ ...request, maxTokens: permittedOutputTokens });
+      } catch (error) {
+        budget.usage.unknownUsageCalls += 1;
+        throw error;
+      }
+      const inputTokens = numericTokenUsage(response.tokenUsage, "inputTokens");
+      const outputTokens = numericTokenUsage(response.tokenUsage, "outputTokens");
+      const reportedTotal = numericTokenUsage(response.tokenUsage, "totalTokens");
+      const totalTokens = reportedTotal || inputTokens + outputTokens;
+      if (!response.tokenUsage) budget.usage.unknownUsageCalls += 1;
+      budget.usage.inputTokens += inputTokens;
+      budget.usage.outputTokens += outputTokens;
+      budget.usage.totalTokens += totalTokens;
+      if (budget.usage.totalTokens > budget.limits.maxTotalTokens) {
+        throw new StructuredGenerationBudgetError(
+          "token_budget_exhausted",
+          `The provider reported ${budget.usage.totalTokens} cumulative tokens, exceeding the ${budget.limits.maxTotalTokens}-token budget.`,
+          snapshotStructuredGenerationBudget(budget),
+        );
+      }
+      return response;
+    };
     let lastFailure:
       | {
           status: GenerationFailureStatus;
@@ -510,7 +653,7 @@ export class BedrockStructuredLlmClient {
       let response;
 
       try {
-        response = await this.runtime.converse({
+        response = await converse({
           systemPrompt: params.systemPrompt,
           userPrompt: params.userPrompt,
           maxTokens: params.maxTokens,
@@ -523,8 +666,9 @@ export class BedrockStructuredLlmClient {
             schemaDescription: params.schemaDescription,
             jsonSchema: params.jsonSchema,
           },
-        });
+        }, "generation");
       } catch (error) {
+        if (error instanceof StructuredGenerationBudgetError) throw error;
         attempts.push({
           mode,
           phase: "generation",
@@ -610,15 +754,16 @@ export class BedrockStructuredLlmClient {
       };
     } else {
       try {
-        firstTextResponse = await this.runtime.converse({
+        firstTextResponse = await converse({
           systemPrompt: params.systemPrompt,
           userPrompt: params.userPrompt,
           maxTokens: params.maxTokens,
           temperature,
           effort,
           enablePromptCaching: true,
-        });
+        }, "generation");
       } catch (error) {
+        if (error instanceof StructuredGenerationBudgetError) throw error;
         attempts.push({
           mode: "text_repair_fallback",
           phase: "generation",
@@ -684,7 +829,7 @@ export class BedrockStructuredLlmClient {
     let repairResponse;
 
     try {
-      repairResponse = await this.runtime.converse({
+      repairResponse = await converse({
         systemPrompt:
           "You repair structured model outputs. Return JSON only and match the provided schema exactly.",
         userPrompt: buildSchemaAwareRepairPrompt({
@@ -701,8 +846,9 @@ export class BedrockStructuredLlmClient {
         temperature: 0,
         effort: "medium",
         enablePromptCaching: true,
-      });
+      }, "repair");
     } catch (error) {
+      if (error instanceof StructuredGenerationBudgetError) throw error;
       attempts.push({
         mode: "text_repair_fallback",
         phase: "repair",

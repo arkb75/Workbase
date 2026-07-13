@@ -6,6 +6,7 @@ import type {
 } from "@/src/domain/project-chat";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
+import { syncWorkItemDescriptionEvidenceForWorkItem } from "@/src/lib/evidence-persistence";
 import {
   buildHighlightEmbeddingText,
   ensureHighlightEmbeddings,
@@ -24,6 +25,94 @@ const defaultLimits = {
 } as const;
 const broadProjectQueryPattern =
   /\b(summarize|overview|strongest|accomplishments?|achievements?|tell me about|what did (?:i|we)|project context)\b/i;
+const currentProjectQueryPattern =
+  /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|as of)\b/i;
+
+type LinkedEvidence = {
+  evidenceItemId: string;
+  evidenceItem: {
+    id: string;
+    included: boolean;
+    title: string;
+    content: string;
+    metadata: unknown;
+  };
+};
+
+function objectValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function repositoryProvenance(entries: LinkedEvidence[]) {
+  return entries
+    .filter((entry) => entry.evidenceItem.included)
+    .flatMap((entry) => {
+      const item = entry.evidenceItem;
+      const metadata = objectValue(item.metadata);
+      const repository = typeof metadata?.repository === "string" ? metadata.repository : null;
+      const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
+      const path = typeof metadata?.path === "string" ? metadata.path : null;
+      if (!repository || !commitSha || !path) return [];
+      return [{
+        evidenceItemId: item.id,
+        title: item.title,
+        excerpt: item.content,
+        repository,
+        commitSha,
+        blobSha: typeof metadata?.blobSha === "string" ? metadata.blobSha : undefined,
+        path,
+        startLine: typeof metadata?.startLine === "number" ? metadata.startLine : undefined,
+        endLine: typeof metadata?.endLine === "number" ? metadata.endLine : undefined,
+        url: typeof metadata?.url === "string" ? metadata.url : undefined,
+        contentHash: typeof metadata?.excerptHash === "string" ? metadata.excerptHash : undefined,
+      }];
+    })
+    .slice(0, 8);
+}
+
+function highlightSubsystemKey(metadata: unknown) {
+  const value = objectValue(metadata);
+  return typeof value?.subsystemKey === "string" ? value.subsystemKey : null;
+}
+
+function isExplicitSelfReportedOwnershipEvidence(item: {
+  type: string;
+  metadata: unknown;
+  source: { metadata?: unknown };
+}) {
+  if (item.type === "chat_user_statement") return true;
+  if (item.type !== "manual_note_excerpt") return false;
+  return objectValue(item.metadata)?.kind === "work_item_description" ||
+    objectValue(item.source.metadata)?.kind === "work_item_description";
+}
+
+function artifactSnapshotText(snapshot: unknown, key: string, fallback: string) {
+  const value = objectValue(snapshot)?.[key];
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function hasDirectArtifactProvenance(artifact: {
+  highlightProvenance: Array<{ highlightId: string | null }>;
+  evidenceProvenance: Array<{
+    evidenceItemId: string | null;
+    evidenceSnapshot: unknown;
+    evidenceItem?: { type: string } | null;
+  }>;
+}) {
+  return artifact.highlightProvenance.some((entry) => Boolean(entry.highlightId)) ||
+    artifact.evidenceProvenance.some((entry) =>
+      Boolean(entry.evidenceItemId) &&
+      (objectValue(entry.evidenceSnapshot)?.type ?? entry.evidenceItem?.type) !== "github_file_excerpt"
+    );
+}
+
+function requiresRegroundedArtifactSources(query: string, purpose: ProjectKnowledgePurpose) {
+  return purpose === "public_artifact" ||
+    broadProjectQueryPattern.test(query) ||
+    currentProjectQueryPattern.test(query);
+}
 
 function tokenize(value: string) {
   return Array.from(
@@ -117,11 +206,15 @@ function factRanking(fact: {
   const systemCategory = fact.category === "architecture" || fact.category === "data_flow" || fact.category === "behavior";
   return {
     evidenceStrength: fact.evidence.length ? (fact.confidence === "high" ? 5 : fact.confidence === "medium" ? 4 : 2) : 1,
-    productImportance: fact.productImportance ?? (systemCategory ? 4 : 2),
-    implementationBreadth: fact.implementationBreadth ?? Math.min(5, systemCategory ? 3 + fact.evidence.length : 1 + fact.evidence.length),
-    technicalDifficulty: fact.technicalDifficulty ?? (systemCategory ? 4 : 2),
+    // Missing scores are uncertainty, not evidence of importance. Broad facts
+    // synthesized by the repository refresh carry explicit scores; older or
+    // manually-created facts stay eligible without automatically outranking
+    // demonstrated cross-file systems.
+    productImportance: fact.productImportance ?? 2,
+    implementationBreadth: fact.implementationBreadth ?? Math.min(3, 1 + fact.evidence.length),
+    technicalDifficulty: fact.technicalDifficulty ?? (systemCategory ? 3 : 2),
     ownershipAuthority: 0,
-    distinctiveness: fact.distinctiveness ?? (systemCategory ? 4 : 2),
+    distinctiveness: fact.distinctiveness ?? 2,
     freshness: fact.validatedThroughSha ? 5 : 2,
     impactBonus: 0,
     uncertainty: "Technical implementation is verified; personal ownership and impact require Highlight context.",
@@ -241,6 +334,13 @@ export const projectKnowledgeScoring = {
 
 export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService = {
   async retrieve({ userId, workItemId, query, purpose, limits, preferredProjectFactIds }) {
+    // Authorization must precede the system-owned sync: retrieval cannot use a
+    // guessed work-item ID to create or update another user's evidence.
+    await prisma.workItem.findFirstOrThrow({
+      where: { id: workItemId, userId },
+      select: { id: true },
+    });
+    await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
     const workItem = await prisma.workItem.findFirstOrThrow({
       where: {
         id: workItemId,
@@ -287,7 +387,15 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           include: {
             highlightProvenance: {
               include: {
-                highlight: true,
+                highlight: {
+                  include: {
+                    evidence: {
+                      include: {
+                        evidenceItem: { include: { source: true } },
+                      },
+                    },
+                  },
+                },
               },
               orderBy: { rank: "asc" },
             },
@@ -381,6 +489,8 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .filter((highlight) => isHighlightEligible(highlight, purpose))
       .map((highlight): ProjectKnowledgeHit => {
         const authority = highlightAuthority(highlight.verificationStatus);
+        const subsystemKey = highlightSubsystemKey(highlight.metadata);
+        const accomplishmentRanking = highlightRanking(highlight);
         const content = [
           highlight.text,
           highlight.summary,
@@ -393,6 +503,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             label: highlight.text,
             excerpt: highlight.summary,
             highlightId: highlight.id,
+            provenance: repositoryProvenance(highlight.evidence),
           },
           ...highlight.evidence.slice(0, 4).map((entry) => ({
             kind: "evidence" as const,
@@ -412,6 +523,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           status: highlight.verificationStatus,
           visibility: highlight.visibility,
           sensitivityFlag: highlight.sensitivityFlag,
+          subsystemKey,
+          validatedThroughSha: highlight.validatedThroughSha,
+          accomplishmentRanking,
           score:
             authorityWeight(authority) +
             lexicalScore(query, content) +
@@ -464,28 +578,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
                   label: fact.statement,
                   excerpt: fact.statement,
                   projectFactId: fact.id,
-                  provenance: fact.evidence
-                    .filter((entry) => entry.evidenceItem.included)
-                    .slice(0, 8)
-                    .map((entry) => {
-                      const item = entry.evidenceItem;
-                      const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-                        ? item.metadata as Record<string, unknown>
-                        : null;
-                      return {
-                        evidenceItemId: item.id,
-                        title: item.title,
-                        excerpt: item.content,
-                        repository: typeof metadata?.repository === "string" ? metadata.repository : undefined,
-                        commitSha: typeof metadata?.commitSha === "string" ? metadata.commitSha : undefined,
-                        blobSha: typeof metadata?.blobSha === "string" ? metadata.blobSha : undefined,
-                        path: typeof metadata?.path === "string" ? metadata.path : undefined,
-                        startLine: typeof metadata?.startLine === "number" ? metadata.startLine : undefined,
-                        endLine: typeof metadata?.endLine === "number" ? metadata.endLine : undefined,
-                        url: typeof metadata?.url === "string" ? metadata.url : undefined,
-                        contentHash: typeof metadata?.excerptHash === "string" ? metadata.excerptHash : undefined,
-                      };
-                    }),
+                  provenance: repositoryProvenance(fact.evidence),
                 },
               ],
             };
@@ -522,6 +615,10 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           authority: "included_evidence",
           title: item.title,
           content: item.content,
+          ownershipAuthority:
+            purpose === "private_chat" && isExplicitSelfReportedOwnershipEvidence(item)
+              ? 3
+              : 0,
           score:
             authorityWeight("included_evidence") +
             linkedBonus +
@@ -576,14 +673,16 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .sort((left, right) => right.score - left.score)
       .slice(0, selectedLimits.evidence);
 
+    const regroundArtifactSources = requiresRegroundedArtifactSources(query, purpose);
     const artifactHits = workItem.artifacts
       .filter((artifact) =>
-        purpose !== "public_artifact"
+        (purpose !== "public_artifact"
           ? true
           : artifact.highlightProvenance.length > 0 &&
             artifact.highlightProvenance.every(
               (entry) => entry.highlight && isHighlightEligible(entry.highlight, purpose),
-            ),
+            )) &&
+        (!regroundArtifactSources || hasDirectArtifactProvenance(artifact)),
       )
       .map((artifact): ProjectKnowledgeHit => {
         const content = [
@@ -593,6 +692,32 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           artifact.tone,
           artifact.content,
         ].join(" ");
+        const directCitations: ProjectKnowledgeCitation[] = [
+          ...artifact.highlightProvenance.flatMap((entry) => {
+            if (!entry.highlightId) return [];
+            return [{
+              kind: "highlight" as const,
+              label: artifactSnapshotText(entry.highlightSnapshot, "text", entry.highlight?.text ?? "Approved Highlight snapshot"),
+              excerpt: artifactSnapshotText(entry.highlightSnapshot, "summary", entry.highlight?.summary ?? ""),
+              highlightId: entry.highlightId,
+              provenance: entry.highlight ? repositoryProvenance(entry.highlight.evidence) : [],
+            }];
+          }),
+          ...artifact.evidenceProvenance.flatMap((entry) => {
+            if (!entry.evidenceItemId) return [];
+            const snapshot = objectValue(entry.evidenceSnapshot);
+            // Newly explored repository excerpts remain nested provenance under
+            // reviewed Highlights or Project Facts, never peer factual sources.
+            if ((snapshot?.type ?? entry.evidenceItem?.type) === "github_file_excerpt") return [];
+            return [{
+              kind: "evidence" as const,
+              label: artifactSnapshotText(entry.evidenceSnapshot, "title", entry.evidenceItem?.title ?? "Evidence snapshot"),
+              excerpt: artifactSnapshotText(entry.evidenceSnapshot, "content", entry.evidenceItem?.content ?? ""),
+              evidenceItemId: entry.evidenceItemId,
+              sourceId: typeof snapshot?.sourceId === "string" ? snapshot.sourceId : entry.evidenceItem?.sourceId,
+            }];
+          }),
+        ];
 
         return {
           id: artifact.id,
@@ -606,39 +731,17 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             (lexicalRanks.artifacts.get(artifact.id) ?? 0) * 10 +
             (vectorRanks.artifacts.get(artifact.id) ?? 0) * 6 +
             recencyScore(artifact.updatedAt),
-          citations: [
-            {
-              kind: "artifact",
-              label: `${artifact.type.replace(/_/g, " ")} artifact`,
-              excerpt: artifact.content,
-              artifactId: artifact.id,
-            },
-            ...artifact.highlightProvenance.flatMap((entry) =>
-              entry.highlight
-                ? [
-                    {
-                      kind: "highlight" as const,
-                      label: entry.highlight.text,
-                      excerpt: entry.highlight.summary,
-                      highlightId: entry.highlight.id,
-                    },
-                  ]
-                : [],
-            ),
-            ...artifact.evidenceProvenance.flatMap((entry) =>
-              entry.evidenceItem
-                ? [
-                    {
-                      kind: "evidence" as const,
-                      label: entry.evidenceItem.title,
-                      excerpt: entry.evidenceItem.content,
-                      evidenceItemId: entry.evidenceItem.id,
-                      sourceId: entry.evidenceItem.sourceId,
-                    },
-                  ]
-                : [],
-            ),
-          ],
+          citations: regroundArtifactSources
+            ? directCitations
+            : [
+                {
+                  kind: "artifact",
+                  label: `${artifact.type.replace(/_/g, " ")} artifact`,
+                  excerpt: artifact.content,
+                  artifactId: artifact.id,
+                },
+                ...directCitations,
+              ],
         };
       })
       .filter(
@@ -657,7 +760,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
     const warnings = [
       ...(artifactHits.length
         ? [
-          "Prior artifacts are derivative context. Re-ground their factual content in highlight and evidence citations before reuse.",
+          regroundArtifactSources
+            ? "Prior artifacts are derivative context and were exposed only through their direct Highlight or durable-evidence provenance."
+            : "Prior artifacts are derivative context. Re-ground their factual content in highlight and evidence citations before reuse.",
           ]
         : []),
       ...(highlightHits.some((hit) => hit.sensitivityFlag)

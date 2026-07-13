@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { currentObservations } from "@/src/services/knowledge-staleness-service";
+import {
+  currentImmutableProvenanceHeads,
+  currentObservations,
+} from "@/src/services/knowledge-staleness-service";
 import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("knowledge staleness observations", () => {
@@ -63,5 +66,54 @@ describe("knowledge staleness observations", () => {
       expect.objectContaining({ statement: "Invokes Bedrock Converse with structured tools.", subsystemKeys: ["ai_runtime"] }),
       expect.objectContaining({ statement: "Persists normalized project records.", subsystemKeys: ["domain_data"] }),
     ]);
+  });
+
+  it("only accepts current-head immutable file excerpts as validation provenance", () => {
+    const heads = currentImmutableProvenanceHeads([
+      {
+        evidenceItem: {
+          sourceId: "source-1",
+          type: "github_file_excerpt",
+          lifecycleStatus: "active",
+          metadata: {
+            commitSha: "current-sha",
+            blobSha: "blob-1",
+            path: "src/service.ts",
+            startLine: 10,
+            endLine: 20,
+            excerptHash: "excerpt-hash",
+          },
+        },
+      },
+      {
+        evidenceItem: {
+          sourceId: "source-2",
+          type: "github_file_excerpt",
+          lifecycleStatus: "active",
+          metadata: {
+            commitSha: "old-sha",
+            blobSha: "blob-2",
+            path: "src/old.ts",
+            startLine: 1,
+            endLine: 3,
+            excerptHash: "old-hash",
+          },
+        },
+      },
+      {
+        evidenceItem: {
+          sourceId: "source-3",
+          type: "github_commit",
+          lifecycleStatus: "active",
+          metadata: { commitSha: "current-3" },
+        },
+      },
+    ], new Map([
+      ["source-1", "current-sha"],
+      ["source-2", "current-sha-2"],
+      ["source-3", "current-3"],
+    ]));
+
+    expect(Object.fromEntries(heads)).toEqual({ "source-1": "current-sha" });
   });
 });

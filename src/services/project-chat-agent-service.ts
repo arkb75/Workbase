@@ -30,6 +30,14 @@ import { projectKnowledgeRetrievalService } from "@/src/services/project-knowled
 import { projectResearchService } from "@/src/services/project-research-service";
 import { projectExecutionRouterService } from "@/src/services/project-execution-router-service";
 import {
+  accomplishmentSubsystemPriority,
+  auditAccomplishmentBlocks,
+  completeGroundedAccomplishmentAnswer,
+  isTopLevelAccomplishmentSubsystem,
+  selectAccomplishmentRequirementSet,
+  verifyCompletedAccomplishmentAnswer,
+} from "@/src/services/project-answer-completeness-service";
+import {
   extractClaimCitationMap,
   groundProjectAnswer,
 } from "@/src/services/project-answer-grounding-service";
@@ -148,6 +156,14 @@ export function buildMemoryCatalog(input: {
   };
   if (input.query && accomplishmentSynthesisPattern.test(input.query)) {
     add(rankAccomplishmentHits(input.hits, 12), 12);
+    // One explicit self-report is enough to authorize accurate "you built"
+    // wording in private chat. Reserve it before generic evidence slots so a
+    // long list of commits or README records cannot crowd it out.
+    add(input.hits.filter((hit) =>
+      hit.kind === "evidence" &&
+      hit.authority === "included_evidence" &&
+      (hit.ownershipAuthority ?? 0) >= 3
+    ), 2);
   }
   add(input.hits.filter((hit) => hit.kind === "project_fact" && preferredIds.has(hit.id)), 8);
   add(input.hits.filter((hit) => hit.kind === "highlight" && hit.authority === "verified_highlight"), 6);
@@ -156,45 +172,54 @@ export function buildMemoryCatalog(input: {
   add(input.hits.filter((hit) => hit.kind === "artifact"), 3);
   add(input.hits.filter((hit) => !["verified_highlight", "verified_project_fact", "included_evidence", "prior_artifact"].includes(hit.authority)), 2);
 
-  // Only the durable memory object is a peer citation. Repository excerpts and
-  // other linked evidence remain high-level provenance previews underneath it.
-  const citations = dedupeCitationCatalog(selected.flatMap((hit) => {
+  const peerCitationsForHit = (hit: ProjectKnowledgeHit) => {
+    if (hit.kind === "artifact" && !hit.citations.some((citation) => citation.kind === "artifact")) {
+      return hit.citations.filter((citation) => citation.kind === "highlight" || citation.kind === "evidence");
+    }
     const primary = hit.citations.find((citation) => citation.kind === hit.kind) ?? hit.citations[0];
     return primary ? [primary] : [];
-  }));
+  };
+  // Only the durable memory object is a peer citation. Repository excerpts and
+  // other linked evidence remain high-level provenance previews underneath it.
+  const citations = dedupeCitationCatalog(selected.flatMap(peerCitationsForHit));
   const entries = selected.map((hit) => {
-    const primary = hit.citations.find((citation) => citation.kind === hit.kind) ?? hit.citations[0];
-    const primaryIndex = primary ? citations.findIndex((candidate) =>
-      candidate.kind === primary.kind &&
-      candidate.highlightId === primary.highlightId &&
-      candidate.projectFactId === primary.projectFactId &&
-      candidate.evidenceItemId === primary.evidenceItemId &&
-      candidate.artifactId === primary.artifactId
-    ) : -1;
+    const peers = peerCitationsForHit(hit);
+    const citationIndexes = peers.flatMap((peer) => {
+      const index = citations.findIndex((candidate) =>
+        candidate.kind === peer.kind &&
+        candidate.highlightId === peer.highlightId &&
+        candidate.projectFactId === peer.projectFactId &&
+        candidate.evidenceItemId === peer.evidenceItemId &&
+        candidate.artifactId === peer.artifactId
+      );
+      return index >= 0 ? [index + 1] : [];
+    });
     return {
       kind: hit.kind,
       authority: hit.authority,
       title: hit.title,
       content: hit.content.slice(0, 2_000),
       currentRun: hit.kind === "project_fact" && preferredIds.has(hit.id),
-      citationIndexes: primaryIndex >= 0 ? [primaryIndex + 1] : [],
+      citationIndexes,
       supportingSources: [
         ...hit.citations
-          .filter((citation) => citation !== primary)
+          .filter((citation) => !peers.includes(citation))
           .map((citation) => ({
             type: citation.kind,
             title: citation.label,
             path: citation.path,
             commitSha: citation.commitSha,
           })),
-        ...(primary?.provenance ?? []).map((source) => ({
-          type: "github_file" as const,
-          title: source.title,
-          path: source.path,
-          commitSha: source.commitSha,
-        })),
+        ...peers.flatMap((peer) => (peer.provenance ?? []).map((source) => ({
+            type: "github_file" as const,
+            title: source.title,
+            path: source.path,
+            commitSha: source.commitSha,
+          }))),
       ].slice(0, 8),
       accomplishmentRanking: hit.accomplishmentRanking ?? null,
+      ownershipAuthority:
+        hit.ownershipAuthority ?? hit.accomplishmentRanking?.ownershipAuthority ?? 0,
       subsystemKey: hit.subsystemKey ?? null,
       validatedThroughSha: hit.validatedThroughSha ?? null,
     };
@@ -228,13 +253,25 @@ function hitSimilarity(left: ProjectKnowledgeHit, right: ProjectKnowledgeHit) {
 
 export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
   const genericObservation = /\b(?:defines (?:the )?(?:symbol|model)|contains .* behavior|is present in|implements citation or provenance handling|reads or writes persisted application state)\b/i;
-  const remaining = hits
+  const eligible = hits
     .filter((hit) => hit.kind === "highlight" || hit.kind === "project_fact")
     .filter((hit) => hit.kind !== "highlight" || hit.authority === "verified_highlight")
     .filter((hit) => hit.kind !== "project_fact" || Boolean(hit.validatedThroughSha))
-    .filter((hit) => !genericObservation.test(`${hit.title} ${hit.content}`))
+    .filter((hit) => !genericObservation.test(`${hit.title} ${hit.content}`));
+  const supportedTopLevelSubsystems = new Set(
+    eligible
+      .map((hit) => hit.subsystemKey)
+      .filter((key): key is string => isTopLevelAccomplishmentSubsystem(key)),
+  );
+  const remaining = eligible
+    .filter((hit) =>
+      supportedTopLevelSubsystems.size < 7 || !hit.subsystemKey?.startsWith("module:")
+    )
     .map((hit) => ({ hit, score: accomplishmentScore(hit) }))
-    .sort((left, right) => right.score - left.score);
+    .sort((left, right) =>
+      accomplishmentSubsystemPriority(left.hit.subsystemKey) - accomplishmentSubsystemPriority(right.hit.subsystemKey) ||
+      right.score - left.score,
+    );
   const selected: ProjectKnowledgeHit[] = [];
   const subsystemCounts = new Map<string, number>();
   const mandatorySubsystems = Array.from(new Set(remaining
@@ -318,7 +355,62 @@ function deterministicMemoryAnswer(hits: ProjectKnowledgeHit[], catalog: ReturnT
     const citationIndex = entry?.citationIndexes[0];
     return `${hit.content}${citationIndex ? ` [citation:${citationIndex}]` : ""}`;
   }).join("\n\n");
-  return selectReferencedCitations(answer, catalog.citations);
+  return {
+    ...selectReferencedCitations(answer, catalog.citations),
+    uncompactedContent: answer,
+  };
+}
+
+function appendAccomplishmentCoverageNote(answer: string, warning: string | null) {
+  return warning
+    ? `${answer.trim()}\n\n> **Coverage note:** ${warning}`
+    : answer;
+}
+
+function accomplishmentRequirementManifest(
+  selection: ReturnType<typeof selectAccomplishmentRequirementSet>,
+  citations: ProjectKnowledgeCitation[],
+  ownershipCitationIndexes: number[],
+) {
+  const sourceRefs = (indexes: number[]) => indexes.flatMap((citationIndex) => {
+    const citation = citations[citationIndex - 1];
+    if (!citation) return [];
+    const sourceId = citation.projectFactId ?? citation.highlightId ??
+      citation.evidenceItemId ?? citation.artifactId ?? citation.sourceId;
+    return [{
+      citationIndex,
+      kind: citation.kind,
+      sourceId: sourceId ?? null,
+      title: citation.label,
+    }];
+  });
+  return {
+    requirements: selection.requirements.map((requirement) => {
+      const citationIndexes = Array.from(new Set([
+        ...requirement.citationIndexes,
+        ...ownershipCitationIndexes.slice(0, 1),
+      ])).slice(0, 4);
+      return {
+        key: requirement.requirementKey,
+        subsystemKeys: Array.from(new Set(requirement.members
+          .map((member) => member.subsystemKey)
+          .filter((value): value is string => Boolean(value)))),
+        citationIndexes,
+        ownershipCitationIndexes: ownershipCitationIndexes.slice(0, 1),
+        sourceRefs: sourceRefs(citationIndexes),
+        members: requirement.members.map((member) => ({
+          title: member.title,
+          content: member.content.slice(0, 700),
+          citationIndexes: member.citationIndexes,
+          sourceRefs: sourceRefs(member.citationIndexes),
+        })),
+      };
+    }),
+    minimumBlocks: Math.min(7, selection.requirements.length),
+    maximumBlocks: 10,
+    maximumUniqueCitations: 20,
+    overflowWarning: selection.coverageWarning,
+  };
 }
 
 export function ensureAccomplishmentCoverage(
@@ -590,6 +682,19 @@ async function executeProjectChatAgent(
     currentRunProjectFactIds: capabilityInputs.currentRunProjectFactIds,
     query: input.question,
   });
+  const accomplishmentRequirements = accomplishmentSynthesisPattern.test(input.question)
+    ? selectAccomplishmentRequirementSet(memoryCatalog.entries)
+    : null;
+  const accomplishmentManifest = accomplishmentRequirements
+    ? accomplishmentRequirementManifest(
+        accomplishmentRequirements,
+        memoryCatalog.citations,
+        memoryCatalog.entries
+          .filter((entry) => entry.authority === "included_evidence" && (entry.ownershipAuthority ?? 0) >= 3)
+          .flatMap((entry) => entry.citationIndexes)
+          .slice(0, 1),
+      )
+    : null;
   const deterministicIntent = routeProjectTurn({
     question: input.question,
     memoryHits: memory.hits,
@@ -743,8 +848,66 @@ async function executeProjectChatAgent(
 
   if (resolveWorkbaseLlmProvider() === "mock") {
     const selected = deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
-    const groundedContent = selected.content;
+    const accomplishmentIntent = accomplishmentSynthesisPattern.test(input.question);
+    // selectReferencedCitations compacts ordinals for persisted answers. The
+    // completeness pipeline still uses the original catalog, so it must retain
+    // original ordinals until finalizeGroundedAnswer performs the one canonical
+    // compaction at the end.
+    const groundedContent = accomplishmentIntent ? selected.uncompactedContent : selected.content;
     const answer = groundedContent || "I do not have enough grounded project context to answer that yet.";
+    if (groundedContent && accomplishmentIntent) {
+      const initialGrounding = await groundProjectAnswer({
+        answer: groundedContent,
+        entries: memoryCatalog.entries,
+        citationCount: memoryCatalog.citations.length,
+        dossier: capabilityInputs.researchDossier,
+      });
+      const initialAudit = auditAccomplishmentBlocks(initialGrounding.blocks, memoryCatalog.entries);
+      const verified = initialAudit.complete
+        ? {
+            grounded: initialGrounding,
+            audit: initialAudit,
+            partial: false,
+            warning: null,
+          }
+        : await verifyCompletedAccomplishmentAnswer({
+            completion: await completeGroundedAccomplishmentAnswer({
+              workItemId: input.workItemId,
+              runId: input.runId,
+              blocks: initialGrounding.blocks,
+              entries: memoryCatalog.entries,
+            }),
+            entries: memoryCatalog.entries,
+            citationCount: memoryCatalog.citations.length,
+            dossier: capabilityInputs.researchDossier,
+          });
+      const finalized = finalizeGroundedAnswer({
+        blocks: verified.grounded.blocks,
+        catalog: memoryCatalog.citations,
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      });
+      const answerWithCoverage = appendAccomplishmentCoverageNote(
+        finalized.markdown,
+        verified.warning ?? verified.audit.coverageWarning,
+      );
+      return {
+        status: "answered",
+        answer: answerWithCoverage,
+        citations: finalized.citations,
+        citationPolicy: finalized.citationPolicy,
+        groundedClaims: finalized.groundedClaims,
+        freshness: finalized.freshness,
+        research: directResearchResult({
+          answer: answerWithCoverage,
+          citations: finalized.citations,
+          dossier: capabilityInputs.researchDossier,
+          warnings: verified.warning || verified.audit.coverageWarning
+            ? [verified.warning ?? verified.audit.coverageWarning!]
+            : [],
+          groundedClaims: finalized.groundedClaims,
+        }),
+      };
+    }
     const groundedClaims = extractClaimCitationMap(groundedContent);
     return {
       status: groundedContent ? "answered" : "insufficient_context",
@@ -770,6 +933,9 @@ async function executeProjectChatAgent(
         text: [
           `<request>${input.question}</request>`,
           `<retrieved_project_memory>${JSON.stringify(memoryCatalog.entries)}</retrieved_project_memory>`,
+          accomplishmentManifest
+            ? `<accomplishment_requirement_manifest>${JSON.stringify(accomplishmentManifest)}</accomplishment_requirement_manifest>`
+            : "",
           `<capability_manifest>${JSON.stringify(toModelCapabilityManifest(turnContext))}</capability_manifest>`,
           mode === "post_review_finalization"
             ? `<reviewed_research>${JSON.stringify({
@@ -807,7 +973,7 @@ async function executeProjectChatAgent(
           ? "A latest-commit repository refresh mapped every eligible safe file for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata, preserve any explicit semantic coverage gaps, and never claim more completeness than that matrix supports. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
         accomplishmentSynthesisPattern.test(input.question)
-          ? "For an accomplishment synthesis, produce 7–10 nonredundant accomplishments. Lead with product and user value, then rank systems by demonstrated ownership, technical difficulty, product importance, implementation breadth, evidence strength, recency, measured impact, and distinctiveness. Represent every supplied high-importance cross-file capability exactly once, combining related implementation details under the broader capability rather than repeating them as separate accomplishments. Do not elevate routine utilities or filename-level observations above broader systems. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
+          ? "For an accomplishment synthesis, follow accomplishment_requirement_manifest exactly: explicitly cover every member under its allowed citationIndexes, combine members sharing one requirement key into one coherent accomplishment, and stay within its dynamic block and source limits. A citation alone does not count as coverage; the prose must state the supported capability. Lead with product and user value, then follow the manifest's project-level salience order. Do not elevate routine utilities or filename-level observations above broader systems. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
           : "",
         "Cite factual project claims with [citation:N] using only citationIndexes in retrieved_project_memory.",
         "Use the minimum decisive citation set. SupportingSources are provenance previews, not extra peer citations.",
@@ -833,11 +999,8 @@ async function executeProjectChatAgent(
       },
       isUserVisible: false,
     }).catch(() => null);
-    const answerWithCoverage = accomplishmentSynthesisPattern.test(input.question)
-      ? ensureAccomplishmentCoverage(result.text, memoryCatalog.entries)
-      : result.text;
     const grounded = await groundProjectAnswer({
-      answer: answerWithCoverage,
+      answer: result.text,
       entries: memoryCatalog.entries,
       citationCount: memoryCatalog.citations.length,
       dossier: capabilityInputs.researchDossier,
@@ -852,21 +1015,88 @@ async function executeProjectChatAgent(
       },
       isUserVisible: false,
     }).catch(() => null);
+    let finalGrounded = grounded;
+    let accomplishmentCoverageWarning: string | null = null;
+    if (accomplishmentSynthesisPattern.test(input.question)) {
+      const initialAudit = auditAccomplishmentBlocks(grounded.blocks, memoryCatalog.entries);
+      let completionState = "skipped_initial_answer_complete";
+      let generationRunId: string | null = null;
+      let fallbackUsed = false;
+      let completionWarning: string | null = null;
+      let finalAudit = initialAudit;
+      if (initialAudit.complete) {
+        accomplishmentCoverageWarning = initialAudit.coverageWarning;
+      } else {
+        const completion = await completeGroundedAccomplishmentAnswer({
+          workItemId: input.workItemId,
+          runId: input.runId,
+          blocks: grounded.blocks,
+          entries: memoryCatalog.entries,
+        });
+        const verified = await verifyCompletedAccomplishmentAnswer({
+          completion,
+          entries: memoryCatalog.entries,
+          citationCount: memoryCatalog.citations.length,
+          dossier: capabilityInputs.researchDossier,
+        });
+        finalGrounded = verified.grounded;
+        finalAudit = verified.audit;
+        accomplishmentCoverageWarning = verified.warning ?? verified.audit.coverageWarning;
+        generationRunId = completion.generationRunId;
+        fallbackUsed = completion.fallbackUsed;
+        completionWarning = verified.warning ?? completion.warning;
+        completionState = verified.partial
+          ? "safe_partial_first_grounding_fallback"
+          : completion.fallbackUsed
+            ? "verified_deterministic_repair"
+            : "completed_repair";
+      }
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "tool_result",
+        toolName: "audit_answer_completeness",
+        payload: {
+          completionState,
+          generationRunId,
+          requirements: accomplishmentManifest?.requirements ?? [],
+          requiredCount: initialAudit.requirements.length,
+          initialMissingCount: initialAudit.missingMembers.length,
+          finalMissingCount: finalAudit.missingMembers.length,
+          minimumBlocks: initialAudit.minimumBlocks,
+          maximumBlocks: initialAudit.maximumBlocks,
+          maximumUniqueCitations: accomplishmentManifest?.maximumUniqueCitations ?? 20,
+          initialBlockCount: grounded.blocks.length,
+          finalBlockCount: finalGrounded.blocks.length,
+          fallbackUsed,
+          overflowWarning: finalAudit.coverageWarning,
+          warning: completionWarning,
+        },
+        isUserVisible: false,
+      }).catch(() => null);
+    }
     const finalized = finalizeGroundedAnswer({
-      blocks: grounded.blocks,
+      blocks: finalGrounded.blocks,
       catalog: memoryCatalog.citations,
       freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
     });
+    const answerWithCoverage = appendAccomplishmentCoverageNote(
+      finalized.markdown,
+      accomplishmentCoverageWarning,
+    );
     const research = directResearchResult({
-      answer: finalized.markdown,
+      answer: answerWithCoverage,
       citations: finalized.citations,
       dossier: capabilityInputs.researchDossier,
-      warnings: grounded.issues,
+      warnings: Array.from(new Set([
+        ...grounded.issues,
+        ...finalGrounded.issues,
+        ...(accomplishmentCoverageWarning ? [accomplishmentCoverageWarning] : []),
+      ])),
       groundedClaims: finalized.groundedClaims,
     });
     return {
       status: "answered",
-      answer: finalized.markdown,
+      answer: answerWithCoverage,
       citations: finalized.citations,
       citationPolicy: finalized.citationPolicy,
       groundedClaims: finalized.groundedClaims,

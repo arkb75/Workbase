@@ -1,4 +1,5 @@
 import { prisma } from "@/src/lib/prisma";
+import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
 import { knowledgeSimilarity, recordChange } from "@/src/services/knowledge-reconciliation-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
@@ -107,6 +108,43 @@ function priorReferences(evidence: Array<{ evidenceItem: { metadata: unknown } }
   })));
 }
 
+type ImmutableEvidence = {
+  evidenceItem: {
+    sourceId: string;
+    type: string;
+    lifecycleStatus: string;
+    metadata: unknown;
+  };
+};
+
+/** Returns only heads backed by an active, immutable file excerpt relation. */
+export function currentImmutableProvenanceHeads(
+  evidence: ImmutableEvidence[],
+  targetShaBySource: Map<string, string>,
+) {
+  const heads = new Map<string, string>();
+  for (const entry of evidence) {
+    const item = entry.evidenceItem;
+    if (item.type !== "github_file_excerpt" || item.lifecycleStatus !== "active") continue;
+    const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? item.metadata as Record<string, unknown>
+      : null;
+    const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
+    const immutable = Boolean(
+      commitSha &&
+      typeof metadata?.blobSha === "string" && metadata.blobSha &&
+      typeof metadata?.path === "string" && metadata.path &&
+      typeof metadata?.startLine === "number" &&
+      typeof metadata?.endLine === "number" &&
+      typeof metadata?.excerptHash === "string" && metadata.excerptHash,
+    );
+    if (immutable && targetShaBySource.get(item.sourceId) === commitSha) {
+      heads.set(item.sourceId, commitSha!);
+    }
+  }
+  return heads;
+}
+
 export async function reconcileStaleKnowledge(input: {
   runId: string;
   appliedFactIds: string[];
@@ -115,6 +153,7 @@ export async function reconcileStaleKnowledge(input: {
   const run = await loadRun(input.runId);
   const targets = run.targetHeads as unknown as RepositoryTargetHead[];
   const targetShas = new Set(targets.map((target) => target.commitSha));
+  const targetShaBySource = new Map(targets.map((target) => [target.sourceId, target.commitSha]));
   const observations = currentObservations(run);
   const targetBySource = new Map(targets.map((target) => [target.sourceId, target.repository]));
   const currentReferences = new Set(run.snapshots.flatMap((snapshot) => snapshot.files.flatMap((file) => [
@@ -165,12 +204,21 @@ export async function reconcileStaleKnowledge(input: {
     const references = priorReferences(fact.evidence);
     const relevant = relevantObservations(fact.statement, fact.subsystemKey, observations);
     const validation = await validateAssertion({ assertion: fact.statement, priorReferences: references, currentReferences, observations: relevant });
-    const currentSha = relevant[0]?.commitSha ?? targets[0]?.commitSha ?? null;
-    const validationHeads = Object.fromEntries(relevant.map((entry) => [entry.sourceId, entry.commitSha]));
-    if (validation.verdict === "supported") {
+    const immutableHeads = currentImmutableProvenanceHeads(fact.evidence, targetShaBySource);
+    const currentSha = immutableHeads.values().next().value ?? null;
+    const validationHeads = Object.fromEntries(immutableHeads);
+    if (validation.verdict === "supported" && currentSha) {
       await prisma.projectFact.update({
         where: { id: fact.id },
-        data: { lifecycleStatus: "active", status: "approved", validatedThroughSha: currentSha, validationHeads, lastValidatedAt: new Date() },
+        data: {
+          lifecycleStatus: "active",
+          status: "approved",
+          reviewState: "pending_review",
+          validatedThroughSha: currentSha,
+          validationHeads,
+          lastValidatedAt: new Date(),
+          autoAppliedAt: new Date(),
+        },
       });
       await recordChange({
         workItemId: run.workItemId,
@@ -178,8 +226,33 @@ export async function reconcileStaleKnowledge(input: {
         entityKind: "project_fact",
         action: "revalidated",
         entityId: fact.id,
-        beforeSnapshot: { statement: fact.statement, validatedThroughSha: fact.validatedThroughSha },
-        afterSnapshot: { statement: fact.statement, validatedThroughSha: currentSha },
+        beforeSnapshot: {
+          id: fact.id,
+          statement: fact.statement,
+          status: fact.status,
+          lifecycleStatus: fact.lifecycleStatus,
+          reviewState: fact.reviewState,
+          approvalSource: fact.approvalSource,
+          publicSafetyStatus: fact.publicSafetyStatus,
+          validatedThroughSha: fact.validatedThroughSha,
+          validationHeads: fact.validationHeads,
+          lastValidatedAt: fact.lastValidatedAt,
+          autoAppliedAt: fact.autoAppliedAt,
+          evidenceItemIds: fact.evidence.map((entry) => entry.evidenceItemId),
+        },
+        afterSnapshot: {
+          id: fact.id,
+          statement: fact.statement,
+          status: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: fact.approvalSource,
+          publicSafetyStatus: fact.publicSafetyStatus,
+          validatedThroughSha: currentSha,
+          validationHeads,
+          autoAppliedAt: new Date(),
+          evidenceItemIds: fact.evidence.map((entry) => entry.evidenceItemId),
+        },
         reason: validation.reason,
         provenance: { observationIndexes: validation.observationIndexes, commitSha: currentSha },
         suffix: `${fact.id}:${currentSha}`,
@@ -204,6 +277,20 @@ export async function reconcileStaleKnowledge(input: {
       });
     } else {
       await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "needs_validation" } });
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "project_fact",
+        action: "updated",
+        entityId: fact.id,
+        beforeSnapshot: { id: fact.id, statement: fact.statement, lifecycleStatus: fact.lifecycleStatus, validatedThroughSha: fact.validatedThroughSha },
+        afterSnapshot: { id: fact.id, statement: fact.statement, lifecycleStatus: "needs_validation", validatedThroughSha: fact.validatedThroughSha },
+        reason: validation.verdict === "supported"
+          ? "The assertion was semantically supported, but no current-head immutable excerpt is attached; validation was not advanced."
+          : validation.reason,
+        provenance: { immutableEvidenceRequired: true, targetShas: Array.from(targetShas) },
+        suffix: `${fact.id}:needs-validation:${run.id}`,
+      });
     }
   }
 
@@ -228,15 +315,54 @@ export async function reconcileStaleKnowledge(input: {
       currentReferences,
       observations: supportingObservations,
     });
-    if (validation.verdict === "supported") {
+    const immutableHeads = currentImmutableProvenanceHeads(highlight.evidence, targetShaBySource);
+    const currentSha = immutableHeads.values().next().value ?? null;
+    if (validation.verdict === "supported" && currentSha) {
       await prisma.highlight.update({
         where: { id: highlight.id },
         data: {
           lifecycleStatus: "active",
-          validatedThroughSha: supportingObservations[0]?.commitSha ?? targets[0]?.commitSha,
-          validationHeads: Object.fromEntries(supportingObservations.map((entry) => [entry.sourceId, entry.commitSha])),
+          reviewState: "pending_review",
+          validatedThroughSha: currentSha,
+          validationHeads: Object.fromEntries(immutableHeads),
           lastValidatedAt: new Date(),
+          autoAppliedAt: new Date(),
         },
+      });
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "highlight",
+        action: "revalidated",
+        entityId: highlight.id,
+        beforeSnapshot: {
+          id: highlight.id,
+          text: highlight.text,
+          lifecycleStatus: highlight.lifecycleStatus,
+          reviewState: highlight.reviewState,
+          approvalSource: highlight.approvalSource,
+          publicSafetyStatus: highlight.publicSafetyStatus,
+          validatedThroughSha: highlight.validatedThroughSha,
+          validationHeads: highlight.validationHeads,
+          lastValidatedAt: highlight.lastValidatedAt,
+          autoAppliedAt: highlight.autoAppliedAt,
+          evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
+        },
+        afterSnapshot: {
+          id: highlight.id,
+          text: highlight.text,
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: highlight.approvalSource,
+          publicSafetyStatus: highlight.publicSafetyStatus,
+          validatedThroughSha: currentSha,
+          validationHeads: Object.fromEntries(immutableHeads),
+          autoAppliedAt: new Date(),
+          evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
+        },
+        reason: validation.reason,
+        provenance: { observationIndexes: validation.observationIndexes, commitSha: currentSha },
+        suffix: `${highlight.id}:${currentSha}`,
       });
     } else if (validation.verdict === "removed") {
       await prisma.highlight.update({
@@ -258,6 +384,20 @@ export async function reconcileStaleKnowledge(input: {
       });
     } else {
       await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "needs_validation" } });
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "highlight",
+        action: "updated",
+        entityId: highlight.id,
+        beforeSnapshot: { id: highlight.id, text: highlight.text, lifecycleStatus: highlight.lifecycleStatus, validatedThroughSha: highlight.validatedThroughSha },
+        afterSnapshot: { id: highlight.id, text: highlight.text, lifecycleStatus: "needs_validation", validatedThroughSha: highlight.validatedThroughSha },
+        reason: validation.verdict === "supported"
+          ? "The Highlight was semantically supported, but no current-head immutable excerpt is attached; validation was not advanced."
+          : validation.reason,
+        provenance: { immutableEvidenceRequired: true, targetShas: Array.from(targetShas) },
+        suffix: `${highlight.id}:needs-validation:${run.id}`,
+      });
     }
   }
 
@@ -269,10 +409,30 @@ export async function reconcileStaleKnowledge(input: {
       ? evidence.metadata as Record<string, unknown>
       : null;
     const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
-    if (commitSha && !targetShas.has(commitSha)) {
+    if (commitSha && targetShaBySource.get(evidence.sourceId) !== commitSha) {
+      const reason = "This immutable repository excerpt is pinned to an older repository head and requires review.";
       await prisma.evidenceItem.update({
         where: { id: evidence.id },
         data: { lifecycleStatus: "stale", purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
+      });
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "evidence",
+        action: "updated",
+        entityId: evidence.id,
+        beforeSnapshot: { id: evidence.id, title: evidence.title, lifecycleStatus: evidence.lifecycleStatus, validatedThroughSha: evidence.validatedThroughSha },
+        afterSnapshot: { id: evidence.id, title: evidence.title, lifecycleStatus: "stale", validatedThroughSha: evidence.validatedThroughSha },
+        reason,
+        provenance: { priorCommitSha: commitSha, currentCommitSha: targetShaBySource.get(evidence.sourceId) ?? null },
+        suffix: `${evidence.id}:stale:${run.id}`,
+      });
+      await invalidateEvidenceDependents({
+        workItemId: run.workItemId,
+        evidenceItemId: evidence.id,
+        reason,
+        idempotencyScope: `refresh:${run.id}:evidence-stale:${evidence.id}`,
+        refreshRunId: run.id,
       });
     }
   }
@@ -284,7 +444,7 @@ export async function reconcileStaleKnowledge(input: {
   const staleArtifactIds: string[] = [];
   for (const artifact of artifacts) {
     const invalidHighlights = artifact.highlightProvenance.filter((entry) => entry.highlight && entry.highlight.lifecycleStatus !== "active");
-    const invalidEvidence = artifact.evidenceProvenance.filter((entry) => entry.evidenceItem && !["active", "stale"].includes(entry.evidenceItem.lifecycleStatus));
+    const invalidEvidence = artifact.evidenceProvenance.filter((entry) => entry.evidenceItem && entry.evidenceItem.lifecycleStatus !== "active");
     if (!invalidHighlights.length && !invalidEvidence.length) continue;
     const reason = `Upstream knowledge changed: ${invalidHighlights.length} Highlight and ${invalidEvidence.length} Evidence reference${invalidHighlights.length + invalidEvidence.length === 1 ? "" : "s"} are no longer canonical.`;
     await prisma.artifact.update({ where: { id: artifact.id }, data: { lifecycleStatus: "stale", staleReason: reason } });
@@ -293,10 +453,10 @@ export async function reconcileStaleKnowledge(input: {
       workItemId: run.workItemId,
       refreshRunId: run.id,
       entityKind: "artifact",
-      action: "retired",
+      action: "updated",
       entityId: artifact.id,
-      beforeSnapshot: { content: artifact.content, lifecycleStatus: artifact.lifecycleStatus },
-      afterSnapshot: { content: artifact.content, lifecycleStatus: "stale", staleReason: reason },
+      beforeSnapshot: { id: artifact.id, content: artifact.content, lifecycleStatus: artifact.lifecycleStatus, staleReason: artifact.staleReason },
+      afterSnapshot: { id: artifact.id, content: artifact.content, lifecycleStatus: "stale", staleReason: reason },
       reason,
       downstreamImpact: { invalidHighlightIds: invalidHighlights.flatMap((entry) => entry.highlightId ? [entry.highlightId] : []), invalidEvidenceIds: invalidEvidence.flatMap((entry) => entry.evidenceItemId ? [entry.evidenceItemId] : []) },
       suffix: `${artifact.id}:${targets.map((target) => target.commitSha).join(":")}`,
