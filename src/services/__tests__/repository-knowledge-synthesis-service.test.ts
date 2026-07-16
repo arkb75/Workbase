@@ -103,6 +103,29 @@ describe("repository synthesis limit fallback", () => {
 
     expect(result.facts[0]?.citationIndexes).toHaveLength(3);
     expect(result.facts[0]?.statement).toContain("vector and lexical top-k");
+    expect(result.highlights[0]?.text).not.toContain("...");
+    expect(result.highlights[0]?.summary).toContain("nested beneath reviewed memory");
+  });
+
+  it("synthesizes durable GitHub import and bounded exploration as one integration accomplishment", () => {
+    const result = fallbackSubsystemSynthesis("ingestion_integrations", [
+      entry("src/services/github-repo-import-service.ts", "The GitHub repo import fetches README content, commits, pull requests, issues, releases, and repository activity within configured limits."),
+      entry("src/services/github-repo-import-service.ts", "The GitHub repo import persists a project-scoped Source and normalized Evidence items."),
+      entry("src/services/github-repository-exploration-service.ts", "Repository exploration enforces tree lookups, searches, file reads, byte budgets, and a timeout."),
+      entry("src/services/github-repository-exploration-service.ts", "Repository exploration returns budget_exhausted, file_too_large, and binary_file failures."),
+    ]);
+
+    expect(result.facts[0]).toMatchObject({
+      statement: expect.stringContaining("GitHub ingestion fetches bounded repository metadata"),
+      productImportance: 5,
+      implementationBreadth: 5,
+      citationIndexes: [1, 2, 3],
+    });
+    expect(result.facts[1]?.statement).toContain("Repository exploration enforces");
+    expect(result.highlights[0]).toMatchObject({
+      text: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
+      summary: expect.stringContaining("project-scoped Sources and Evidence"),
+    });
   });
 
   it("retains the cross-file repository knowledge lifecycle as a ranked fact", () => {

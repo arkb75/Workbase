@@ -398,7 +398,7 @@ describe("project answer completeness", () => {
     expect(auditAccomplishmentBlocks(blocks, entries).missing).toEqual([]);
   });
 
-  it("builds a complete ten-area fallback from exact durable titles and exact ownership citations", () => {
+  it("builds a complete ten-area fallback from full durable content without unnecessary ownership citations", () => {
     const technicalEntries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS.map((subsystem, index) =>
       entry(index + 1, subsystem, {
         title: `Implemented ${subsystem.replaceAll("_", " ")}`,
@@ -427,13 +427,13 @@ describe("project answer completeness", () => {
     expect(blocks).toHaveLength(10);
     expect(validated.audit.complete).toBe(true);
     expect(validated.audit.coverageWarning).toBeNull();
-    expect(blocks.every((block) => block.citationIndexes.includes(99))).toBe(true);
+    expect(blocks.every((block) => !block.citationIndexes.includes(99))).toBe(true);
     expect(blocks[0]).toMatchObject({
       heading: "Career Content Product & Artifact Pipeline",
-      bodyMarkdown: expect.stringContaining("- Implemented product surface"),
+      bodyMarkdown: expect.stringContaining(descriptions.product_surface),
     });
     for (const technicalEntry of technicalEntries) {
-      expect(blocks.some((block) => block.bodyMarkdown.includes(technicalEntry.title))).toBe(true);
+      expect(blocks.some((block) => block.bodyMarkdown.includes(technicalEntry.content))).toBe(true);
       expect(blocks.some((block) => block.citationIndexes.includes(technicalEntry.citationIndexes[0]!))).toBe(true);
     }
   });
@@ -445,7 +445,7 @@ describe("project answer completeness", () => {
     });
     const accomplishment = entry(2, "review_ui", {
       title: "Built a human-in-the-loop review UI",
-      content: "The review UI supports candidate approval and denial.",
+      content: "Built a human-in-the-loop review UI that supports candidate approval and denial.",
     });
     const ownership: AccomplishmentGroundingEntry = {
       kind: "evidence",
@@ -461,7 +461,7 @@ describe("project answer completeness", () => {
     };
 
     const [block] = buildDeterministicAccomplishmentBlocks([], [neutral, accomplishment, ownership]);
-    expect(block?.bodyMarkdown).toContain(accomplishment.title);
+    expect(block?.bodyMarkdown).toContain(accomplishment.content);
     expect(block?.citationIndexes).toEqual([1, 2, 99]);
   });
 

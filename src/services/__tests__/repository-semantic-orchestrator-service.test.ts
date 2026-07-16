@@ -205,6 +205,31 @@ describe("repository semantic orchestration guardrails", () => {
     expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(4);
   });
 
+  it("adds repository import beside exploration when the bounded plan has capacity", () => {
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect repository ingestion and exploration.",
+        capabilityKeys: ["ingestion_integrations"],
+        fileSnapshotIds: [],
+        questions: ["What becomes durable project evidence?"],
+        expectedOutputs: ["Supported ingestion facts"],
+      }],
+      manifest: [{
+        key: "ingestion_integrations",
+        label: "GitHub ingestion",
+        files: [
+          { id: "exploration", path: "src/services/github-repository-exploration-service.ts", score: 20 },
+          { id: "import", path: "src/services/github-repo-import-service.ts", score: 10 },
+        ],
+      }],
+    });
+
+    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
+      new Set(["exploration", "import"]),
+    );
+    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBe(1);
+  });
+
   it("reports repository-scoped obligations that exceed package capacity", () => {
     const gaps = semanticCoverageAssignmentGaps({
       manifest: [

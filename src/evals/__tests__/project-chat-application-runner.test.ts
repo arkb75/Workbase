@@ -52,6 +52,11 @@ function successfulObservation(
         citationKinds: ["project_fact", "project_fact", "project_fact"],
         citationOrdinals: [1, 2, 3],
       };
+    case "conversation_follow_up":
+      return {
+        ...base,
+        answer: "The chat layer fails closed when current supporting evidence is missing instead of guessing. [citation:1]",
+      };
     case "prior_turn_provenance":
       return { ...base, citationCount: 0, citationKinds: [], citationOrdinals: [], tools: ["inspect_prior_turn_provenance"], answer: "No. The prior turn did not inspect the repository." };
     case "missing_metric":

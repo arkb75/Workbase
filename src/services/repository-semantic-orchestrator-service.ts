@@ -29,11 +29,12 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v8";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v9";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
+const MAX_MANDATORY_SEMANTIC_FILES = REPOSITORY_ORCHESTRATION_MAX_WORKERS * SEMANTIC_MICRO_BATCH_SIZE;
 
 const SEMANTIC_FACET_SUPPLEMENTS = [
   {
@@ -55,6 +56,13 @@ const SEMANTIC_FACET_SUPPLEMENTS = [
     // model also sees Sources, Highlights, Project Facts, Artifacts, and Chat.
     pathPattern: /^app\/work-items\/\[id\]\/page\.tsx$/i,
   },
+  {
+    capabilityKey: "ingestion_integrations",
+    // Pair the bounded exploration representative with the durable import
+    // path so coverage includes what becomes project memory, not only how
+    // individual repository files are read on demand.
+    pathPattern: /^src\/services\/github-repo-import-service\.ts$/i,
+  },
 ] as const;
 
 const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
@@ -67,6 +75,10 @@ const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
   ],
   tests_operations: [
     "For tests_operations, which application scenarios validate current-head refresh, chat, artifacts, review/resume, retry, cancellation, and zero-call cache reuse?",
+  ],
+  ingestion_integrations: [
+    "For ingestion_integrations, which bounded repository records are fetched and how are they persisted as project-scoped Sources and Evidence?",
+    "For ingestion_integrations, how does durable repository import complement the separate budgeted code-exploration path?",
   ],
 };
 
@@ -539,6 +551,10 @@ export function enforceMandatoryCoverage(input: {
   // extra reads free on unchanged commits.
   for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {
     for (const manifestEntry of input.manifest.filter((entry) => entry.key === facet.capabilityKey)) {
+      // Keep the complete cold-start plan within four four-file provider
+      // calls. Real repositories often share one representative across
+      // capabilities; supplements consume only that remaining capacity.
+      if (new Set(mandatoryLoads.flat()).size >= MAX_MANDATORY_SEMANTIC_FILES) continue;
       const representative = manifestEntry.files
         .filter((file) =>
           facet.pathPattern.test(file.path) &&
@@ -551,11 +567,15 @@ export function enforceMandatoryCoverage(input: {
           index,
           ownsCapability: entry.capabilityKeys.includes(facet.capabilityKey),
           load: mandatoryLoads[index]!.length,
+          incrementalCalls:
+            Math.ceil((mandatoryLoads[index]!.length + 1) / SEMANTIC_MICRO_BATCH_SIZE) -
+            Math.ceil(mandatoryLoads[index]!.length / SEMANTIC_MICRO_BATCH_SIZE),
         }))
         .filter((entry) => entry.load < MAX_FILES_PER_WORKER)
         .sort((left, right) =>
-          left.load - right.load ||
+          left.incrementalCalls - right.incrementalCalls ||
           Number(right.ownsCapability) - Number(left.ownsCapability) ||
+          right.load - left.load ||
           left.index - right.index,
         )[0]?.index;
       if (packageIndex == null) continue;

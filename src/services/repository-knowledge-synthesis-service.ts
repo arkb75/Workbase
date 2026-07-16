@@ -270,6 +270,7 @@ export function selectedProjectDomainKeysFromOrchestration(value: unknown) {
 
 type DeterministicFactDefinition = {
   statement: string;
+  highlightText?: string;
   category: ProjectFactCategory;
   patterns: RegExp[];
   minimumMatches?: number;
@@ -286,6 +287,7 @@ type DeterministicSubsystemDefinition = DeterministicFactDefinition & {
 const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinition> = {
     product_surface: {
       statement: "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.",
+      highlightText: "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow",
       category: "behavior",
       patterns: [
         /README\.md.*(?:product loop|Work Item creation)/i,
@@ -328,20 +330,36 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
       distinctiveness: 5,
     },
     ingestion_integrations: {
-      statement: "Repository exploration enforces tree/search/read/byte/time budgets and returns typed failures for exhausted budgets, oversized or binary files, unsupported encodings, and unavailable paths.",
+      statement: "GitHub ingestion fetches bounded repository metadata, README content, commits, pull requests, issues, releases, and changed-file paths, persists them as project-scoped Sources and Evidence, and complements that durable import with budgeted code exploration.",
+      highlightText: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
       category: "data_flow",
       patterns: [
-        /github-repository-exploration.*(?:tree lookups|searches|file reads).*timeout/i,
-        /github-repository-exploration.*budget_exhausted.*file_too_large.*binary_file/i,
+        /github-repo-import.*(?:README|commits|pull requests|issues|releases|repository activity)/i,
+        /github-repo-import.*(?:Source|Evidence|evidence items?)/i,
+        /github-repository-exploration.*(?:tree lookups|searches|file reads|byte|timeout|budget)/i,
       ],
-      minimumMatches: 2,
-      productImportance: 4,
-      implementationBreadth: 3,
+      minimumMatches: 3,
+      productImportance: 5,
+      implementationBreadth: 5,
       technicalDifficulty: 4,
       distinctiveness: 4,
+      facets: [{
+        statement: "Repository exploration enforces tree/search/read/byte/time budgets and returns typed failures for exhausted budgets, oversized or binary files, unsupported encodings, and unavailable paths.",
+        category: "data_flow",
+        patterns: [
+          /github-repository-exploration.*(?:tree lookups|searches|file reads).*timeout/i,
+          /github-repository-exploration.*budget_exhausted.*file_too_large.*binary_file/i,
+        ],
+        minimumMatches: 2,
+        productImportance: 4,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      }],
     },
     retrieval_provenance: {
       statement: "Project knowledge retrieval merges vector and lexical top-k candidates across durable knowledge types, re-grounds artifact claims for broad or public requests, and keeps GitHub excerpts nested beneath reviewed memory instead of exposing them as peer sources.",
+      highlightText: "Built hybrid project-knowledge retrieval with artifact re-grounding and nested immutable provenance",
       category: "architecture",
       patterns: [
         /project-knowledge-retrieval.*vector and lexical/i,
@@ -461,6 +479,7 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
     },
     tests_operations: {
       statement: "Application-level automated tests cover memory answers, multi-turn follow-ups, provenance inspection, missing context, artifact routing and review, repository security, self-reported context, and targeted research while enforcing zero-call cache reuse and prerequisite conversation history.",
+      highlightText: "Validated chat, artifacts, review, security, and repository research with application-level scenario tests",
       category: "behavior",
       patterns: [
         /project-chat-application-runner.*full breadth of application chat paths/i,
@@ -532,9 +551,9 @@ export function fallbackSubsystemSynthesis(
   )[0];
   const highlights = highlightSource && highlightSource.productImportance >= 4
     ? [{
-        text: highlightSource.statement.length <= 240
+        text: definition.highlightText ?? (highlightSource.statement.length <= 240
           ? highlightSource.statement
-          : `${highlightSource.statement.slice(0, 237).trimEnd()}...`,
+          : highlightSource.statement.slice(0, 240).trimEnd()),
         summary: highlightSource.statement,
         confidence: highlightSource.confidence,
         sensitivityFlag: false,

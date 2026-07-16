@@ -53,6 +53,61 @@ describe("repository semantic task and budget", () => {
     });
   });
 
+  it("salvages bounded prose that slightly exceeds provider maxLength output", async () => {
+    const overlongSummary = `Summary ${"s".repeat(1_300)}`;
+    const overlongStatement = `The file implements ${"supported behavior ".repeat(40)}`;
+    const overlongQuestion = `How does ${"this concrete dependency interact with the persisted refresh boundary ".repeat(8)}`;
+
+    generateStructuredMock.mockImplementationOnce(async (request: {
+      schema: { parse(value: unknown): {
+        summary: string;
+        subsystemKeys: string[];
+        findings: Array<{ statement: string }>;
+        unresolvedQuestions: string[];
+      } };
+    }) => ({
+      data: request.schema.parse({
+        summary: overlongSummary,
+        subsystemKeys: ["repository_knowledge_lifecycle"],
+        findings: [{
+          statement: overlongStatement,
+          kind: "behavior",
+          capabilityKeys: ["repository_knowledge_lifecycle"],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+        }],
+        unresolvedQuestions: [overlongQuestion],
+      }),
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    }));
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "workbase/demo",
+      commitSha: "f".repeat(40),
+      path: "src/services/knowledge-refresh-service.ts",
+      content: "export const refreshProjectKnowledge = () => true;",
+      task: {
+        objective: "Determine the repository knowledge lifecycle behavior.",
+        capabilityKeys: ["repository_knowledge_lifecycle"],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+
+    expect(analysis).toMatchObject({ semanticStatus: "succeeded" });
+    expect(analysis.summary).toHaveLength(1_200);
+    expect(analysis.facts[0]?.statement).toHaveLength(500);
+    expect(analysis.unresolvedQuestions[0]).toHaveLength(300);
+  });
+
   it("reduces three uncached semantic files to one structured model call", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,

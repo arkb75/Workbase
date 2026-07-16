@@ -161,7 +161,7 @@ function nearDuplicateAccomplishment(
   const overlap = Array.from(leftTerms).filter((term) => rightTerms.has(term)).length;
   const containment = overlap / Math.min(leftTerms.size, rightTerms.size);
   const jaccard = overlap / new Set([...leftTerms, ...rightTerms]).size;
-  return containment >= 0.72 || (overlap >= 5 && jaccard >= 0.48);
+  return containment >= 0.55 || (overlap >= 4 && jaccard >= 0.35);
 }
 
 const subsystemCoverageAnchors: Record<string, RegExp[]> = {
@@ -684,8 +684,8 @@ export function buildDeterministicAccomplishmentBlocks(
   const citationCount = Math.max(0, ...entries.flatMap((entry) => entry.citationIndexes));
   const blocks: GroundedAnswerBlock[] = requirements.map((requirement) => {
     const bodyMarkdown = requirement.members.length === 1
-      ? requirement.members[0]!.title.trim()
-      : requirement.members.map((member) => `- ${member.title.trim()}`).join("\n");
+      ? requirement.members[0]!.content.trim()
+      : requirement.members.map((member) => `- ${member.content.trim()}`).join("\n");
     const technicalCitationIndexes = uniqueIndexes(requirement.citationIndexes);
     const block: GroundedAnswerBlock = {
       heading: stableRequirementHeading(requirement.requirementKey),
@@ -694,7 +694,7 @@ export function buildDeterministicAccomplishmentBlocks(
     };
     const ownershipUnsupported = requirement.members.some((member) =>
       detectGroundingContractIssues({
-        answer: `${member.title} ${uniqueIndexes(member.citationIndexes)
+        answer: `${member.content} ${uniqueIndexes(member.citationIndexes)
           .map((index) => `[citation:${index}]`)
           .join("")}`,
         citationCount,

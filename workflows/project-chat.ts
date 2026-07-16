@@ -146,6 +146,7 @@ async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
   await prisma.agentRun.update({
     where: { id: runId },
     data: {
+      knowledgeRefreshRunId: refreshRunId,
       researchState: {
         kind: "repository_knowledge_refresh",
         refreshRunId,

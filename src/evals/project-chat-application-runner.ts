@@ -149,7 +149,7 @@ export const projectChatApplicationScenarios = [
   {
     id: "conversation_follow_up",
     title: "Referential follow-up using real persisted history",
-    question: "Which part of that flow is retried, and why?",
+    question: "What does that chat layer do when current supporting evidence is missing?",
     workspace: "project_memory",
     threadKey: "architecture_conversation",
     allowResearch: false,
@@ -402,8 +402,7 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "follow-up completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "follow-up received prior messages", observation.historyMessageCount >= 2, observation.historyMessageCount, 2);
       addCheck(checks, "follow-up avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
-      addCheck(checks, "follow-up directly answers the retry question", /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(observation.answer), observation.answer, "retry/backoff explanation");
-      addCheck(checks, "follow-up explains why", /\b(?:because|so that|in order to|to (?:avoid|ensure|recover|preserve))\b/i.test(observation.answer), observation.answer, "causal explanation");
+      addCheck(checks, "follow-up answers the referenced chat behavior", /\b(?:fail(?:s|ed)?[- ]closed|insufficient (?:context|evidence)|supporting evidence|does not (?:answer|guess)|refus(?:e|es))\b/i.test(observation.answer), observation.answer, "fail-closed behavior when evidence is missing");
       if (observation.citationCount > 0) {
         addCheck(checks, "follow-up citation rows match canonical markers", canonicalCitationSetMatches(observation), observation.citationOrdinals.join(","), `1..${observation.citationCount}`);
       }

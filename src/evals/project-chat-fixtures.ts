@@ -217,7 +217,7 @@ export const projectChatEvaluationFixtures = [
     id: "architecture_follow_up",
     title: "Multi-turn architecture follow-up",
     category: "conversation",
-    question: "Which part of that flow is retried, and why?",
+    question: "What does that chat layer do when current supporting evidence is missing?",
     setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true, hasPriorAssistantTurn: true },
     expected: {
       route: "memory_only",

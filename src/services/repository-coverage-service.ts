@@ -90,19 +90,31 @@ const semanticFindingKindOptions = [
   "configuration",
 ] as const;
 
+// Bedrock's native structured-output transport can occasionally return a
+// string just beyond a declared maxLength even though the rest of the object
+// satisfies the schema. These fields are bounded prose, not identifiers whose
+// exact bytes carry authority, so normalize them before validation. This
+// preserves supported findings and avoids paying for a repair pass merely
+// because an explanatory sentence ran long.
+function boundedSemanticText(minLength: number, maxLength: number) {
+  return z.string()
+    .transform((value) => value.trim().slice(0, maxLength))
+    .pipe(z.string().min(minLength).max(maxLength));
+}
+
 const semanticAnalysisSchema = z.object({
-  summary: z.string().trim().min(1).max(1_200),
-  subsystemKeys: z.array(z.string().trim().min(2).max(100)).max(12),
+  summary: boundedSemanticText(1, 1_200),
+  subsystemKeys: z.array(boundedSemanticText(2, 100)).max(12),
   findings: z.array(z.object({
-    statement: z.string().trim().min(10).max(500),
+    statement: boundedSemanticText(10, 500),
     kind: z.enum(semanticFindingKindOptions),
-    capabilityKeys: z.array(z.string().trim().min(2).max(100)).min(1),
+    capabilityKeys: z.array(boundedSemanticText(2, 100)).min(1),
     confidence: z.enum(["low", "medium", "high"]),
     sensitivityFlag: z.boolean(),
     lineStart: z.number().int().min(1),
     lineEnd: z.number().int().min(1),
   })).max(8),
-  unresolvedQuestions: z.array(z.string().trim().min(2).max(300)).max(4),
+  unresolvedQuestions: z.array(boundedSemanticText(2, 300)).max(4),
 });
 
 const semanticAnalysisJsonSchema: JsonSchemaObject = {
