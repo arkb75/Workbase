@@ -3,6 +3,7 @@ import { ArrowRight, FileText, NotebookPen, Plus, SearchCheck, ShieldCheck } fro
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, KeyValue } from "@/components/ui/card";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
+import { DeleteWorkItemButton } from "@/components/work-items/delete-work-item-button";
 import { listWorkItemsForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { formatDateRange } from "@/src/lib/utils";
@@ -123,32 +124,38 @@ export default async function DashboardPage() {
                 ).length;
 
                 return (
-                  <Link
+                  <article
                     key={workItem.id}
-                    href={`/work-items/${workItem.id}`}
-                    className="grid gap-4 rounded-[28px] border border-black/8 bg-[color:var(--panel-muted)] p-5 transition hover:-translate-y-0.5 hover:border-[color:var(--accent)]/45 hover:bg-white"
+                    className="relative rounded-[28px] border border-black/8 bg-[color:var(--panel-muted)] transition hover:-translate-y-0.5 hover:border-[color:var(--accent)]/45 hover:bg-white"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Badge tone="accent">{workItem.type}</Badge>
-                          <Badge>{formatDateRange(workItem.startDate, workItem.endDate)}</Badge>
+                    <Link
+                      href={`/work-items/${workItem.id}`}
+                      className="grid cursor-pointer gap-4 p-5 after:absolute after:inset-0 after:rounded-[28px] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-[color:var(--accent)]"
+                    >
+                      <div className="flex flex-wrap items-start gap-3">
+                        <div className="space-y-2 pr-12">
+                          <div className="flex items-center gap-2">
+                            <Badge tone="accent">{workItem.type}</Badge>
+                            <Badge>{formatDateRange(workItem.startDate, workItem.endDate)}</Badge>
+                          </div>
+                          <h3 className="font-display text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
+                            {workItem.title}
+                          </h3>
+                          <p className="max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
+                            {workItem.description}
+                          </p>
                         </div>
-                        <h3 className="font-display text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
-                          {workItem.title}
-                        </h3>
-                        <p className="max-w-2xl text-sm leading-6 text-[color:var(--ink-soft)]">
-                          {workItem.description}
-                        </p>
                       </div>
-                      <ArrowRight className="h-5 w-5 text-[color:var(--ink-muted)]" />
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <KeyValue label="Sources" value={`${sourceCount} attached`} />
+                        <KeyValue label="Highlights" value={`${highlightCount} total`} />
+                        <KeyValue label="Pending" value={`${pendingCount} in review`} />
+                      </div>
+                    </Link>
+                    <div className="absolute right-5 top-5 z-20">
+                      <DeleteWorkItemButton workItemId={workItem.id} title={workItem.title} />
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <KeyValue label="Sources" value={`${sourceCount} attached`} />
-                      <KeyValue label="Highlights" value={`${highlightCount} total`} />
-                      <KeyValue label="Pending" value={`${pendingCount} in review`} />
-                    </div>
-                  </Link>
+                  </article>
                 );
               })
             ) : (

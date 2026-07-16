@@ -69,6 +69,7 @@ import { artifactWorkflowService } from "@/src/services/artifact-workflow-applic
 import { repositoryKnowledgeRefreshApplicationService } from "@/src/services/repository-knowledge-refresh-application-service";
 import { knowledgeRefreshService } from "@/src/services/knowledge-refresh-service";
 import { knowledgeLifecycleService, knowledgeReviewService } from "@/src/services/knowledge-review-service";
+import { deleteWorkItemForUser } from "@/src/services/work-item-deletion-service";
 import {
   artifactGenerationWorkflow,
   projectChatTurnWorkflow,
@@ -100,6 +101,15 @@ function toRepositorySummaryJsonValue(repository: {
 
 function toDateOrNull(value: string | undefined) {
   return value ? new Date(value) : null;
+}
+
+export async function deleteWorkItemAction(formData: FormData) {
+  const user = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "").trim();
+  if (!workItemId) return;
+
+  await deleteWorkItemForUser({ userId: user.id, workItemId });
+  revalidatePath("/dashboard");
 }
 
 async function importGitHubRepositoryIntoWorkItem(input: {
