@@ -17,7 +17,8 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
-  REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+  REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+  REPOSITORY_STATIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
   type RepositoryInventoryEntry,
   type RepositoryTargetHead,
@@ -29,6 +30,7 @@ import {
 import { KNOWLEDGE_LIFECYCLE_POLICY_VERSION } from "@/src/services/knowledge-reconciliation-service";
 
 export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v18";
+export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 
 const targetHeadSchema = z.object({
   sourceId: z.string(),
@@ -50,7 +52,8 @@ function hash(value: string) {
 
 function currentKnowledgeRefreshPolicyMetadata() {
   return {
-    analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+    analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
+    semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
     coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
     orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
     synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
@@ -125,18 +128,56 @@ export function isReusableKnowledgeRefresh(input: {
   completedTargets: RepositoryTargetHead[];
   targets: RepositoryTargetHead[];
 }) {
-  const warnings = record(input.warnings);
+  return currentKnowledgeRefreshPolicyMatches(input.warnings) &&
+    input.qualityStatus === "verified" &&
+    sameKnowledgeRefreshTargets(input.completedTargets, input.targets);
+}
+
+function sameKnowledgeRefreshTargets(
+  completedTargets: RepositoryTargetHead[],
+  targets: RepositoryTargetHead[],
+) {
+  return completedTargets.length === targets.length && targets.every((target) =>
+    completedTargets.some((completed) =>
+      completed.sourceId === target.sourceId && completed.commitSha === target.commitSha
+    )
+  );
+}
+
+function currentKnowledgeRefreshPolicyMatches(warningsValue: unknown) {
+  const warnings = record(warningsValue);
   const policy = currentKnowledgeRefreshPolicyMetadata();
   return warnings.analyzerVersion === policy.analyzerVersion &&
+    warnings.semanticAnalyzerVersion === policy.semanticAnalyzerVersion &&
     warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
     warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
     warnings.synthesisPolicyVersion === policy.synthesisPolicyVersion &&
-    warnings.lifecyclePolicyVersion === policy.lifecyclePolicyVersion &&
-    input.qualityStatus === "verified" &&
-    input.completedTargets.length === input.targets.length &&
-    input.targets.every((target) => input.completedTargets.some((completed) =>
-      completed.sourceId === target.sourceId && completed.commitSha === target.commitSha
-    ));
+    warnings.lifecyclePolicyVersion === policy.lifecyclePolicyVersion;
+}
+
+/**
+ * A partial same-head refresh is still useful durable work. Ordinary chat may
+ * reuse it briefly, with its explicit coverage gaps intact, instead of paying
+ * for the same failed provider call on every turn. Manual/backfill/attach and
+ * scheduled refreshes deliberately bypass this cooldown.
+ */
+export function isReusableDegradedChatRefresh(input: {
+  warnings: unknown;
+  qualityStatus: unknown;
+  completedTargets: RepositoryTargetHead[];
+  targets: RepositoryTargetHead[];
+  finishedAt: Date | null;
+  now?: Date;
+  cooldownMs?: number;
+}) {
+  const cooldownMs = input.cooldownMs ?? DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS;
+  if (!Number.isFinite(cooldownMs) || cooldownMs < 0 || !input.finishedAt) return false;
+  const ageMs = (input.now ?? new Date()).getTime() - input.finishedAt.getTime();
+  return input.qualityStatus !== "verified" &&
+    ageMs >= 0 &&
+    ageMs < cooldownMs &&
+    currentKnowledgeRefreshPolicyMatches(input.warnings) &&
+    sameKnowledgeRefreshTargets(input.completedTargets, input.targets);
 }
 
 function languageForPath(path: string) {
@@ -218,6 +259,25 @@ export async function startKnowledgeRefresh(input: {
   ) {
     return { runId: latestCompleted!.id, status: latestCompleted!.status, targets };
   }
+  if (
+    !forceRevalidation &&
+    input.trigger === "chat_freshness" &&
+    latestCompleted &&
+    isReusableDegradedChatRefresh({
+      warnings: latestCompleted.warnings,
+      qualityStatus: latestCompleted.qualityStatus,
+      completedTargets,
+      targets,
+      finishedAt: latestCompleted.finishedAt,
+    })
+  ) {
+    return {
+      runId: latestCompleted.id,
+      status: latestCompleted.status,
+      targets,
+      degradedCooldown: true,
+    };
+  }
   const headsHash = hash(targets.map((target) => `${target.sourceId}:${target.commitSha}`).join("|"));
   const idempotencyKey = policyScopedKnowledgeRefreshIdempotencyKey(
     input.idempotencyKey ?? `${input.trigger}:${headsHash}`,
@@ -254,7 +314,7 @@ export async function inventoryKnowledgeRefresh(runId: string) {
         where: {
           snapshotId: existing.id,
           disposition: "analyzed",
-          analyzerVersion: { not: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION },
+          analyzerVersion: { not: REPOSITORY_STATIC_ANALYZER_VERSION },
         },
       });
       await prisma.repositorySnapshot.update({
@@ -374,7 +434,7 @@ async function rebaseSnapshotCapabilityMappings(snapshotId: string) {
     where: {
       snapshotId,
       disposition: "analyzed",
-      analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+      analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
       analysis: { not: Prisma.DbNull },
     },
     select: { id: true, path: true, analysis: true },
@@ -406,7 +466,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
       snapshotId: { in: snapshots.map((snapshot) => snapshot.id) },
       OR: [
         { disposition: "eligible", analysis: { equals: Prisma.DbNull } },
-        { disposition: "analyzed", analyzerVersion: { not: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } },
+        { disposition: "analyzed", analyzerVersion: { not: REPOSITORY_STATIC_ANALYZER_VERSION } },
       ],
     },
     include: { snapshot: true },
@@ -422,7 +482,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
         id: { not: file.id },
         path: file.path,
         blobSha: file.blobSha,
-        analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+        analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
         disposition: "analyzed",
         analysis: { not: Prisma.DbNull },
         snapshot: { sourceId: file.snapshot.sourceId },
@@ -436,7 +496,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
         data: {
           disposition: "analyzed",
           contentHash: cached?.contentHash,
-          analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
           analysis: toInputJson(cachedAnalysis),
           analyzedAt: new Date(),
         },
@@ -477,7 +537,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
         data: {
           disposition: "analyzed",
           contentHash: entry.read.contentHash,
-          analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
           analysis: toInputJson({ ...analysis, redacted: entry.read.redacted, redactionCategories: entry.read.redactionCategories }),
           analyzedAt: new Date(),
         },
@@ -491,7 +551,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
       snapshotId: { in: snapshots.map((snapshot) => snapshot.id) },
       OR: [
         { disposition: "eligible", analysis: { equals: Prisma.DbNull } },
-        { disposition: "analyzed", analyzerVersion: { not: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } },
+        { disposition: "analyzed", analyzerVersion: { not: REPOSITORY_STATIC_ANALYZER_VERSION } },
       ],
     },
   });
@@ -607,7 +667,7 @@ async function repairKnowledgeCoverageGapsLegacy(runId: string) {
         data: {
           analysis: toInputJson({ ...(freshStaticAnalysis ?? candidate.analysis), redacted: read.redacted, redactionCategories: read.redactionCategories }),
           semanticStatus,
-          semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
           semanticRefreshRunId: run.id,
           semanticAnalysis: toInputJson(semantic),
           semanticDiagnostics: toInputJson(semantic.semanticDiagnostics ?? []),
@@ -626,7 +686,7 @@ async function repairKnowledgeCoverageGapsLegacy(runId: string) {
         where: { id: candidate.file.id },
         data: {
           semanticStatus: "failed",
-          semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
           semanticRefreshRunId: run.id,
           semanticDiagnostics: toInputJson({ message: error instanceof Error ? error.message.slice(0, 500) : "unknown_semantic_repair_error" }),
           semanticAnalyzedAt: new Date(),
@@ -674,7 +734,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     snapshot.files.filter((file) =>
       file.disposition === "eligible" ||
       file.disposition === "unreadable" ||
-      (file.disposition === "analyzed" && file.analyzerVersion !== REPOSITORY_KNOWLEDGE_ANALYZER_VERSION),
+      (file.disposition === "analyzed" && file.analyzerVersion !== REPOSITORY_STATIC_ANALYZER_VERSION),
     ),
   );
   if (incompleteFiles.length) {
@@ -695,7 +755,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       const cachedAnalysis = rebaseCachedAnalysis(file.analysis, file.path);
       const staticAnalysis = cachedAnalysis ? { ...cachedAnalysis, analysisMode: "static" as const, tokenUsage: [] } : null;
       const semanticAnalysis = file.semanticRefreshRunId === runId &&
-        file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
+        file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION &&
         file.semanticStatus === "succeeded"
         ? rebaseCachedAnalysis(file.semanticAnalysis, file.path)
         : null;
@@ -709,7 +769,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     const requiredAreaKeys = new Set(requiredAreas.map((area) => area.key));
     const semanticDegradations = snapshot.files.flatMap((file) =>
       file.semanticRefreshRunId === runId &&
-      file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
+      file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION &&
       (file.semanticStatus === "degraded" || file.semanticStatus === "failed" || file.semanticStatus === "pending")
         ? [{ path: file.path, message: `Semantic analysis ${file.semanticStatus} for ${file.path}.` }]
         : [],
@@ -762,6 +822,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       policyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
     };
     coverageByRepository.push(coverage);
+    const ledgerUpserts: Array<() => Promise<unknown>> = [];
     for (const area of matrix) {
       const representativeFileIds = snapshot.files
         .filter((file) => area.paths.includes(file.path))
@@ -790,7 +851,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         const request = record(worker.request);
         return Array.isArray(request?.capabilityKeys) && request.capabilityKeys.includes(area.key) ? [worker.id] : [];
       });
-      await prisma.repositoryCapabilityLedger.upsert({
+      ledgerUpserts.push(() => prisma.repositoryCapabilityLedger.upsert({
         where: { snapshotId_capabilityKey: { snapshotId: snapshot.id, capabilityKey: area.key } },
         create: {
           workItemId: run.workItemId,
@@ -808,7 +869,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),
-          analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
           policyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
         },
         update: {
@@ -824,10 +885,16 @@ export async function finalizeKnowledgeCoverage(runId: string) {
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),
-          analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
           policyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
         },
-      });
+      }));
+    }
+    // Capability rows are independent. A small bounded batch removes dozens
+    // of network round trips from large repositories without overwhelming the
+    // database connection pool.
+    for (let offset = 0; offset < ledgerUpserts.length; offset += 8) {
+      await Promise.all(ledgerUpserts.slice(offset, offset + 8).map((upsert) => upsert()));
     }
     await prisma.repositorySnapshot.update({
       where: { id: snapshot.id },

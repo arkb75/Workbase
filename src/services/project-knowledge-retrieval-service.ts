@@ -291,6 +291,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "EvidenceItem" evidence, query
         WHERE evidence."workItemId" = ${input.workItemId}
           AND evidence."included" = true
+          AND evidence."type" <> 'github_file_excerpt'::"EvidenceItemType"
           AND to_tsvector('english', coalesce(evidence."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -462,6 +463,12 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           where: {
             included: true,
             lifecycleStatus: "active",
+            // Repository excerpts are nested provenance for reviewed Facts
+            // and Highlights. Exclude them before PostgreSQL applies the
+            // bounded `take`, otherwise a recent refresh can crowd durable
+            // self-reported ownership and Work Item description evidence out
+            // of the candidate pool before application ranking begins.
+            type: { not: "github_file_excerpt" },
             ...(!broadQuery && evidenceCandidateIds.length ? { id: { in: evidenceCandidateIds } } : {}),
           },
           orderBy: { updatedAt: "desc" },

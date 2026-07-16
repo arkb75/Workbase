@@ -4,7 +4,11 @@ import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { resolveBedrockConfig } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
-import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
+import {
+  recordAutoResolvedKnowledgeChanges,
+  upsertReviewableKnowledgeChange,
+  type AutoResolvedKnowledgeChangeInput,
+} from "@/src/services/knowledge-change-service";
 import {
   buildHighlightEmbeddingText,
   upsertHighlightEmbedding,
@@ -143,6 +147,23 @@ async function recordChange(input: {
     modelId: resolveBedrockConfig().modelId,
     idempotencyKey,
   });
+}
+
+export function recordContentAddressedRevalidations(
+  inputs: ReadonlyArray<Omit<AutoResolvedKnowledgeChangeInput, "policyVersion" | "modelId" | "idempotencyKey"> & {
+    contentIdentity: string;
+  }>,
+) {
+  const modelId = resolveBedrockConfig().modelId;
+  return recordAutoResolvedKnowledgeChanges(inputs.map(({ contentIdentity, ...input }) => ({
+    ...input,
+    policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+    modelId,
+    // Deliberately independent of refresh-run identity. Replaying a workflow
+    // or starting another refresh at the same repository head should not add a
+    // second audit row for identical content.
+    idempotencyKey: `${input.entityKind}:content-addressed:${input.entityId}:${contentIdentity}`,
+  })));
 }
 
 async function preparePromotedEvidence(input: {
@@ -346,10 +367,15 @@ async function applyFact(input: {
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
     return created;
   });
-  await upsertProjectFactEmbedding({
-    projectFactId: fact.id,
-    inputText: buildProjectFactEmbeddingText(fact),
-  });
+  // Quarantined facts are deliberately excluded from retrieval. Avoid paying
+  // for an embedding that cannot be used; the review service creates one if a
+  // user later edits and activates the candidate.
+  if (!unsafe) {
+    await upsertProjectFactEmbedding({
+      projectFactId: fact.id,
+      inputText: buildProjectFactEmbeddingText(fact),
+    });
+  }
   await recordChange({
     workItemId: input.workItemId,
     refreshRunId: input.runId,
@@ -533,16 +559,20 @@ async function applyHighlight(input: {
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
     return created;
   });
-  await upsertHighlightEmbedding({
-    highlightId: highlight.id,
-    inputText: buildHighlightEmbeddingText({
-      text: highlight.text,
-      summary: highlight.summary,
-      verificationNotes: highlight.verificationNotes,
-      tags,
-      evidence: { summary: input.candidate.summary, sourceRefs: input.evidence.map((entry, index) => ({ evidenceItemId: input.evidenceIds[index] ?? "", sourceId: "repository-sync", sourceType: "github_repo" as const, title: entry.title, sourceLabel: "GitHub", excerpt: entry.excerpt })) },
-    }),
-  });
+  // Quarantined Highlights likewise cannot enter retrieval until review, so
+  // defer their embedding instead of creating an immediately unused vector.
+  if (!unsafe) {
+    await upsertHighlightEmbedding({
+      highlightId: highlight.id,
+      inputText: buildHighlightEmbeddingText({
+        text: highlight.text,
+        summary: highlight.summary,
+        verificationNotes: highlight.verificationNotes,
+        tags,
+        evidence: { summary: input.candidate.summary, sourceRefs: input.evidence.map((entry, index) => ({ evidenceItemId: input.evidenceIds[index] ?? "", sourceId: "repository-sync", sourceType: "github_repo" as const, title: entry.title, sourceLabel: "GitHub", excerpt: entry.excerpt })) },
+      }),
+    });
+  }
   await recordChange({
     workItemId: input.workItemId,
     refreshRunId: input.runId,

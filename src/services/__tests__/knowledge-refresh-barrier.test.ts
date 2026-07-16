@@ -18,6 +18,7 @@ vi.mock("@/src/lib/llm-config", () => ({
 
 import {
   finalizeKnowledgeCoverage,
+  isReusableDegradedChatRefresh,
   isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
   policyScopedKnowledgeRefreshIdempotencyKey,
@@ -90,8 +91,9 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v14",
+      semanticAnalyzerVersion: "repository-coverage-v14",
       coveragePolicyVersion: "repository-coverage-v7",
-      orchestrationPolicyVersion: "repository-orchestration-v7",
+      orchestrationPolicyVersion: "repository-orchestration-v8",
       synthesisPolicyVersion: "repository-synthesis-v18",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -122,6 +124,68 @@ describe("latest-commit freshness barrier", () => {
     })).toBe(true);
     expect(policyScopedKnowledgeRefreshIdempotencyKey("chat:same-head"))
       .toMatch(/^chat:same-head:policy:[a-f0-9]{16}$/);
+  });
+
+  it("briefly reuses a same-head degraded chat refresh without calling it verified", () => {
+    const target = {
+      sourceId: "source-1",
+      repository: "workbase/demo",
+      branch: "main",
+      commitSha: "d".repeat(40),
+      treeSha: "e".repeat(40),
+      committedAt: null,
+      resolvedAt: new Date().toISOString(),
+    };
+    const warnings = {
+      analyzerVersion: "repository-coverage-v14",
+      semanticAnalyzerVersion: "repository-coverage-v14",
+      coveragePolicyVersion: "repository-coverage-v7",
+      orchestrationPolicyVersion: "repository-orchestration-v8",
+      synthesisPolicyVersion: "repository-synthesis-v18",
+      lifecyclePolicyVersion: "knowledge-lifecycle-v3",
+    };
+    const now = new Date("2026-07-15T12:15:00.000Z");
+
+    expect(isReusableDegradedChatRefresh({
+      warnings,
+      qualityStatus: "degraded",
+      completedTargets: [target],
+      targets: [target],
+      finishedAt: new Date("2026-07-15T12:05:00.000Z"),
+      now,
+    })).toBe(true);
+    expect(isReusableDegradedChatRefresh({
+      warnings,
+      qualityStatus: "verified",
+      completedTargets: [target],
+      targets: [target],
+      finishedAt: new Date("2026-07-15T12:05:00.000Z"),
+      now,
+    })).toBe(false);
+    expect(isReusableDegradedChatRefresh({
+      warnings,
+      qualityStatus: "degraded",
+      completedTargets: [target],
+      targets: [{ ...target, commitSha: "f".repeat(40) }],
+      finishedAt: new Date("2026-07-15T12:05:00.000Z"),
+      now,
+    })).toBe(false);
+    expect(isReusableDegradedChatRefresh({
+      warnings: { ...warnings, orchestrationPolicyVersion: "repository-orchestration-v7" },
+      qualityStatus: "degraded",
+      completedTargets: [target],
+      targets: [target],
+      finishedAt: new Date("2026-07-15T12:05:00.000Z"),
+      now,
+    })).toBe(false);
+    expect(isReusableDegradedChatRefresh({
+      warnings,
+      qualityStatus: "degraded",
+      completedTargets: [target],
+      targets: [target],
+      finishedAt: new Date("2026-07-15T11:59:59.000Z"),
+      now,
+    })).toBe(false);
   });
 
   it("refuses to finalize while any eligible repository file lacks analysis", async () => {
@@ -266,8 +330,9 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v14",
+          semanticAnalyzerVersion: "repository-coverage-v14",
           coveragePolicyVersion: "repository-coverage-v7",
-          orchestrationPolicyVersion: "repository-orchestration-v7",
+          orchestrationPolicyVersion: "repository-orchestration-v8",
           synthesisPolicyVersion: "repository-synthesis-v18",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),

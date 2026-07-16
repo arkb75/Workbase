@@ -12,7 +12,7 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
-  REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+  REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
   type RepositoryTargetHead,
 } from "@/src/services/repository-knowledge-sync-service";
@@ -592,7 +592,7 @@ export async function synthesizeRepositoryKnowledge(
     for (const file of snapshot.files) {
       // Static analysis is useful for coverage planning, but it is not semantic
       // evidence and must never be promoted into approved durable knowledge.
-      const analysis = file.semanticRefreshRunId === runId && file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
+      const analysis = file.semanticRefreshRunId === runId && file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
         ? parseAnalysis(file.semanticAnalysis)
         : null;
       if (!analysis || !file.blobSha) continue;

@@ -77,6 +77,42 @@ export function isRetryFollowUp(question: string, history?: ProjectChatHistoryMe
     (history?.some((message) => message.role === "assistant") ?? false);
 }
 
+/**
+ * A referential follow-up may be answerable from the assistant's own prior
+ * explanation even when the underlying durable source is temporarily outside
+ * retrieval (for example while it awaits latest-head revalidation). Reuse only
+ * an explicit retry/backoff statement that also contains, or is immediately
+ * adjacent to, an explicit causal explanation. This is a clarification of the
+ * transcript—not permission to infer new project behavior from a vague turn.
+ */
+export function explicitPriorRetryExplanation(input: {
+  question: string;
+  history?: ProjectChatHistoryMessage[];
+}) {
+  if (!isRetryFollowUp(input.question, input.history)) return null;
+  const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
+  if (!priorAssistant) return null;
+  const sentences = priorAssistant.content
+    .replace(/\[citation:\d+\]/gi, "")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.replace(/^[-*#>\d.\s]+/, "").trim())
+    .filter(Boolean);
+  const retryIndex = sentences.findIndex((sentence) => /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(sentence));
+  if (retryIndex < 0) return null;
+  const causalPattern = /\b(?:because|so that|in order to|to (?:avoid|ensure|recover|preserve))\b/i;
+  const causalIndex = causalPattern.test(sentences[retryIndex]!)
+    ? retryIndex
+    : [retryIndex + 1, retryIndex - 1].find((index) =>
+        index >= 0 && index < sentences.length && causalPattern.test(sentences[index]!)
+      ) ?? -1;
+  if (causalIndex < 0) return null;
+  const explanation = Array.from(new Set([retryIndex, causalIndex]))
+    .sort((left, right) => left - right)
+    .map((index) => sentences[index])
+    .join(" ");
+  return `In my previous answer, the part I was referring to was: ${explanation}`;
+}
+
 export type ProjectChatAgentResult =
   | {
       status: "answered" | "awaiting_review" | "insufficient_context";
@@ -1174,6 +1210,27 @@ async function executeProjectChatAgent(
         citations: exactMemoryAnswer.citations,
         dossier: capabilityInputs.researchDossier,
         groundedClaims,
+      }),
+    };
+  }
+
+  const priorRetryExplanation = explicitPriorRetryExplanation({
+    question: input.question,
+    history: input.history,
+  });
+  if (priorRetryExplanation) {
+    return {
+      status: "answered",
+      answer: priorRetryExplanation,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      research: directResearchResult({
+        answer: priorRetryExplanation,
+        citations: [],
+        dossier: capabilityInputs.researchDossier,
+        groundedClaims: [],
       }),
     };
   }

@@ -4,6 +4,22 @@ import { prisma } from "@/src/lib/prisma";
 type EntityKind = "evidence" | "highlight" | "project_fact" | "artifact";
 type ChangeAction = "created" | "updated" | "revalidated" | "retired" | "quarantined";
 
+export type AutoResolvedKnowledgeChangeInput = {
+  workItemId: string;
+  refreshRunId?: string | null;
+  entityKind: EntityKind;
+  action: ChangeAction;
+  entityId: string;
+  beforeSnapshot?: unknown;
+  afterSnapshot?: unknown;
+  reason: string;
+  provenance?: unknown;
+  downstreamImpact?: unknown;
+  policyVersion: string;
+  modelId?: string | null;
+  idempotencyKey: string;
+};
+
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -108,6 +124,52 @@ export async function upsertReviewableKnowledgeChange(input: {
     }
   }
   return change;
+}
+
+/**
+ * Records content-identical lifecycle maintenance without adding it to the
+ * user's review queue. These rows remain a per-entity audit trail, but are
+ * born resolved because advancing an unchanged Git blob to a newer repository
+ * head does not change the knowledge the user previously reviewed.
+ *
+ * `createMany(..., skipDuplicates)` turns an arbitrary number of automatic
+ * revalidations into one retry-safe write. Callers use a content-addressed
+ * idempotency key, so a workflow retry cannot manufacture review noise.
+ */
+export async function recordAutoResolvedKnowledgeChanges(
+  inputs: readonly AutoResolvedKnowledgeChangeInput[],
+) {
+  if (!inputs.length) return { count: 0 };
+  const reviewedAt = new Date();
+  return prisma.knowledgeChange.createMany({
+    data: inputs.map((input) => ({
+      workItemId: input.workItemId,
+      refreshRunId: input.refreshRunId ?? null,
+      entityKind: input.entityKind,
+      action: input.action,
+      decision: "kept" as const,
+      ...relationFor(input.entityKind, input.entityId),
+      ...(input.beforeSnapshot === undefined
+        ? {}
+        : { beforeSnapshot: toInputJson(input.beforeSnapshot) }),
+      ...(input.afterSnapshot === undefined
+        ? {}
+        : { afterSnapshot: toInputJson(input.afterSnapshot) }),
+      reason: input.reason,
+      ...(input.provenance === undefined
+        ? {}
+        : { provenance: toInputJson(input.provenance) }),
+      ...(input.downstreamImpact === undefined
+        ? {}
+        : { downstreamImpact: toInputJson(input.downstreamImpact) }),
+      policyVersion: input.policyVersion,
+      modelId: input.modelId ?? null,
+      idempotencyKey: input.idempotencyKey,
+      reviewedAt,
+      feedback: "Automatically resolved because immutable repository content was unchanged.",
+    })),
+    skipDuplicates: true,
+  });
 }
 
 export function entityRelationId(change: {

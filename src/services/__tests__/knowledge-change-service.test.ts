@@ -5,12 +5,14 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
     upsert: vi.fn(),
     updateMany: vi.fn(),
+    createMany: vi.fn(),
   },
 }));
 
 vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 
 import {
+  recordAutoResolvedKnowledgeChanges,
   reviewSnapshotMatchesEntity,
   upsertReviewableKnowledgeChange,
 } from "@/src/services/knowledge-change-service";
@@ -21,6 +23,7 @@ describe("reviewable knowledge changes", () => {
     prismaMock.knowledgeChange.findUnique.mockResolvedValue(null);
     prismaMock.knowledgeChange.upsert.mockResolvedValue({ id: "change-new" });
     prismaMock.knowledgeChange.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.knowledgeChange.createMany.mockResolvedValue({ count: 1 });
   });
 
   it("returns a previously resolved transition without reopening it on retry", async () => {
@@ -93,5 +96,35 @@ describe("reviewable knowledge changes", () => {
         validatedThroughSha: "sha-new",
       },
     })).toBe(false);
+  });
+
+  it("bulk-records unchanged-blob revalidation as resolved audit history, not pending review cards", async () => {
+    await recordAutoResolvedKnowledgeChanges([{
+      workItemId: "work-1",
+      refreshRunId: "refresh-1",
+      entityKind: "evidence",
+      action: "revalidated",
+      entityId: "evidence-1",
+      beforeSnapshot: { lifecycleStatus: "stale", validatedThroughSha: "sha-old" },
+      afterSnapshot: { lifecycleStatus: "active", validatedThroughSha: "sha-new" },
+      reason: "The immutable Git blob is unchanged.",
+      provenance: { blobSha: "blob-1", automatic: true },
+      policyVersion: "knowledge-lifecycle-v3",
+      modelId: "model-1",
+      idempotencyKey: "evidence:content-addressed:evidence-1:sha-new:blob-1",
+    }]);
+
+    expect(prismaMock.knowledgeChange.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.knowledgeChange.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        evidenceItemId: "evidence-1",
+        decision: "kept",
+        reviewedAt: expect.any(Date),
+        idempotencyKey: "evidence:content-addressed:evidence-1:sha-new:blob-1",
+      })],
+      skipDuplicates: true,
+    });
+    expect(prismaMock.knowledgeChange.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.knowledgeChange.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -15,10 +15,14 @@ import {
   redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
-// Static analysis remains blob-compatible with v13. Path-to-capability mapping
-// is versioned by REPOSITORY_COVERAGE_POLICY_VERSION and is cheaply rebased
-// without rereading every unchanged GitHub blob.
-export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v14";
+// Static and semantic extraction intentionally have separate fingerprints.
+// They currently share a value for backward-compatible cache reuse, but a
+// future prompt/schema/window change can advance semantic extraction without
+// forcing every unchanged repository blob through static analysis again.
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v14";
+export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v14";
+/** @deprecated Prefer the layer-specific analyzer version. */
+export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = REPOSITORY_STATIC_ANALYZER_VERSION;
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 

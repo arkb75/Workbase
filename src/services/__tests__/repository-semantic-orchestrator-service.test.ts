@@ -16,7 +16,7 @@ import {
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
-import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
+import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("repository semantic orchestration guardrails", () => {
   const paths: Record<string, string> = {
@@ -40,6 +40,15 @@ describe("repository semantic orchestration guardrails", () => {
       label: key,
       files: [
         { id: `${key}-specific`, path, score: 10 },
+        ...(key === "project_chat_grounding"
+          ? [{ id: "project-chat-harness-facet", path: "src/services/project-agent-harness.ts", score: 9 }]
+          : key === "repository_knowledge_lifecycle"
+            ? [{ id: "semantic-orchestrator-facet", path: "src/services/repository-semantic-orchestrator-service.ts", score: 9 }]
+            : key === "knowledge_review_lifecycle"
+              ? [{ id: "knowledge-staleness-facet", path: "src/services/knowledge-staleness-service.ts", score: 9 }]
+              : key === "review_ui"
+                ? [{ id: "project-workspace-facet", path: "app/work-items/[id]/page.tsx", score: 9 }]
+                : []),
         { id: `${key}-generic`, path: "src/services/miscellaneous-service.ts", score: 1_000 },
       ],
     }));
@@ -73,9 +82,20 @@ describe("repository semantic orchestration guardrails", () => {
 
     const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
     expect(packages).toHaveLength(4);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length === 4)).toBe(true);
+    expect(selectedIds.size).toBeLessThanOrEqual(16);
+    expect(packages.reduce(
+      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
+      0,
+    )).toBeLessThanOrEqual(4);
     expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
     for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
+    for (const supplementalId of [
+      "project-chat-harness-facet",
+      "semantic-orchestrator-facet",
+      "knowledge-staleness-facet",
+      "project-workspace-facet",
+    ]) expect(selectedIds.has(supplementalId)).toBe(true);
   });
 
   it("treats selected non-Workbase project domains as mandatory manifest obligations", () => {
@@ -123,15 +143,66 @@ describe("repository semantic orchestration guardrails", () => {
 
     expect(packages).toHaveLength(4);
     expect(packages.every((entry) => entry.fileSnapshotIds.length >= 2 && entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([3, 3, 3, 3]);
+    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([4, 4, 4, 4]);
     expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
-      new Set(Object.keys(paths).map((key) => `${key}-specific`)),
+      new Set([
+        ...Object.keys(paths).map((key) => `${key}-specific`),
+        "project-chat-harness-facet",
+        "semantic-orchestrator-facet",
+        "knowledge-staleness-facet",
+        "project-workspace-facet",
+      ]),
     );
-    for (const entry of packages) {
-      for (const key of entry.capabilityKeys.filter((value) => value in paths)) {
-        expect(entry.fileSnapshotIds).toContain(`${key}-specific`);
-      }
+    for (const key of Object.keys(paths)) {
+      expect(packages.some((entry) =>
+        entry.capabilityKeys.includes(key) && entry.fileSnapshotIds.includes(`${key}-specific`)
+      )).toBe(true);
     }
+  });
+
+  it("routes retrieval, application tests, and the full workspace to decisive files", () => {
+    const routedManifest = manifest().map((area) => {
+      if (area.key === "retrieval_provenance") {
+        return {
+          ...area,
+          files: [
+            ...area.files,
+            { id: "chat-citation-high-score", path: "src/services/chat-citation-service.ts", score: 9_000 },
+          ],
+        };
+      }
+      if (area.key === "tests_operations") {
+        return {
+          ...area,
+          files: [
+            ...area.files,
+            { id: "application-scenarios", path: "src/evals/__tests__/project-chat-application-runner.test.ts", score: 1 },
+          ],
+        };
+      }
+      return area;
+    });
+
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect broad repository accomplishments.",
+        capabilityKeys: Object.keys(paths),
+        fileSnapshotIds: [],
+        questions: ["What does the project implement?"],
+        expectedOutputs: ["Supported facts"],
+      }],
+      manifest: routedManifest,
+    });
+    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+
+    expect(selectedIds.has("retrieval_provenance-specific")).toBe(true);
+    expect(selectedIds.has("chat-citation-high-score")).toBe(false);
+    expect(selectedIds.has("application-scenarios")).toBe(true);
+    expect(selectedIds.has("tests_operations-specific")).toBe(false);
+    expect(selectedIds.has("review_ui-specific")).toBe(true);
+    expect(selectedIds.has("project-workspace-facet")).toBe(true);
+    expect(selectedIds.size).toBeLessThanOrEqual(16);
+    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(4);
   });
 
   it("reports repository-scoped obligations that exceed package capacity", () => {
@@ -407,7 +478,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     expect(reusableCurrentSnapshotSemanticAnalysis({
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+      semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
       semanticAnalysis: cached,
       path: "workflows/project-chat.ts",
       capabilityKeys: ["workflow_orchestration"],
@@ -432,7 +503,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     expect(task).toMatchObject({
       capabilityKeys: ["retrieval_provenance"],
-      questions: [expect.stringContaining("retrieval_provenance")],
+      questions: expect.arrayContaining([expect.stringContaining("retrieval_provenance")]),
     });
     expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
 
@@ -500,7 +571,7 @@ describe("repository semantic orchestration guardrails", () => {
       blobSha: "a".repeat(40),
       disposition: "analyzed",
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+      semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
       snapshot: { sourceId: "attached-source" },
     });
   });

@@ -301,4 +301,85 @@ describe("project knowledge retrieval mappings", () => {
     expect(hydratedQuery.include.highlights.where.id.in).toEqual(rankedIds.slice(0, 48));
     expect(hydratedQuery.include.highlights.take).toBe(48);
   });
+
+  it("excludes repository excerpts before the evidence hydration limit", async () => {
+    const repositoryExcerpts = Array.from({ length: 65 }, (_, index) => ({
+      id: `repository-excerpt-${index}`,
+      sourceId: "source-repository",
+      included: true,
+      type: "github_file_excerpt",
+      title: `Repository excerpt ${index}`,
+      content: `Exact repository lines ${index}.`,
+      searchText: `repository excerpt ${index}`,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+      tags: [],
+      source: { id: "source-repository", label: "Workbase", type: "github_repo", metadata: {} },
+    }));
+    const durableOwnershipEvidence = [
+      {
+        id: "work-item-description",
+        sourceId: "source-description",
+        included: true,
+        type: "manual_note_excerpt",
+        title: "Work Item description",
+        content: "I built Workbase end to end.",
+        searchText: "built Workbase end to end",
+        metadata: { kind: "work_item_description" },
+        createdAt: now,
+        updatedAt: now,
+        tags: [],
+        source: { id: "source-description", label: "Description", type: "manual_note", metadata: { kind: "work_item_description" } },
+      },
+      {
+        id: "chat-ownership-statement",
+        sourceId: "source-chat",
+        included: true,
+        type: "chat_user_statement",
+        title: "User-supplied ownership context",
+        content: "I personally designed the repository knowledge lifecycle.",
+        searchText: "personally designed repository knowledge lifecycle",
+        metadata: { selfReported: true },
+        createdAt: now,
+        updatedAt: now,
+        tags: [],
+        source: { id: "source-chat", label: "Project chat", type: "chat_context", metadata: {} },
+      },
+    ];
+    const allEvidence = [...repositoryExcerpts, ...durableOwnershipEvidence];
+    mocks.findWorkItem
+      .mockResolvedValueOnce({ id: "work-item-1" })
+      .mockImplementationOnce(async (input) => {
+        const evidenceQuery = input.include.evidenceItems;
+        const filtered = evidenceQuery.where.type?.not === "github_file_excerpt"
+          ? allEvidence.filter((item) => item.type !== "github_file_excerpt")
+          : allEvidence;
+        return {
+          id: "work-item-1",
+          highlights: [],
+          projectFacts: [],
+          evidenceItems: filtered.slice(0, evidenceQuery.take),
+          artifacts: [],
+        };
+      });
+
+    const result = await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Summarize my strongest accomplishments and make sure your information is up to date",
+      purpose: "private_chat",
+    });
+
+    const hydratedQuery = mocks.findWorkItem.mock.calls[1]![0];
+    expect(hydratedQuery.include.evidenceItems).toMatchObject({
+      where: { included: true, lifecycleStatus: "active", type: { not: "github_file_excerpt" } },
+      take: 60,
+    });
+    expect(new Set(result.selectedEvidenceItemIds)).toEqual(new Set([
+      "chat-ownership-statement",
+      "work-item-description",
+    ]));
+    expect(result.hits.filter((hit) => hit.kind === "evidence").every((hit) => hit.ownershipAuthority === 3)).toBe(true);
+  });
 });

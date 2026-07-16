@@ -8,7 +8,7 @@ import {
   refreshSupportsDestructiveStaleness,
   validateAssertion,
 } from "@/src/services/knowledge-staleness-service";
-import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
+import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("knowledge staleness observations", () => {
   it("keeps per-finding capability ownership isolated in multipurpose files", () => {
@@ -20,7 +20,7 @@ describe("knowledge staleness observations", () => {
         files: [{
           path: "src/services/multi-purpose.ts",
           semanticRefreshRunId: "refresh-1",
-          semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
           semanticStatus: "succeeded",
           semanticAnalysis: {
             path: "src/services/multi-purpose.ts",

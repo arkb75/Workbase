@@ -3,6 +3,7 @@ import {
   buildContextualRetrievalQuery,
   buildMemoryCatalog,
   buildStandaloneResearchQuestion,
+  explicitPriorRetryExplanation,
   isRetryFollowUp,
   requiresLiveRepositoryResearch,
 } from "@/src/services/project-chat-agent-service";
@@ -95,6 +96,30 @@ describe("project chat repository intent", () => {
     expect(isRetryFollowUp("Which part of that flow is retried, and why?", history)).toBe(true);
     expect(isRetryFollowUp("Which part of that flow is retried, and why?", [])).toBe(false);
     expect(isRetryFollowUp("Explain the workflow.", history)).toBe(false);
+  });
+
+  it("clarifies an explicit causal retry explanation from history without inventing missing behavior", () => {
+    const question = "Which part of that flow is retried, and why?";
+    expect(explicitPriorRetryExplanation({
+      question,
+      history: [{
+        id: "assistant-1",
+        role: "assistant",
+        content: "The readiness step retries transient failures because a temporary dependency outage should not terminate the durable run. [citation:3]",
+        citations: [{ ordinal: 3, kind: "project_fact", label: "Workflow readiness retries" }],
+      }],
+    })).toBe(
+      "In my previous answer, the part I was referring to was: The readiness step retries transient failures because a temporary dependency outage should not terminate the durable run.",
+    );
+    expect(explicitPriorRetryExplanation({
+      question,
+      history: [{
+        id: "assistant-2",
+        role: "assistant",
+        content: "A durable workflow coordinates project chat and artifact generation.",
+        citations: [],
+      }],
+    })).toBeNull();
   });
 
   it("reserves an exact retry fact ahead of higher-scored generic memory", () => {

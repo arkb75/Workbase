@@ -22,14 +22,14 @@ import {
 } from "@/src/lib/bedrock-structured-llm-client";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
-  REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+  REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
   type RepositoryTargetHead,
 } from "@/src/services/repository-knowledge-sync-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v7";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v8";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -50,9 +50,25 @@ const SEMANTIC_FACET_SUPPLEMENTS = [
   },
   {
     capabilityKey: "review_ui",
-    pathPattern: /project-chat-workspace|knowledge-update-inbox|work-items\/\[id\]\/page\.tsx/i,
+    // The primary representative is the detailed chat workspace. Spend the
+    // existing review/UI supplement on the broader project workspace so the
+    // model also sees Sources, Highlights, Project Facts, Artifacts, and Chat.
+    pathPattern: /^app\/work-items\/\[id\]\/page\.tsx$/i,
   },
 ] as const;
+
+const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
+  retrieval_provenance: [
+    "For retrieval_provenance, how do PostgreSQL lexical ranking, vector similarity, exact identifiers, authority, ownership, freshness, and per-kind top-k hydration combine into hybrid retrieval?",
+    "For retrieval_provenance, how are artifact claims re-grounded and repository excerpts kept as nested provenance instead of peer chat sources?",
+  ],
+  review_ui: [
+    "For review_ui, how does the project workspace expose Sources, Highlights, Project Facts, Artifacts, and Chat, including lifecycle review, citations, progress, and knowledge updates?",
+  ],
+  tests_operations: [
+    "For tests_operations, which application scenarios validate current-head refresh, chat, artifacts, review/resume, retry, cancellation, and zero-call cache reuse?",
+  ],
+};
 
 const workPackageSchema = z.object({
   packages: z.array(z.object({
@@ -339,7 +355,7 @@ export function reusableCurrentSnapshotSemanticAnalysis(input: {
 }) {
   if (
     input.semanticStatus !== "succeeded" ||
-    input.semanticAnalyzerVersion !== REPOSITORY_KNOWLEDGE_ANALYZER_VERSION
+    input.semanticAnalyzerVersion !== REPOSITORY_SEMANTIC_ANALYZER_VERSION
   ) return null;
   return reusableSemanticAnalysis({
     value: input.semanticAnalysis,
@@ -366,7 +382,9 @@ export function buildFileSemanticTask(input: {
   return {
     objective: `Establish evidence-backed semantic coverage only for these file-relevant capabilities: ${capabilityKeys.join(", ")}.`,
     capabilityKeys,
-    questions: capabilityKeys.map((key) => `What implemented behavior in this file directly supports ${key}?`),
+    questions: capabilityKeys.flatMap((key) =>
+      CAPABILITY_SEMANTIC_QUESTIONS[key] ?? [`What implemented behavior in this file directly supports ${key}?`]
+    ),
     expectedOutputs: [
       "Evidence-backed findings only for the listed file-relevant capabilities.",
       "Exact supporting line ranges for every finding.",
@@ -411,7 +429,7 @@ export function immutableSemanticCacheWhere(input: {
     blobSha: input.blobSha,
     disposition: "analyzed",
     semanticStatus: "succeeded",
-    semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+    semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
     semanticAnalysis: { not: Prisma.DbNull },
     snapshot: { sourceId: input.sourceId },
   };
@@ -443,8 +461,11 @@ export function enforceMandatoryCoverage(input: {
     tests_operations: /(?:__tests__|\.(?:test|spec)\.|scripts\/bedrock-preflight)/i,
   };
   const affinityScore = (key: string, path: string) => {
+    if (key === "retrieval_provenance" && /src\/services\/project-knowledge-retrieval-service\.ts$/i.test(path)) return 30_000;
+    if (key === "tests_operations" && /src\/evals\/__tests__\/project-chat-application-runner\.test\.ts$/i.test(path)) return 30_000;
     if (key === "tests_operations" && /src\/(?:services|lib)\/__tests__\/(?:project-chat|repository|github|bedrock|knowledge)/i.test(path)) return 20_000;
     if (key === "workflow_orchestration" && /src\/services\/knowledge-refresh-service\.ts$/i.test(path)) return 20_000;
+    if (key === "review_ui" && /components\/chat\/project-chat-workspace\.tsx$/i.test(path)) return 20_000;
     return pathAffinity[key]?.test(path) ? 10_000 : 0;
   };
   const packages = input.packages.slice(0, REPOSITORY_ORCHESTRATION_MAX_WORKERS).map((entry) => ({
@@ -519,9 +540,12 @@ export function enforceMandatoryCoverage(input: {
   for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {
     for (const manifestEntry of input.manifest.filter((entry) => entry.key === facet.capabilityKey)) {
       const representative = manifestEntry.files
-        .filter((file) => facet.pathPattern.test(file.path))
+        .filter((file) =>
+          facet.pathPattern.test(file.path) &&
+          !mandatoryLoads.some((files) => files.includes(file.id))
+        )
         .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))[0];
-      if (!representative || mandatoryLoads.some((files) => files.includes(representative.id))) continue;
+      if (!representative) continue;
       const packageIndex = packages
         .map((entry, index) => ({
           index,
@@ -814,7 +838,7 @@ async function runWorkPackage(input: {
             status: "immutable_blob_semantic_cache_hit",
             cachedFileSnapshotId: cachedFile.id,
             blobSha: file.blobSha,
-            analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            analyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
             cacheScope: cachedFile.id === file.id ? "current_snapshot" : "prior_snapshot",
           },
         ];
@@ -830,7 +854,7 @@ async function runWorkPackage(input: {
           where: { id: file.id },
           data: {
             semanticStatus: "succeeded",
-            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
             semanticRefreshRunId: input.refreshRunId,
             semanticAnalysis: inputJson(reused),
             semanticDiagnostics: inputJson(semanticDiagnostics),
@@ -872,7 +896,7 @@ async function runWorkPackage(input: {
         where: { id: file.id },
         data: {
           semanticStatus: "failed",
-          semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
           semanticRefreshRunId: input.refreshRunId,
           semanticDiagnostics: inputJson([{ status: "worker_failure", message }]),
           semanticAnalyzedAt: new Date(),
@@ -917,7 +941,7 @@ async function runWorkPackage(input: {
           where: { id: entry.file.id },
           data: {
             semanticStatus: "failed",
-            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
             semanticRefreshRunId: input.refreshRunId,
             semanticDiagnostics: inputJson([{ status: "missing_batch_result", message }]),
             semanticAnalyzedAt: new Date(),
@@ -938,7 +962,7 @@ async function runWorkPackage(input: {
             // prevents a prior refresh's semantic facts from leaking into a later run.
             analysis: inputJson({ ...(entry.freshStaticAnalysis ?? entry.staticAnalysis), redacted: entry.read.redacted, redactionCategories: entry.read.redactionCategories }),
             semanticStatus,
-            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
             semanticRefreshRunId: input.refreshRunId,
             semanticAnalysis: inputJson(semantic),
             semanticDiagnostics: inputJson(semantic.semanticDiagnostics ?? []),
@@ -966,7 +990,7 @@ async function runWorkPackage(input: {
           where: { id: entry.file.id },
           data: {
             semanticStatus: "failed",
-            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
             semanticRefreshRunId: input.refreshRunId,
             semanticDiagnostics: inputJson([{ status: "result_persistence_failure", message }]),
             semanticAnalyzedAt: new Date(),
