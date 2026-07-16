@@ -5,6 +5,7 @@ import {
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
   fallbackSubsystemSynthesis,
+  isBroadSemanticRepositoryLifecycleFact,
   modelEligibleSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
@@ -182,6 +183,47 @@ describe("repository synthesis limit fallback", () => {
     });
     expect(result?.statement).toContain("orchestrated semantic coverage repair");
     expect(derivedRepositoryKnowledgeLifecycleFact(structuralEntries)).toBeNull();
+  });
+
+  it("does not let high model scores turn one schema detail into a broad lifecycle baseline", () => {
+    const notebook = [entry(
+      "src/services/repository-knowledge-synthesis-service.ts",
+      "The synthesisSchema defines up to three facts, two highlights, and integer ranking fields.",
+    )];
+    const schemaDetail = {
+      statement: "The synthesisSchema defines up to three facts, two highlights, and integer ranking fields.",
+      category: "configuration" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+      distinctiveness: 5,
+    };
+    const broad = {
+      ...schemaDetail,
+      statement: "Repository refresh and semantic analysis feed synthesis, reconciliation, and stale-knowledge invalidation.",
+      citationIndexes: [1, 2, 3],
+    };
+    const broadNotebook = [
+      entry("src/services/knowledge-refresh-service.ts", "Repository refresh performs bounded semantic analysis."),
+      entry("src/services/repository-knowledge-synthesis-service.ts", "Repository synthesis emits durable knowledge."),
+      entry("src/services/knowledge-reconciliation-service.ts", "Reconciliation invalidates stale knowledge."),
+    ];
+
+    expect(isBroadSemanticRepositoryLifecycleFact(schemaDetail, notebook)).toBe(false);
+    expect(isBroadSemanticRepositoryLifecycleFact(broad, notebook)).toBe(false);
+    expect(isBroadSemanticRepositoryLifecycleFact(broad, broadNotebook)).toBe(true);
+    expect(isBroadSemanticRepositoryLifecycleFact({
+      ...broad,
+      citationIndexes: [1, 9],
+    }, broadNotebook)).toBe(false);
+    expect(isBroadSemanticRepositoryLifecycleFact(broad, [{
+      ...notebook[0]!,
+      evidenceMode: "deterministic_anchor",
+    }])).toBe(false);
   });
 
   it.each([

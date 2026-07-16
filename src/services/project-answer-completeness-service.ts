@@ -155,6 +155,12 @@ function nearDuplicateAccomplishment(
   left: AccomplishmentGroundingEntry,
   right: AccomplishmentGroundingEntry,
 ) {
+  if (
+    left.subsystemKey === "product_surface" &&
+    right.subsystemKey === "product_surface" &&
+    accomplishmentCoverageAnchorScore(left) >= 3 &&
+    accomplishmentCoverageAnchorScore(right) >= 3
+  ) return true;
   const leftTerms = semanticTokens(`${left.title} ${left.content}`);
   const rightTerms = semanticTokens(`${right.title} ${right.content}`);
   if (!leftTerms.size || !rightTerms.size) return false;
@@ -166,9 +172,9 @@ function nearDuplicateAccomplishment(
 
 const subsystemCoverageAnchors: Record<string, RegExp[]> = {
   product_surface: [
-    /\b(?:resume|linkedin|career content|project summar(?:y|ies)|work item)\b/i,
-    /\b(?:end-to-end|full-stack|product (?:surface|loop|workspace))\b/i,
-    /\b(?:source|evidence) (?:intake|ingestion|review)\b/i,
+    /\b(?:resume|linkedin|career (?:content|artifacts?)|project summar(?:y|ies)|work items?)\b/i,
+    /\b(?:end-to-end|full-stack|product (?:surface|loop|workspace|flow))\b/i,
+    /(?:\b(?:source|evidence)\b.{0,16}\b(?:intake|ingestion|review)\b|\battached sources?\b)/i,
   ],
   repository_knowledge_lifecycle: [
     /\brepository (?:refresh|knowledge|snapshot|coverage|synthesis)\b/i,
@@ -284,7 +290,8 @@ function compareAccomplishmentCoverage(
 ) {
   return accomplishmentCoverageAnchorScore(right) - accomplishmentCoverageAnchorScore(left) ||
     score(right) - score(left) ||
-    Number(right.currentRun) - Number(left.currentRun);
+    Number(right.currentRun) - Number(left.currentRun) ||
+    left.title.localeCompare(right.title);
 }
 
 function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[]) {
@@ -302,13 +309,6 @@ function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[])
   const selected = [...representativeEntries];
   for (const candidate of coverageOrdered.filter((entry) => isImportant(entry) && !representativeSet.has(entry))) {
     const rawSubsystem = candidate.subsystemKey ?? `${candidate.kind}:${candidate.title.toLowerCase()}`;
-    // The product/artifact requirement already reserves separate
-    // representatives for product_surface and artifact_generation. Additional
-    // product-surface variants tend to restate the same end-to-end loop and
-    // crowd out more distinctive architecture details.
-    if (rawSubsystem === "product_surface" && selected.some((entry) =>
-      entry.subsystemKey === rawSubsystem && accomplishmentCoverageAnchorScore(entry) >= 2
-    )) continue;
     if (selected.some((existing) => {
       const existingSubsystem = existing.subsystemKey ?? `${existing.kind}:${existing.title.toLowerCase()}`;
       return existingSubsystem === rawSubsystem && nearDuplicateAccomplishment(existing, candidate);

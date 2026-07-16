@@ -375,6 +375,23 @@ describe("project answer completeness", () => {
     ]);
   });
 
+  it("prefers the current refresh representative over older lexically richer memory", () => {
+    const older = entry(1, "product_surface", {
+      currentRun: false,
+      title: "Detailed historical product loop",
+      content: "The end-to-end product loop covers Work Items, source intake, evidence review, resume bullets, LinkedIn entries, and project summaries.",
+    });
+    const current = entry(2, "product_surface", {
+      currentRun: true,
+      title: "Current repository-backed product flow",
+      content: "The current product flow connects Work Items and attached sources to repository refresh, reviewed memory, and approved career artifacts.",
+    });
+
+    const requirement = selectAccomplishmentRequirementSet([older, current]).requirements[0]!;
+
+    expect(requirement.members.map((member) => member.title)).toEqual([current.title]);
+  });
+
   it("preserves distinct product capabilities when the representative is not broad", () => {
     const dashboard = entry(1, "product_surface", {
       title: "Project dashboard",
@@ -387,10 +404,11 @@ describe("project answer completeness", () => {
 
     const requirement = selectAccomplishmentRequirementSet([dashboard, threads]).requirements[0]!;
 
-    expect(requirement.members.map((member) => member.title)).toEqual([
+    expect(requirement.members).toHaveLength(2);
+    expect(requirement.members.map((member) => member.title)).toEqual(expect.arrayContaining([
       dashboard.title,
       threads.title,
-    ]);
+    ]));
   });
 
   it("safely compacts overlong already-grounded coverage without adding prose", () => {

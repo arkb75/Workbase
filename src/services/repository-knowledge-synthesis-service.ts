@@ -271,6 +271,33 @@ export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNoteb
   };
 }
 
+const repositoryLifecycleStagePatterns = [
+  /\b(?:knowledge|repository) refresh\b/i,
+  /\b(?:batch analys|semantic analys|coverage repair)\w*/i,
+  /\bsynthesi[sz]\w*/i,
+  /\breconcil\w*/i,
+  /\b(?:stale|revalidat|invalidat)\w*/i,
+];
+
+export function isBroadSemanticRepositoryLifecycleFact(
+  fact: RepositorySubsystemSynthesis["facts"][number],
+  notebook: SynthesisNotebookEntry[],
+) {
+  const citedEntries = fact.citationIndexes.map((index) => notebook[index - 1]);
+  if (
+    !citedEntries.length ||
+    citedEntries.some((entry) => !entry || entry.evidenceMode === "deterministic_anchor")
+  ) {
+    return false;
+  }
+  const citedEvidence = citedEntries
+    .map((entry) => `${entry!.path} ${entry!.statement}`)
+    .join(" ");
+  return repositoryLifecycleStagePatterns.filter((pattern) =>
+    pattern.test(fact.statement) && pattern.test(citedEvidence)
+  ).length >= 3;
+}
+
 function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemSynthesis {
   const strongest = [...notebook].sort((left, right) => importance(right) - importance(left)).slice(0, 1);
   return {
@@ -942,11 +969,9 @@ export async function synthesizeRepositoryKnowledge(
     const semanticBaseline = definition
       ? deterministicFactFromDefinition(definition, modelEligibleSynthesisNotebook(notebook))
       : null;
-    const substantiveSemanticResult = result.facts.find((fact) =>
-      fact.productImportance >= 4 &&
-      fact.implementationBreadth >= 4 &&
-      fact.citationIndexes.every((index) => notebook[index - 1]?.evidenceMode !== "deterministic_anchor")
-    ) ?? null;
+    const substantiveSemanticResult = subsystemKey === "repository_knowledge_lifecycle"
+      ? result.facts.find((fact) => isBroadSemanticRepositoryLifecycleFact(fact, notebook)) ?? null
+      : null;
     const derivedFact = subsystemKey === "repository_knowledge_lifecycle" && !semanticBaseline && !substantiveSemanticResult
       ? derivedRepositoryKnowledgeLifecycleFact(notebook)
       : null;
