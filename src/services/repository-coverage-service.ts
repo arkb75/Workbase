@@ -168,6 +168,12 @@ const semanticBatchFileAnalysisJsonSchema: JsonSchemaObject = {
 function buildSemanticBatchAnalysisJsonSchema(fileKeys: string[]): JsonSchemaObject {
   return {
     type: "object",
+    // Bedrock supports internal JSON Schema references. Define the relatively
+    // large per-file grammar once so a four-file batch does not compile four
+    // identical strict subgrammars and exceed the provider's grammar limit.
+    $defs: {
+      semanticFileAnalysis: semanticBatchFileAnalysisJsonSchema,
+    },
     additionalProperties: false,
     required: ["files"],
     properties: {
@@ -177,7 +183,7 @@ function buildSemanticBatchAnalysisJsonSchema(fileKeys: string[]): JsonSchemaObj
         required: fileKeys,
         properties: Object.fromEntries(fileKeys.map((fileKey) => [
           fileKey,
-          semanticBatchFileAnalysisJsonSchema,
+          { $ref: "#/$defs/semanticFileAnalysis" },
         ])),
       },
     },

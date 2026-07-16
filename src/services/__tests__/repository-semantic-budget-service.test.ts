@@ -139,6 +139,12 @@ describe("repository semantic task and budget", () => {
       required: ["file-1", "file-2", "file-3"],
     });
     expect(Object.keys(request.jsonSchema.properties.files.properties)).toEqual(["file-1", "file-2", "file-3"]);
+    expect(request.jsonSchema.$defs.semanticFileAnalysis).toBeDefined();
+    expect(request.jsonSchema.properties.files.properties).toEqual({
+      "file-1": { $ref: "#/$defs/semanticFileAnalysis" },
+      "file-2": { $ref: "#/$defs/semanticFileAnalysis" },
+      "file-3": { $ref: "#/$defs/semanticFileAnalysis" },
+    });
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("fileKey");
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
   });
