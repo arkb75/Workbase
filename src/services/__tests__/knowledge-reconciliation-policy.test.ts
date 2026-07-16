@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  allowsCanonicalKnowledgeReplacement,
   repositoryHighlightPublicDisposition,
   shouldQuarantineSynthesizedCandidate,
 } from "@/src/services/knowledge-reconciliation-service";
 
 describe("repository knowledge auto-apply policy", () => {
+  it("only allows canonical supersession after complete verified coverage", () => {
+    expect(allowsCanonicalKnowledgeReplacement("verified")).toBe(true);
+    expect(allowsCanonicalKnowledgeReplacement("degraded")).toBe(false);
+    expect(allowsCanonicalKnowledgeReplacement("failed")).toBe(false);
+    expect(allowsCanonicalKnowledgeReplacement(null)).toBe(false);
+  });
+
   it("does not quarantine a supported deterministic fallback merely because model synthesis failed", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       confidence: "medium",

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
 import {
   derivedRepositoryKnowledgeLifecycleFact,
+  exactSinglePathProjectDomainSynthesis,
   fallbackSubsystemSynthesis,
   semanticFactsForSubsystem,
+  selectedProjectDomainKeysFromOrchestration,
 } from "@/src/services/repository-knowledge-synthesis-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
@@ -28,6 +30,32 @@ function entry(path: string, statement = `${path} defines supported repository b
 }
 
 describe("repository synthesis limit fallback", () => {
+  it("retains a selected one-file project domain as an exact fact without inventing an umbrella claim", () => {
+    const statement = "The charge service idempotently records a payment before publishing its receipt.";
+    const result = exactSinglePathProjectDomainSynthesis("project_domain:payments", [
+      entry("src/payments/charge-service.ts", statement),
+    ]);
+
+    expect(result?.facts).toEqual([expect.objectContaining({
+      statement,
+      citationIndexes: [1],
+      reviewNotes: expect.stringContaining("verbatim"),
+    })]);
+    expect(result?.highlights).toEqual([]);
+    expect(exactSinglePathProjectDomainSynthesis("ai_runtime", [entry("src/payments/charge-service.ts", statement)])).toBeNull();
+  });
+
+  it("admits only project domains persisted by the bounded orchestration plan", () => {
+    expect(selectedProjectDomainKeysFromOrchestration({
+      packages: [
+        { capabilityKeys: ["ai_runtime", "project_domain:payments"] },
+        { capabilityKeys: ["project_domain:search", "project_domain:payments"] },
+        { capabilityKeys: "project_domain:ignored" },
+      ],
+    })).toEqual(["project_domain:payments", "project_domain:search"]);
+    expect(selectedProjectDomainKeysFromOrchestration(null)).toEqual([]);
+  });
+
   it("does not leak a finding from a multi-purpose file into another capability", () => {
     const base = {
       path: "src/services/multi-purpose.ts",

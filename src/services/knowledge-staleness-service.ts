@@ -67,7 +67,10 @@ function loadRun(runId: string) {
   return prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
     include: {
-      snapshots: { include: { files: { where: { disposition: "analyzed" } } } },
+      // Staleness needs the complete manifest, not only semantically analyzed
+      // files: unchanged blobs can revalidate old provenance without another
+      // model pass, and only a complete manifest can prove path removal.
+      snapshots: { include: { files: true } },
     },
   });
 }
@@ -149,12 +152,123 @@ function priorReferences(evidence: Array<{ evidenceItem: { metadata: unknown } }
 
 type ImmutableEvidence = {
   evidenceItem: {
+    id?: string;
     sourceId: string;
     type: string;
     lifecycleStatus: string;
     metadata: unknown;
   };
 };
+
+type CurrentRepositoryFile = {
+  sourceId: string;
+  commitSha: string;
+  snapshotId: string;
+  path: string;
+  blobSha: string;
+};
+
+type RefreshCompletenessInput = {
+  qualityStatus: unknown;
+  coverage: unknown;
+  snapshots: Array<{
+    inventoryComplete: boolean;
+    analysisComplete: boolean;
+    coverageComplete: boolean;
+  }>;
+};
+
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/**
+ * Destructive staleness decisions require a complete repository barrier. A
+ * degraded run is still useful for adding supported knowledge, but absence in
+ * a partial scan is not evidence that previously verified knowledge vanished.
+ */
+export function refreshSupportsDestructiveStaleness(input: RefreshCompletenessInput) {
+  if (input.qualityStatus !== "verified" || !input.snapshots.length) return false;
+  if (input.snapshots.some((snapshot) =>
+    !snapshot.inventoryComplete || !snapshot.analysisComplete || !snapshot.coverageComplete
+  )) return false;
+  if (!Array.isArray(input.coverage) || !input.coverage.length) return false;
+  return input.coverage.every((value) => {
+    const entry = objectRecord(value);
+    if (!entry || entry.coverageStatus !== "complete") return false;
+    const semanticStatus = entry.semanticCoverageStatus;
+    const capabilityStatus = entry.capabilityCoverageStatus;
+    return (semanticStatus === undefined || semanticStatus === "complete" || semanticStatus === "not_required") &&
+      (capabilityStatus === undefined || capabilityStatus === "verified") &&
+      (!Array.isArray(entry.coverageGaps) || entry.coverageGaps.length === 0);
+  });
+}
+
+function immutableEvidenceCoordinates(entry: ImmutableEvidence) {
+  const item = entry.evidenceItem;
+  if (item.type !== "github_file_excerpt") return null;
+  const metadata = objectRecord(item.metadata);
+  const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
+  const blobSha = typeof metadata?.blobSha === "string" ? metadata.blobSha : null;
+  const path = typeof metadata?.path === "string" ? metadata.path : null;
+  const immutable = Boolean(
+    commitSha && blobSha && path &&
+    typeof metadata?.startLine === "number" &&
+    typeof metadata?.endLine === "number" &&
+    typeof metadata?.excerptHash === "string" && metadata.excerptHash,
+  );
+  return immutable ? { sourceId: item.sourceId, commitSha: commitSha!, blobSha: blobSha!, path: path! } : null;
+}
+
+export function currentRepositoryFiles(snapshots: Array<{
+  id: string;
+  sourceId: string;
+  commitSha: string;
+  files: Array<{ path: string; blobSha: string | null }>;
+}>) {
+  const files = new Map<string, CurrentRepositoryFile>();
+  for (const snapshot of snapshots) {
+    for (const file of snapshot.files) {
+      if (!file.blobSha) continue;
+      files.set(`${snapshot.sourceId}:${file.path}`, {
+        sourceId: snapshot.sourceId,
+        commitSha: snapshot.commitSha,
+        snapshotId: snapshot.id,
+        path: file.path,
+        blobSha: file.blobSha,
+      });
+    }
+  }
+  return files;
+}
+
+/**
+ * Revalidates immutable excerpts by Git blob identity rather than commit SHA.
+ * An unchanged source/path/blob has identical content at the new head, so the
+ * old immutable URL remains valid provenance and no semantic model call is
+ * needed. Lifecycle state is deliberately ignored to repair rows that an
+ * earlier partial refresh incorrectly marked stale.
+ */
+export function contentAddressedProvenance(input: {
+  evidence: ImmutableEvidence[];
+  currentFiles: Map<string, CurrentRepositoryFile>;
+}) {
+  const excerptEntries = input.evidence.flatMap((entry) => {
+    const coordinates = immutableEvidenceCoordinates(entry);
+    return coordinates ? [{ entry, coordinates }] : [];
+  });
+  const matches = excerptEntries.flatMap(({ entry, coordinates }) => {
+    const current = input.currentFiles.get(`${coordinates.sourceId}:${coordinates.path}`);
+    return current && current.blobSha === coordinates.blobSha ? [{ entry, current }] : [];
+  });
+  return {
+    allCurrent: excerptEntries.length > 0 && matches.length === excerptEntries.length,
+    heads: new Map(matches.map(({ current }) => [current.sourceId, current.commitSha])),
+    matches,
+  };
+}
 
 /** Returns only heads backed by an active, immutable file excerpt relation. */
 export function currentImmutableProvenanceHeads(
@@ -165,20 +279,9 @@ export function currentImmutableProvenanceHeads(
   for (const entry of evidence) {
     const item = entry.evidenceItem;
     if (item.type !== "github_file_excerpt" || item.lifecycleStatus !== "active") continue;
-    const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-      ? item.metadata as Record<string, unknown>
-      : null;
-    const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
-    const immutable = Boolean(
-      commitSha &&
-      typeof metadata?.blobSha === "string" && metadata.blobSha &&
-      typeof metadata?.path === "string" && metadata.path &&
-      typeof metadata?.startLine === "number" &&
-      typeof metadata?.endLine === "number" &&
-      typeof metadata?.excerptHash === "string" && metadata.excerptHash,
-    );
-    if (immutable && targetShaBySource.get(item.sourceId) === commitSha) {
-      heads.set(item.sourceId, commitSha!);
+    const coordinates = immutableEvidenceCoordinates(entry);
+    if (coordinates && targetShaBySource.get(item.sourceId) === coordinates.commitSha) {
+      heads.set(item.sourceId, coordinates.commitSha);
     }
   }
   return heads;
@@ -194,6 +297,8 @@ export async function reconcileStaleKnowledge(input: {
   const targetShas = new Set(targets.map((target) => target.commitSha));
   const targetShaBySource = new Map(targets.map((target) => [target.sourceId, target.commitSha]));
   const observations = currentObservations(run);
+  const currentFiles = currentRepositoryFiles(run.snapshots);
+  const destructiveStalenessAllowed = refreshSupportsDestructiveStaleness(run);
   const targetBySource = new Map(targets.map((target) => [target.sourceId, target.repository]));
   const currentReferences = new Set(run.snapshots.flatMap((snapshot) => snapshot.files.flatMap((file) => [
     `${snapshot.sourceId}:${file.path}`,
@@ -202,7 +307,7 @@ export async function reconcileStaleKnowledge(input: {
   const activeFacts = await prisma.projectFact.findMany({
     where: {
       workItemId: run.workItemId,
-      lifecycleStatus: { in: ["active", "needs_validation"] },
+      lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
       id: { notIn: input.appliedFactIds.length ? input.appliedFactIds : [""] },
     },
     include: { evidence: { include: { evidenceItem: true } } },
@@ -210,13 +315,14 @@ export async function reconcileStaleKnowledge(input: {
   const activeHighlights = await prisma.highlight.findMany({
     where: {
       workItemId: run.workItemId,
-      lifecycleStatus: { in: ["active", "needs_validation"] },
+      lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
       id: { notIn: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] },
     },
     include: { evidence: { include: { evidenceItem: true } } },
   });
   const retiredFactIds: string[] = [];
   const retiredHighlightIds: string[] = [];
+  let recoveredDependency = false;
   const appliedFacts = await prisma.projectFact.findMany({
     where: { id: { in: input.appliedFactIds.length ? input.appliedFactIds : [""] } },
     select: {
@@ -247,7 +353,7 @@ export async function reconcileStaleKnowledge(input: {
       candidateSubsystemKey: candidate.subsystemKey,
       candidateSupersedesId: candidate.supersedesProjectFactId,
     }));
-    if (fact.approvalSource === "automation" && fact.reviewState === "pending_review" && canonicalReplacement) {
+    if (destructiveStalenessAllowed && fact.approvalSource === "automation" && fact.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Project Fact in the same capability area.";
       await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: reason } });
       retiredFactIds.push(fact.id);
@@ -255,18 +361,30 @@ export async function reconcileStaleKnowledge(input: {
       continue;
     }
     const references = priorReferences(fact.evidence);
+    const contentAddressed = contentAddressedProvenance({ evidence: fact.evidence, currentFiles });
+    if (!contentAddressed.allCurrent && !destructiveStalenessAllowed) continue;
     const relevant = relevantObservations(fact.statement, fact.subsystemKey, observations);
-    const validation = await validateAssertion({ assertion: fact.statement, priorReferences: references, currentReferences, observations: relevant });
-    const immutableHeads = currentImmutableProvenanceHeads(fact.evidence, targetShaBySource);
+    const validation = contentAddressed.allCurrent
+      ? {
+          verdict: "supported" as const,
+          reason: "Every immutable repository excerpt still resolves to the same source/path/blob at the current head.",
+          observationIndexes: [] as number[],
+        }
+      : await validateAssertion({ assertion: fact.statement, priorReferences: references, currentReferences, observations: relevant });
+    const immutableHeads = contentAddressed.allCurrent
+      ? contentAddressed.heads
+      : currentImmutableProvenanceHeads(fact.evidence, targetShaBySource);
     const currentSha = immutableHeads.values().next().value ?? null;
     const validationHeads = Object.fromEntries(immutableHeads);
     if (validation.verdict === "supported" && currentSha) {
+      recoveredDependency ||= fact.lifecycleStatus !== "active";
       await prisma.projectFact.update({
         where: { id: fact.id },
         data: {
           lifecycleStatus: "active",
           status: "approved",
           reviewState: "pending_review",
+          rejectionReason: null,
           validatedThroughSha: currentSha,
           validationHeads,
           lastValidatedAt: new Date(),
@@ -310,7 +428,7 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { observationIndexes: validation.observationIndexes, commitSha: currentSha },
         suffix: `${fact.id}:${currentSha}`,
       });
-    } else if (validation.verdict === "removed") {
+    } else if (destructiveStalenessAllowed && validation.verdict === "removed") {
       await prisma.projectFact.update({
         where: { id: fact.id },
         data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: validation.reason },
@@ -328,7 +446,7 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${fact.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
-    } else {
+    } else if (destructiveStalenessAllowed) {
       await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "needs_validation" } });
       await recordChange({
         workItemId: run.workItemId,
@@ -370,28 +488,40 @@ export async function reconcileStaleKnowledge(input: {
         candidateSupersedesId: candidate.supersedesHighlightId,
       });
     });
-    if (highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && canonicalReplacement) {
+    if (destructiveStalenessAllowed && highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Highlight in the same capability area.";
       await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: reason } });
       retiredHighlightIds.push(highlight.id);
       await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "highlight", action: "retired", entityId: highlight.id, beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus }, afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" }, reason, provenance: { replacementHighlightId: canonicalReplacement.id }, suffix: `${highlight.id}:canonical-replacement:${run.id}` });
       continue;
     }
+    const contentAddressed = contentAddressedProvenance({ evidence: highlight.evidence, currentFiles });
+    if (!contentAddressed.allCurrent && !destructiveStalenessAllowed) continue;
     const supportingObservations = relevantObservations(`${highlight.text} ${highlight.summary}`, subsystemKey, observations);
-    const validation = await validateAssertion({
-      assertion: `${highlight.text}. ${highlight.summary}`,
-      priorReferences: references,
-      currentReferences,
-      observations: supportingObservations,
-    });
-    const immutableHeads = currentImmutableProvenanceHeads(highlight.evidence, targetShaBySource);
+    const validation = contentAddressed.allCurrent
+      ? {
+          verdict: "supported" as const,
+          reason: "Every immutable repository excerpt still resolves to the same source/path/blob at the current head.",
+          observationIndexes: [] as number[],
+        }
+      : await validateAssertion({
+          assertion: `${highlight.text}. ${highlight.summary}`,
+          priorReferences: references,
+          currentReferences,
+          observations: supportingObservations,
+        });
+    const immutableHeads = contentAddressed.allCurrent
+      ? contentAddressed.heads
+      : currentImmutableProvenanceHeads(highlight.evidence, targetShaBySource);
     const currentSha = immutableHeads.values().next().value ?? null;
     if (validation.verdict === "supported" && currentSha) {
+      recoveredDependency ||= highlight.lifecycleStatus !== "active";
       await prisma.highlight.update({
         where: { id: highlight.id },
         data: {
           lifecycleStatus: "active",
           reviewState: "pending_review",
+          rejectionReason: null,
           validatedThroughSha: currentSha,
           validationHeads: Object.fromEntries(immutableHeads),
           lastValidatedAt: new Date(),
@@ -433,7 +563,7 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { observationIndexes: validation.observationIndexes, commitSha: currentSha },
         suffix: `${highlight.id}:${currentSha}`,
       });
-    } else if (validation.verdict === "removed") {
+    } else if (destructiveStalenessAllowed && validation.verdict === "removed") {
       await prisma.highlight.update({
         where: { id: highlight.id },
         data: { lifecycleStatus: "retired", rejectionReason: validation.reason },
@@ -451,7 +581,7 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${highlight.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
-    } else {
+    } else if (destructiveStalenessAllowed) {
       await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "needs_validation" } });
       await recordChange({
         workItemId: run.workItemId,
@@ -471,9 +601,70 @@ export async function reconcileStaleKnowledge(input: {
   }
 
   const repositoryEvidence = await prisma.evidenceItem.findMany({
-    where: { workItemId: run.workItemId, type: "github_file_excerpt", lifecycleStatus: "active" },
+    where: {
+      workItemId: run.workItemId,
+      type: "github_file_excerpt",
+      lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
+    },
   });
   for (const evidence of repositoryEvidence) {
+    const contentAddressed = contentAddressedProvenance({
+      evidence: [{ evidenceItem: evidence }],
+      currentFiles,
+    });
+    if (contentAddressed.allCurrent) {
+      const current = contentAddressed.matches[0]!.current;
+      if (
+        evidence.lifecycleStatus !== "active" ||
+        evidence.validatedThroughSha !== current.commitSha ||
+        evidence.repositorySnapshotId !== current.snapshotId ||
+        evidence.purgeEligibleAt
+      ) {
+        recoveredDependency ||= evidence.lifecycleStatus !== "active";
+        const validatedAt = new Date();
+        await prisma.evidenceItem.update({
+          where: { id: evidence.id },
+          data: {
+            lifecycleStatus: "active",
+            validatedThroughSha: current.commitSha,
+            lastValidatedAt: validatedAt,
+            repositorySnapshotId: current.snapshotId,
+            purgeEligibleAt: null,
+          },
+        });
+        await recordChange({
+          workItemId: run.workItemId,
+          refreshRunId: run.id,
+          entityKind: "evidence",
+          action: "revalidated",
+          entityId: evidence.id,
+          beforeSnapshot: {
+            id: evidence.id,
+            title: evidence.title,
+            lifecycleStatus: evidence.lifecycleStatus,
+            validatedThroughSha: evidence.validatedThroughSha,
+            repositorySnapshotId: evidence.repositorySnapshotId,
+          },
+          afterSnapshot: {
+            id: evidence.id,
+            title: evidence.title,
+            lifecycleStatus: "active",
+            validatedThroughSha: current.commitSha,
+            repositorySnapshotId: current.snapshotId,
+          },
+          reason: "The cited source/path still resolves to the same immutable Git blob at the current repository head.",
+          provenance: {
+            priorCommitSha: objectRecord(evidence.metadata)?.commitSha ?? null,
+            currentCommitSha: current.commitSha,
+            blobSha: current.blobSha,
+            path: current.path,
+          },
+          suffix: `${evidence.id}:content-addressed:${current.commitSha}`,
+        });
+      }
+      continue;
+    }
+    if (!destructiveStalenessAllowed || evidence.lifecycleStatus === "stale") continue;
     const metadata = evidence.metadata && typeof evidence.metadata === "object" && !Array.isArray(evidence.metadata)
       ? evidence.metadata as Record<string, unknown>
       : null;
@@ -506,15 +697,46 @@ export async function reconcileStaleKnowledge(input: {
     }
   }
 
+  const staleArtifactIds: string[] = [];
+  if (!destructiveStalenessAllowed && !recoveredDependency) {
+    return { retiredFactIds, retiredHighlightIds, staleArtifactIds };
+  }
   const artifacts = await prisma.artifact.findMany({
-    where: { workItemId: run.workItemId, lifecycleStatus: "active" },
+    where: {
+      workItemId: run.workItemId,
+      lifecycleStatus: destructiveStalenessAllowed ? { in: ["active", "stale"] } : "stale",
+    },
     include: { highlightProvenance: { include: { highlight: true } }, evidenceProvenance: { include: { evidenceItem: true } } },
   });
-  const staleArtifactIds: string[] = [];
   for (const artifact of artifacts) {
     const invalidHighlights = artifact.highlightProvenance.filter((entry) => entry.highlight && entry.highlight.lifecycleStatus !== "active");
     const invalidEvidence = artifact.evidenceProvenance.filter((entry) => entry.evidenceItem && entry.evidenceItem.lifecycleStatus !== "active");
-    if (!invalidHighlights.length && !invalidEvidence.length) continue;
+    const hasKnowledgeProvenance = artifact.highlightProvenance.length > 0 || artifact.evidenceProvenance.length > 0;
+    if (!invalidHighlights.length && !invalidEvidence.length) {
+      if (artifact.lifecycleStatus !== "stale" || !hasKnowledgeProvenance) continue;
+      const reason = "All immutable repository dependencies are active again after content-addressed revalidation.";
+      await prisma.artifact.update({
+        where: { id: artifact.id },
+        data: { lifecycleStatus: "active", staleReason: null },
+      });
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "artifact",
+        action: "revalidated",
+        entityId: artifact.id,
+        beforeSnapshot: { id: artifact.id, content: artifact.content, lifecycleStatus: artifact.lifecycleStatus, staleReason: artifact.staleReason },
+        afterSnapshot: { id: artifact.id, content: artifact.content, lifecycleStatus: "active", staleReason: null },
+        reason,
+        downstreamImpact: {
+          restoredHighlightIds: artifact.highlightProvenance.flatMap((entry) => entry.highlightId ? [entry.highlightId] : []),
+          restoredEvidenceIds: artifact.evidenceProvenance.flatMap((entry) => entry.evidenceItemId ? [entry.evidenceItemId] : []),
+        },
+        suffix: `${artifact.id}:content-addressed:${targets.map((target) => target.commitSha).join(":")}`,
+      });
+      continue;
+    }
+    if (!destructiveStalenessAllowed || artifact.lifecycleStatus !== "active") continue;
     const reason = `Upstream knowledge changed: ${invalidHighlights.length} Highlight and ${invalidEvidence.length} Evidence reference${invalidHighlights.length + invalidEvidence.length === 1 ? "" : "s"} are no longer canonical.`;
     await prisma.artifact.update({ where: { id: artifact.id }, data: { lifecycleStatus: "stale", staleReason: reason } });
     staleArtifactIds.push(artifact.id);

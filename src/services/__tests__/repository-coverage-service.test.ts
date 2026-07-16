@@ -7,12 +7,64 @@ vi.mock("@/src/lib/llm-config", () => ({
 import {
   analyzeRepositoryFile,
   analyzeRepositoryFiles,
+  BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
+  inferProjectDomainCapability,
   REPOSITORY_FILE_CHUNK_BYTES,
+  selectRequiredSemanticCoverageAreas,
   selectSemanticWindows,
 } from "@/src/services/repository-coverage-service";
 
 describe("complete repository coverage", () => {
+  const coverageArea = (key: string, observationCount = 12) => ({
+    key,
+    label: key,
+    status: "static_mapped" as const,
+    paths: [`src/${key}/index.ts`],
+    observationCount,
+    staticPathCount: 1,
+    semanticPathCount: 0,
+    modelSemanticPathCount: 0,
+    deterministicFallbackPathCount: 0,
+    unresolvedQuestions: [],
+  });
+
+  it("derives product domains from source structure without treating tests or flat helpers as domains", () => {
+    expect(inferProjectDomainCapability("src/payments/charge-service.ts")).toBe("project_domain:payments");
+    expect(inferProjectDomainCapability("app/api/search/route.ts")).toBe("project_domain:search");
+    expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
+    expect(inferProjectDomainCapability("src/services/miscellaneous-service.ts")).toBeNull();
+    expect(inferProjectDomainCapability("src/payments/__tests__/charge.test.ts")).toBeNull();
+  });
+
+  it("adds zero project-domain targets when every Workbase base capability already applies", () => {
+    const baseAreas = BASE_COVERAGE_TARGETS.map((target) => coverageArea(target.key));
+    const selected = selectRequiredSemanticCoverageAreas([
+      ...baseAreas,
+      coverageArea("project_domain:payments", 100),
+      coverageArea("project_domain:search", 90),
+    ]);
+
+    expect(selected.map((area) => area.key)).toEqual(BASE_COVERAGE_TARGETS.map((target) => target.key));
+  });
+
+  it("fills a sparse non-Workbase ontology with high-signal payments and search domains", () => {
+    const selected = selectRequiredSemanticCoverageAreas([
+      coverageArea("product_surface", 4),
+      coverageArea("tests_operations", 3),
+      coverageArea("project_domain:search", 35),
+      coverageArea("project_domain:payments", 42),
+      coverageArea("module:src/helpers", 200),
+    ]);
+
+    expect(selected.map((area) => area.key)).toEqual([
+      "product_surface",
+      "tests_operations",
+      "project_domain:payments",
+      "project_domain:search",
+    ]);
+  });
+
   it("analyzes every chunk of a long file and preserves exact late-file line ranges", async () => {
     const line = "export const implementationSignal = true; // repository behavior\n";
     const content = line.repeat(Math.ceil((REPOSITORY_FILE_CHUNK_BYTES * 3.2) / Buffer.byteLength(line)));
@@ -93,6 +145,64 @@ describe("complete repository coverage", () => {
     const batchedWindow = selectSemanticWindows(content, 5 * 1024);
     expect(Buffer.byteLength(batchedWindow[0]!.content, "utf8")).toBeLessThanOrEqual(5 * 1024);
     expect(batchedWindow[0]!.content).toMatch(/^\d+:/m);
+  });
+
+  it("routes a bounded semantic notebook to late static anchors and task-specific entrypoints", () => {
+    const lines = Array.from({ length: 1_600 }, (_, index) =>
+      index < 300 && index % 10 === 0
+        ? `export const unrelatedEntrypoint${index} = () => ${index};`
+        : `const local${index} = ${index};`,
+    );
+    lines[1_419] = "export async function reconcileSupersededKnowledge() { return restoreValidationHeads(); }";
+    const content = lines.join("\n");
+    const windows = selectSemanticWindows(content, 1_500, {
+      task: {
+        objective: "Determine how superseded knowledge is reconciled and restored.",
+        capabilityKeys: ["knowledge_review_lifecycle"],
+        questions: ["Where is superseded knowledge restored?"],
+        expectedOutputs: ["The reconcileSupersededKnowledge entrypoint"],
+      },
+      staticAnalysis: {
+        subsystemKeys: ["knowledge_review_lifecycle"],
+        facts: [{
+          statement: "The exported reconciliation entrypoint restores validation heads.",
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1_420,
+          lineEnd: 1_420,
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          subsystemKeys: ["knowledge_review_lifecycle"],
+          evidenceMode: "static",
+          path: "src/services/knowledge-review-service.ts",
+        }],
+      },
+    });
+
+    expect(windows).toHaveLength(1);
+    expect(Buffer.byteLength(windows[0]!.content, "utf8")).toBeLessThanOrEqual(1_500);
+    expect(windows[0]!.content).toContain("1420: export async function reconcileSupersededKnowledge");
+  });
+
+  it("uses capability hints to retain a late decisive export without static anchors", () => {
+    const lines = Array.from({ length: 1_200 }, (_, index) =>
+      index < 240 && index % 8 === 0
+        ? `export function unrelatedHandler${index}() { return ${index}; }`
+        : `const value${index} = ${index};`,
+    );
+    lines[1_099] = "export function persistCitationProvenance() { return immutableCitation; }";
+    const [window] = selectSemanticWindows(lines.join("\n"), 1_200, {
+      task: {
+        objective: "Find citation provenance persistence.",
+        capabilityKeys: ["retrieval_provenance"],
+        questions: [],
+        expectedOutputs: ["persistCitationProvenance"],
+      },
+    });
+
+    expect(window?.content).toContain("1100: export function persistCitationProvenance");
   });
 
   it("gives semantic credit only to capability keys supported by semantic findings", () => {

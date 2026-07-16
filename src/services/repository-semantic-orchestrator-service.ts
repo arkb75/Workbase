@@ -11,6 +11,7 @@ import {
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
   createRepositorySemanticBudget,
+  selectRequiredSemanticCoverageAreas,
   snapshotRepositorySemanticBudget,
   type RepositoryFileAnalysis,
   type RepositorySemanticBudgetUsage,
@@ -28,11 +29,11 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v5";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v7";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
-const SEMANTIC_MICRO_BATCH_SIZE = 3;
+const SEMANTIC_MICRO_BATCH_SIZE = 4;
 
 const SEMANTIC_FACET_SUPPLEMENTS = [
   {
@@ -137,6 +138,38 @@ export interface CapabilityReport {
     cachedFileSnapshotId: string;
     blobSha: string;
   }>;
+}
+
+/**
+ * Divide the fixed global semantic budget by planned provider work instead of
+ * worker count. Equal worker slices strand capacity whenever one package needs
+ * two micro-batches and another needs only one.
+ */
+export function allocateSemanticWorkerTokenBudgets(input: {
+  totalTokens: number;
+  modelCallCounts: number[];
+}) {
+  if (!Number.isInteger(input.totalTokens) || input.totalTokens < 0) {
+    throw new Error("totalTokens must be a non-negative integer.");
+  }
+  if (input.modelCallCounts.some((count) => !Number.isInteger(count) || count < 1)) {
+    throw new Error("Every semantic worker must reserve at least one model call.");
+  }
+  const totalCalls = input.modelCallCounts.reduce((total, count) => total + count, 0);
+  if (!totalCalls) return [];
+  const allocations = input.modelCallCounts.map((count) =>
+    Math.floor((input.totalTokens * count) / totalCalls)
+  );
+  let remainder = input.totalTokens - allocations.reduce((total, value) => total + value, 0);
+  for (const index of input.modelCallCounts
+    .map((count, index) => ({ count, index }))
+    .sort((left, right) => right.count - left.count || left.index - right.index)
+    .map((entry) => entry.index)) {
+    if (remainder <= 0) break;
+    allocations[index]! += 1;
+    remainder -= 1;
+  }
+  return allocations;
 }
 
 export function semanticFileReportSignals(input: {
@@ -431,43 +464,51 @@ export function enforceMandatoryCoverage(input: {
   const plannerClaims = packages.map((entry) => new Set(entry.capabilityKeys));
   // Mandatory capability ownership is assigned below based on actual worker
   // capacity. Keeping the planner's original ownership here can concentrate all
-  // eight targets in one package and silently discard six representatives when
-  // the two-file worker cap is applied.
+  // targets in one package and silently discard representatives when the
+  // bounded worker cap is applied.
   for (const entry of packages) {
     // The exhaustive static map already records module-level inventory. Deep
-    // semantic workers focus on the bounded, product-level requirement set so
-    // dozens of unrelated module keys cannot dilute a two/three-file prompt or
-    // be promoted as top-level accomplishments.
+    // semantic workers focus on the bounded product-level requirement set and
+    // selected structural project domains, so dozens of unrelated module keys
+    // cannot dilute a batch prompt or be promoted as top-level accomplishments.
     entry.capabilityKeys = [];
   }
   const mandatoryLoads = packages.map(() => [] as string[]);
-  for (const target of BASE_COVERAGE_TARGETS) {
-    // A capability can occur in several attached repositories. Treat each
-    // snapshot-scoped manifest row as an independent coverage obligation; a
-    // plain `find` here silently selected only the first attached repository.
-    for (const manifestEntry of input.manifest.filter((entry) => entry.key === target.key && entry.files.length)) {
-      const representative = [...manifestEntry.files].sort((left, right) =>
-        (affinityScore(target.key, right.path) + right.score) - (affinityScore(target.key, left.path) + left.score) || left.path.localeCompare(right.path),
-      )[0]!;
-      const alreadyAssignedIndex = mandatoryLoads.findIndex((files) => files.includes(representative.id));
-      const packageIndex = alreadyAssignedIndex >= 0
-        ? alreadyAssignedIndex
-        : mandatoryLoads
-            .map((files, index) => ({
-              index,
-              count: files.length,
-              plannerClaimed: plannerClaims[index]!.has(target.key),
-            }))
-            .filter((entry) => entry.count < MAX_FILES_PER_WORKER)
-            .sort((left, right) =>
-              left.count - right.count ||
-              Number(right.plannerClaimed) - Number(left.plannerClaimed) ||
-              left.index - right.index,
-            )[0]?.index;
-      if (packageIndex == null) continue;
-      packages[packageIndex]!.capabilityKeys.push(target.key);
-      if (!mandatoryLoads[packageIndex]!.includes(representative.id)) mandatoryLoads[packageIndex]!.push(representative.id);
-    }
+  const baseOrder = new Map<string, number>(BASE_COVERAGE_TARGETS.map((target, index) => [target.key, index]));
+  const orderedManifest = input.manifest
+    .filter((entry) => entry.files.length)
+    .sort((left, right) =>
+      (baseOrder.get(left.key) ?? BASE_COVERAGE_TARGETS.length) - (baseOrder.get(right.key) ?? BASE_COVERAGE_TARGETS.length) ||
+      left.key.localeCompare(right.key) ||
+      (left.scopeKey ?? "").localeCompare(right.scopeKey ?? "")
+    );
+  // A capability can occur in several attached repositories. Treat each
+  // snapshot-scoped manifest row as an independent coverage obligation. The
+  // manifest already contains every applicable base capability plus only the
+  // bounded project-domain fallback selected for that repository.
+  for (const manifestEntry of orderedManifest) {
+    const targetKey = manifestEntry.key;
+    const representative = [...manifestEntry.files].sort((left, right) =>
+      (affinityScore(targetKey, right.path) + right.score) - (affinityScore(targetKey, left.path) + left.score) || left.path.localeCompare(right.path),
+    )[0]!;
+    const alreadyAssignedIndex = mandatoryLoads.findIndex((files) => files.includes(representative.id));
+    const packageIndex = alreadyAssignedIndex >= 0
+      ? alreadyAssignedIndex
+      : mandatoryLoads
+          .map((files, index) => ({
+            index,
+            count: files.length,
+            plannerClaimed: plannerClaims[index]!.has(targetKey),
+          }))
+          .filter((entry) => entry.count < MAX_FILES_PER_WORKER)
+          .sort((left, right) =>
+            left.count - right.count ||
+            Number(right.plannerClaimed) - Number(left.plannerClaimed) ||
+            left.index - right.index,
+          )[0]?.index;
+    if (packageIndex == null) continue;
+    packages[packageIndex]!.capabilityKeys.push(targetKey);
+    if (!mandatoryLoads[packageIndex]!.includes(representative.id)) mandatoryLoads[packageIndex]!.push(representative.id);
   }
 
   // One representative per broad capability is enough for a coverage check,
@@ -499,24 +540,14 @@ export function enforceMandatoryCoverage(input: {
     }
   }
 
-  const capabilitiesByFileId = new Map<string, Set<string>>();
-  for (const area of input.manifest) {
-    for (const file of area.files) {
-      const capabilities = capabilitiesByFileId.get(file.id) ?? new Set<string>();
-      capabilities.add(area.key);
-      capabilitiesByFileId.set(file.id, capabilities);
-    }
-  }
   return packages.map((entry, index) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)),
-    fileSnapshotIds: Array.from(new Set([
-      ...mandatoryLoads[index]!,
-      ...entry.fileSnapshotIds.filter((fileId) => {
-        const capabilities = capabilitiesByFileId.get(fileId);
-        return capabilities && entry.capabilityKeys.some((key) => capabilities.has(key));
-      }),
-    ])).slice(0, MAX_FILES_PER_WORKER),
+    // The mandatory pass already selects the highest-affinity representative
+    // for every required capability and its decisive supplements. Re-appending
+    // planner representatives here duplicated files across packages, created
+    // uneven 6/3-file workers, and forced avoidable sequential model calls.
+    fileSnapshotIds: Array.from(new Set(mandatoryLoads[index]!)).slice(0, MAX_FILES_PER_WORKER),
   })).filter((entry) => entry.fileSnapshotIds.length);
 }
 
@@ -993,46 +1024,53 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   });
   const targets = new Map((run.targetHeads as unknown as RepositoryTargetHead[]).map((target) => [target.sourceId, target]));
   const root = await ensureRefreshAgentRun({ refreshRunId, userId: run.workItem.userId, workItemId: run.workItem.id });
-  const requiredCapabilityKeys = new Set<string>(BASE_COVERAGE_TARGETS.map((target) => target.key));
   const manifest = run.snapshots.flatMap((snapshot) => {
     const analyzed = snapshot.files.flatMap((file) => {
       const analysis = parseAnalysis(file.analysis);
       return analysis ? [{ path: file.path, analysis, file }] : [];
     });
-    return buildCoverageMatrix(analyzed)
-      .filter((area) => requiredCapabilityKeys.has(area.key) && area.staticPathCount > 0)
+    return selectRequiredSemanticCoverageAreas(buildCoverageMatrix(analyzed))
       .map((area) => ({
-      key: area.key,
-      label: area.label,
-      scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
-      files: analyzed.filter((entry) => entry.analysis.subsystemKeys.includes(area.key)).map((entry) => ({
-        id: entry.file.id,
-        path: entry.path,
-        score:
-          entry.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
-          entry.analysis.architectureSignals.length * 4 +
-          (entry.file.changeType === "unchanged" ? 0 : 24),
-      })),
+        key: area.key,
+        label: area.label,
+        scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
+        files: analyzed.filter((entry) => entry.analysis.subsystemKeys.includes(area.key)).map((entry) => ({
+          id: entry.file.id,
+          path: entry.path,
+          score:
+            entry.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
+            entry.analysis.architectureSignals.length * 4 +
+            (entry.file.changeType === "unchanged" ? 0 : 24),
+        })),
       }));
   });
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = enforceMandatoryCoverage({ packages: planned.packages, manifest });
   const plannerTokenReserve = planned.generationRunId ? 16_000 : 0;
-  const perWorkerTokens = Math.floor((REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve) / Math.max(1, guardedPlan.length));
-  const packages: SemanticWorkPackage[] = guardedPlan.map((entry) => ({
+  const normalizedPlan = guardedPlan.map((entry) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),
     fileSnapshotIds: Array.from(new Set(entry.fileSnapshotIds)).sort().slice(0, MAX_FILES_PER_WORKER),
+  }));
+  const modelCallCounts = normalizedPlan.map((entry) =>
+    Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE))
+  );
+  const workerTokenAllocations = allocateSemanticWorkerTokenBudgets({
+    totalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve,
+    modelCallCounts,
+  });
+  const packages: SemanticWorkPackage[] = normalizedPlan.map((entry, index) => ({
+    ...entry,
     id: stablePackageId(refreshRunId, entry.capabilityKeys, entry.fileSnapshotIds),
     budget: {
       maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
       // Enforce the micro-batched execution shape in the budget itself. A
       // future regression to one provider call per file should fail closed
       // instead of silently restoring the old cost profile.
-      maxModelCalls: Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE)),
+      maxModelCalls: modelCallCounts[index]!,
       maxInputBytes: 64 * 1024,
       maxOutputTokens: 4_000,
-      maxTotalTokens: perWorkerTokens,
+      maxTotalTokens: workerTokenAllocations[index]!,
       maxRepairPasses: 0 as const,
     },
   })).sort((left, right) => left.id.localeCompare(right.id));
@@ -1041,7 +1079,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     data: {
       status: "semantic_analysis",
       orchestration: inputJson({ policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION, rootAgentRunId: root.id, fallbackUsed: planned.fallbackUsed, generationRunId: planned.generationRunId, packages }),
-      budgetUsage: inputJson({ maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS, allocatedWorkerTokens: perWorkerTokens * packages.length }),
+      budgetUsage: inputJson({
+        maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
+        maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+        allocatedWorkerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
+        workerTokenAllocations,
+      }),
     },
   });
   const settledReports = await Promise.allSettled(packages.map((workPackage) => runWorkPackage({
@@ -1127,7 +1170,11 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       orchestration: inputJson({ policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION, rootAgentRunId: root.id, coverageAuditRunId: coverageAudit.id, fallbackUsed: planned.fallbackUsed, generationRunId: planned.generationRunId, packages, reportCount: finalReports.length, remainingGaps }),
       budgetUsage: inputJson({
         limits: { maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS },
-        allocations: { plannerTokens: plannerTokenReserve, workerTokens: perWorkerTokens * packages.length },
+        allocations: {
+          plannerTokens: plannerTokenReserve,
+          workerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
+          workerTokenAllocations,
+        },
         actual: actualUsage,
       }),
     },

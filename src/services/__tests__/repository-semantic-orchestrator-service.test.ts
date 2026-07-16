@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocateSemanticWorkerTokenBudgets,
   buildFileSemanticTask,
   capabilityCandidatesFromAnalysis,
   enforceMandatoryCoverage,
@@ -15,6 +16,7 @@ import {
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
+import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("repository semantic orchestration guardrails", () => {
   const paths: Record<string, string> = {
@@ -43,6 +45,20 @@ describe("repository semantic orchestration guardrails", () => {
     }));
   }
 
+  it("allocates the fixed global budget by planned calls without stranding worker capacity", () => {
+    const weighted = allocateSemanticWorkerTokenBudgets({
+      totalTokens: 80_000,
+      modelCallCounts: [2, 2, 1, 1],
+    });
+
+    expect(weighted).toEqual([26_667, 26_667, 13_333, 13_333]);
+    expect(weighted.reduce((total, value) => total + value, 0)).toBe(80_000);
+    expect(allocateSemanticWorkerTokenBudgets({
+      totalTokens: 80_000,
+      modelCallCounts: [1, 1, 1, 1],
+    })).toEqual([20_000, 20_000, 20_000, 20_000]);
+  });
+
   it("covers every mandatory capability with a target-specific representative file", () => {
     const packages = enforceMandatoryCoverage({
       packages: Array.from({ length: 4 }, (_, index) => ({
@@ -60,6 +76,37 @@ describe("repository semantic orchestration guardrails", () => {
     expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
     expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
     for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
+  });
+
+  it("treats selected non-Workbase project domains as mandatory manifest obligations", () => {
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect the repository's product domains.",
+        capabilityKeys: ["project_domain:payments", "project_domain:search"],
+        fileSnapshotIds: [],
+        questions: ["What do these domains implement?"],
+        expectedOutputs: ["Supported exact-line facts"],
+      }],
+      manifest: [
+        {
+          key: "project_domain:payments",
+          label: "payments project domain",
+          files: [{ id: "payments-file", path: "src/payments/charge-service.ts", score: 12 }],
+        },
+        {
+          key: "project_domain:search",
+          label: "search project domain",
+          files: [{ id: "search-file", path: "src/search/index-service.ts", score: 10 }],
+        },
+      ],
+    });
+
+    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
+      new Set(["payments-file", "search-file"]),
+    );
+    expect(new Set(packages.flatMap((entry) => entry.capabilityKeys))).toEqual(
+      new Set(["project_domain:payments", "project_domain:search"]),
+    );
   });
 
   it("rebalances mandatory capabilities when the model clusters every key into one package", () => {
@@ -360,7 +407,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     expect(reusableCurrentSnapshotSemanticAnalysis({
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v13",
+      semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
       semanticAnalysis: cached,
       path: "workflows/project-chat.ts",
       capabilityKeys: ["workflow_orchestration"],
@@ -370,7 +417,7 @@ describe("repository semantic orchestration guardrails", () => {
     });
     expect(reusableCurrentSnapshotSemanticAnalysis({
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v12",
+      semanticAnalyzerVersion: "repository-coverage-v13",
       semanticAnalysis: cached,
       path: "workflows/project-chat.ts",
       capabilityKeys: ["workflow_orchestration"],
@@ -453,7 +500,7 @@ describe("repository semantic orchestration guardrails", () => {
       blobSha: "a".repeat(40),
       disposition: "analyzed",
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v13",
+      semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
       snapshot: { sourceId: "attached-source" },
     });
   });

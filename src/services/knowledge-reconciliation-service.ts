@@ -22,8 +22,12 @@ import {
 } from "@/src/services/repository-knowledge-synthesis-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 
-export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v2";
+export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v3";
 export const STRONG_KNOWLEDGE_IDENTITY_THRESHOLD = 0.72;
+
+export function allowsCanonicalKnowledgeReplacement(qualityStatus: unknown) {
+  return qualityStatus === "verified";
+}
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -208,6 +212,7 @@ async function applyFact(input: {
   commitSha: string;
   validationHeads: Record<string, string>;
   sourceEntries: SynthesisNotebookEntry[];
+  allowCanonicalReplacement: boolean;
 }) {
   if (!input.evidenceIds.length) return null;
   const existing = await prisma.projectFact.findMany({
@@ -304,7 +309,7 @@ async function applyFact(input: {
     return closest.fact.id;
   }
 
-  const supersedes = !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+  const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.fact
     : null;
   const fact = await prisma.$transaction(async (tx) => {
@@ -370,6 +375,7 @@ async function applyHighlight(input: {
   commitSha: string;
   validationHeads: Record<string, string>;
   sourceEntries: SynthesisNotebookEntry[];
+  allowCanonicalReplacement: boolean;
 }) {
   if (!input.evidenceIds.length) return null;
   const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
@@ -476,7 +482,7 @@ async function applyHighlight(input: {
     });
     return closest.highlight.id;
   }
-  const supersedes = !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+  const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.highlight
     : null;
   const tags = inferHighlightTags({
@@ -559,6 +565,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
   });
   if (run.status !== "reconciling") throw new Error("Repository coverage must complete before reconciliation.");
   const targets = run.targetHeads as unknown as RepositoryTargetHead[];
+  const allowCanonicalReplacement = allowsCanonicalKnowledgeReplacement(run.qualityStatus);
   const partialChanges = await prisma.knowledgeChange.count({ where: { refreshRunId: runId } });
   const synthesis = await synthesizeRepositoryKnowledge(runId, { fallbackOnly: partialChanges > 0 });
   const { materialized, promotedIdByReference } = await preparePromotedEvidence({
@@ -583,6 +590,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
         sourceEntries: citedEntries,
+        allowCanonicalReplacement,
       });
       if (factId) {
         produced.projectFactIds.push(factId);
@@ -607,6 +615,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
         sourceEntries: citedEntries,
+        allowCanonicalReplacement,
       });
       if (highlightId) {
         produced.highlightIds.push(highlightId);

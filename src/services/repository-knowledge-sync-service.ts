@@ -18,7 +18,7 @@ import {
 // Static analysis remains blob-compatible with v13. Path-to-capability mapping
 // is versioned by REPOSITORY_COVERAGE_POLICY_VERSION and is cheaply rebased
 // without rereading every unchanged GitHub blob.
-export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v13";
+export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v14";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 

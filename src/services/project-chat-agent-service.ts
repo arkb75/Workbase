@@ -59,6 +59,7 @@ const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.
 const architectureSynthesisPattern = /\b(?:main|overall|system|project|high[- ]level)?\s*architecture\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
 const broadArchitectureAnswerPattern = /\b(?:(?:main|overall|system|project|high[- ]level)\s+architecture|architecture overview)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
 const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
+const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
 
 export function supportsDeterministicAccomplishmentFormat(question: string) {
   return accomplishmentSynthesisPattern.test(question) && !accomplishmentFormatConstraintPattern.test(question);
@@ -69,6 +70,11 @@ export interface ProjectChatHistoryMessage {
   role: "user" | "assistant";
   content: string;
   citations: Array<{ ordinal: number; kind: string; label: string }>;
+}
+
+export function isRetryFollowUp(question: string, history?: ProjectChatHistoryMessage[]) {
+  return retryQuestionPattern.test(question) &&
+    (history?.some((message) => message.role === "assistant") ?? false);
 }
 
 export type ProjectChatAgentResult =
@@ -210,6 +216,15 @@ export function buildMemoryCatalog(input: {
     // similarity otherwise tends to return several near-duplicate facts from
     // whichever subsystem happens to share the word "architecture."
     add(rankAccomplishmentHits(input.hits, 10), 10);
+  }
+  if (input.query && retryQuestionPattern.test(input.query)) {
+    // Referential retry questions are narrow even when their contextual query
+    // contains a long architecture answer. Reserve the exact durable-memory
+    // match before broad architecture or authority quotas can crowd it out.
+    add(input.hits.filter((hit) =>
+      ["verified_highlight", "verified_project_fact", "included_evidence"].includes(hit.authority) &&
+      /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(`${hit.title} ${hit.content}`)
+    ), 2);
   }
   add(input.hits.filter((hit) => hit.kind === "project_fact" && preferredIds.has(hit.id)), 8);
   add(input.hits.filter((hit) => hit.kind === "highlight" && hit.authority === "verified_highlight"), 6);
@@ -441,9 +456,7 @@ function deterministicHistoryAwareAnswer(input: {
   hits: ProjectKnowledgeHit[];
   catalog: ReturnType<typeof buildMemoryCatalog>;
 }) {
-  const hasPriorAssistant = input.history?.some((message) => message.role === "assistant") ?? false;
-  const asksRetryFollowUp = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i.test(input.question);
-  if (!hasPriorAssistant || !asksRetryFollowUp) return null;
+  if (!isRetryFollowUp(input.question, input.history)) return null;
 
   const hit = input.hits
     .filter((candidate) => ["verified_highlight", "verified_project_fact", "included_evidence"].includes(candidate.authority))
@@ -1161,6 +1174,24 @@ async function executeProjectChatAgent(
         citations: exactMemoryAnswer.citations,
         dossier: capabilityInputs.researchDossier,
         groundedClaims,
+      }),
+    };
+  }
+
+  if (isRetryFollowUp(input.question, input.history)) {
+    const answer = "I cannot identify which part of that flow is retried from the currently active, approved project memory. The retry behavior needs current supporting evidence before I can answer it without guessing.";
+    return {
+      status: "insufficient_context",
+      answer,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      research: directResearchResult({
+        answer: "",
+        citations: [],
+        dossier: capabilityInputs.researchDossier,
+        warnings: [answer],
       }),
     };
   }

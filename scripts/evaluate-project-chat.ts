@@ -22,6 +22,7 @@ import {
   parseRuntimeAccomplishmentAudit,
 } from "../src/services/project-answer-evaluation-service";
 import { findUnsupportedOwnershipClaims } from "../src/services/project-answer-grounding-service";
+import { TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS } from "../src/services/project-answer-completeness-service";
 import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import {
@@ -188,7 +189,12 @@ async function main() {
   const citedEvidenceItemIds = message.citations.flatMap((citation) => citation.evidenceItemId ? [citation.evidenceItemId] : []);
   const [highPriorityLedger, citedProjectFacts, citedHighlights, citedEvidenceItems, completenessEvent, candidateGenerationRuns, runEvents] = await Promise.all([
     prisma.repositoryCapabilityLedger.findMany({
-      where: { refreshRunId: refresh.id, priority: { gte: 5 }, status: "semantic_verified" },
+      where: {
+        refreshRunId: refresh.id,
+        capabilityKey: { in: [...TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS] },
+        priority: { gte: 5 },
+        status: "semantic_verified",
+      },
       orderBy: [{ priority: "desc" }, { capabilityKey: "asc" }],
     }),
     prisma.projectFact.findMany({

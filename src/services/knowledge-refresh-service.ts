@@ -10,8 +10,10 @@ import {
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
   inferSubsystemsFromPath,
+  isProjectDomainCapabilityKey,
   mergeRepositoryFileAnalysis,
   REPOSITORY_COVERAGE_POLICY_VERSION,
+  selectRequiredSemanticCoverageAreas,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
@@ -24,8 +26,9 @@ import {
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   repositorySemanticOrchestratorService,
 } from "@/src/services/repository-semantic-orchestrator-service";
+import { KNOWLEDGE_LIFECYCLE_POLICY_VERSION } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v17";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v18";
 
 const targetHeadSchema = z.object({
   sourceId: z.string(),
@@ -51,6 +54,7 @@ function currentKnowledgeRefreshPolicyMetadata() {
     coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
     orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
     synthesisPolicyVersion: REPOSITORY_SYNTHESIS_POLICY_VERSION,
+    lifecyclePolicyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
   };
 }
 
@@ -81,6 +85,16 @@ export function isKnowledgeRefreshPartial(input: { qualityStatus: unknown; cover
       (capabilityStatus !== undefined && capabilityStatus !== "verified") ||
       (Array.isArray(entry.coverageGaps) && entry.coverageGaps.length > 0);
   });
+}
+
+export function repositoryCapabilityPriority(input: {
+  capabilityKey: string;
+  observationCount: number;
+  requiredForSemanticCoverage?: boolean;
+}) {
+  if (BASE_COVERAGE_TARGETS.some((target) => target.key === input.capabilityKey)) return 5;
+  if (input.requiredForSemanticCoverage && isProjectDomainCapabilityKey(input.capabilityKey)) return 4;
+  return input.observationCount >= 20 ? 3 : 1;
 }
 
 export function repositoryOrchestrationCoverageGaps(input: {
@@ -117,6 +131,7 @@ export function isReusableKnowledgeRefresh(input: {
     warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
     warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
     warnings.synthesisPolicyVersion === policy.synthesisPolicyVersion &&
+    warnings.lifecyclePolicyVersion === policy.lifecyclePolicyVersion &&
     input.qualityStatus === "verified" &&
     input.completedTargets.length === input.targets.length &&
     input.targets.every((target) => input.completedTargets.some((completed) =>
@@ -690,8 +705,8 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       return analysis ? [{ path: file.path, analysis }] : [];
     });
     const matrix = buildCoverageMatrix(analyzed);
-    const baseKeys = new Set<string>(BASE_COVERAGE_TARGETS.map((target) => target.key));
-    const requiredAreas = matrix.filter((area) => baseKeys.has(area.key) && area.staticPathCount > 0);
+    const requiredAreas = selectRequiredSemanticCoverageAreas(matrix);
+    const requiredAreaKeys = new Set(requiredAreas.map((area) => area.key));
     const semanticDegradations = snapshot.files.flatMap((file) =>
       file.semanticRefreshRunId === runId &&
       file.semanticAnalyzerVersion === REPOSITORY_KNOWLEDGE_ANALYZER_VERSION &&
@@ -752,11 +767,11 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         .filter((file) => area.paths.includes(file.path))
         .slice(0, 12)
         .map((file) => file.id);
-      const priority = area.key === "product_surface" || area.key.includes("lifecycle") || area.observationCount >= 20
-        ? 5
-        : area.observationCount >= 8
-          ? 3
-          : 1;
+      const priority = repositoryCapabilityPriority({
+        capabilityKey: area.key,
+        observationCount: area.observationCount,
+        requiredForSemanticCoverage: requiredAreaKeys.has(area.key),
+      });
       // Model-authored unresolved questions are useful diagnostics, but they
       // are not a trustworthy quality signal. Coverage is blocked only by a
       // structural absence of supported semantic evidence or by an explicit

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  contentAddressedProvenance,
   currentImmutableProvenanceHeads,
   currentObservations,
+  currentRepositoryFiles,
   isStrongCanonicalReplacement,
+  refreshSupportsDestructiveStaleness,
   validateAssertion,
 } from "@/src/services/knowledge-staleness-service";
 import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
@@ -119,6 +122,97 @@ describe("knowledge staleness observations", () => {
     expect(Object.fromEntries(heads)).toEqual({ "source-1": "current-sha" });
   });
 
+  it("advances old or stale immutable evidence through a new head when source, path, and blob are unchanged", () => {
+    const currentFiles = currentRepositoryFiles([{
+      id: "snapshot-new",
+      sourceId: "source-1",
+      commitSha: "head-new",
+      files: [{ path: "src/service.ts", blobSha: "blob-unchanged" }],
+    }]);
+    const provenance = contentAddressedProvenance({
+      evidence: [{
+        evidenceItem: {
+          id: "evidence-old",
+          sourceId: "source-1",
+          type: "github_file_excerpt",
+          lifecycleStatus: "stale",
+          metadata: {
+            commitSha: "head-old",
+            blobSha: "blob-unchanged",
+            path: "src/service.ts",
+            startLine: 10,
+            endLine: 20,
+            excerptHash: "excerpt-hash",
+          },
+        },
+      }],
+      currentFiles,
+    });
+
+    expect(provenance.allCurrent).toBe(true);
+    expect(Object.fromEntries(provenance.heads)).toEqual({ "source-1": "head-new" });
+    expect(provenance.matches[0]?.current).toMatchObject({
+      snapshotId: "snapshot-new",
+      blobSha: "blob-unchanged",
+      path: "src/service.ts",
+    });
+  });
+
+  it("does not content-address revalidate a changed or removed path", () => {
+    const currentFiles = currentRepositoryFiles([{
+      id: "snapshot-new",
+      sourceId: "source-1",
+      commitSha: "head-new",
+      files: [
+        { path: "src/changed.ts", blobSha: "blob-new" },
+        { path: "src/renamed.ts", blobSha: "blob-old" },
+      ],
+    }]);
+    const evidence = (path: string) => ({
+      evidenceItem: {
+        sourceId: "source-1",
+        type: "github_file_excerpt",
+        lifecycleStatus: "active",
+        metadata: {
+          commitSha: "head-old",
+          blobSha: "blob-old",
+          path,
+          startLine: 1,
+          endLine: 2,
+          excerptHash: "excerpt-hash",
+        },
+      },
+    });
+
+    expect(contentAddressedProvenance({ evidence: [evidence("src/changed.ts")], currentFiles }).allCurrent).toBe(false);
+    expect(contentAddressedProvenance({ evidence: [evidence("src/removed.ts")], currentFiles }).allCurrent).toBe(false);
+    // Renames are intentionally not treated as unchanged path provenance.
+    expect(contentAddressedProvenance({ evidence: [evidence("src/original.ts")], currentFiles }).allCurrent).toBe(false);
+  });
+
+  it("permits destructive transitions only after a verified complete refresh barrier", () => {
+    const complete = {
+      qualityStatus: "verified",
+      coverage: [{
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        coverageGaps: [],
+      }],
+      snapshots: [{ inventoryComplete: true, analysisComplete: true, coverageComplete: true }],
+    };
+    expect(refreshSupportsDestructiveStaleness(complete)).toBe(true);
+    expect(refreshSupportsDestructiveStaleness({ ...complete, qualityStatus: "degraded" })).toBe(false);
+    expect(refreshSupportsDestructiveStaleness({
+      ...complete,
+      coverage: [{ ...complete.coverage[0], coverageGaps: ["One semantic package failed."] }],
+    })).toBe(false);
+    expect(refreshSupportsDestructiveStaleness({
+      ...complete,
+      snapshots: [{ inventoryComplete: true, analysisComplete: true, coverageComplete: false }],
+    })).toBe(false);
+  });
+
   it("does not treat unrelated knowledge in the same subsystem as a canonical replacement", () => {
     expect(isStrongCanonicalReplacement({
       priorId: "fact-inventory",
@@ -201,6 +295,20 @@ describe("knowledge staleness observations", () => {
     expect(result).toMatchObject({
       verdict: "unknown",
       reason: expect.stringContaining("modal implementation assertion"),
+    });
+  });
+
+  it("allows retirement when every prior path is absent from a complete current manifest", async () => {
+    const result = await validateAssertion({
+      assertion: "The removed worker coordinates legacy imports.",
+      priorReferences: ["source-1:src/legacy-worker.ts"],
+      currentReferences: new Set(["source-1:src/current-worker.ts"]),
+      observations: [],
+    });
+
+    expect(result).toMatchObject({
+      verdict: "removed",
+      reason: expect.stringContaining("absent from the complete current snapshot"),
     });
   });
 });

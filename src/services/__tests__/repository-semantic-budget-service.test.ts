@@ -199,6 +199,180 @@ describe("repository semantic task and budget", () => {
     expect(analyses[3]?.unresolvedQuestions.join(" ")).toContain("capabilities outside this file task: retrieval_provenance");
   });
 
+  it("merges valid duplicate exact-path members and succeeds when all required capabilities remain supported", async () => {
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+    const analysis = (
+      summary: string,
+      capabilityKey: string,
+      lineStart = 1,
+    ) => ({
+      summary,
+      subsystemKeys: [capabilityKey],
+      findings: [{
+        statement: `${summary} is supported by the supplied immutable line.`,
+        kind: "behavior",
+        capabilityKeys: [capabilityKey],
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart,
+        lineEnd: lineStart,
+      }],
+      unresolvedQuestions: [],
+    });
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: [{
+          fileKey: "file-1",
+          path: "src/multi-purpose.ts",
+          analysis: analysis("The file invokes the configured AI runtime", "ai_runtime"),
+        }, {
+          fileKey: "file-1",
+          path: "src/multi-purpose.ts",
+          analysis: {
+            summary: "The file persists retrieval provenance.",
+            subsystemKeys: ["retrieval_provenance"],
+            findings: [
+              ...analysis("The file persists retrieval provenance", "retrieval_provenance").findings,
+              ...analysis("This optional observation is outside the supplied window", "ai_runtime", 99).findings,
+            ],
+            unresolvedQuestions: [],
+          },
+        }, {
+          fileKey: "file-2",
+          path: "src/other.ts",
+          analysis: analysis("The second file invokes the configured AI runtime", "ai_runtime"),
+        }],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analyses = await analyzeRepositoryFileBatch([{
+      repository: "workbase/demo",
+      commitSha: "c".repeat(40),
+      path: "src/multi-purpose.ts",
+      content: "export const operation = () => true;",
+      task: {
+        objective: "Determine AI runtime and retrieval provenance behavior.",
+        capabilityKeys: ["ai_runtime", "retrieval_provenance"],
+        questions: [],
+        expectedOutputs: [],
+      },
+      budget,
+    }, {
+      repository: "workbase/demo",
+      commitSha: "c".repeat(40),
+      path: "src/other.ts",
+      content: "export const operation = () => true;",
+      task: {
+        objective: "Determine AI runtime behavior.",
+        capabilityKeys: ["ai_runtime"],
+        questions: [],
+        expectedOutputs: [],
+      },
+      budget,
+    }]);
+
+    expect(analyses[0]).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
+    expect(analyses[0]?.facts.flatMap((fact) => fact.subsystemKeys ?? [])).toEqual(expect.arrayContaining([
+      "ai_runtime",
+      "retrieval_provenance",
+    ]));
+    expect(analyses[0]?.unresolvedQuestions.join(" ")).toContain("Rejected out-of-window finding at 99-99");
+    expect(analyses[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        status: "success",
+        duplicateExactPathMembers: 1,
+        rejectedFindings: 1,
+        missingCapabilityKeys: [],
+      }),
+    ]));
+    expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
+  });
+
+  it("degrades a valid batch member when any assigned capability has no supported finding", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: ["src/incomplete.ts", "src/complete.ts"].map((path, index) => ({
+          fileKey: `file-${index + 1}`,
+          path,
+          analysis: {
+            summary: "The file invokes the configured AI runtime.",
+            subsystemKeys: ["ai_runtime"],
+            findings: [{
+              statement: "The file invokes a schema-constrained model runtime.",
+              kind: "behavior",
+              capabilityKeys: ["ai_runtime"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        })),
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+
+    const analyses = await analyzeRepositoryFileBatch([{
+      repository: "workbase/demo",
+      commitSha: "d".repeat(40),
+      path: "src/incomplete.ts",
+      content: "export const operation = () => true;",
+      task: {
+        objective: "Determine runtime and provenance behavior.",
+        capabilityKeys: ["ai_runtime", "retrieval_provenance"],
+        questions: [],
+        expectedOutputs: [],
+      },
+      budget,
+    }, {
+      repository: "workbase/demo",
+      commitSha: "d".repeat(40),
+      path: "src/complete.ts",
+      content: "export const operation = () => true;",
+      task: {
+        objective: "Determine runtime behavior.",
+        capabilityKeys: ["ai_runtime"],
+        questions: [],
+        expectedOutputs: [],
+      },
+      budget,
+    }]);
+
+    expect(analyses[0]).toMatchObject({ semanticStatus: "degraded" });
+    expect(analyses[0]?.unresolvedQuestions.join(" ")).toContain("required capabilities: retrieval_provenance");
+    expect(analyses[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ missingCapabilityKeys: ["retrieval_provenance"] }),
+    ]));
+    expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
+  });
+
   it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,

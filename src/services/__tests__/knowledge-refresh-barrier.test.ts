@@ -21,6 +21,7 @@ import {
   isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
   policyScopedKnowledgeRefreshIdempotencyKey,
+  repositoryCapabilityPriority,
   repositoryOrchestrationCoverageGaps,
 } from "@/src/services/knowledge-refresh-service";
 
@@ -69,7 +70,15 @@ describe("latest-commit freshness barrier", () => {
     prismaMock.knowledgeRefreshRun.update.mockResolvedValue({});
   });
 
-  it("invalidates same-head refresh reuse when a coverage or orchestration policy is stale", () => {
+  it("reserves high-priority ledger status for required product capabilities", () => {
+    expect(repositoryCapabilityPriority({ capabilityKey: "repository_knowledge_lifecycle", observationCount: 4 })).toBe(5);
+    expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4, requiredForSemanticCoverage: true })).toBe(4);
+    expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4 })).toBe(1);
+    expect(repositoryCapabilityPriority({ capabilityKey: "module:prisma/schema.prisma", observationCount: 200 })).toBe(3);
+    expect(repositoryCapabilityPriority({ capabilityKey: "module:src/utils", observationCount: 3 })).toBe(1);
+  });
+
+  it("invalidates same-head refresh reuse when any knowledge policy is stale", () => {
     const target = {
       sourceId: "source-1",
       repository: "workbase/demo",
@@ -80,10 +89,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-coverage-v13",
-      coveragePolicyVersion: "repository-coverage-v6",
-      orchestrationPolicyVersion: "repository-orchestration-v5",
-      synthesisPolicyVersion: "repository-synthesis-v17",
+      analyzerVersion: "repository-coverage-v14",
+      coveragePolicyVersion: "repository-coverage-v7",
+      orchestrationPolicyVersion: "repository-orchestration-v7",
+      synthesisPolicyVersion: "repository-synthesis-v18",
+      lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
     expect(isReusableKnowledgeRefresh({
@@ -94,6 +104,12 @@ describe("latest-commit freshness barrier", () => {
     })).toBe(false);
     expect(isReusableKnowledgeRefresh({
       warnings: { ...currentWarnings, orchestrationPolicyVersion: "repository-orchestration-v4" },
+      qualityStatus: "verified",
+      completedTargets: [target],
+      targets: [target],
+    })).toBe(false);
+    expect(isReusableKnowledgeRefresh({
+      warnings: { ...currentWarnings, lifecyclePolicyVersion: "knowledge-lifecycle-v2" },
       qualityStatus: "verified",
       completedTargets: [target],
       targets: [target],
@@ -157,10 +173,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v13",
+          analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v13",
+          semanticAnalyzerVersion: "repository-coverage-v14",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -211,10 +227,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v13",
+          analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v13",
+          semanticAnalyzerVersion: "repository-coverage-v14",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -249,10 +265,11 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-coverage-v13",
-          coveragePolicyVersion: "repository-coverage-v6",
-          orchestrationPolicyVersion: "repository-orchestration-v5",
-          synthesisPolicyVersion: "repository-synthesis-v17",
+          analyzerVersion: "repository-coverage-v14",
+          coveragePolicyVersion: "repository-coverage-v7",
+          orchestrationPolicyVersion: "repository-orchestration-v7",
+          synthesisPolicyVersion: "repository-synthesis-v18",
+          lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
     }));
@@ -272,10 +289,10 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-coverage-v13",
+      analyzerVersion: "repository-coverage-v14",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v13",
+      semanticAnalyzerVersion: "repository-coverage-v14",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

@@ -8,6 +8,7 @@ import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import {
   BASE_COVERAGE_TARGETS,
+  isProjectDomainCapabilityKey,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
@@ -231,6 +232,42 @@ function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemS
   };
 }
 
+/**
+ * A one-file structural domain cannot justify an invented cross-file umbrella
+ * claim. Retain its strongest exact semantic statement verbatim and preserve
+ * that statement's single citation instead of asking a synthesis model to
+ * generalize beyond the supplied file.
+ */
+export function exactSinglePathProjectDomainSynthesis(
+  subsystemKey: string,
+  notebook: SynthesisNotebookEntry[],
+): RepositorySubsystemSynthesis | null {
+  if (!isProjectDomainCapabilityKey(subsystemKey) || new Set(notebook.map((entry) => entry.path)).size !== 1) return null;
+  const exact = mockSynthesis(notebook);
+  return {
+    ...exact,
+    facts: exact.facts.map((fact) => ({
+      ...fact,
+      reviewNotes: "Retained verbatim from the strongest exact-line semantic fact for this single-file project domain.",
+    })),
+    highlights: [],
+  };
+}
+
+/** Only domains admitted by the bounded semantic plan may reach synthesis. */
+export function selectedProjectDomainKeysFromOrchestration(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const packages = (value as { packages?: unknown }).packages;
+  if (!Array.isArray(packages)) return [];
+  return Array.from(new Set(packages.flatMap((workPackage) => {
+    if (!workPackage || typeof workPackage !== "object" || Array.isArray(workPackage)) return [];
+    const capabilityKeys = (workPackage as { capabilityKeys?: unknown }).capabilityKeys;
+    return Array.isArray(capabilityKeys)
+      ? capabilityKeys.filter((key): key is string => typeof key === "string" && isProjectDomainCapabilityKey(key))
+      : [];
+  }))).sort();
+}
+
 type DeterministicFactDefinition = {
   statement: string;
   category: ProjectFactCategory;
@@ -377,6 +414,8 @@ export function fallbackSubsystemSynthesis(
   subsystemKey: string,
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis {
+  const exactProjectDomain = exactSinglePathProjectDomainSynthesis(subsystemKey, notebook);
+  if (exactProjectDomain) return exactProjectDomain;
   const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
   if (!definition) return mockSynthesis(notebook);
   const primary = deterministicFactFromDefinition(definition, notebook);
@@ -585,6 +624,7 @@ export async function synthesizeRepositoryKnowledge(
   }
 
   const architectureSubsystems = new Set<string>(BASE_COVERAGE_TARGETS.map((target) => target.key));
+  const selectedProjectDomainKeys = new Set(selectedProjectDomainKeysFromOrchestration(run.orchestration));
   const productSystemSubsystems = new Set([
     "repository_knowledge_lifecycle",
     "project_chat_grounding",
@@ -606,12 +646,18 @@ export async function synthesizeRepositoryKnowledge(
         notebook,
         priority:
           (architectureSubsystems.has(subsystemKey) ? 1_000 : 0) +
+          (isProjectDomainCapabilityKey(subsystemKey) ? 750 : 0) +
           (productSystemSubsystems.has(subsystemKey) ? 500 : 0) +
           notebook.slice(0, 12).reduce((total, entry) => total + importance(entry), 0),
         pathCount: new Set(notebook.map((entry) => entry.path)).size,
       };
     })
-    .filter((input) => input.notebook.length && (architectureSubsystems.has(input.subsystemKey) || input.pathCount >= 2))
+    .filter((input) => input.notebook.length && (
+      architectureSubsystems.has(input.subsystemKey) ||
+      (isProjectDomainCapabilityKey(input.subsystemKey)
+        ? selectedProjectDomainKeys.has(input.subsystemKey)
+        : input.pathCount >= 2)
+    ))
     .sort((left, right) => right.priority - left.priority || left.subsystemKey.localeCompare(right.subsystemKey))
     .slice(0, BASE_COVERAGE_TARGETS.length + productSystemSubsystems.size);
   const synthesizedSubsystems: Array<RepositorySubsystemSynthesis & {
@@ -629,8 +675,15 @@ export async function synthesizeRepositoryKnowledge(
         : {}),
     })));
   } else {
-    const batches = Array.from({ length: Math.ceil(synthesisInputs.length / 2) }, (_, index) =>
-      synthesisInputs.slice(index * 2, index * 2 + 2),
+    const exactProjectDomains = synthesisInputs.flatMap((subsystem) => {
+      const synthesis = exactSinglePathProjectDomainSynthesis(subsystem.subsystemKey, subsystem.notebook);
+      return synthesis ? [{ subsystemKey: subsystem.subsystemKey, ...synthesis }] : [];
+    });
+    synthesizedSubsystems.push(...exactProjectDomains);
+    const exactKeys = new Set(exactProjectDomains.map((entry) => entry.subsystemKey));
+    const modelInputs = synthesisInputs.filter((entry) => !exactKeys.has(entry.subsystemKey));
+    const batches = Array.from({ length: Math.ceil(modelInputs.length / 2) }, (_, index) =>
+      modelInputs.slice(index * 2, index * 2 + 2),
     );
     const results = await Promise.all(batches.map((batch) => synthesizeSubsystemSet({
         workItemId: run.workItemId,

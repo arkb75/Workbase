@@ -335,6 +335,46 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls[0]?.maxTokens).toBe(4_000);
   });
 
+  it("parses a native structured response larger than the former starved output ceiling", async () => {
+    const longSchema = z.object({ items: z.array(z.string()) });
+    const longJsonSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: {
+        items: { type: "array", items: { type: "string" } },
+      },
+    };
+    const items = Array.from({ length: 180 }, (_, index) =>
+      `Evidence-backed repository observation ${index.toString().padStart(3, "0")}.`
+    );
+    const rawOutput = JSON.stringify({ items });
+    expect(rawOutput.length).toBeGreaterThan(5_200);
+    const { client, calls } = makeClient([{ text: rawOutput }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+
+    const result = await client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "x".repeat(15_805),
+      schema: longSchema,
+      schemaName: "repository_semantic_observation_batch",
+      schemaDescription: "A bounded repository observation batch.",
+      jsonSchema: longJsonSchema,
+      maxTokens: 4_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    expect(result.data.items).toHaveLength(items.length);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxTokens).toBe(4_000);
+  });
+
   it("still rejects a repository-sized prompt when conservative admission headroom is unavailable", async () => {
     const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
     const budget = createStructuredGenerationBudget({

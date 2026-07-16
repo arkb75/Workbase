@@ -3,6 +3,7 @@ import {
   buildContextualRetrievalQuery,
   buildMemoryCatalog,
   buildStandaloneResearchQuestion,
+  isRetryFollowUp,
   requiresLiveRepositoryResearch,
 } from "@/src/services/project-chat-agent-service";
 
@@ -82,6 +83,57 @@ describe("project chat repository intent", () => {
       currentQuestion: "Explain the database schema.",
       history: [{ id: "assistant-1", role: "assistant", content: "Unrelated prior answer.", citations: [] }],
     })).toBe("Explain the database schema.");
+  });
+
+  it("recognizes retry questions only as real conversational follow-ups", () => {
+    const history = [{
+      id: "assistant-1",
+      role: "assistant" as const,
+      content: "A durable workflow coordinates the flow.",
+      citations: [],
+    }];
+    expect(isRetryFollowUp("Which part of that flow is retried, and why?", history)).toBe(true);
+    expect(isRetryFollowUp("Which part of that flow is retried, and why?", [])).toBe(false);
+    expect(isRetryFollowUp("Explain the workflow.", history)).toBe(false);
+  });
+
+  it("reserves an exact retry fact ahead of higher-scored generic memory", () => {
+    const generic = Array.from({ length: 12 }, (_, index) => ({
+      id: `generic-${index}`,
+      kind: "project_fact" as const,
+      authority: "verified_project_fact" as const,
+      title: `Generic architecture fact ${index}`,
+      content: `The project contains supported architecture behavior ${index}.`,
+      score: 1_000 - index,
+      citations: [{
+        kind: "project_fact" as const,
+        label: `Generic architecture fact ${index}`,
+        excerpt: `The project contains supported architecture behavior ${index}.`,
+        projectFactId: `generic-${index}`,
+      }],
+    }));
+    const retryFact = {
+      id: "retry-fact",
+      kind: "project_fact" as const,
+      authority: "verified_project_fact" as const,
+      title: "Durable workflow retry behavior",
+      content: "The workflow retries transient readiness failures so that a temporary dependency outage does not terminate the run.",
+      score: 1,
+      citations: [{
+        kind: "project_fact" as const,
+        label: "Durable workflow retry behavior",
+        excerpt: "The workflow retries transient readiness failures.",
+        projectFactId: "retry-fact",
+      }],
+    };
+
+    const catalog = buildMemoryCatalog({
+      hits: [...generic, retryFact],
+      query: "Which part of that flow is retried, and why?",
+    });
+
+    expect(catalog.entries[0]).toMatchObject({ title: "Durable workflow retry behavior" });
+    expect(catalog.citations[0]).toMatchObject({ projectFactId: "retry-fact" });
   });
 
   it("reserves current-run Project Facts and keeps GitHub excerpts as nested provenance", () => {

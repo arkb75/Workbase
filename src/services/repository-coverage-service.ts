@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v6";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v7";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -32,6 +32,54 @@ export const BASE_COVERAGE_TARGETS = [
   { key: "review_ui", label: "Review and UI" },
   { key: "tests_operations", label: "Tests and operations" },
 ] as const;
+
+/**
+ * Repositories that do not resemble Workbase still need meaningful deep
+ * coverage. Path-derived project domains fill a small minimum target set only
+ * when the generic product capabilities above do not already provide it.
+ */
+export const PROJECT_DOMAIN_CAPABILITY_PREFIX = "project_domain:";
+export const MINIMUM_REQUIRED_SEMANTIC_TARGETS = 8;
+
+const projectDomainContainerSegments = new Set([
+  "api", "app", "apps", "client", "common", "component", "components", "controller", "controllers",
+  "core", "feature", "features", "handler", "handlers", "hook", "hooks", "internal", "lib", "libs",
+  "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
+  "repositories", "route", "routes", "server", "service", "services", "shared", "src", "store", "stores",
+  "type", "types", "ui", "util", "utils", "view", "views",
+]);
+
+const excludedProjectDomainRoots = new Set([
+  ".github", ".next", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
+  "docs", "examples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
+  "spec", "specs", "test", "tests", "vendor",
+]);
+
+export function isProjectDomainCapabilityKey(key: string) {
+  return key.startsWith(PROJECT_DOMAIN_CAPABILITY_PREFIX) && key.length > PROJECT_DOMAIN_CAPABILITY_PREFIX.length;
+}
+
+/**
+ * Infer a stable product-domain key from directory structure, never from a
+ * filename. Framework/container folders are skipped so `src/payments/...`
+ * and `app/api/search/...` become `project_domain:payments` and
+ * `project_domain:search`, while flat helpers and test/vendor trees do not
+ * become artificial domains.
+ */
+export function inferProjectDomainCapability(path: string) {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length < 2) return null;
+  const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
+  if (!directories.length || directories.some((segment) => excludedProjectDomainRoots.has(segment))) return null;
+  const candidate = directories.find((segment) =>
+    !projectDomainContainerSegments.has(segment) &&
+    !/^\[.*\]$/.test(segment) &&
+    !/^v\d+$/.test(segment) &&
+    /^[a-z][a-z0-9_-]{1,63}$/.test(segment)
+  );
+  return candidate ? `${PROJECT_DOMAIN_CAPABILITY_PREFIX}${candidate}` : null;
+}
 
 const semanticFindingKindOptions = [
   "behavior",
@@ -258,9 +306,11 @@ export function inferSubsystemsFromPath(path: string) {
   if (/workflow|orchestrat|run-|queue|job/.test(value)) keys.push("workflow_orchestration");
   if (/app\/|component|page\.tsx|review|workspace|ui/.test(value)) keys.push("review_ui");
   if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
+  const projectDomain = inferProjectDomainCapability(path);
+  if (projectDomain) keys.push(projectDomain);
   const parts = path.split("/");
   if (parts.length > 1) keys.push(`module:${parts.slice(0, 2).join("/").toLowerCase()}`);
-  return unique(keys, 8);
+  return unique(keys, 12);
 }
 
 function chunkByLines(content: string) {
@@ -286,41 +336,135 @@ function chunkByLines(content: string) {
   return chunks.length ? chunks : [{ lineStart: 1, lineEnd: 1, content: "1: " }];
 }
 
-export function selectSemanticWindows(content: string, semanticByteLimit = 8 * 1024) {
+export interface RepositorySemanticWindowHints {
+  task?: RepositorySemanticTask;
+  staticAnalysis?: Pick<RepositoryFileAnalysis, "facts" | "subsystemKeys">;
+}
+
+const semanticHintStopWords = new Set([
+  "about", "after", "against", "assigned", "before", "capability", "determine", "expected", "finding",
+  "from", "implemented", "into", "objective", "output", "project", "question", "repository", "supported",
+  "that", "their", "these", "this", "through", "what", "when", "where", "which", "with",
+]);
+
+function semanticHintTokens(value: string) {
+  return value
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter((token) => token.length >= 4 && !semanticHintStopWords.has(token));
+}
+
+/**
+ * Select one bounded, exact-line semantic notebook.
+ *
+ * Static observations and the assigned capability task are used as routing
+ * hints only. They decide which source lines enter the notebook; every model
+ * finding is still validated against the resulting exact numbered lines.
+ */
+export function selectSemanticWindows(
+  content: string,
+  semanticByteLimit = 8 * 1024,
+  hints: RepositorySemanticWindowHints = {},
+) {
   const lines = content.split("\n");
   const totalBytes = Buffer.byteLength(content, "utf8");
   if (!Number.isInteger(semanticByteLimit) || semanticByteLimit < 1) {
     throw new Error("semanticByteLimit must be a positive integer.");
   }
   if (totalBytes <= semanticByteLimit) return chunkByLines(content);
+  const taskCapabilityKeys = unique(hints.task?.capabilityKeys ?? [], 20);
+  const taskText = [
+    ...taskCapabilityKeys,
+    hints.task?.objective ?? "",
+    ...(hints.task?.questions ?? []),
+    ...(hints.task?.expectedOutputs ?? []),
+  ].join(" ");
+  const taskTokens = unique(semanticHintTokens(taskText), 80);
+  const capabilityTokens = new Map(taskCapabilityKeys.map((key) => [key, semanticHintTokens(key)]));
   const signalPattern = /\b(?:export|class|interface|type|enum|function|model|datasource|generator|workflow|createHook|Converse|Bedrock|citation|provenance|retriev|artifact|highlight|github|oauth|prisma|transaction|route|page|schema|authorize|redact|encrypt)\b/i;
-  const signalIndexes = lines
-    .map((line, index) => ({ index, score: (signalPattern.test(line) ? 4 : 0) + (/^(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const)|^model\s+/.test(line.trim()) ? 3 : 0) }))
+  const entrypointPattern = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const)\b|^model\s+/;
+  const scoredLines = lines.map((line, index) => {
+    const normalized = line.trim();
+    const lower = line.toLowerCase();
+    const matchingTaskTokens = taskTokens.filter((token) => lower.includes(token));
+    return {
+      index,
+      score: (signalPattern.test(line) ? 4 : 0)
+        + (entrypointPattern.test(normalized) ? 7 : 0)
+        + Math.min(12, matchingTaskTokens.length * 3),
+      lower,
+    };
+  });
+  const prioritizedCenters: Array<{ index: number; score: number }> = [];
+  const addCenter = (index: number, score: number) => {
+    if (index < 0 || index >= lines.length) return;
+    const existing = prioritizedCenters.find((entry) => entry.index === index);
+    if (existing) existing.score = Math.max(existing.score, score);
+    else prioritizedCenters.push({ index, score });
+  };
+
+  // Ensure each assigned capability gets a decisive exact-line anchor when
+  // the exhaustive static pass has already located one.
+  for (const capabilityKey of taskCapabilityKeys) {
+    const matchingFact = hints.staticAnalysis?.facts
+      .filter((fact) => fact.subsystemKeys?.includes(capabilityKey))
+      .sort((left, right) => {
+        const score = (fact: typeof left) => fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty;
+        return score(right) - score(left) || left.lineStart - right.lineStart;
+      })[0];
+    if (matchingFact) {
+      addCenter(matchingFact.lineStart - 1, 200);
+      if (matchingFact.lineEnd !== matchingFact.lineStart) addCenter(matchingFact.lineEnd - 1, 190);
+      continue;
+    }
+    const tokens = capabilityTokens.get(capabilityKey) ?? [];
+    const bestLine = scoredLines
+      .filter((entry) => tokens.some((token) => entry.lower.includes(token)))
+      .sort((left, right) => right.score - left.score || left.index - right.index)[0];
+    if (bestLine) addCenter(bestLine.index, 140 + bestLine.score);
+  }
+
+  for (const fact of (hints.staticAnalysis?.facts ?? [])
+    .filter((candidate) => !taskCapabilityKeys.length || candidate.subsystemKeys?.some((key) => taskCapabilityKeys.includes(key)))
+    .sort((left, right) => {
+      const score = (candidate: typeof left) => candidate.productImportance + candidate.implementationBreadth + candidate.technicalDifficulty;
+      return score(right) - score(left) || left.lineStart - right.lineStart;
+    })
+    .slice(0, 4)) {
+    addCenter(fact.lineStart - 1, 160);
+  }
+  for (const line of scoredLines
     .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-  const centers = [0, ...signalIndexes.map((entry) => entry.index), Math.max(0, lines.length - 1)]
-    .filter((center, index, all) => all.findIndex((candidate) => Math.abs(candidate - center) < 30) === index)
-    .slice(0, 6);
-  const ranges = centers
-    .map((center) => ({ start: Math.max(0, center - 16), end: Math.min(lines.length, center + 24) }))
-    .sort((left, right) => left.start - right.start)
-    .reduce<Array<{ start: number; end: number }>>((merged, range) => {
-      const previous = merged.at(-1);
-      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
-      else merged.push({ ...range });
-      return merged;
-    }, []);
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 16)) {
+    addCenter(line.index, 40 + line.score);
+  }
+  addCenter(0, 1);
+  addCenter(Math.max(0, lines.length - 1), 0);
+
+  const centers = prioritizedCenters
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .filter((entry, index, all) => all.findIndex((candidate) => Math.abs(candidate.index - entry.index) < 12) === index)
+    .slice(0, 8)
+    .map((entry) => entry.index);
   const selectedLines = new Map<number, string>();
   let remainingBytes = semanticByteLimit;
-  for (const range of ranges) {
-    if (remainingBytes <= 0) break;
-    for (let index = range.start; index < range.end; index += 1) {
-      if (selectedLines.has(index)) continue;
-      const numbered = `${index + 1}: ${lines[index] ?? ""}`;
-      const bytes = Buffer.byteLength(numbered, "utf8") + 1;
-      if (selectedLines.size && bytes > remainingBytes) break;
-      selectedLines.set(index, numbered);
-      remainingBytes -= bytes;
+  const addSelectedLine = (index: number) => {
+    if (index < 0 || index >= lines.length || selectedLines.has(index)) return;
+    const numbered = `${index + 1}: ${lines[index] ?? ""}`;
+    const bytes = Buffer.byteLength(numbered, "utf8") + 1;
+    if (bytes > remainingBytes) return;
+    selectedLines.set(index, numbered);
+    remainingBytes -= bytes;
+  };
+  // Add every anchor before expanding context. This prevents an early range
+  // from consuming the entire notebook and hiding late exported entrypoints.
+  centers.forEach(addSelectedLine);
+  for (let distance = 1; distance <= 24 && remainingBytes > 0; distance += 1) {
+    for (const center of centers) {
+      addSelectedLine(center + distance);
+      addSelectedLine(center - distance);
     }
   }
   const selected = Array.from(selectedLines.entries()).sort((left, right) => left[0] - right[0]);
@@ -775,10 +919,11 @@ async function recoverBatchFileIfPossible(
 /**
  * Analyze two to four immutable file windows in one structured request.
  *
- * Results remain file-keyed and are validated independently, so a missing,
- * duplicated, malformed, wrong-path, out-of-window, or wrong-capability
- * member degrades only that file. The one-file API remains the authoritative
- * fallback for singleton worker remainders.
+ * Results remain file-keyed and are validated independently. Valid duplicate
+ * exact-path members are safely merged; missing, malformed, wrong-path,
+ * out-of-window, or wrong-capability data can degrade only its assigned file.
+ * The one-file API remains the authoritative fallback for singleton worker
+ * remainders.
  */
 export async function analyzeRepositoryFileBatch(
   input: RepositorySemanticBatchFileInput[],
@@ -795,11 +940,13 @@ export async function analyzeRepositoryFileBatch(
   }
 
   const prepared = input.map((file, index) => {
-    // Three 8KB windows plus schema/output reserves can exceed a worker's
-    // conservative byte-based admission budget even though actual token usage
-    // would be much lower. A 5KB high-signal window keeps three-file batching
-    // viable without dropping a file or increasing the provider-call count.
-    const window = selectSemanticWindows(file.content, 5 * 1024)[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };
+    // Four full-file windows plus schema/output reserves can exceed a worker's
+    // bounded admission budget. A task-routed 5KB notebook keeps four-file
+    // batching viable without dropping decisive late-file entrypoints.
+    const window = selectSemanticWindows(file.content, 5 * 1024, {
+      task: file.task,
+      staticAnalysis: file.staticAnalysis,
+    })[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };
     return {
       file,
       fileKey: `file-${index + 1}`,
@@ -878,7 +1025,7 @@ export async function analyzeRepositoryFileBatch(
           "Analyze each file independently. Never transfer a fact, path, line number, or capability key between files.",
           "Describe implemented behavior, data flow, invariants, integrations, configuration, and user-facing capabilities only when that file's supplied lines support them.",
           "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
-          "Return at most four decisive findings and two concrete unresolved questions per file.",
+          "Return at most three decisive findings and two concrete unresolved questions per file.",
           "Assign each finding only to that file's allowed capability keys and follow its research task.",
         ].join(" "),
         userPrompt,
@@ -955,16 +1102,20 @@ export async function analyzeRepositoryFileBatch(
 
   return Promise.all(prepared.map(async (entry, index) => {
     const members = returnedByKey.get(entry.fileKey) ?? [];
-    const member = members.length === 1 && members[0]?.path === entry.file.path ? members[0] : null;
-    const parsed = member ? semanticBatchFileAnalysisSchema.safeParse(member.analysis) : null;
-    if (!member || !parsed?.success) {
+    const exactPathMembers = members.filter((member) => member.path === entry.file.path);
+    const validAnalyses: z.infer<typeof semanticBatchFileAnalysisSchema>[] = [];
+    const memberValidationErrors: string[] = [];
+    for (const member of exactPathMembers) {
+      const parsedMember = semanticBatchFileAnalysisSchema.safeParse(member.analysis);
+      if (parsedMember.success) validAnalyses.push(parsedMember.data);
+      else memberValidationErrors.push(...parsedMember.error.issues.map((issue) => issue.message));
+    }
+    if (!validAnalyses.length) {
       const message = !members.length
         ? `the provider omitted ${entry.fileKey} (${entry.file.path}).`
-        : members.length > 1
-          ? `the provider returned ${members.length} entries for ${entry.fileKey} (${entry.file.path}).`
-          : members[0]?.path !== entry.file.path
-            ? `the provider returned the wrong path for ${entry.fileKey}; expected ${entry.file.path}.`
-            : `the provider returned malformed analysis for ${entry.fileKey} (${entry.file.path}).`;
+        : !exactPathMembers.length
+          ? `the provider returned the wrong path for ${entry.fileKey}; expected ${entry.file.path}.`
+          : `the provider returned only malformed analyses for ${entry.fileKey} (${entry.file.path}).`;
       return recoverBatchFileIfPossible(entry.file, failedBatchFileAnalysis({
         file: entry.file,
         lineStart: entry.window.lineStart,
@@ -976,18 +1127,51 @@ export async function analyzeRepositoryFileBatch(
           generationRunId: result.generationRunId,
           transportMode: result.transportMode,
           attempts: result.attempts,
-          validationErrors: parsed && !parsed.success ? parsed.error.issues.map((issue) => issue.message) : null,
+          validationErrors: memberValidationErrors.length ? memberValidationErrors : null,
+          returnedMembers: members.length,
+          exactPathMembers: exactPathMembers.length,
           batchFingerprint,
         },
       }));
     }
 
+    // Native structured output can occasionally repeat an exact file member.
+    // Merge only independently valid, exact-path analyses; wrong-path and
+    // malformed members stay diagnostic and can never contribute findings.
+    const findingKeys = new Set<string>();
+    const mergedFindings = validAnalyses.flatMap((analysis) => analysis.findings).filter((finding) => {
+      const key = JSON.stringify([
+        finding.statement,
+        finding.kind,
+        finding.capabilityKeys,
+        finding.lineStart,
+        finding.lineEnd,
+      ]);
+      if (findingKeys.has(key)) return false;
+      findingKeys.add(key);
+      return true;
+    });
+    const parsedData: z.infer<typeof semanticBatchFileAnalysisSchema> = {
+      summary: unique(validAnalyses.map((analysis) => analysis.summary), 8).join(" ").slice(0, 1_200),
+      subsystemKeys: unique(validAnalyses.flatMap((analysis) => analysis.subsystemKeys), 12),
+      findings: mergedFindings.slice(0, 16),
+      unresolvedQuestions: unique(validAnalyses.flatMap((analysis) => analysis.unresolvedQuestions), 8),
+    };
+
     const suppliedLines = new Set(entry.window.content.split("\n").flatMap((line) => {
       const match = /^(\d+):/.exec(line);
       return match ? [Number(match[1])] : [];
     }));
-    const rejected: string[] = [];
-    const facts = parsed.data.findings.flatMap((finding) => {
+    const rejected: string[] = [
+      ...(members.length - exactPathMembers.length > 0
+        ? [`Rejected ${members.length - exactPathMembers.length} wrong-path batch member${members.length - exactPathMembers.length === 1 ? "" : "s"} for ${entry.fileKey}.`]
+        : []),
+      ...(memberValidationErrors.length
+        ? [`Rejected ${exactPathMembers.length - validAnalyses.length} malformed exact-path batch member${exactPathMembers.length - validAnalyses.length === 1 ? "" : "s"} for ${entry.fileKey}.`]
+        : []),
+    ];
+    const acceptedFindings: typeof parsedData.findings = [];
+    const facts = parsedData.findings.flatMap((finding) => {
       const invalidKeys = finding.capabilityKeys.filter((key) => !entry.allowedCapabilityKeys.includes(key));
       if (invalidKeys.length) {
         rejected.push(`Rejected finding with capabilities outside this file task: ${invalidKeys.join(", ")}.`);
@@ -1003,6 +1187,7 @@ export async function analyzeRepositoryFileBatch(
         rejected.push(`Rejected out-of-window finding at ${finding.lineStart}-${finding.lineEnd}.`);
         return [];
       }
+      acceptedFindings.push(finding);
       const category: ProjectFactCategory = finding.kind === "data_flow"
         ? "data_flow"
         : finding.kind === "integration"
@@ -1025,35 +1210,46 @@ export async function analyzeRepositoryFileBatch(
         path: entry.file.path,
       }];
     });
+    const coveredCapabilityKeys = new Set(facts.flatMap((fact) => fact.subsystemKeys ?? []));
+    const missingCapabilityKeys = entry.allowedCapabilityKeys.filter((key) => !coveredCapabilityKeys.has(key));
+    const capabilityCoverageComplete = entry.allowedCapabilityKeys.length
+      ? missingCapabilityKeys.length === 0
+      : facts.length > 0;
+    if (missingCapabilityKeys.length) {
+      rejected.push(`No valid supported finding covered required capabilities: ${missingCapabilityKeys.join(", ")}.`);
+    }
     const analysis: RepositoryFileAnalysis = {
       path: entry.file.path,
-      summary: parsed.data.summary,
+      summary: parsedData.summary,
       subsystemKeys: unique([
         ...inferSubsystemsFromPath(entry.file.path),
-        ...parsed.data.subsystemKeys.filter((key) => entry.allowedCapabilityKeys.includes(key)),
+        ...parsedData.subsystemKeys.filter((key) => entry.allowedCapabilityKeys.includes(key)),
         ...facts.flatMap((fact) => fact.subsystemKeys ?? []),
       ], 12),
       responsibilities: facts.map((fact) => fact.statement),
       symbols: [],
       dependencies: [],
-      architectureSignals: unique(parsed.data.findings.map((finding) => finding.kind.replace(/_/g, " ")), 30),
-      userFacingCapabilities: unique(parsed.data.findings.filter((finding) => finding.kind === "user_capability").map((finding) => finding.statement), 30),
+      architectureSignals: unique(acceptedFindings.map((finding) => finding.kind.replace(/_/g, " ")), 30),
+      userFacingCapabilities: unique(acceptedFindings.filter((finding) => finding.kind === "user_capability").map((finding) => finding.statement), 30),
       facts,
-      unresolvedQuestions: unique([...parsed.data.unresolvedQuestions, ...rejected], 30),
+      unresolvedQuestions: unique([...parsedData.unresolvedQuestions, ...rejected], 30),
       chunksAnalyzed: 1,
       // One provider call belongs to the batch, not to every file. Record its
       // usage exactly once so worker aggregation cannot multiply cost.
       tokenUsage: index === 0 && result.tokenUsage ? [result.tokenUsage] : [],
       analysisMode: "semantic",
-      semanticStatus: facts.length && !rejected.length ? "succeeded" : "degraded",
+      semanticStatus: capabilityCoverageComplete ? "succeeded" : "degraded",
       semanticSource: facts.length ? "model" : undefined,
       semanticDiagnostics: [{
         lineRange: [entry.window.lineStart, entry.window.lineEnd],
-        status: facts.length && !rejected.length ? "success" : "partial_batch_member",
+        status: capabilityCoverageComplete ? "success" : "partial_batch_member",
         generationRunId: result.generationRunId,
         transportMode: result.transportMode,
         attempts: result.attempts,
         rejectedFindings: rejected.length,
+        duplicateExactPathMembers: Math.max(0, validAnalyses.length - 1),
+        malformedExactPathMembers: exactPathMembers.length - validAnalyses.length,
+        missingCapabilityKeys,
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],
@@ -1350,7 +1546,11 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
     for (const key of file.analysis.subsystemKeys) {
       const current = targetMap.get(key) ?? {
         key,
-        label: key.startsWith("module:") ? key.slice(7) : key.replace(/_/g, " "),
+        label: isProjectDomainCapabilityKey(key)
+          ? `${key.slice(PROJECT_DOMAIN_CAPABILITY_PREFIX.length).replace(/[-_]/g, " ")} project domain`
+          : key.startsWith("module:")
+            ? key.slice(7)
+            : key.replace(/_/g, " "),
         paths: new Set<string>(),
         semanticPaths: new Set<string>(),
         modelSemanticPaths: new Set<string>(),
@@ -1395,4 +1595,37 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
     deterministicFallbackPathCount: target.deterministicFallbackPaths.size,
     unresolvedQuestions: Array.from(target.unresolved).slice(0, 20),
   }));
+}
+
+export type RepositoryCoverageArea = ReturnType<typeof buildCoverageMatrix>[number];
+
+/**
+ * Preserve every applicable generic capability. Only when fewer than the
+ * minimum are applicable do high-signal, path-structural project domains fill
+ * the gap. Consequently a capability-rich Workbase refresh selects exactly
+ * the same targets and provider work as before, while an unrelated repository
+ * is not forced through a Workbase-specific ontology.
+ */
+export function selectRequiredSemanticCoverageAreas(
+  matrix: RepositoryCoverageArea[],
+  minimumTargetCount = MINIMUM_REQUIRED_SEMANTIC_TARGETS,
+) {
+  if (!Number.isInteger(minimumTargetCount) || minimumTargetCount < 0) {
+    throw new Error("minimumTargetCount must be a non-negative integer.");
+  }
+  const baseOrder = new Map<string, number>(BASE_COVERAGE_TARGETS.map((target, index) => [target.key, index]));
+  const applicableBase = matrix
+    .filter((area) => baseOrder.has(area.key) && area.staticPathCount > 0)
+    .sort((left, right) => baseOrder.get(left.key)! - baseOrder.get(right.key)!);
+  const remaining = Math.max(0, minimumTargetCount - applicableBase.length);
+  if (!remaining) return applicableBase;
+  const projectDomains = matrix
+    .filter((area) => isProjectDomainCapabilityKey(area.key) && area.staticPathCount > 0 && area.observationCount > 0)
+    .sort((left, right) =>
+      right.observationCount - left.observationCount ||
+      right.staticPathCount - left.staticPathCount ||
+      left.key.localeCompare(right.key)
+    )
+    .slice(0, remaining);
+  return [...applicableBase, ...projectDomains];
 }
