@@ -1815,12 +1815,16 @@ export default async function WorkItemDetailPage({
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                    <div className="rounded-[24px] bg-white/8 p-4">
+                    <a
+                      href="#knowledge-updates"
+                      aria-label={`Jump to ${workItem.knowledgeChangeCounts.totalKnowledgeCount} knowledge updates`}
+                      className="group block cursor-pointer rounded-[24px] bg-white/8 p-4 transition hover:bg-white/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    >
                       <p className="text-xs uppercase tracking-[0.18em] text-white/60">Knowledge updates</p>
-                      <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
+                      <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white transition group-hover:translate-x-0.5">
                         {workItem.knowledgeChangeCounts.totalKnowledgeCount}
                       </p>
-                    </div>
+                    </a>
                     <div className="rounded-[24px] bg-white/8 p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-white/60">Sensitive</p>
                       <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
