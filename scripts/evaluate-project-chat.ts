@@ -5,6 +5,7 @@ import {
   completeAgentRun,
   createProjectChatRun,
   createProjectChatThread,
+  failAgentRun,
   markAgentRunRunning,
 } from "../src/services/project-chat-store";
 import { runProjectChatAgent } from "../src/services/project-chat-agent-service";
@@ -55,6 +56,23 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
     trigger: "chat_freshness",
     idempotencyKey: `evaluation:${input.runId}`,
   });
+  const started = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: refresh.runId },
+  });
+  await prisma.agentRun.update({
+    where: { id: input.runId },
+    data: {
+      knowledgeRefreshRunId: refresh.runId,
+      researchState: {
+        kind: "repository_knowledge_refresh",
+        refreshRunId: refresh.runId,
+        status: started.status,
+        targetHeads: started.targetHeads,
+        coverage: started.coverage,
+        partial: false,
+      },
+    },
+  });
   try {
     if (refresh.status !== "completed") {
       await knowledgeRefreshService.inventory(refresh.runId);
@@ -75,6 +93,35 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
     }
   } catch (error) {
     await knowledgeRefreshService.fail(refresh.runId, error).catch(() => null);
+    const failed = await prisma.knowledgeRefreshRun.findUnique({
+      where: { id: refresh.runId },
+    });
+    if (failed) {
+      await prisma.agentRun.update({
+        where: { id: input.runId },
+        data: {
+          researchState: {
+            kind: "repository_knowledge_refresh",
+            refreshRunId: failed.id,
+            status: failed.status,
+            targetHeads: failed.targetHeads,
+            coverage: failed.coverage,
+            partial: true,
+            completedAt: failed.finishedAt?.toISOString() ?? failed.updatedAt.toISOString(),
+          },
+        },
+      });
+    }
+    await failAgentRun({
+      runId: input.runId,
+      message: "The evaluation repository refresh failed before an answer could be generated.",
+      failure: {
+        code: "evaluation_refresh_failed",
+        stage: "repository_refresh",
+        retryable: true,
+        recovery: "Retry the evaluation after resolving the refresh failure.",
+      },
+    });
     throw error;
   }
   const completed = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: refresh.runId } });
@@ -82,6 +129,7 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
   await prisma.agentRun.update({
     where: { id: input.runId },
     data: {
+      knowledgeRefreshRunId: completed.id,
       researchState: {
         kind: "repository_knowledge_refresh",
         refreshRunId: completed.id,
@@ -152,6 +200,10 @@ async function main() {
   const message = await prisma.chatMessage.findFirstOrThrow({
     where: { agentRunId: run.id, role: "assistant" },
     include: { citations: { orderBy: { ordinal: "asc" } } },
+  });
+  const persistedRun = await prisma.agentRun.findUniqueOrThrow({
+    where: { id: run.id },
+    select: { knowledgeRefreshRunId: true },
   });
   const targets = records(refresh.targetHeads);
   const coverage = records(refresh.coverage);
@@ -415,6 +467,7 @@ async function main() {
       entry.semanticCoverageStatus === "complete" || entry.semanticCoverageStatus === "not_required",
     ),
     citationsPersisted: message.citations.length > 0,
+    agentRunLinkedToRefresh: persistedRun.knowledgeRefreshRunId === refresh.id,
     citationRowsMatchMarkers: canonicalOrdinals.length > 0 && canonicalOrdinals.every((ordinal) => message.citations.some((citation) => citation.ordinal === ordinal)) && message.citations.every((citation) => canonicalOrdinals.includes(citation.ordinal)),
     noPlainPseudoCitations: plainPseudoCitations.length === 0,
     runtimeCompletenessManifestAvailable: runtimeCompletenessAudit !== null,

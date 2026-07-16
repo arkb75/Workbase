@@ -41,7 +41,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { SourceAddControl } from "@/components/work-items/source-add-control";
 import { WorkItemWorkspace } from "@/components/work-items/work-item-workspace";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
-import { getWorkItemForUser } from "@/src/data/workbase";
+import {
+  getWorkItemForUser,
+  getWorkItemWorkspaceForUser,
+} from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import {
   nestArtifactEvidenceUnderHighlights,
@@ -57,13 +60,34 @@ import {
   targetAngleOptions,
 } from "@/src/lib/options";
 import { formatDateTime, titleCase } from "@/src/lib/utils";
+import {
+  buildWorkItemWorkspaceHref,
+  buildWorkItemWorkspaceTabHrefs,
+  readWorkItemWorkspacePage,
+  readWorkItemWorkspaceTab,
+  type WorkItemWorkspaceSearchParams,
+} from "@/src/lib/work-item-workspace-tabs";
 import { githubAuthService } from "@/src/services/github-auth-service";
-import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
 import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
 import { getProjectChatWorkspace } from "@/src/services/project-chat-store";
 import type { GitHubRepositorySummary } from "@/src/services/types";
 
 export const dynamic = "force-dynamic";
+
+type WorkItemDetailSearchParams = WorkItemWorkspaceSearchParams & {
+  error?: string;
+  result?: string;
+  repoQuery?: string;
+  repoList?: string;
+  tab?: string;
+  evidencePage?: string;
+  knowledgePage?: string;
+  artifactId?: string;
+  generatedHighlights?: string;
+  updatedHighlights?: string;
+  highlightSuggestions?: string;
+  thread?: string;
+};
 
 function readSourceMetadata(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -103,15 +127,6 @@ function getRepositoryFullName(value: unknown) {
       : null;
 
   return typeof repository?.fullName === "string" ? repository.fullName : null;
-}
-
-function getEvidenceTypeCounts(
-  evidenceItems: Awaited<ReturnType<typeof getWorkItemForUser>>["evidenceItems"],
-) {
-  return evidenceItems.reduce<Record<string, number>>((accumulator, item) => {
-    accumulator[item.type] = (accumulator[item.type] ?? 0) + 1;
-    return accumulator;
-  }, {});
 }
 
 function buildStatusMessage(params: {
@@ -228,6 +243,21 @@ function buildStatusMessage(params: {
       tone: "success" as const,
       message:
         "Evidence excluded. It stays persisted, but Workbase will keep it out of highlight generation and artifact retrieval.",
+    };
+  }
+
+  if (result === "approved-all") {
+    return {
+      tone: "success" as const,
+      message: "All eligible pending highlights were approved.",
+    };
+  }
+
+  if (result === "no-eligible-highlights") {
+    return {
+      tone: "success" as const,
+      message:
+        "No pending highlights were eligible for bulk approval. Candidate-gated items still require their review decision.",
     };
   }
 
@@ -564,12 +594,67 @@ function ClaimSection({
   );
 }
 
+function WorkspacePaginationNav({
+  label,
+  page,
+  totalPages,
+  totalItems,
+  summary,
+  previousHref,
+  nextHref,
+}: {
+  label: string;
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  summary?: string;
+  previousHref: string | null;
+  nextHref: string | null;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav
+      aria-label={`${label} pages`}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-black/8 bg-[color:var(--panel-muted)] px-4 py-3"
+    >
+      <p className="text-xs text-[color:var(--ink-muted)]">
+        Page {page} of {totalPages} · {summary ?? `${totalItems} total`}
+      </p>
+      <div className="flex items-center gap-2">
+        {previousHref ? (
+          <Link
+            href={previousHref}
+            scroll={false}
+            className="inline-flex h-9 items-center rounded-full bg-white px-4 text-xs font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10"
+          >
+            Previous
+          </Link>
+        ) : null}
+        {nextHref ? (
+          <Link
+            href={nextHref}
+            scroll={false}
+            className="inline-flex h-9 items-center rounded-full bg-[color:var(--accent)] px-4 text-xs font-medium text-white"
+          >
+            Next
+          </Link>
+        ) : null}
+      </div>
+    </nav>
+  );
+}
+
 function ProjectFactSection({
   facts,
   workItemId,
+  approvedCount,
+  totalCount,
 }: {
   facts: Awaited<ReturnType<typeof getWorkItemForUser>>["projectFacts"];
   workItemId: string;
+  approvedCount: number;
+  totalCount: number;
 }) {
   const groups = ["approved", "draft", "rejected", "superseded"] as const;
   return (
@@ -586,7 +671,7 @@ function ProjectFactSection({
             Reviewed technical facts derived from repository evidence. File excerpts remain underneath each fact as provenance.
           </p>
         </div>
-        <Badge tone="accent">{facts.filter((fact) => fact.status === "approved").length} approved</Badge>
+        <Badge tone="accent">{approvedCount} approved</Badge>
       </div>
       <div className="mt-5 grid gap-6">
         {groups.map((status) => {
@@ -666,9 +751,13 @@ function ProjectFactSection({
             </div>
           );
         })}
-        {!facts.length ? (
+        {!totalCount ? (
           <p className="border-y border-black/7 py-5 text-sm text-[color:var(--ink-soft)]">
             No project facts yet. Chat research will propose them when reviewed memory cannot answer a technical question.
+          </p>
+        ) : !facts.length ? (
+          <p className="border-y border-black/7 py-5 text-sm text-[color:var(--ink-soft)]">
+            No project facts are shown on this page.
           </p>
         ) : null}
       </div>
@@ -729,50 +818,71 @@ export default async function WorkItemDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{
-    error?: string;
-    result?: string;
-    repoQuery?: string;
-    tab?: string;
-    artifactId?: string;
-    generatedHighlights?: string;
-    updatedHighlights?: string;
-    highlightSuggestions?: string;
-    thread?: string;
-  }>;
+  searchParams: Promise<WorkItemDetailSearchParams>;
 }) {
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
   const {
     error,
     result,
     repoQuery = "",
+    repoList,
     tab,
+    evidencePage: evidencePageValue,
+    knowledgePage: knowledgePageValue,
     artifactId,
     generatedHighlights,
     updatedHighlights,
     highlightSuggestions,
     thread,
-  } = await searchParams;
+  } = resolvedSearchParams;
+  const activeTab = readWorkItemWorkspaceTab(tab);
+  const evidencePage = readWorkItemWorkspacePage(evidencePageValue);
+  const knowledgePage = readWorkItemWorkspacePage(knowledgePageValue);
+  const tabHrefs = buildWorkItemWorkspaceTabHrefs({
+    pathname: `/work-items/${id}`,
+    searchParams: resolvedSearchParams,
+  });
   const user = await getDemoUser();
 
-  await ensureHighlightsForWorkItem({
-    userId: user.id,
-    workItemId: id,
-  });
-
-  const [workItem, githubConnection, chatWorkspace] = await Promise.all([
-    getWorkItemForUser(user.id, id),
-    githubAuthService.getConnection(user.id),
-    getProjectChatWorkspace({
-      userId: user.id,
-      workItemId: id,
-      activeThreadId: thread,
+  const [workItemResult, githubConnection, chatWorkspace] = await Promise.all([
+    getWorkItemWorkspaceForUser(user.id, id, activeTab, {
+      evidencePage,
+      knowledgePage,
     }),
+    activeTab === "sources"
+      ? githubAuthService.getConnection(user.id)
+      : Promise.resolve(null),
+    activeTab === "chat"
+      ? getProjectChatWorkspace({
+          userId: user.id,
+          workItemId: id,
+          activeThreadId: thread,
+        })
+      : Promise.resolve(null),
   ]);
+  const {
+    workItem,
+    sensitiveContextAvailable: chatSensitiveContextAvailable,
+    visibleSourceCount,
+    includedEvidenceCount,
+    evidenceTypeCounts,
+    highlightCounts,
+    highlightCount,
+    pendingHighlightSuggestionCount,
+    approvedProjectFactCount,
+    projectFactCount,
+    pagination: workspacePagination,
+  } = workItemResult;
   let repositories: GitHubRepositorySummary[] = [];
   let repositoryLookupFailed = false;
 
-  if (githubConnection) {
+  const shouldListRepositories =
+    activeTab === "sources" &&
+    Boolean(githubConnection) &&
+    (repoList === "1" || repoQuery.trim().length > 0);
+
+  if (shouldListRepositories) {
     try {
       repositories = await githubAuthService.listRepositories({
         userId: user.id,
@@ -800,30 +910,17 @@ export default async function WorkItemDetailPage({
   const rejectedHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "rejected",
   );
-  const canApproveAllPendingHighlights = pendingHighlights.length > 0 && !lifecycleHighlights.some(
-    (highlight) =>
-      highlight.verificationStatus === "draft" || highlight.verificationStatus === "flagged",
-  );
-  const approvedHighlightCount = approvedHighlights.length;
-  const pendingHighlightCount = pendingHighlights.length;
-  const rejectedHighlightCount = rejectedHighlights.length;
+  const canApproveAllPendingHighlights = highlightCounts.bulkApprovable > 0;
   const visibleSources = workItem.sources.filter(
     (source) => !isWorkItemDescriptionSourceMetadata(source.metadata),
   );
-  const includedEvidenceItems = workItem.evidenceItems.filter((item) => item.included);
-  const excludedEvidenceItems = workItem.evidenceItems.filter((item) => !item.included);
   const githubSources = visibleSources.filter((source) => source.type === "github_repo");
   const attachedRepoIds = new Set(
     githubSources
       .map((source) => source.externalId)
       .filter((value): value is string => Boolean(value)),
   );
-  const evidenceTypeCounts = getEvidenceTypeCounts(workItem.evidenceItems);
-  const pendingSuggestionCount = workItem.highlightSuggestions.length;
-  const sensitiveHighlights = activeHighlights.filter((highlight) => highlight.sensitivityFlag);
-  const sensitiveProjectFacts = workItem.projectFacts.filter(
-    (fact) => fact.lifecycleStatus === "active" && fact.sensitivityFlag,
-  );
+  const pendingSuggestionCount = pendingHighlightSuggestionCount;
   const approvedRetrievalHighlights = activeHighlights.filter(
     (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
   );
@@ -851,7 +948,9 @@ export default async function WorkItemDetailPage({
       .filter((entry): entry is readonly [string, (typeof artifactTraces)[number]] => Boolean(entry)),
   );
   const selectedArtifact =
-    workItem.artifacts.find((artifact) => artifact.id === artifactId) ?? workItem.artifacts[0] ?? null;
+    activeTab === "artifacts"
+      ? workItem.artifacts.find((artifact) => artifact.id === artifactId) ?? workItem.artifacts[0] ?? null
+      : null;
   if (selectedArtifact?.lifecycleStatus === "stale") {
     await artifactWorkflowService.start({
       userId: user.id,
@@ -861,7 +960,8 @@ export default async function WorkItemDetailPage({
       idempotencyKey: `artifact-open-refresh:${selectedArtifact.id}:${selectedArtifact.updatedAt.toISOString()}`,
     }).catch(() => null);
   }
-  const artifactHistoryEntries: ArtifactHistoryEntry[] = workItem.artifacts.map((artifact) => {
+  const artifactHistoryEntries: ArtifactHistoryEntry[] = activeTab === "artifacts"
+    ? workItem.artifacts.map((artifact) => {
     const trace = artifactTraceById.get(artifact.id) ?? null;
     const resultRefs = trace ? readArtifactResultRefs(trace.resultRefs) : null;
     const usedHighlightIds = resultRefs?.usedHighlightIds ?? [];
@@ -929,13 +1029,14 @@ export default async function WorkItemDetailPage({
       usedHighlights,
       fallbackHighlights,
     };
-  });
-  const chatThreads = chatWorkspace.threads.map((chatThread) => ({
+      })
+    : [];
+  const chatThreads = chatWorkspace?.threads.map((chatThread) => ({
     id: chatThread.id,
     title: chatThread.title,
     updatedAt: chatThread.updatedAt.toISOString(),
-  }));
-  const chatMessages = chatWorkspace.messages.map((message) => ({
+  })) ?? [];
+  const chatMessages = chatWorkspace?.messages.map((message) => ({
     id: message.id,
     role: message.role,
     content: message.content,
@@ -993,15 +1094,15 @@ export default async function WorkItemDetailPage({
         }) ?? [],
       };
     }),
-  }));
-  const chatEvents = chatWorkspace.events.map((event) => ({
+  })) ?? [];
+  const chatEvents = chatWorkspace?.events.map((event) => ({
     id: event.id,
     runId: event.runId,
     message: event.message ?? titleCase(event.type),
     eventType: event.type,
     createdAt: event.createdAt.toISOString(),
-  }));
-  const chatCandidates = chatWorkspace.candidates.map((candidate) => {
+  })) ?? [];
+  const chatCandidates = chatWorkspace?.candidates.map((candidate) => {
     const snapshot = readCandidateSnapshot(candidate.snapshot);
     if (candidate.projectFact) {
       return {
@@ -1056,8 +1157,8 @@ export default async function WorkItemDetailPage({
       category: null,
       partial: false,
     };
-  });
-  const chatRuns = chatWorkspace.runs.map((run) => ({
+  }) ?? [];
+  const chatRuns = chatWorkspace?.runs.map((run) => ({
     id: run.id,
     status: run.status,
     kind: run.kind,
@@ -1075,9 +1176,46 @@ export default async function WorkItemDetailPage({
         retryable: failure.retryable !== false,
       };
     })(),
-  }));
-  const sourcesReturnTo = `/work-items/${workItem.id}?tab=sources`;
-  const highlightsReturnTo = `/work-items/${workItem.id}?tab=highlights`;
+  })) ?? [];
+  const workspacePathname = `/work-items/${workItem.id}`;
+  const evidencePageHref = (page: number) => buildWorkItemWorkspaceHref({
+    pathname: workspacePathname,
+    searchParams: resolvedSearchParams,
+    updates: {
+      tab: "sources",
+      evidencePage: page === 1 ? null : page,
+      repoList: null,
+      repoQuery: null,
+    },
+  });
+  const knowledgePageHref = (page: number) => buildWorkItemWorkspaceHref({
+    pathname: workspacePathname,
+    searchParams: resolvedSearchParams,
+    updates: {
+      tab: "highlights",
+      knowledgePage: page === 1 ? null : page,
+    },
+  });
+  const sourcesReturnTo = buildWorkItemWorkspaceHref({
+    pathname: workspacePathname,
+    searchParams: { tab: "sources" },
+    updates: {
+      evidencePage:
+        workspacePagination.evidence.page === 1
+          ? null
+          : workspacePagination.evidence.page,
+    },
+  });
+  const highlightsReturnTo = buildWorkItemWorkspaceHref({
+    pathname: workspacePathname,
+    searchParams: { tab: "highlights" },
+    updates: {
+      knowledgePage:
+        workspacePagination.knowledge.page === 1
+          ? null
+          : workspacePagination.knowledge.page,
+    },
+  });
   const artifactsReturnTo = `/work-items/${workItem.id}?tab=artifacts`;
   const artifactFormIdempotencyKey = `artifact-form:${workItem.id}:${randomUUID()}`;
   const generateHighlights = generateClaimsAction.bind(null, workItem.id, highlightsReturnTo);
@@ -1127,13 +1265,14 @@ export default async function WorkItemDetailPage({
       />
 
       <WorkItemWorkspace
-        initialTab={tab}
+        activeTab={activeTab}
+        tabHrefs={tabHrefs}
         sourcesPanel={
-          <section className="grid gap-5">
+          activeTab === "sources" ? <section className="grid gap-5">
             <div className="grid gap-4 rounded-[30px] border border-black/8 bg-white/86 p-5 shadow-[0_18px_54px_rgba(15,23,42,0.05)] lg:grid-cols-[1fr_auto] lg:items-center">
               <div className="grid gap-4 sm:grid-cols-3">
-                <KeyValue label="Sources" value={`${visibleSources.length} attached`} />
-                <KeyValue label="Evidence" value={`${includedEvidenceItems.length} included`} />
+                <KeyValue label="Sources" value={`${visibleSourceCount} attached`} />
+                <KeyValue label="Evidence" value={`${includedEvidenceCount} included`} />
                 <KeyValue label="GitHub" value={`${githubSources.length} repos`} />
               </div>
             </div>
@@ -1206,6 +1345,7 @@ export default async function WorkItemDetailPage({
 
                         <form method="GET" className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
                           <input type="hidden" name="tab" value="sources" />
+                          <input type="hidden" name="repoList" value="1" />
                           <div className="grid gap-2">
                             <label
                               htmlFor="repoQuery"
@@ -1224,11 +1364,15 @@ export default async function WorkItemDetailPage({
                             type="submit"
                             className="inline-flex h-11 items-center justify-center rounded-full bg-white px-4 text-sm font-medium text-[color:var(--ink-strong)] ring-1 ring-black/10 transition hover:bg-[color:var(--panel-muted)]"
                           >
-                            Refresh list
+                            Search repositories
                           </button>
                         </form>
 
-                        {repositoryLookupFailed ? (
+                        {!shouldListRepositories ? (
+                          <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
+                            Search by owner or repository name, or submit an empty search to browse all accessible repositories.
+                          </p>
+                        ) : repositoryLookupFailed ? (
                           <p className="text-sm leading-6 text-[color:var(--danger)]">
                             Workbase could not list repositories for the current GitHub connection.
                           </p>
@@ -1281,8 +1425,10 @@ export default async function WorkItemDetailPage({
                 description="Included evidence feeds highlight generation and artifact retrieval."
                 meta={
                   <>
-                    <Badge tone="accent">{includedEvidenceItems.length} included</Badge>
-                    <Badge>{excludedEvidenceItems.length} excluded</Badge>
+                    <Badge tone="accent">{includedEvidenceCount} included</Badge>
+                    <Badge>
+                      {workspacePagination.evidence.totalItems - includedEvidenceCount} excluded
+                    </Badge>
                   </>
                 }
                 defaultOpen
@@ -1297,8 +1443,25 @@ export default async function WorkItemDetailPage({
                 </div>
 
                 {workItem.evidenceItems.length ? (
-                  <div className="grid max-h-[52rem] gap-3 overflow-y-auto pr-1">
-                    {workItem.evidenceItems.map((item) => (
+                  <>
+                    <WorkspacePaginationNav
+                      label="Evidence"
+                      page={workspacePagination.evidence.page}
+                      totalPages={workspacePagination.evidence.totalPages}
+                      totalItems={workspacePagination.evidence.totalItems}
+                      previousHref={
+                        workspacePagination.evidence.page > 1
+                          ? evidencePageHref(workspacePagination.evidence.page - 1)
+                          : null
+                      }
+                      nextHref={
+                        workspacePagination.evidence.page < workspacePagination.evidence.totalPages
+                          ? evidencePageHref(workspacePagination.evidence.page + 1)
+                          : null
+                      }
+                    />
+                    <div className="grid gap-3">
+                      {workItem.evidenceItems.map((item) => (
                       <div key={item.id} className="rounded-[22px] border border-black/8 bg-white p-4">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0 space-y-3">
@@ -1382,8 +1545,25 @@ export default async function WorkItemDetailPage({
                           </details>
                         ) : null}
                       </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    <WorkspacePaginationNav
+                      label="Evidence"
+                      page={workspacePagination.evidence.page}
+                      totalPages={workspacePagination.evidence.totalPages}
+                      totalItems={workspacePagination.evidence.totalItems}
+                      previousHref={
+                        workspacePagination.evidence.page > 1
+                          ? evidencePageHref(workspacePagination.evidence.page - 1)
+                          : null
+                      }
+                      nextHref={
+                        workspacePagination.evidence.page < workspacePagination.evidence.totalPages
+                          ? evidencePageHref(workspacePagination.evidence.page + 1)
+                          : null
+                      }
+                    />
+                  </>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
                     No evidence items have been materialized for this Work Item yet.
@@ -1391,10 +1571,10 @@ export default async function WorkItemDetailPage({
                 )}
               </CollapsibleCard>
             </section>
-          </section>
+          </section> : null
         }
         highlightsPanel={
-          <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr] xl:items-start">
+          activeTab === "highlights" ? <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr] xl:items-start">
             <div className="grid gap-5">
               <Card>
                 <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
@@ -1422,13 +1602,31 @@ export default async function WorkItemDetailPage({
                   </div>
                 </CardHeader>
                 <CardContent className="grid gap-3 sm:grid-cols-5">
-                  <KeyValue label="Active approved" value={approvedHighlightCount} />
-                  <KeyValue label="Pending" value={pendingHighlightCount} />
+                  <KeyValue label="Active approved" value={highlightCounts.approved} />
+                  <KeyValue label="Pending" value={highlightCounts.pending} />
                   <KeyValue label="Suggested" value={pendingSuggestionCount} />
-                  <KeyValue label="Lifecycle review" value={lifecycleHighlights.length} />
-                  <KeyValue label="Rejected" value={rejectedHighlightCount} />
+                  <KeyValue label="Lifecycle review" value={highlightCounts.lifecycle} />
+                  <KeyValue label="Rejected" value={highlightCounts.rejected} />
                 </CardContent>
               </Card>
+
+              <WorkspacePaginationNav
+                label="Project knowledge"
+                page={workspacePagination.knowledge.page}
+                totalPages={workspacePagination.knowledge.totalPages}
+                totalItems={workspacePagination.knowledge.totalItems}
+                summary={`${highlightCount} highlights · ${projectFactCount} project facts`}
+                previousHref={
+                  workspacePagination.knowledge.page > 1
+                    ? knowledgePageHref(workspacePagination.knowledge.page - 1)
+                    : null
+                }
+                nextHref={
+                  workspacePagination.knowledge.page < workspacePagination.knowledge.totalPages
+                    ? knowledgePageHref(workspacePagination.knowledge.page + 1)
+                    : null
+                }
+              />
 
               {pendingSuggestionCount ? (
                 <Card id="suggested-updates">
@@ -1458,7 +1656,7 @@ export default async function WorkItemDetailPage({
               <ClaimSection
                 title="Pending review"
                 description="These are the active highlights that still need a human decision."
-                count={pendingHighlights.length}
+                count={highlightCounts.pending}
                 tone="warning"
               >
                 {pendingHighlights.length ? (
@@ -1474,7 +1672,9 @@ export default async function WorkItemDetailPage({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    No pending highlights right now.
+                    {highlightCounts.pending
+                      ? "No pending highlights are shown on this page."
+                      : "No pending highlights right now."}
                   </p>
                 )}
               </ClaimSection>
@@ -1482,7 +1682,7 @@ export default async function WorkItemDetailPage({
               <ClaimSection
                 title="Approved"
                 description="Only approved highlights with an active lifecycle appear here and participate in normal retrieval when visibility allows."
-                count={approvedHighlights.length}
+                count={highlightCounts.approved}
                 tone="success"
               >
                 {approvedHighlights.length ? (
@@ -1497,7 +1697,9 @@ export default async function WorkItemDetailPage({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    No approved highlights yet.
+                    {highlightCounts.approved
+                      ? "No approved highlights are shown on this page."
+                      : "No approved highlights yet."}
                   </p>
                 )}
               </ClaimSection>
@@ -1505,7 +1707,7 @@ export default async function WorkItemDetailPage({
               <ClaimSection
                 title="Lifecycle review"
                 description="Needs-validation, stale, quarantined, superseded, and retired versions stay outside the ordinary active lanes and remain visible for audit or successor edits."
-                count={lifecycleHighlights.length}
+                count={highlightCounts.lifecycle}
                 tone="warning"
               >
                 {lifecycleHighlights.length ? (
@@ -1520,7 +1722,9 @@ export default async function WorkItemDetailPage({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    No highlights need lifecycle attention right now.
+                    {highlightCounts.lifecycle
+                      ? "No lifecycle highlights are shown on this page."
+                      : "No highlights need lifecycle attention right now."}
                   </p>
                 )}
               </ClaimSection>
@@ -1528,7 +1732,7 @@ export default async function WorkItemDetailPage({
               <ClaimSection
                 title="Rejected"
                 description="Rejected highlights stay stored so future generations can avoid weak framing."
-                count={rejectedHighlights.length}
+                count={highlightCounts.rejected}
                 tone="danger"
               >
                 {rejectedHighlights.length ? (
@@ -1543,12 +1747,37 @@ export default async function WorkItemDetailPage({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    No rejected highlights for this Work Item.
+                    {highlightCounts.rejected
+                      ? "No rejected highlights are shown on this page."
+                      : "No rejected highlights for this Work Item."}
                   </p>
                 )}
               </ClaimSection>
 
-              <ProjectFactSection facts={workItem.projectFacts} workItemId={workItem.id} />
+              <ProjectFactSection
+                facts={workItem.projectFacts}
+                workItemId={workItem.id}
+                approvedCount={approvedProjectFactCount}
+                totalCount={projectFactCount}
+              />
+
+              <WorkspacePaginationNav
+                label="Project knowledge"
+                page={workspacePagination.knowledge.page}
+                totalPages={workspacePagination.knowledge.totalPages}
+                totalItems={workspacePagination.knowledge.totalItems}
+                summary={`${highlightCount} highlights · ${projectFactCount} project facts`}
+                previousHref={
+                  workspacePagination.knowledge.page > 1
+                    ? knowledgePageHref(workspacePagination.knowledge.page - 1)
+                    : null
+                }
+                nextHref={
+                  workspacePagination.knowledge.page < workspacePagination.knowledge.totalPages
+                    ? knowledgePageHref(workspacePagination.knowledge.page + 1)
+                    : null
+                }
+              />
 
               <KnowledgeUpdateInbox
                 workItemId={workItem.id}
@@ -1595,7 +1824,7 @@ export default async function WorkItemDetailPage({
                     <div className="rounded-[24px] bg-white/8 p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-white/60">Sensitive</p>
                       <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
-                        {sensitiveHighlights.length}
+                        {highlightCounts.sensitive}
                       </p>
                     </div>
                   </div>
@@ -1611,15 +1840,15 @@ export default async function WorkItemDetailPage({
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <KeyValue label="Type" value={titleCase(workItem.type)} />
-                  <KeyValue label="Sources" value={`${visibleSources.length} attached`} />
-                  <KeyValue label="Evidence" value={`${includedEvidenceItems.length} included`} />
+                  <KeyValue label="Sources" value={`${visibleSourceCount} attached`} />
+                  <KeyValue label="Evidence" value={`${includedEvidenceCount} included`} />
                 </CardContent>
               </Card>
             </aside>
-          </section>
+          </section> : null
         }
         chatPanel={
-          <ProjectChatWorkspace
+          activeTab === "chat" && chatWorkspace ? <ProjectChatWorkspace
             workItemId={workItem.id}
             workItemTitle={workItem.title}
             activeThreadId={chatWorkspace.activeThread?.id ?? null}
@@ -1628,11 +1857,11 @@ export default async function WorkItemDetailPage({
             events={chatEvents}
             candidates={chatCandidates}
             runs={chatRuns}
-            sensitiveContextAvailable={sensitiveHighlights.length + sensitiveProjectFacts.length > 0}
-          />
+            sensitiveContextAvailable={chatSensitiveContextAvailable}
+          /> : null
         }
         artifactsPanel={
-          <section className="grid gap-5">
+          activeTab === "artifacts" ? <section className="grid gap-5">
             <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
               <Card>
                 <form action={generateArtifactAction}>
@@ -1778,7 +2007,7 @@ export default async function WorkItemDetailPage({
               title="Artifact traces"
               description="Internal trace records for artifact retrieval and generation runs."
             />
-          </section>
+          </section> : null
         }
       />
 

@@ -19,11 +19,10 @@ function remarkWorkbaseCitations(options?: { maxOrdinal?: number }) {
       for (const match of matches) {
         const start = match.index ?? 0;
         if (start > cursor) replacement.push({ type: "text", value: node.value.slice(cursor, start) });
-        const ordinals = Array.from(match[0].matchAll(citationPattern))
-          .map((entry) => Number(entry[1]))
-          .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0 && (!options?.maxOrdinal || ordinal <= options.maxOrdinal));
-        const unique = Array.from(new Set(ordinals));
-        if (unique.length) {
+        let validOrdinals: number[] = [];
+        const flushValidOrdinals = () => {
+          if (!validOrdinals.length) return;
+          const unique = Array.from(new Set(validOrdinals));
           replacement.push({
             type: "link",
             url: "#",
@@ -34,7 +33,21 @@ function remarkWorkbaseCitations(options?: { maxOrdinal?: number }) {
               },
             },
           });
+          validOrdinals = [];
+        };
+        for (const citationMatch of match[0].matchAll(citationPattern)) {
+          const ordinal = Number(citationMatch[1]);
+          const valid = Number.isInteger(ordinal) &&
+            ordinal > 0 &&
+            (options?.maxOrdinal === undefined || ordinal <= options.maxOrdinal);
+          if (valid) {
+            validOrdinals.push(ordinal);
+          } else {
+            flushValidOrdinals();
+            replacement.push({ type: "text", value: citationMatch[0] });
+          }
         }
+        flushValidOrdinals();
         cursor = start + match[0].length;
       }
       if (cursor < node.value.length) replacement.push({ type: "text", value: node.value.slice(cursor) });
@@ -78,7 +91,7 @@ export function ChatMarkdown({
           ol: ({ children, className }) => <ol className={cn("my-3 list-decimal space-y-1.5 pl-5 marker:text-[color:var(--ink-muted)]", className)}>{children}</ol>,
           li: ({ children, className }) => <li className={cn("pl-1 leading-7 [&>p]:my-0", className)}>{children}</li>,
           blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-[color:var(--accent)]/35 pl-4 text-[color:var(--ink-soft)]">{children}</blockquote>,
-          hr: () => <hr className="my-5 border-black/8" />,
+          hr: () => <hr className={cn("my-5 border-black/8", dark && "border-white/15")} />,
           strong: ({ children }) => <strong className="font-semibold text-inherit">{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
           del: ({ children }) => <del className="opacity-70">{children}</del>,
@@ -96,13 +109,13 @@ export function ChatMarkdown({
             </pre>
           ),
           table: ({ children }) => (
-            <div className="my-4 overflow-x-auto rounded-lg border border-black/8">
+            <div className={cn("my-4 overflow-x-auto rounded-lg border border-black/8", dark && "border-white/15")}>
               <table className="w-full border-collapse text-left text-xs">{children}</table>
             </div>
           ),
           thead: ({ children }) => <thead className={cn("bg-black/[0.035]", dark && "bg-white/8")}>{children}</thead>,
-          th: ({ children }) => <th className="border-b border-black/8 px-3 py-2 font-semibold">{children}</th>,
-          td: ({ children }) => <td className="border-b border-black/6 px-3 py-2 align-top leading-5">{children}</td>,
+          th: ({ children }) => <th className={cn("border-b border-black/8 px-3 py-2 font-semibold", dark && "border-white/15")}>{children}</th>,
+          td: ({ children }) => <td className={cn("border-b border-black/6 px-3 py-2 align-top leading-5", dark && "border-white/10")}>{children}</td>,
           img: ({ alt }) => <span className="text-xs italic opacity-70">{alt ? `[Image: ${alt}]` : "[Image omitted]"}</span>,
           a: ({ node, href, children, ...props }) => {
             const ordinals = citationOrdinals(node);

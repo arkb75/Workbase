@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  CitationList,
   MessageContent,
   selectLatestRunFeedback,
   type ChatWorkspaceCitation,
@@ -67,6 +68,64 @@ describe("project chat citation rendering", () => {
     expect(markup).not.toContain("javascript:");
     expect(markup).not.toContain("<img");
     expect(markup).toContain("[Image: diagram]");
+  });
+
+  it("keeps citation navigation separate from the provenance disclosure", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CitationList, {
+        citations: [{
+          id: "project-fact-citation",
+          kind: "project_fact",
+          label: "Repository knowledge refresh",
+          excerpt: "Refreshes repository knowledge through a bounded workflow.",
+          projectFactId: "project-fact-1",
+          provenance: [{
+            id: "provenance-1",
+            title: "Knowledge refresh service",
+            excerpt: "The service starts and analyzes repository refreshes.",
+            path: "src/services/knowledge-refresh-service.ts",
+            commitSha: "1234567890abcdef",
+            url: "https://github.com/example/workbase/blob/1234567890abcdef/src/services/knowledge-refresh-service.ts#L1-L20",
+          }],
+        }],
+        workItemId: "work-item-1",
+      }),
+    );
+
+    expect(markup).toContain('href="/work-items/work-item-1?tab=highlights#project-facts"');
+    expect(markup).toContain(">1. Repository knowledge refresh</a>");
+    expect(markup).toContain("<summary");
+    expect(markup).toContain("View underlying evidence");
+    expect(markup).not.toMatch(/<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<summary\b/);
+  });
+
+  it("renders immutable provenance as its own safe external link", () => {
+    const provenanceUrl = "https://github.com/example/workbase/blob/1234567890abcdef/src/services/knowledge-refresh-service.ts#L1-L20";
+    const markup = renderToStaticMarkup(
+      createElement(CitationList, {
+        citations: [{
+          id: "highlight-citation",
+          kind: "highlight",
+          label: "Built repository refresh",
+          excerpt: "Implemented repository refresh.",
+          highlightId: "highlight-1",
+          provenance: [{
+            id: "provenance-1",
+            title: "Knowledge refresh service",
+            excerpt: "The refresh entrypoint is defined here.",
+            path: "src/services/knowledge-refresh-service.ts",
+            commitSha: "1234567890abcdef",
+            url: provenanceUrl,
+          }],
+        }],
+        workItemId: "work-item-1",
+      }),
+    );
+
+    expect(markup).toContain(`href="${provenanceUrl}"`);
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('rel="noopener noreferrer"');
+    expect(markup).toContain("src/services/knowledge-refresh-service.ts · 12345678");
   });
 });
 

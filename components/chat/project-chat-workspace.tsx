@@ -225,7 +225,7 @@ export function MessageContent({
   );
 }
 
-function CitationList({
+export function CitationList({
   citations,
   workItemId,
 }: {
@@ -245,12 +245,24 @@ function CitationList({
       </summary>
       <div className="mt-3 grid gap-2">
         {citations.map((citation, index) => {
+          const href = citationHref(citation, workItemId);
           const body = (
             <div className="grid gap-1.5 border-l-2 border-[color:var(--accent)]/30 pl-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold text-[color:var(--ink-strong)]">
-                  {index + 1}. {citation.label}
-                </span>
+                {href ? (
+                  <a
+                    href={href}
+                    target={citation.url ? "_blank" : undefined}
+                    rel={citation.url ? "noopener noreferrer" : undefined}
+                    className="rounded-sm text-xs font-semibold text-[color:var(--ink-strong)] underline-offset-2 transition hover:text-[color:var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                  >
+                    {index + 1}. {citation.label}
+                  </a>
+                ) : (
+                  <span className="text-xs font-semibold text-[color:var(--ink-strong)]">
+                    {index + 1}. {citation.label}
+                  </span>
+                )}
                 <span className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
                   {titleCase(citation.kind)}
                 </span>
@@ -272,10 +284,22 @@ function CitationList({
                   <div className="mt-2 grid gap-2 border-l border-black/8 pl-3">
                     {citation.provenance.map((entry) => (
                       <div key={entry.id} className="grid gap-1">
-                        <span className="font-mono text-[10px]">
-                          {entry.path ?? entry.title}
-                          {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
-                        </span>
+                        {entry.url ? (
+                          <a
+                            href={entry.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-fit rounded-sm font-mono text-[10px] underline-offset-2 transition hover:text-[color:var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                          >
+                            {entry.path ?? entry.title}
+                            {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
+                          </a>
+                        ) : (
+                          <span className="font-mono text-[10px]">
+                            {entry.path ?? entry.title}
+                            {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
+                          </span>
+                        )}
                         <p className="line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
                           {entry.excerpt}
                         </p>
@@ -287,20 +311,13 @@ function CitationList({
             </div>
           );
 
-          const href = citationHref(citation, workItemId);
-
-          return href ? (
-            <a
+          return (
+            <article
               key={citation.id}
-              href={href}
-              target={citation.url ? "_blank" : undefined}
-              rel={citation.url ? "noreferrer" : undefined}
               className="rounded-xl py-1 transition hover:bg-black/[0.025]"
             >
               {body}
-            </a>
-          ) : (
-            <div key={citation.id}>{body}</div>
+            </article>
           );
         })}
       </div>

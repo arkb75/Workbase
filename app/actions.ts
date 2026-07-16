@@ -39,6 +39,7 @@ import {
 } from "@/src/lib/evidence-persistence";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
+import { pendingHighlightBulkApprovalWhere } from "@/src/lib/highlight-bulk-approval";
 import { coerceHighlightTagAssignments } from "@/src/lib/highlight-tags";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
@@ -1494,16 +1495,8 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
     },
   });
 
-  await prisma.highlight.updateMany({
-    where: {
-      workItemId: workItem.id,
-      verificationStatus: {
-        in: ["draft", "flagged"],
-      },
-      agentRunCandidates: {
-        none: { status: "pending" },
-      },
-    },
+  const approved = await prisma.highlight.updateMany({
+    where: pendingHighlightBulkApprovalWhere(workItem.id),
     data: {
       verificationStatus: "approved",
       rejectionReason: null,
@@ -1513,7 +1506,9 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   revalidatePath(`/work-items/${workItem.id}`);
   revalidatePath(`/work-items/${workItem.id}/claims`);
   revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
-  redirect(appendRedirectParams(returnTo, { result: "approved-all" }));
+  redirect(appendRedirectParams(returnTo, {
+    result: approved.count > 0 ? "approved-all" : "no-eligible-highlights",
+  }));
 }
 
 export async function updateClaimAction(claimId: string, formData: FormData) {

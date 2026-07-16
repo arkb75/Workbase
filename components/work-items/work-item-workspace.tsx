@@ -1,11 +1,8 @@
-"use client";
-
+import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
 import { Archive, Database, MessageSquareText, Sparkles } from "lucide-react";
 import { cn } from "@/src/lib/utils";
-
-export type WorkItemWorkspaceTab = "sources" | "highlights" | "artifacts" | "chat";
+import type { WorkItemWorkspaceTab } from "@/src/lib/work-item-workspace-tabs";
 
 const tabConfig = [
   {
@@ -39,65 +36,47 @@ const tabConfig = [
   icon: typeof Database;
 }>;
 
-function readInitialTab(value: string | undefined): WorkItemWorkspaceTab {
-  return tabConfig.some((tab) => tab.id === value)
-    ? (value as WorkItemWorkspaceTab)
-    : "sources";
-}
-
 export function WorkItemWorkspace({
-  initialTab,
+  activeTab,
+  tabHrefs,
   sourcesPanel,
   highlightsPanel,
   artifactsPanel,
   chatPanel,
 }: {
-  initialTab?: string;
-  sourcesPanel: ReactNode;
-  highlightsPanel: ReactNode;
-  artifactsPanel: ReactNode;
-  chatPanel: ReactNode;
+  activeTab: WorkItemWorkspaceTab;
+  tabHrefs: Record<WorkItemWorkspaceTab, string>;
+  sourcesPanel: ReactNode | null;
+  highlightsPanel: ReactNode | null;
+  artifactsPanel: ReactNode | null;
+  chatPanel: ReactNode | null;
 }) {
-  const [activeTab, setActiveTab] = useState<WorkItemWorkspaceTab>(() =>
-    readInitialTab(initialTab),
-  );
-  const panels = useMemo(
-    () => ({
-      sources: sourcesPanel,
-      highlights: highlightsPanel,
-      artifacts: artifactsPanel,
-      chat: chatPanel,
-    }),
-    [sourcesPanel, highlightsPanel, artifactsPanel, chatPanel],
-  );
-  useEffect(() => {
-    setActiveTab(readInitialTab(initialTab));
-  }, [initialTab]);
-  const selectTab = (nextTab: WorkItemWorkspaceTab) => {
-    setActiveTab(nextTab);
-
-    const url = new URL(window.location.href);
-    url.searchParams.set("tab", nextTab);
-    window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`);
-  };
+  const activePanel = {
+    sources: sourcesPanel,
+    highlights: highlightsPanel,
+    artifacts: artifactsPanel,
+    chat: chatPanel,
+  }[activeTab];
 
   return (
     <section className="grid gap-5">
       <div className="rounded-[30px] border border-black/8 bg-white/86 p-2 shadow-[0_18px_54px_rgba(15,23,42,0.06)]">
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Work Item sections">
+        <nav
+          className="grid gap-2 md:grid-cols-2 xl:grid-cols-4"
+          aria-label="Work Item sections"
+        >
           {tabConfig.map((item) => {
             const isActive = item.id === activeTab;
             const Icon = item.icon;
 
             return (
-              <button
+              <Link
                 key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`work-item-panel-${item.id}`}
-                id={`work-item-tab-${item.id}`}
-                onClick={() => selectTab(item.id)}
+                href={tabHrefs[item.id]}
+                replace
+                scroll={false}
+                prefetch={false}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "grid min-h-28 grid-cols-[auto_1fr] gap-3 rounded-[24px] px-5 py-4 text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   isActive
@@ -132,34 +111,14 @@ export function WorkItemWorkspace({
                     {item.description}
                   </span>
                 </span>
-              </button>
+              </Link>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       <div className="relative">
-        {tabConfig.map((item) => {
-          const isActive = item.id === activeTab;
-
-          return (
-            <div
-              key={item.id}
-              id={`work-item-panel-${item.id}`}
-              role="tabpanel"
-              aria-labelledby={`work-item-tab-${item.id}`}
-              aria-hidden={!isActive}
-              className={cn(
-                "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                isActive
-                  ? "relative z-10 translate-y-0 opacity-100"
-                  : "pointer-events-none absolute inset-x-0 top-0 -z-10 translate-y-2 opacity-0",
-              )}
-            >
-              {panels[item.id]}
-            </div>
-          );
-        })}
+        {activePanel}
       </div>
     </section>
   );
