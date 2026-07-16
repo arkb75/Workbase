@@ -309,6 +309,55 @@ describe("BedrockStructuredLlmClient", () => {
     })).rejects.toMatchObject({ code: "token_budget_exhausted" });
     expect(calls).toHaveLength(1);
   });
+
+  it("admits a bounded repository-sized prompt without treating every byte as a token", async () => {
+    const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+
+    await client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "x".repeat(18_000),
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 4_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxTokens).toBe(4_000);
+  });
+
+  it("still rejects a repository-sized prompt when conservative admission headroom is unavailable", async () => {
+    const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 9_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "x".repeat(18_000),
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 4_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    })).rejects.toMatchObject({ code: "token_budget_exhausted" });
+
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("toBedrockCompatibleJsonSchema", () => {

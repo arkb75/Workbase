@@ -142,18 +142,23 @@ function numericTokenUsage(value: JsonValue | null, key: "inputTokens" | "output
     : 0;
 }
 
-function estimatedInputTokenUpperBound(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
+function estimatedInputTokenReserve(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
   const schemaBytes = input.structuredOutput
     ? Buffer.byteLength(JSON.stringify(input.structuredOutput.jsonSchema), "utf8") +
       Buffer.byteLength(input.structuredOutput.schemaName, "utf8") +
       Buffer.byteLength(input.structuredOutput.schemaDescription, "utf8")
     : 0;
-  // A token cannot encode less than one source byte. The fixed reserve covers
-  // Bedrock's message/tool envelope, which is not represented in the strings.
-  return Buffer.byteLength(input.systemPrompt, "utf8") +
+  const promptBytes = Buffer.byteLength(input.systemPrompt, "utf8") +
     Buffer.byteLength(input.userPrompt, "utf8") +
-    schemaBytes +
-    512;
+    schemaBytes;
+  // Source code and English prompts normally encode several UTF-8 bytes per
+  // token. Reserving one token per two bytes remains deliberately conservative
+  // for mixed code/JSON while avoiding the old one-byte assumption, which
+  // rejected safe requests and starved their output before any provider call.
+  // The fixed reserve covers Bedrock's message/tool envelope. Actual reported
+  // usage is still enforced after every call, so this is admission headroom,
+  // not a replacement for the hard cumulative budget.
+  return Math.ceil(promptBytes / 2) + 512;
 }
 
 function readTextFromContent(content: ContentBlock[] | undefined) {
@@ -615,7 +620,7 @@ export class BedrockStructuredLlmClient {
           );
         }
         const remainingTokens = budget.limits.maxTotalTokens - budget.usage.totalTokens;
-        const inputTokenReserve = estimatedInputTokenUpperBound(request);
+        const inputTokenReserve = estimatedInputTokenReserve(request);
         const permittedOutputTokens = Math.min(
           request.maxTokens,
           budget.limits.maxOutputTokens,
