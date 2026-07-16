@@ -22,7 +22,10 @@ import {
   parseRuntimeAccomplishmentAudit,
 } from "../src/services/project-answer-evaluation-service";
 import { findUnsupportedOwnershipClaims } from "../src/services/project-answer-grounding-service";
-import { TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS } from "../src/services/project-answer-completeness-service";
+import {
+  TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS,
+  accomplishmentCoverageAnchorScore,
+} from "../src/services/project-answer-completeness-service";
 import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import {
@@ -291,6 +294,8 @@ async function main() {
   const runtimeRequirementCoverage = runtimeCompletenessAudit
     ? evaluateRuntimeRequirementCoverage({ requirements: runtimeCompletenessAudit.requirements, citedSources: citedRuntimeSources })
     : null;
+  const citedProjectFactById = new Map(citedProjectFacts.map((fact) => [fact.id, fact]));
+  const citedHighlightById = new Map(citedHighlights.map((highlight) => [highlight.id, highlight]));
   const ledgerCoverage = highPriorityLedger.map((entry) => {
     const refs = record(entry.producedEntityRefs);
     const projectFactIds = stringArray(refs.projectFactIds);
@@ -302,12 +307,57 @@ async function main() {
       const citation = citationByHighlightId.get(id);
       return Boolean(citation && usedOrdinals.has(citation.ordinal));
     });
+    const minimumAnchorScore = entry.capabilityKey === "product_surface" ||
+      entry.capabilityKey === "repository_knowledge_lifecycle"
+      ? 2
+      : 1;
+    const supportingBlockScore = (ordinal: number) => Math.max(
+      0,
+      ...structure.blocks
+        .filter((block) => block.citationOrdinals.includes(ordinal))
+        .map((block) => accomplishmentCoverageAnchorScore({
+          subsystemKey: entry.capabilityKey,
+          title: block.heading,
+          content: block.body,
+        })),
+    );
+    const semanticallyRepresented = projectFactIds.some((id) => {
+      const citation = citationByProjectFactId.get(id);
+      const fact = citedProjectFactById.get(id);
+      return Boolean(
+        citation &&
+        usedOrdinals.has(citation.ordinal) &&
+        fact &&
+        accomplishmentCoverageAnchorScore({
+          subsystemKey: entry.capabilityKey,
+          title: fact.statement,
+          content: fact.statement,
+        }) >= minimumAnchorScore &&
+        supportingBlockScore(citation.ordinal) >= minimumAnchorScore
+      );
+    }) || highlightIds.some((id) => {
+      const citation = citationByHighlightId.get(id);
+      const highlight = citedHighlightById.get(id);
+      return Boolean(
+        citation &&
+        usedOrdinals.has(citation.ordinal) &&
+        highlight &&
+        accomplishmentCoverageAnchorScore({
+          subsystemKey: entry.capabilityKey,
+          title: highlight.text,
+          content: highlight.summary,
+        }) >= minimumAnchorScore &&
+        supportingBlockScore(citation.ordinal) >= minimumAnchorScore
+      );
+    });
     return {
       capabilityKey: entry.capabilityKey,
       priority: entry.priority,
       producedProjectFactIds: projectFactIds,
       producedHighlightIds: highlightIds,
       representedByUsedCitation: cited,
+      semanticallyRepresentedByUsedCitation: semanticallyRepresented,
+      minimumAnchorScore,
     };
   });
   const repositoryDerivedEntities = [...citedProjectFacts, ...citedHighlights].filter((entity) =>
@@ -382,7 +432,9 @@ async function main() {
     broadArchitectureCoverage: coverageAreas >= 6,
     mandatoryKeywordCoverage: Object.values(requiredCapabilityCoverage).every(Boolean),
     accomplishmentsLexicallyNonredundant: structure.nonredundant,
-    highPriorityLedgerRepresented: ledgerCoverage.length > 0 && ledgerCoverage.every((entry) => entry.representedByUsedCitation),
+    highPriorityLedgerRepresented: ledgerCoverage.length > 0 && ledgerCoverage.every((entry) =>
+      entry.representedByUsedCitation && entry.semanticallyRepresentedByUsedCitation
+    ),
   };
   process.stdout.write(`${JSON.stringify({
     workItem: { id: workItem.id, title: workItem.title },

@@ -183,6 +183,36 @@ describe("repository synthesis limit fallback", () => {
     });
     expect(result?.statement).toContain("orchestrated semantic coverage repair");
     expect(derivedRepositoryKnowledgeLifecycleFact(structuralEntries)).toBeNull();
+
+    const synthesisSupported = derivedRepositoryKnowledgeLifecycleFact([
+      ...structuralEntries,
+      entry(
+        "src/services/repository-knowledge-synthesis-service.ts",
+        "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
+      ),
+    ]);
+    expect(synthesisSupported?.statement).toContain("commit-pinned file and line provenance");
+    expect(synthesisSupported?.citationIndexes).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(derivedRepositoryKnowledgeLifecycleFact([
+      ...structuralEntries,
+      {
+        ...entry(
+          "src/services/repository-knowledge-synthesis-service.ts",
+          "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
+        ),
+        confidence: "low",
+      },
+    ])).toBeNull();
+    expect(derivedRepositoryKnowledgeLifecycleFact([
+      ...structuralEntries,
+      {
+        ...entry(
+          "src/services/repository-knowledge-synthesis-service.ts",
+          "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
+        ),
+        sensitivityFlag: true,
+      },
+    ])).toBeNull();
   });
 
   it("does not let high model scores turn one schema detail into a broad lifecycle baseline", () => {

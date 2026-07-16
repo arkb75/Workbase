@@ -240,30 +240,54 @@ export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNoteb
     { path: "src/services/repository-knowledge-synthesis-service.ts", pattern: /defines the symbol synthesizeRepositoryKnowledge\b/ },
     { path: "src/services/knowledge-reconciliation-service.ts", pattern: /defines the symbol reconcileRepositoryKnowledge\b/ },
     { path: "src/services/knowledge-staleness-service.ts", pattern: /defines the symbol reconcileStaleKnowledge\b/ },
+  ];
+  const semanticSupports = [
     {
       path: "src/services/knowledge-refresh-service.ts",
       pattern: /repairKnowledgeCoverageGaps.*(?:orchestration|orchestrator).*(?:fallback|legacy)/i,
-      semanticOnly: true,
+      clause: "its refresh stage uses orchestrated semantic coverage repair with a legacy fallback",
+    },
+    {
+      path: "src/services/repository-knowledge-synthesis-service.ts",
+      pattern: /SynthesisNotebookEntry tracks full provenance.*changeType.*incremental knowledge updates/i,
+      clause: "its synthesis notebook preserves commit-pinned file and line provenance plus change types for incremental updates",
+    },
+    {
+      path: "src/services/repository-semantic-orchestrator-service.ts",
+      pattern: /semanticCoverageAssignmentGaps.*(?:capabilities lacking assigned file coverage|gap-detection invariant)/i,
+      clause: "its semantic orchestrator detects capability coverage gaps before assigning work",
     },
   ];
   const citationIndexes = requiredSignals.flatMap((signal) => {
     const index = notebook.findIndex((entry) =>
       entry.path === signal.path &&
-      (!("semanticOnly" in signal) || entry.evidenceMode !== "deterministic_anchor") &&
       signal.pattern.test(entry.statement)
     );
     return index >= 0 ? [index + 1] : [];
   });
+  const semanticSupport = semanticSupports.flatMap((support) => {
+    const index = notebook.findIndex((entry) =>
+      entry.path === support.path &&
+      entry.evidenceMode !== "deterministic_anchor" &&
+      entry.semanticStatus !== "degraded" &&
+      entry.confidence !== "low" &&
+      !entry.sensitivityFlag &&
+      support.pattern.test(entry.statement)
+    );
+    return index >= 0 ? [{ ...support, citationIndex: index + 1 }] : [];
+  })[0];
   // The statement names all five lifecycle stages, so every stage needs its
-  // own exact exported-entrypoint observation. Four-of-five is not entailment.
-  if (citationIndexes.length !== requiredSignals.length) return null;
+  // own exact exported-entrypoint observation. It also needs at least one
+  // semantic behavior observation so symbol inventory alone cannot become an
+  // auto-approved architecture claim.
+  if (citationIndexes.length !== requiredSignals.length || !semanticSupport) return null;
   return {
-    statement: "The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and its refresh stage uses orchestrated semantic coverage repair with a legacy fallback.",
+    statement: `The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and ${semanticSupport.clause}.`,
     category: "architecture",
     confidence: "high",
     sensitivityFlag: false,
-    citationIndexes: Array.from(new Set(citationIndexes)).slice(0, 6),
-    reviewNotes: "Deterministically assembled from path-bound exported lifecycle entrypoints plus a semantic refresh-stage observation from the current immutable repository snapshot.",
+    citationIndexes: Array.from(new Set([...citationIndexes, semanticSupport.citationIndex])).slice(0, 6),
+    reviewNotes: "Deterministically assembled from path-bound exported lifecycle entrypoints plus a semantic behavior observation from the current immutable repository snapshot.",
     productImportance: 5,
     implementationBreadth: 5,
     technicalDifficulty: 4,

@@ -177,7 +177,7 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /(?:\b(?:source|evidence)\b.{0,16}\b(?:intake|ingestion|review)\b|\battached sources?\b)/i,
   ],
   repository_knowledge_lifecycle: [
-    /\brepository (?:refresh|knowledge|snapshot|coverage|synthesis)\b/i,
+    /\b(?:repository (?:refresh|knowledge|snapshot|coverage|synthesis)|knowledge refresh)\b/i,
     /\b(?:immutable|pinned) commit\b/i,
     /\b(?:reconcil|supersed|stale|revalidat|semantic analys)\w*/i,
     /\b(?:capability )?work packages?\b/i,

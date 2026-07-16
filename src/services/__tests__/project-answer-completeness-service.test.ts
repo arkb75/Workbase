@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_ACCOMPLISHMENT_CITATIONS,
   TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS,
+  accomplishmentCoverageAnchorScore,
   auditAccomplishmentBlocks,
   buildDeterministicAccomplishmentBlocks,
   compactAlreadyGroundedAccomplishmentBlocks,
@@ -67,6 +68,19 @@ function entry(
 }
 
 describe("project answer completeness", () => {
+  it("distinguishes a broad repository lifecycle from an isolated synthesis schema detail", () => {
+    expect(accomplishmentCoverageAnchorScore({
+      subsystemKey: "repository_knowledge_lifecycle",
+      title: "Synthesis output schema",
+      content: "A Zod schema constrains facts, highlights, citations, and scoring fields.",
+    })).toBe(0);
+    expect(accomplishmentCoverageAnchorScore({
+      subsystemKey: "repository_knowledge_lifecycle",
+      title: "Repository knowledge lifecycle",
+      content: "Knowledge refresh and synthesis feed reconciliation and stale-knowledge invalidation.",
+    })).toBeGreaterThanOrEqual(2);
+  });
+
   it("requires semantic coverage of each high-importance subsystem after grounding", () => {
     const entries = [entry(1, "ai_runtime"), entry(2, "workflow_orchestration"), entry(3, "retrieval_provenance")];
     const audit = auditAccomplishmentBlocks([
