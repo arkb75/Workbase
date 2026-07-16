@@ -12,6 +12,7 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
+  REPOSITORY_STATIC_ANALYZER_VERSION,
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
   type RepositoryTargetHead,
@@ -156,6 +157,7 @@ export interface SynthesisNotebookEntry {
   changeType: "unchanged" | "added" | "modified" | "renamed";
   /** Degraded entries come from deterministic extraction after a semantic-model failure. */
   semanticStatus?: "succeeded" | "degraded";
+  evidenceMode?: "semantic" | "deterministic_anchor";
 }
 
 export interface SynthesizedKnowledge {
@@ -178,6 +180,54 @@ export function semanticFactsForSubsystem(analysis: RepositoryFileAnalysis, subs
   return analysis.facts.filter((fact) => !fact.subsystemKeys?.length || fact.subsystemKeys.includes(subsystemKey));
 }
 
+export function modelEligibleSynthesisNotebook(notebook: SynthesisNotebookEntry[]) {
+  return notebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
+}
+
+const deterministicSynthesisAnchorRules = [
+  {
+    subsystemKey: "repository_knowledge_lifecycle",
+    pathPattern: /^src\/services\/knowledge-refresh-service\.ts$/,
+    pattern: /defines the symbol (?:startKnowledgeRefresh|analyzeKnowledgeRefreshBatch)\b/,
+  },
+  {
+    subsystemKey: "repository_knowledge_lifecycle",
+    pathPattern: /^src\/services\/repository-knowledge-synthesis-service\.ts$/,
+    pattern: /defines the symbol synthesizeRepositoryKnowledge\b/,
+  },
+  {
+    subsystemKey: "repository_knowledge_lifecycle",
+    pathPattern: /^src\/services\/knowledge-reconciliation-service\.ts$/,
+    pattern: /defines the symbol reconcileRepositoryKnowledge\b/,
+  },
+  {
+    subsystemKey: "repository_knowledge_lifecycle",
+    pathPattern: /^src\/services\/knowledge-staleness-service\.ts$/,
+    pattern: /defines the symbol reconcileStaleKnowledge\b/,
+  },
+  {
+    subsystemKey: "workflow_orchestration",
+    pathPattern: /^workflows\/project-chat\.ts$/,
+    pattern: /(?:defines a durable workflow entrypoint|uses a durable approval hook to pause and resume work|defines the symbol (?:projectChatTurnWorkflow|artifactGenerationWorkflow|repositoryKnowledgeRefreshWorkflow)\b)/,
+  },
+] as const;
+
+/**
+ * Static inventory remains ineligible for ordinary knowledge promotion. This
+ * narrow allowlist admits only exact exported lifecycle/workflow anchors after
+ * the complete semantic coverage barrier has passed, letting deterministic
+ * cross-file synthesis remain stable when model wording varies.
+ */
+export function deterministicSynthesisAnchorSubsystems(
+  fact: RepositoryFileAnalysis["facts"][number],
+  path = "",
+) {
+  if (fact.evidenceMode !== "static" || fact.confidence !== "high" || fact.sensitivityFlag) return [];
+  return deterministicSynthesisAnchorRules
+    .filter((rule) => rule.pathPattern.test(path) && rule.pattern.test(fact.statement))
+    .map((rule) => rule.subsystemKey);
+}
+
 function importance(entry: SynthesisNotebookEntry) {
   const changeBonus = entry.changeType === "unchanged" ? 0 : entry.changeType === "modified" ? 8 : 6;
   return entry.productImportance * 4 + entry.implementationBreadth * 3 + entry.technicalDifficulty * 3 + changeBonus + (entry.confidence === "high" ? 4 : entry.confidence === "medium" ? 2 : 0);
@@ -185,26 +235,35 @@ function importance(entry: SynthesisNotebookEntry) {
 
 export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNotebookEntry[]): RepositorySubsystemSynthesis["facts"][number] | null {
   const requiredSignals = [
-    /defines the symbol startKnowledgeRefresh\b/,
-    /defines the symbol analyzeKnowledgeRefreshBatch\b/,
-    /defines the symbol synthesizeRepositoryKnowledge\b/,
-    /defines the symbol reconcileRepositoryKnowledge\b/,
-    /defines the symbol reconcileStaleKnowledge\b/,
+    { path: "src/services/knowledge-refresh-service.ts", pattern: /defines the symbol startKnowledgeRefresh\b/ },
+    { path: "src/services/knowledge-refresh-service.ts", pattern: /defines the symbol analyzeKnowledgeRefreshBatch\b/ },
+    { path: "src/services/repository-knowledge-synthesis-service.ts", pattern: /defines the symbol synthesizeRepositoryKnowledge\b/ },
+    { path: "src/services/knowledge-reconciliation-service.ts", pattern: /defines the symbol reconcileRepositoryKnowledge\b/ },
+    { path: "src/services/knowledge-staleness-service.ts", pattern: /defines the symbol reconcileStaleKnowledge\b/ },
+    {
+      path: "src/services/knowledge-refresh-service.ts",
+      pattern: /repairKnowledgeCoverageGaps.*(?:orchestration|orchestrator).*(?:fallback|legacy)/i,
+      semanticOnly: true,
+    },
   ];
-  const citationIndexes = requiredSignals.flatMap((pattern) => {
-    const index = notebook.findIndex((entry) => pattern.test(entry.statement));
+  const citationIndexes = requiredSignals.flatMap((signal) => {
+    const index = notebook.findIndex((entry) =>
+      entry.path === signal.path &&
+      (!("semanticOnly" in signal) || entry.evidenceMode !== "deterministic_anchor") &&
+      signal.pattern.test(entry.statement)
+    );
     return index >= 0 ? [index + 1] : [];
   });
   // The statement names all five lifecycle stages, so every stage needs its
   // own exact exported-entrypoint observation. Four-of-five is not entailment.
   if (citationIndexes.length !== requiredSignals.length) return null;
   return {
-    statement: "The repository implements an end-to-end knowledge lifecycle that starts a repository refresh, analyzes repository files in batches, synthesizes Project Facts and Highlights, reconciles them into durable memory, and revalidates or marks older knowledge stale.",
+    statement: "The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and its refresh stage uses orchestrated semantic coverage repair with a legacy fallback.",
     category: "architecture",
     confidence: "high",
     sensitivityFlag: false,
     citationIndexes: Array.from(new Set(citationIndexes)).slice(0, 6),
-    reviewNotes: "Deterministically assembled from exact exported lifecycle entrypoints across the current immutable repository snapshot.",
+    reviewNotes: "Deterministically assembled from path-bound exported lifecycle entrypoints plus a semantic refresh-stage observation from the current immutable repository snapshot.",
     productImportance: 5,
     implementationBreadth: 5,
     technicalDifficulty: 4,
@@ -273,6 +332,8 @@ type DeterministicFactDefinition = {
   highlightText?: string;
   category: ProjectFactCategory;
   patterns: RegExp[];
+  /** Static inventory can satisfy only explicitly path-bound definitions. */
+  allowDeterministicAnchors?: boolean;
   minimumMatches?: number;
   productImportance?: number;
   implementationBreadth?: number;
@@ -373,23 +434,31 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
       distinctiveness: 5,
     },
     workflow_orchestration: {
-      statement: "Durable workflows coordinate project chat, chunked repository refresh, and approval-gated artifact generation through bounded loops, a human-review suspension hook, and progress-stream cleanup in a finally boundary.",
+      statement: "The repository defines durable workflow entrypoints for project chat, repository refresh, and artifact generation, and the workflow layer includes a human-review approval hook that can pause and resume work.",
       category: "architecture",
       patterns: [
-        /workflows\/project-chat.*projectChatTurnWorkflow/i,
-        /workflows\/project-chat.*repositoryKnowledgeRefreshWorkflow.*(?:chunked|batch)/i,
-        /workflows\/project-chat.*createHook.*approval gate/i,
+        /workflows\/project-chat.*(?:defines the symbol projectChatTurnWorkflow|projectChatTurnWorkflow.*(?:sequences|progress stream))/i,
+        /workflows\/project-chat.*(?:defines the symbol repositoryKnowledgeRefreshWorkflow|repositoryKnowledgeRefreshWorkflow.*(?:step-based loop|bounded knowledge ingestion|durable workflow path))/i,
+        /workflows\/project-chat.*(?:defines the symbol artifactGenerationWorkflow|artifactGenerationWorkflow.*(?:runArtifactLifecycle|shared orchestration pattern))/i,
+        /workflows\/project-chat.*(?:uses a durable approval hook|projectChatTurnWorkflow.*approval-gated)/i,
+        /workflows\/project-chat.*(?:defines a durable workflow entrypoint|repositoryKnowledgeRefreshWorkflow.*durable workflow path|artifactGenerationWorkflow.*shared orchestration pattern)/i,
       ],
-      minimumMatches: 3,
+      minimumMatches: 5,
+      allowDeterministicAnchors: true,
       productImportance: 5,
       implementationBreadth: 5,
       technicalDifficulty: 5,
       distinctiveness: 5,
     },
     repository_knowledge_lifecycle: {
-      statement: "The repository knowledge lifecycle inventories every eligible file at an immutable commit, performs bounded semantic analysis, synthesizes durable Project Facts and Highlights, reconciles updates, and invalidates stale downstream knowledge.",
+      statement: "The repository knowledge lifecycle pins eligible file coverage to immutable commits, performs bounded semantic analysis, synthesizes Project Facts and Highlights, reconciles current knowledge, and invalidates or revalidates stale dependents.",
       category: "architecture",
-      patterns: [/knowledge-refresh-service/i, /repository-knowledge-synthesis/i, /knowledge-reconciliation/i, /knowledge-staleness/i],
+      patterns: [
+        /knowledge-refresh-service.*(?:eligible|immutable|batch|semantic analys)/i,
+        /repository-knowledge-synthesis.*(?:synthesi[sz]|Project Fact|Highlight)/i,
+        /knowledge-reconciliation.*(?:reconcil|supersed|durable)/i,
+        /knowledge-staleness.*(?:stale|invalidat|revalidat)/i,
+      ],
       minimumMatches: 4,
       facets: [{
         statement: "Repository semantic analysis is divided into bounded capability work packages, executed by parallel specialist workers, and consolidated by a coverage audit that preserves supported findings and explicit gaps.",
@@ -482,9 +551,9 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
       highlightText: "Validated chat, artifacts, review, security, and repository research with application-level scenario tests",
       category: "behavior",
       patterns: [
-        /project-chat-application-runner.*full breadth of application chat paths/i,
-        /project-chat-application-runner.*zero-call invariants/i,
-        /project-chat-application-runner.*prerequisite.*conversation/i,
+        /project-chat-application-runner.*(?:exactly 11 scenario|full breadth of application chat paths)/i,
+        /project-chat-application-runner.*(?:zeroMetrics|zero-call|cache-reuse)/i,
+        /project-chat-application-runner.*(?:prerequisite|automatically prepends)/i,
       ],
       minimumMatches: 3,
       productImportance: 4,
@@ -500,7 +569,10 @@ function deterministicFactFromDefinition(
 ) {
   const matched: number[] = [];
   for (const pattern of definition.patterns) {
-    const index = notebook.findIndex((entry) => pattern.test(`${entry.path} ${entry.statement}`));
+    const index = notebook.findIndex((entry) =>
+      (definition.allowDeterministicAnchors || entry.evidenceMode !== "deterministic_anchor") &&
+      pattern.test(`${entry.path} ${entry.statement}`)
+    );
     if (index >= 0) matched.push(index + 1);
   }
   const minimumMatches = definition.minimumMatches ?? 1;
@@ -524,10 +596,11 @@ export function fallbackSubsystemSynthesis(
   subsystemKey: string,
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis {
-  const exactProjectDomain = exactSinglePathProjectDomainSynthesis(subsystemKey, notebook);
+  const semanticNotebook = modelEligibleSynthesisNotebook(notebook);
+  const exactProjectDomain = exactSinglePathProjectDomainSynthesis(subsystemKey, semanticNotebook);
   if (exactProjectDomain) return exactProjectDomain;
   const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
-  if (!definition) return mockSynthesis(notebook);
+  if (!definition) return mockSynthesis(semanticNotebook);
   const primary = deterministicFactFromDefinition(definition, notebook);
   const facets = (definition.facets ?? [])
     .map((facet) => deterministicFactFromDefinition(facet, notebook))
@@ -536,7 +609,7 @@ export function fallbackSubsystemSynthesis(
     .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
     .slice(0, 3);
   if (!facts.length) {
-    const exactFallback = mockSynthesis(notebook);
+    const exactFallback = mockSynthesis(semanticNotebook);
     return {
       ...exactFallback,
       unresolvedQuestions: [
@@ -549,7 +622,8 @@ export function fallbackSubsystemSynthesis(
     right.implementationBreadth - left.implementationBreadth ||
     right.technicalDifficulty - left.technicalDifficulty,
   )[0];
-  const highlights = highlightSource && highlightSource.productImportance >= 4
+  const highlights = highlightSource && highlightSource.productImportance >= 4 &&
+    highlightSource.citationIndexes.every((index) => notebook[index - 1]?.evidenceMode !== "deterministic_anchor")
     ? [{
         text: definition.highlightText ?? (highlightSource.statement.length <= 240
           ? highlightSource.statement
@@ -696,39 +770,71 @@ export async function synthesizeRepositoryKnowledge(
     },
   });
   const notebookBySubsystem = new Map<string, SynthesisNotebookEntry[]>();
+  const allowDeterministicAnchors = run.qualityStatus === "verified";
   for (const snapshot of run.snapshots) {
     const target = (run.targetHeads as unknown as RepositoryTargetHead[]).find((entry) => entry.sourceId === snapshot.sourceId);
     if (!target) continue;
     for (const file of snapshot.files) {
-      // Static analysis is useful for coverage planning, but it is not semantic
-      // evidence and must never be promoted into approved durable knowledge.
-      const analysis = file.semanticRefreshRunId === runId && file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
+      if (!file.blobSha) continue;
+      const semanticAnalysis = file.semanticRefreshRunId === runId && file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION && (file.semanticStatus === "succeeded" || file.semanticStatus === "degraded")
         ? parseAnalysis(file.semanticAnalysis)
         : null;
-      if (!analysis || !file.blobSha) continue;
-      for (const subsystemKey of analysis.subsystemKeys) {
-        const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
-        for (const fact of semanticFactsForSubsystem(analysis, subsystemKey)) {
-          notebook.push({
-            sourceId: snapshot.sourceId,
-            repository: target.repository,
-            commitSha: snapshot.commitSha,
-            blobSha: file.blobSha,
-            path: file.path,
-            lineStart: fact.lineStart,
-            lineEnd: fact.lineEnd,
-            statement: fact.statement,
-            category: fact.category,
-            confidence: fact.confidence,
-            sensitivityFlag: fact.sensitivityFlag,
-            productImportance: fact.productImportance,
-            implementationBreadth: fact.implementationBreadth,
-            technicalDifficulty: fact.technicalDifficulty,
-            changeType: file.changeType,
-            semanticStatus: file.semanticStatus === "degraded" ? "degraded" : "succeeded",
-          });
+      if (semanticAnalysis) {
+        for (const subsystemKey of semanticAnalysis.subsystemKeys) {
+          const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
+          for (const fact of semanticFactsForSubsystem(semanticAnalysis, subsystemKey)) {
+            notebook.push({
+              sourceId: snapshot.sourceId,
+              repository: target.repository,
+              commitSha: snapshot.commitSha,
+              blobSha: file.blobSha,
+              path: file.path,
+              lineStart: fact.lineStart,
+              lineEnd: fact.lineEnd,
+              statement: fact.statement,
+              category: fact.category,
+              confidence: fact.confidence,
+              sensitivityFlag: fact.sensitivityFlag,
+              productImportance: fact.productImportance,
+              implementationBreadth: fact.implementationBreadth,
+              technicalDifficulty: fact.technicalDifficulty,
+              changeType: file.changeType,
+              semanticStatus: file.semanticStatus === "degraded" ? "degraded" : "succeeded",
+              evidenceMode: "semantic",
+            });
+          }
+          notebookBySubsystem.set(subsystemKey, notebook);
         }
-        notebookBySubsystem.set(subsystemKey, notebook);
+      }
+      const staticAnalysis = allowDeterministicAnchors && file.analyzerVersion === REPOSITORY_STATIC_ANALYZER_VERSION
+        ? parseAnalysis(file.analysis)
+        : null;
+      if (staticAnalysis) {
+        for (const fact of staticAnalysis.facts) {
+          for (const subsystemKey of deterministicSynthesisAnchorSubsystems(fact, file.path)) {
+            const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
+            notebook.push({
+              sourceId: snapshot.sourceId,
+              repository: target.repository,
+              commitSha: snapshot.commitSha,
+              blobSha: file.blobSha,
+              path: file.path,
+              lineStart: fact.lineStart,
+              lineEnd: fact.lineEnd,
+              statement: fact.statement,
+              category: fact.category,
+              confidence: fact.confidence,
+              sensitivityFlag: fact.sensitivityFlag,
+              productImportance: fact.productImportance,
+              implementationBreadth: fact.implementationBreadth,
+              technicalDifficulty: fact.technicalDifficulty,
+              changeType: file.changeType,
+              semanticStatus: "succeeded",
+              evidenceMode: "deterministic_anchor",
+            });
+            notebookBySubsystem.set(subsystemKey, notebook);
+          }
+        }
       }
     }
   }
@@ -740,20 +846,29 @@ export async function synthesizeRepositoryKnowledge(
     "project_chat_grounding",
     "artifact_generation",
     "knowledge_review_lifecycle",
+    "workflow_orchestration",
   ]);
   const synthesisInputs = Array.from(notebookBySubsystem.entries())
     .map(([subsystemKey, rawNotebook]) => {
       const rankedNotebook = rawNotebook
         .filter((entry, index, all) => all.findIndex((other) => other.path === entry.path && other.lineStart === entry.lineStart && normalizeWhitespace(other.statement).toLowerCase() === normalizeWhitespace(entry.statement).toLowerCase()) === index)
         .sort((left, right) => importance(right) - importance(left));
+      // Keep semantic entries first so any model citation index maps directly
+      // into the final notebook. Deterministic anchors are appended solely for
+      // path-bound predefined summaries and are never sent to the model.
+      const semanticEntries = rankedNotebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
+      const deterministicAnchors = rankedNotebook.filter((entry) => entry.evidenceMode === "deterministic_anchor");
+      const notebookLimit = productSystemSubsystems.has(subsystemKey) ? 20 : 12;
       const notebook = productSystemSubsystems.has(subsystemKey)
-        ? [...rankedNotebook.filter((entry) => /defines the symbol\b/.test(entry.statement)), ...rankedNotebook]
+        ? [...semanticEntries.filter((entry) => /defines the symbol\b/.test(entry.statement)), ...semanticEntries]
             .filter((entry, index, all) => all.findIndex((other) => other.path === entry.path && other.lineStart === entry.lineStart && other.statement === entry.statement) === index)
-            .slice(0, 20)
-        : rankedNotebook.slice(0, 12);
+            .slice(0, Math.max(0, notebookLimit - deterministicAnchors.length))
+            .concat(deterministicAnchors.slice(0, notebookLimit))
+        : semanticEntries.slice(0, notebookLimit);
       return {
         subsystemKey,
         notebook,
+        modelNotebook: modelEligibleSynthesisNotebook(notebook),
         priority:
           (architectureSubsystems.has(subsystemKey) ? 1_000 : 0) +
           (isProjectDomainCapabilityKey(subsystemKey) ? 750 : 0) +
@@ -791,7 +906,17 @@ export async function synthesizeRepositoryKnowledge(
     });
     synthesizedSubsystems.push(...exactProjectDomains);
     const exactKeys = new Set(exactProjectDomains.map((entry) => entry.subsystemKey));
-    const modelInputs = synthesisInputs.filter((entry) => !exactKeys.has(entry.subsystemKey));
+    const deterministicOnly = synthesisInputs
+      .filter((entry) => !exactKeys.has(entry.subsystemKey) && entry.modelNotebook.length === 0)
+      .map((entry) => ({
+        subsystemKey: entry.subsystemKey,
+        ...fallbackSubsystemSynthesis(entry.subsystemKey, entry.notebook),
+      }));
+    synthesizedSubsystems.push(...deterministicOnly);
+    const deterministicOnlyKeys = new Set(deterministicOnly.map((entry) => entry.subsystemKey));
+    const modelInputs = synthesisInputs
+      .filter((entry) => !exactKeys.has(entry.subsystemKey) && !deterministicOnlyKeys.has(entry.subsystemKey))
+      .map((entry) => ({ subsystemKey: entry.subsystemKey, notebook: entry.modelNotebook }));
     const batches = Array.from({ length: Math.ceil(modelInputs.length / 2) }, (_, index) =>
       modelInputs.slice(index * 2, index * 2 + 2),
     );
@@ -813,14 +938,19 @@ export async function synthesizeRepositoryKnowledge(
   return synthesisInputs.map(({ subsystemKey, notebook }): SynthesizedKnowledge => {
     const result = byKey.get(subsystemKey)!;
     const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
-    const derivedFact = subsystemKey === "repository_knowledge_lifecycle"
+    const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
+    const semanticBaseline = definition
+      ? deterministicFactFromDefinition(definition, modelEligibleSynthesisNotebook(notebook))
+      : null;
+    const substantiveSemanticResult = result.facts.find((fact) =>
+      fact.productImportance >= 4 &&
+      fact.implementationBreadth >= 4 &&
+      fact.citationIndexes.every((index) => notebook[index - 1]?.evidenceMode !== "deterministic_anchor")
+    ) ?? null;
+    const derivedFact = subsystemKey === "repository_knowledge_lifecycle" && !semanticBaseline && !substantiveSemanticResult
       ? derivedRepositoryKnowledgeLifecycleFact(notebook)
       : null;
-    const deterministicBaseline = derivedFact ?? (
-      SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey]
-        ? fallbackSubsystemSynthesis(subsystemKey, notebook).facts[0] ?? null
-        : null
-    );
+    const deterministicBaseline = semanticBaseline ?? derivedFact;
     const facts = [deterministicBaseline, ...result.facts]
       .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] => Boolean(fact))
       .filter((fact, index, all) => all.findIndex((candidate) => normalizeWhitespace(candidate.statement).toLowerCase() === normalizeWhitespace(fact.statement).toLowerCase()) === index)
@@ -829,7 +959,9 @@ export async function synthesizeRepositoryKnowledge(
     return {
       subsystemKey,
       facts,
-      highlights: result.highlights.filter((highlight) => highlight.citationIndexes.every((index) => validIndexes.has(index))),
+      highlights: result.highlights.filter((highlight) => highlight.citationIndexes.every((index) =>
+        validIndexes.has(index) && notebook[index - 1]?.evidenceMode !== "deterministic_anchor"
+      )),
       unresolvedQuestions: result.unresolvedQuestions,
       notebook,
       tokenUsage,

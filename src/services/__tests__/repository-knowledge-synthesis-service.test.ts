@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
 import {
+  deterministicSynthesisAnchorSubsystems,
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
   fallbackSubsystemSynthesis,
+  modelEligibleSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
 } from "@/src/services/repository-knowledge-synthesis-service";
@@ -30,6 +32,35 @@ function entry(path: string, statement = `${path} defines supported repository b
 }
 
 describe("repository synthesis limit fallback", () => {
+  it("admits only exact high-confidence static lifecycle anchors", () => {
+    const anchor = {
+      path: "src/services/knowledge-refresh-service.ts",
+      statement: "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh.",
+      category: "code_location" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      lineStart: 10,
+      lineEnd: 10,
+      productImportance: 2,
+      implementationBreadth: 2,
+      technicalDifficulty: 2,
+      subsystemKeys: ["repository_knowledge_lifecycle"],
+      evidenceMode: "static" as const,
+    };
+
+    expect(deterministicSynthesisAnchorSubsystems(anchor, anchor.path)).toEqual(["repository_knowledge_lifecycle"]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "workflows/project-chat.ts uses a durable approval hook to pause and resume work.",
+    }, "workflows/project-chat.ts")).toEqual(["workflow_orchestration"]);
+    expect(deterministicSynthesisAnchorSubsystems({ ...anchor, evidenceMode: "semantic" }, anchor.path)).toEqual([]);
+    expect(deterministicSynthesisAnchorSubsystems(anchor, "src/services/unrelated-service.ts")).toEqual([]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "src/services/misc.ts defines the symbol unrelatedUtility.",
+    }, anchor.path)).toEqual([]);
+  });
+
   it("retains a selected one-file project domain as an exact fact without inventing an umbrella claim", () => {
     const statement = "The charge service idempotently records a payment before publishing its receipt.";
     const result = exactSinglePathProjectDomainSynthesis("project_domain:payments", [
@@ -129,12 +160,16 @@ describe("repository synthesis limit fallback", () => {
   });
 
   it("retains the cross-file repository knowledge lifecycle as a ranked fact", () => {
-    const result = derivedRepositoryKnowledgeLifecycleFact([
+    const structuralEntries = [
       entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
       entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
       entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
       entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
       entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
+    ];
+    const result = derivedRepositoryKnowledgeLifecycleFact([
+      ...structuralEntries,
+      entry("src/services/knowledge-refresh-service.ts", "repairKnowledgeCoverageGaps attempts semantic orchestration and uses the legacy implementation as a fallback."),
     ]);
 
     expect(result).toMatchObject({
@@ -143,9 +178,10 @@ describe("repository synthesis limit fallback", () => {
       productImportance: 5,
       implementationBreadth: 5,
       distinctiveness: 5,
-      citationIndexes: [1, 2, 3, 4, 5],
+      citationIndexes: [1, 2, 3, 4, 5, 6],
     });
-    expect(result?.statement).toContain("end-to-end knowledge lifecycle");
+    expect(result?.statement).toContain("orchestrated semantic coverage repair");
+    expect(derivedRepositoryKnowledgeLifecycleFact(structuralEntries)).toBeNull();
   });
 
   it.each([
@@ -188,6 +224,26 @@ describe("repository synthesis limit fallback", () => {
       ],
       "review UI",
     ],
+    [
+      "workflow_orchestration",
+      [
+        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol projectChatTurnWorkflow."),
+        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol repositoryKnowledgeRefreshWorkflow."),
+        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol artifactGenerationWorkflow."),
+        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines a durable workflow entrypoint."),
+        entry("workflows/project-chat.ts", "workflows/project-chat.ts uses a durable approval hook to pause and resume work."),
+      ],
+      "durable workflow entrypoints",
+    ],
+    [
+      "tests_operations",
+      [
+        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner test asserts exactly 11 scenario IDs."),
+        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner zeroMetrics fixture enforces zero-call cache-reuse behavior."),
+        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner automatically prepends prerequisite conversation turns."),
+      ],
+      "Application-level automated tests",
+    ],
   ])("creates a broad deterministic baseline for %s", (subsystemKey, notebook, expected) => {
     const result = fallbackSubsystemSynthesis(subsystemKey, notebook);
 
@@ -196,6 +252,22 @@ describe("repository synthesis limit fallback", () => {
       confidence: "high",
     })]);
     expect(result.facts[0]?.citationIndexes.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not promote anchor-only inventory into an open-ended Highlight", () => {
+    const notebook = [
+      entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol projectChatTurnWorkflow."),
+      entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol repositoryKnowledgeRefreshWorkflow."),
+      entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol artifactGenerationWorkflow."),
+      entry("workflows/project-chat.ts", "workflows/project-chat.ts defines a durable workflow entrypoint."),
+      entry("workflows/project-chat.ts", "workflows/project-chat.ts uses a durable approval hook to pause and resume work."),
+    ].map((item) => ({ ...item, evidenceMode: "deterministic_anchor" as const }));
+
+    const result = fallbackSubsystemSynthesis("workflow_orchestration", notebook);
+
+    expect(modelEligibleSynthesisNotebook(notebook)).toEqual([]);
+    expect(result.facts[0]?.statement).toContain("defines durable workflow entrypoints");
+    expect(result.highlights).toEqual([]);
   });
 
   it("does not turn one matching filename into a broad multi-component capability", () => {

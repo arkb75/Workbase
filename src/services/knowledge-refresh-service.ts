@@ -29,7 +29,7 @@ import {
 } from "@/src/services/repository-semantic-orchestrator-service";
 import { KNOWLEDGE_LIFECYCLE_POLICY_VERSION } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v20";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v21";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 
 const targetHeadSchema = z.object({

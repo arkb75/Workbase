@@ -357,6 +357,42 @@ describe("project answer completeness", () => {
     expect(requirement.citationIndexes).toEqual([1, 3]);
   });
 
+  it("keeps one broad product-loop member plus the distinct artifact safeguard", () => {
+    const product = entry(1, "product_surface", {
+      content: "The product flow connects Work Items, repository evidence, review, and career content output.",
+    });
+    const productVariant = entry(2, "product_surface", {
+      content: "Workbase connects attached sources and reviewed memory to career artifacts.",
+    });
+    const artifact = entry(3, "artifact_generation", {
+      content: "Artifact generation fails closed when a requested metric lacks approved supporting evidence.",
+    });
+
+    const requirement = selectAccomplishmentRequirementSet([product, productVariant, artifact]).requirements[0]!;
+    expect(requirement.members.map((member) => member.content)).toEqual([
+      product.content,
+      artifact.content,
+    ]);
+  });
+
+  it("preserves distinct product capabilities when the representative is not broad", () => {
+    const dashboard = entry(1, "product_surface", {
+      title: "Project dashboard",
+      content: "The dashboard lists saved projects and their current status.",
+    });
+    const threads = entry(2, "product_surface", {
+      title: "Persistent chat threads",
+      content: "Users can create, rename, switch, and archive multiple persistent chat threads per project.",
+    });
+
+    const requirement = selectAccomplishmentRequirementSet([dashboard, threads]).requirements[0]!;
+
+    expect(requirement.members.map((member) => member.title)).toEqual([
+      dashboard.title,
+      threads.title,
+    ]);
+  });
+
   it("safely compacts overlong already-grounded coverage without adding prose", () => {
     const entries = TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS
       .map((subsystem, index) => entry(index + 1, subsystem));

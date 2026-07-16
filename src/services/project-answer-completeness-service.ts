@@ -302,6 +302,13 @@ function accomplishmentCandidatesForGroup(group: AccomplishmentGroundingEntry[])
   const selected = [...representativeEntries];
   for (const candidate of coverageOrdered.filter((entry) => isImportant(entry) && !representativeSet.has(entry))) {
     const rawSubsystem = candidate.subsystemKey ?? `${candidate.kind}:${candidate.title.toLowerCase()}`;
+    // The product/artifact requirement already reserves separate
+    // representatives for product_surface and artifact_generation. Additional
+    // product-surface variants tend to restate the same end-to-end loop and
+    // crowd out more distinctive architecture details.
+    if (rawSubsystem === "product_surface" && selected.some((entry) =>
+      entry.subsystemKey === rawSubsystem && accomplishmentCoverageAnchorScore(entry) >= 2
+    )) continue;
     if (selected.some((existing) => {
       const existingSubsystem = existing.subsystemKey ?? `${existing.kind}:${existing.title.toLowerCase()}`;
       return existingSubsystem === rawSubsystem && nearDuplicateAccomplishment(existing, candidate);
