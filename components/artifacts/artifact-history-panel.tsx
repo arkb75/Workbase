@@ -15,6 +15,7 @@ type UsedHighlight = {
   summary: string;
   visibility: string;
   confidence: string;
+  provenance: SupportingEvidence[];
 };
 
 type FallbackHighlight = {
@@ -51,7 +52,6 @@ export type ArtifactHistoryEntry = {
   hasTrace: boolean;
   usedHighlights: UsedHighlight[];
   fallbackHighlights: FallbackHighlight[];
-  supportingEvidence: SupportingEvidence[];
 };
 
 export function ArtifactHistoryPanel({
@@ -263,7 +263,7 @@ export function ArtifactHistoryPanel({
                 </details>
               ) : null}
 
-              <div className="grid gap-5 xl:grid-cols-[0.94fr_1.06fr]">
+              <div className="grid gap-5">
                 <div className="grid gap-4">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
@@ -293,6 +293,29 @@ export function ArtifactHistoryPanel({
                           <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
                             {highlight.summary}
                           </p>
+                          {highlight.provenance.length ? (
+                            <details className="mt-3 border-l border-black/8 pl-3 text-xs text-[color:var(--ink-muted)]">
+                              <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
+                                View underlying evidence
+                              </summary>
+                              <div className="mt-3 grid gap-3">
+                                {highlight.provenance.map((item) => (
+                                  <div key={item.id} className="grid gap-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge>{item.type.replace(/_/g, " ")}</Badge>
+                                      <Badge>{item.sourceLabel}</Badge>
+                                    </div>
+                                    <p className="font-medium text-[color:var(--ink-strong)]">
+                                      {item.title}
+                                    </p>
+                                    <p className="line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
+                                      {item.content}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -329,43 +352,6 @@ export function ArtifactHistoryPanel({
                   )}
                 </div>
 
-                <div className="grid gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
-                      Supporting evidence
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-                      Supporting evidence expands context around the selected highlight set without
-                      quietly introducing hidden accomplishments.
-                    </p>
-                  </div>
-
-                  {selectedEntry.supportingEvidence.length ? (
-                    <div className="grid max-h-[36rem] gap-3 overflow-y-auto pr-1">
-                      {selectedEntry.supportingEvidence.map((item) => (
-                        <div
-                          key={item.id}
-                          className="rounded-[22px] border border-black/8 bg-white p-4"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge>{item.type.replace(/_/g, " ")}</Badge>
-                            <Badge>{item.sourceLabel}</Badge>
-                          </div>
-                          <p className="mt-3 text-sm leading-6 text-[color:var(--ink-strong)]">
-                            {item.title}
-                          </p>
-                          <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
-                            {item.content}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                      No supporting evidence was recorded for this artifact run.
-                    </p>
-                  )}
-                </div>
               </div>
             </div>
           ) : (

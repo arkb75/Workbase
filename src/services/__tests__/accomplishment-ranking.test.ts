@@ -113,9 +113,21 @@ describe("accomplishment synthesis ranking", () => {
     },
     {
       subsystem: "review_ui",
-      broadTitle: "Built the project workspace user interface",
-      broadContent: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+      broadTitle: "Built complete project workspaces",
+      broadContent: "The user interface provides project workspaces for chat, source management, highlight review, artifact generation and history, inline citations, and run progress.",
       narrowTitle: "Rendered a citation popover",
+    },
+    {
+      subsystem: "project_chat_grounding",
+      broadTitle: "Implemented hybrid project-chat execution routing",
+      broadContent: "Deterministic intent and safety constraints handle high-confidence paths while model-assisted routing handles genuinely ambiguous requests.",
+      narrowTitle: "Adjusted one context mapper",
+    },
+    {
+      subsystem: "repository_knowledge_lifecycle",
+      broadTitle: "Built parallel semantic specialists with structural coverage auditing",
+      broadContent: "Capability work packages run through parallel semantic specialist workers and a coverage auditor preserves supported findings and explicit gaps.",
+      narrowTitle: "Versioned one repository snapshot field",
     },
     {
       subsystem: "tests_operations",
@@ -135,6 +147,37 @@ describe("accomplishment synthesis ranking", () => {
     ], 1);
 
     expect(ranked.map((entry) => entry.id)).toEqual(["broad"]);
+  });
+
+  it("removes a superseded mandatory-review accomplishment when current auto-apply behavior is available", () => {
+    const ranked = rankAccomplishmentHits([
+      hit({
+        id: "stale-gate",
+        subsystem: "product_surface",
+        score: 5,
+        title: "End-to-end platform with mandatory human review gate",
+        content: "Every generated Claim requires human approval before any knowledge can be used.",
+      }),
+      hit({
+        id: "current-review-lifecycle",
+        subsystem: "knowledge_review_lifecycle",
+        score: 4,
+        title: "Auto-applied safe knowledge with retrospective review",
+        content: "Knowledge changes are auto-applied when safe, recorded for later review, quarantined when unsafe, and superseded without mutating history.",
+      }),
+      hit({
+        id: "public-artifact-policy",
+        subsystem: "artifact_generation",
+        score: 4,
+        title: "Approved-Highlight public artifact policy",
+        content: "Approved Highlights are required before public artifacts can be generated, and sensitive material is excluded.",
+      }),
+    ], 3);
+
+    expect(ranked.map((entry) => entry.id)).toEqual([
+      "public-artifact-policy",
+      "current-review-lifecycle",
+    ]);
   });
 
   it("preserves broad representatives before the 12-item accomplishment catalog is pruned", () => {
@@ -162,8 +205,8 @@ describe("accomplishment synthesis ranking", () => {
         content: "The Prisma schema persists normalized application state in Neon PostgreSQL.",
       },
       review_ui: {
-        title: "Built the project workspace user interface",
-        content: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+        title: "Built complete project workspaces",
+        content: "The user interface provides project workspaces for chat, source management, highlight review, artifact generation and history, inline citations, and run progress.",
       },
       tests_operations: {
         title: "Automated tests cover the complete project surface",

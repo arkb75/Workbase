@@ -19,10 +19,22 @@ const approvedFact: ProjectKnowledgeHit = {
 describe("project agent harness", () => {
   it("answers from approved memory without repository research", () => {
     expect(routeProjectTurn({
-      question: "How does the architecture work?",
+      question: "How do the typed application services work?",
       memoryHits: [approvedFact],
       allowResearch: true,
     }).kind).toBe("direct_answer");
+  });
+
+  it("does not treat a merely related approved fact as adequate for a targeted code question", () => {
+    expect(routeProjectTurn({
+      question: "Where is retry backoff enforced, and what terminates the loop?",
+      memoryHits: [{
+        ...approvedFact,
+        title: "Durable workflow architecture",
+        content: "The application has durable workflow orchestration.",
+      }],
+      allowResearch: true,
+    }).kind).toBe("repository_research");
   });
 
   it("forces repository research for freshness and explicit inspection", () => {

@@ -21,6 +21,8 @@ export const githubRepositoryExplorationLimits = Object.freeze({
   maxPathLimit: 200,
   defaultSearchLimit: 10,
   maxSearchLimit: 20,
+  maxFocusTerms: 20,
+  maxFocusWindowLines: 160,
 } as const);
 
 export type GitHubRepositoryExplorationErrorCode =
@@ -135,6 +137,8 @@ export interface GitHubRepositoryExplorationSession {
     path: string;
     lineStart?: number;
     lineEnd?: number;
+    focusTerms?: string[];
+    lineWindow?: number;
   }): Promise<{
     path: string;
     content: string;
@@ -284,7 +288,8 @@ interface LoadedTree {
 
 interface ExplorationBudgetState {
   usage: GitHubRepositoryExplorationUsage;
-  operationQueue: Promise<void>;
+  activeOperations: number;
+  operationWaiters: Array<() => void>;
 }
 
 const explorationBudgetStates = new WeakMap<
@@ -301,7 +306,8 @@ function createExplorationBudget(): GitHubRepositoryExplorationBudget {
       fileReads: 0,
       visibleBytes: 0,
     },
-    operationQueue: Promise.resolve(),
+    activeOperations: 0,
+    operationWaiters: [],
   };
   const budget: GitHubRepositoryExplorationBudget = {
     expiresAt: new Date(nominalExpiresAt).toISOString(),
@@ -361,6 +367,83 @@ function normalizePathPrefix(prefix: string | undefined) {
   }
 
   return normalizeRepositoryPath(normalized);
+}
+
+function normalizeFocusTerms(terms: readonly string[] | undefined) {
+  if (!terms?.length) return [];
+  if (terms.length > githubRepositoryExplorationLimits.maxFocusTerms) {
+    invalidInput(`At most ${githubRepositoryExplorationLimits.maxFocusTerms} focus terms are allowed.`);
+  }
+  const normalized = terms.map((term) => term.trim()).filter(Boolean);
+  if (normalized.some((term) => term.length > 80 || /[\u0000-\u001f\u007f]/.test(term))) {
+    invalidInput("Repository excerpt focus terms are invalid.");
+  }
+  return Array.from(new Set(normalized.map((term) => term.toLowerCase())));
+}
+
+function focusedLineRange(input: {
+  lines: readonly string[];
+  focusTerms: readonly string[];
+  windowLines: number;
+}) {
+  const totalLines = Math.max(input.lines.length, 1);
+  const windowLines = Math.min(input.windowLines, totalLines);
+  if (!input.focusTerms.length || totalLines <= windowLines) {
+    return { lineStart: 1, lineEnd: windowLines };
+  }
+
+  const termWeights = new Map(input.focusTerms.map((term, index) => [
+    term,
+    // Focus terms are ordered: exact search matches come first, followed by
+    // controller expansions. Reward covering distinct high-priority terms so
+    // many repeated `stopReason` mentions cannot crowd a nearby
+    // `maxIterations` guard out of the single bounded window.
+    (input.focusTerms.length - index) * 50 +
+      (/(?:max|stop|retry|backoff|timeout|budget|limit|iteration|attempt)/i.test(term) ? 10 : 0),
+  ]));
+  const lineTerms = input.lines.map((line) => {
+    const normalizedLine = line.toLowerCase();
+    return input.focusTerms.filter((term) => normalizedLine.includes(term));
+  });
+  const counts = new Map<string, number>();
+  const addTerms = (terms: readonly string[], direction: 1 | -1) => {
+    for (const term of terms) {
+      const next = (counts.get(term) ?? 0) + direction;
+      if (next > 0) counts.set(term, next);
+      else counts.delete(term);
+    }
+  };
+  lineTerms.slice(0, windowLines).forEach((terms) => addTerms(terms, 1));
+  const coverageScore = () => Array.from(counts.keys()).reduce(
+    (score, term) => score + (termWeights.get(term) ?? 0),
+    0,
+  );
+  const occurrenceScore = () => Array.from(counts.entries()).reduce(
+    (score, [term, count]) => score + count * (/(?:max|stop|retry|backoff|timeout|budget|limit|iteration|attempt)/i.test(term) ? 6 : 2),
+    0,
+  );
+  let bestCoverageScore = coverageScore();
+  let bestOccurrenceScore = occurrenceScore();
+  let bestStartIndex = 0;
+  for (let startIndex = 1; startIndex <= totalLines - windowLines; startIndex += 1) {
+    addTerms(lineTerms[startIndex - 1]!, -1);
+    addTerms(lineTerms[startIndex + windowLines - 1]!, 1);
+    const nextCoverageScore = coverageScore();
+    const nextOccurrenceScore = occurrenceScore();
+    if (
+      nextCoverageScore > bestCoverageScore ||
+      (nextCoverageScore === bestCoverageScore && nextOccurrenceScore > bestOccurrenceScore)
+    ) {
+      bestCoverageScore = nextCoverageScore;
+      bestOccurrenceScore = nextOccurrenceScore;
+      bestStartIndex = startIndex;
+    }
+  }
+  if (bestCoverageScore <= 0) return { lineStart: 1, lineEnd: windowLines };
+  return {
+    lineStart: bestStartIndex + 1,
+    lineEnd: bestStartIndex + windowLines,
+  };
 }
 
 function extensionForPath(path: string) {
@@ -701,13 +784,26 @@ function createSession(input: {
     return treePromise;
   };
 
-  const exclusively = <T>(operation: () => Promise<T>) => {
-    const result = input.budgetState.operationQueue.then(operation, operation);
-    input.budgetState.operationQueue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
+  const withBoundedConcurrency = async <T>(operation: () => Promise<T>) => {
+    if (input.budgetState.activeOperations < 4) {
+      input.budgetState.activeOperations += 1;
+    } else {
+      // A release transfers its existing slot directly to the oldest waiter.
+      // The waiter must not increment the active count after waking: a new
+      // caller could otherwise claim the temporarily visible free slot first
+      // and let the resumed waiter raise concurrency above the hard cap.
+      await new Promise<void>((resolve) => input.budgetState.operationWaiters.push(resolve));
+    }
+    try {
+      return await operation();
+    } finally {
+      const next = input.budgetState.operationWaiters.shift();
+      if (next) {
+        next();
+      } else {
+        input.budgetState.activeOperations -= 1;
+      }
+    }
   };
 
   return {
@@ -715,7 +811,7 @@ function createSession(input: {
     getUsage: usageSnapshot,
 
     listPaths(listInput = {}) {
-      return exclusively(async () => {
+      return withBoundedConcurrency(async () => {
         const prefix = normalizePathPrefix(listInput.prefix);
 
         if (prefix === null) {
@@ -764,7 +860,7 @@ function createSession(input: {
     },
 
     search(searchInput) {
-      return exclusively(async () => {
+      return withBoundedConcurrency(async () => {
         const query = searchInput.query.trim().replace(/\s+/g, " ");
         const pathPrefix = normalizePathPrefix(searchInput.pathPrefix);
 
@@ -798,8 +894,8 @@ function createSession(input: {
           ),
           githubRepositoryExplorationLimits.maxSearchLimit,
         );
-        const tree = await ensureTree();
         input.budgetState.usage.searches += 1;
+        const tree = await ensureTree();
         const result = await searchGitHubCode({
           token: input.token,
           owner: input.owner,
@@ -857,7 +953,7 @@ function createSession(input: {
     },
 
     readFile(readInput) {
-      return exclusively(async () => {
+      return withBoundedConcurrency(async () => {
         const path = normalizeRepositoryPath(readInput.path);
 
         if (!path) {
@@ -874,6 +970,11 @@ function createSession(input: {
           );
         }
 
+        // Reserve before I/O. JavaScript executes this check/increment without
+        // an intervening await, so concurrent sessions sharing the budget
+        // cannot oversubscribe the eight-read cap. Failed reserved calls still
+        // count, preventing retry storms.
+        input.budgetState.usage.fileReads += 1;
         const tree = await ensureTree();
         const entry = tree.entriesByPath.get(path);
 
@@ -894,7 +995,6 @@ function createSession(input: {
           );
         }
 
-        input.budgetState.usage.fileReads += 1;
         const blob = await fetchGitHubBlob({
           token: input.token,
           owner: input.owner,
@@ -956,8 +1056,23 @@ function createSession(input: {
           ? redaction.content.slice(0, -1).split("\n")
           : redaction.content.split("\n");
         const totalLines = Math.max(lines.length, 1);
-        const lineStart = parsePositiveInteger(readInput.lineStart, 1, "Starting line");
-        const requestedLineEnd = parsePositiveInteger(
+        const focusTerms = normalizeFocusTerms(readInput.focusTerms);
+        if (focusTerms.length && (readInput.lineStart !== undefined || readInput.lineEnd !== undefined)) {
+          invalidInput("Use either a fixed line range or focus terms, not both.");
+        }
+        const lineWindow = Math.min(
+          parsePositiveInteger(
+            readInput.lineWindow,
+            githubRepositoryExplorationLimits.maxFocusWindowLines,
+            "Line window",
+          ),
+          githubRepositoryExplorationLimits.maxFocusWindowLines,
+        );
+        const focusedRange = focusTerms.length || readInput.lineWindow !== undefined
+          ? focusedLineRange({ lines, focusTerms, windowLines: lineWindow })
+          : null;
+        const lineStart = focusedRange?.lineStart ?? parsePositiveInteger(readInput.lineStart, 1, "Starting line");
+        const requestedLineEnd = focusedRange?.lineEnd ?? parsePositiveInteger(
           readInput.lineEnd,
           totalLines,
           "Ending line",

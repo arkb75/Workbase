@@ -7,6 +7,7 @@ import type {
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { syncWorkItemDescriptionEvidenceForWorkItem } from "@/src/lib/evidence-persistence";
+import { filterSupersededProjectClaims } from "@/src/services/project-knowledge-policy";
 import {
   buildHighlightEmbeddingText,
   ensureHighlightEmbeddings,
@@ -25,7 +26,7 @@ const defaultLimits = {
   artifacts: 3,
 } as const;
 const broadProjectQueryPattern =
-  /\b(summarize|overview|strongest|accomplishments?|achievements?|tell me about|what did (?:i|we)|project context)\b/i;
+  /\b(summarize|overview|strongest|accomplishments?|achievements?|tell me about|what did (?:i|we)|project context|(?:main|overall|system|project|high[- ]level) architecture)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
 const currentProjectQueryPattern =
   /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|as of)\b/i;
 
@@ -114,6 +115,21 @@ function tokenize(value: string) {
   ).slice(0, 32);
 }
 
+const postgresLexicalStopWords = new Set([
+  "and", "answer", "assistant", "current", "does", "how", "objective", "prior",
+  "question", "source", "sources", "that", "the", "this", "title", "type", "used",
+  "user", "what", "which", "why", "with",
+]);
+
+function postgresLexicalQuery(value: string) {
+  const terms = Array.from(new Set(
+    normalizeWhitespace(value.toLowerCase())
+      .split(/[^a-z0-9_]+/)
+      .filter((term) => term.length > 2 && !postgresLexicalStopWords.has(term)),
+  )).slice(0, 24);
+  return terms.join(" OR ");
+}
+
 function lexicalScore(query: string, content: string) {
   const normalizedQuery = normalizeWhitespace(query.toLowerCase());
   const normalizedContent = normalizeWhitespace(content.toLowerCase());
@@ -125,6 +141,16 @@ function lexicalScore(query: string, content: string) {
 
   if (normalizedQuery.length > 4 && normalizedContent.includes(normalizedQuery)) {
     score += 4;
+  }
+
+  // Preserve intent across common inflections that substring matching and
+  // pgvector cannot reliably bridge (especially in mock/offline evaluation,
+  // where query and stored embeddings may come from different providers).
+  if (
+    /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(query) &&
+    /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(content)
+  ) {
+    score += 5;
   }
 
   return score;
@@ -154,6 +180,15 @@ function authorityWeight(authority: ProjectKnowledgeAuthority) {
 function recencyScore(updatedAt: Date) {
   const ageInDays = Math.max(0, (Date.now() - updatedAt.getTime()) / 86_400_000);
   return Math.max(0, 1.25 - ageInDays / 365);
+}
+
+function emptyKnowledgeRanks() {
+  return {
+    highlights: new Map<string, number>(),
+    projectFacts: new Map<string, number>(),
+    evidence: new Map<string, number>(),
+    artifacts: new Map<string, number>(),
+  };
 }
 
 function highlightRanking(highlight: {
@@ -217,11 +252,13 @@ async function loadPostgresLexicalScores(input: {
   query: string;
 }) {
   type RankedRow = { id: string; score: number };
+  const lexicalQuery = postgresLexicalQuery(input.query);
+  if (!lexicalQuery) return emptyKnowledgeRanks();
 
   try {
     const [highlights, projectFacts, evidence, artifacts] = await Promise.all([
       prisma.$queryRaw<RankedRow[]>`
-        WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
+        WITH query AS (SELECT websearch_to_tsquery('english', ${lexicalQuery}) AS value)
         SELECT claim."id", ts_rank_cd(
           to_tsvector('english', coalesce(claim."searchText", '')),
           query.value
@@ -233,7 +270,7 @@ async function loadPostgresLexicalScores(input: {
         LIMIT 40
       `,
       prisma.$queryRaw<RankedRow[]>`
-        WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
+        WITH query AS (SELECT websearch_to_tsquery('english', ${lexicalQuery}) AS value)
         SELECT fact."id", ts_rank_cd(
           to_tsvector('english', coalesce(fact."searchText", '')),
           query.value
@@ -246,7 +283,7 @@ async function loadPostgresLexicalScores(input: {
         LIMIT 40
       `,
       prisma.$queryRaw<RankedRow[]>`
-        WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
+        WITH query AS (SELECT websearch_to_tsquery('english', ${lexicalQuery}) AS value)
         SELECT evidence."id", ts_rank_cd(
           to_tsvector('english', coalesce(evidence."searchText", '')),
           query.value
@@ -259,7 +296,7 @@ async function loadPostgresLexicalScores(input: {
         LIMIT 40
       `,
       prisma.$queryRaw<RankedRow[]>`
-        WITH query AS (SELECT websearch_to_tsquery('english', ${input.query}) AS value)
+        WITH query AS (SELECT websearch_to_tsquery('english', ${lexicalQuery}) AS value)
         SELECT artifact."id", ts_rank_cd(
           to_tsvector('english', coalesce(artifact."searchText", '')),
           query.value
@@ -331,14 +368,65 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       select: { id: true },
     });
     await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
-    const workItem = await prisma.workItem.findFirstOrThrow({
-      where: {
-        id: workItemId,
-        userId,
-      },
-      include: {
+    const broadQuery = broadProjectQueryPattern.test(query);
+    const selectedLimits = {
+      highlights: limits?.highlights ?? (broadQuery ? 100 : defaultLimits.highlights),
+      projectFacts: limits?.projectFacts ?? (broadQuery ? 100 : defaultLimits.projectFacts),
+      evidence: limits?.evidence ?? defaultLimits.evidence,
+      artifacts: limits?.artifacts ?? defaultLimits.artifacts,
+    };
+    const preferredFactIds = new Set(
+      purpose === "public_artifact" ? [] : (preferredProjectFactIds ?? []),
+    );
+    // Rank cheap identifiers first, then hydrate only bounded candidates and
+    // their provenance. This prevents a chat turn from materializing the full
+    // active knowledge graph before top-k selection.
+    const [vectorRanks, lexicalRanks] = broadQuery
+      ? [emptyKnowledgeRanks(), emptyKnowledgeRanks()]
+      : await Promise.all([
+          findNearestProjectKnowledge({ workItemId, query, limit: 40 }).catch(emptyKnowledgeRanks),
+          loadPostgresLexicalScores({ userId, workItemId, query }),
+        ]);
+    const candidateIds = (
+      vector: Map<string, number>,
+      lexical: Map<string, number>,
+      extras: Iterable<string> = [],
+    ) => {
+      const preferred = new Set(extras);
+      const ranked = Array.from(new Set([...vector.keys(), ...lexical.keys(), ...preferred]))
+        .sort((left, right) =>
+          Number(preferred.has(right)) - Number(preferred.has(left)) ||
+          ((lexical.get(right) ?? 0) * 10 + (vector.get(right) ?? 0) * 8) -
+            ((lexical.get(left) ?? 0) * 10 + (vector.get(left) ?? 0) * 8) ||
+          left.localeCompare(right)
+        );
+      // Hydrate a bounded combined-rank shortlist. Applying `take` after an
+      // `updatedAt` sort can otherwise discard the actual vector/lexical
+      // winner before the application-level scorer ever sees it.
+      const preferredIds = ranked.filter((id) => preferred.has(id));
+      const ordinaryIds = ranked.filter((id) => !preferred.has(id)).slice(0, 48);
+      return [...preferredIds, ...ordinaryIds];
+    };
+    const highlightCandidateIds = candidateIds(vectorRanks.highlights, lexicalRanks.highlights);
+    const projectFactCandidateIds = candidateIds(vectorRanks.projectFacts, lexicalRanks.projectFacts, preferredFactIds);
+    const evidenceCandidateIds = candidateIds(vectorRanks.evidence, lexicalRanks.evidence);
+    const artifactCandidateIds = candidateIds(vectorRanks.artifacts, lexicalRanks.artifacts);
+    const [workItem, policyLifecycleFacts] = await Promise.all([
+      prisma.workItem.findFirstOrThrow({
+        where: {
+          id: workItemId,
+          userId,
+        },
+        include: {
         highlights: {
-          where: { lifecycleStatus: "active" },
+          where: {
+            lifecycleStatus: "active",
+            ...(!broadQuery && highlightCandidateIds.length ? { id: { in: highlightCandidateIds } } : {}),
+          },
+          orderBy: { updatedAt: "desc" },
+          take: broadQuery
+            ? 120
+            : highlightCandidateIds.length || Math.max(32, selectedLimits.highlights * 4),
           include: {
             evidence: {
               include: {
@@ -353,7 +441,15 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           },
         },
         projectFacts: {
-          where: { status: "approved", lifecycleStatus: "active" },
+          where: {
+            status: "approved",
+            lifecycleStatus: "active",
+            ...(!broadQuery && projectFactCandidateIds.length ? { id: { in: projectFactCandidateIds } } : {}),
+          },
+          orderBy: { updatedAt: "desc" },
+          take: broadQuery
+            ? 120
+            : projectFactCandidateIds.length || Math.max(32, selectedLimits.projectFacts * 4, preferredFactIds.size),
           include: {
             evidence: {
               include: {
@@ -366,14 +462,26 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           where: {
             included: true,
             lifecycleStatus: "active",
+            ...(!broadQuery && evidenceCandidateIds.length ? { id: { in: evidenceCandidateIds } } : {}),
           },
+          orderBy: { updatedAt: "desc" },
+          take: broadQuery
+            ? 60
+            : evidenceCandidateIds.length || Math.max(40, selectedLimits.evidence * 5),
           include: {
             source: true,
             tags: true,
           },
         },
         artifacts: {
-          where: { lifecycleStatus: "active" },
+          where: {
+            lifecycleStatus: "active",
+            ...(!broadQuery && artifactCandidateIds.length ? { id: { in: artifactCandidateIds } } : {}),
+          },
+          orderBy: { updatedAt: "desc" },
+          take: broadQuery
+            ? 30
+            : artifactCandidateIds.length || Math.max(20, selectedLimits.artifacts * 5),
           include: {
             highlightProvenance: {
               include: {
@@ -399,21 +507,34 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             },
           },
         },
-      },
-    });
-    const broadQuery = broadProjectQueryPattern.test(query);
-    const selectedLimits = {
-      highlights: limits?.highlights ?? (broadQuery ? 100 : defaultLimits.highlights),
-      projectFacts: limits?.projectFacts ?? (broadQuery ? 100 : defaultLimits.projectFacts),
-      evidence: limits?.evidence ?? defaultLimits.evidence,
-      artifacts: limits?.artifacts ?? defaultLimits.artifacts,
-    };
-    const preferredFactIds = new Set(
-      purpose === "public_artifact" ? [] : (preferredProjectFactIds ?? []),
-    );
+        },
+      }),
+      // The main graph hydration is deliberately bounded. Conflict policy is
+      // not a ranking concern, though: an older authoritative lifecycle fact
+      // must still be able to suppress a newer-but-stale README/Highlight even
+      // when it falls outside the top hydrated rows.
+      prisma.projectFact.findMany({
+        where: {
+          workItemId,
+          status: "approved",
+          lifecycleStatus: "active",
+          subsystemKey: "knowledge_review_lifecycle",
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 16,
+        select: {
+          subsystemKey: true,
+          statement: true,
+        },
+      }),
+    ]);
 
-    await Promise.allSettled([
-      ensureHighlightEmbeddings(
+    // Embeddings are maintained on write/backfill paths. Rebuilding every
+    // missing vector synchronously makes an ordinary chat turn pay for old
+    // data it may never use. The opt-in mode remains useful during migrations.
+    if ((process.env.WORKBASE_RETRIEVAL_EMBEDDING_BACKFILL_MODE ?? "write_only") === "request") {
+      await Promise.allSettled([
+        ensureHighlightEmbeddings(
         workItem.highlights.map((highlight) => ({
           id: highlight.id,
           workItemId: highlight.workItemId,
@@ -455,26 +576,19 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           createdAt: highlight.createdAt,
           updatedAt: highlight.updatedAt,
         })),
-      ),
-      ensureProjectKnowledgeEmbeddings({
-        projectFacts: workItem.projectFacts,
-        evidenceItems: workItem.evidenceItems,
-        artifacts: workItem.artifacts,
-      }),
-    ]);
+        ),
+        ensureProjectKnowledgeEmbeddings({
+          projectFacts: workItem.projectFacts,
+          evidenceItems: workItem.evidenceItems,
+          artifacts: workItem.artifacts,
+        }),
+      ]);
+    }
 
-    const vectorRanks = await findNearestProjectKnowledge({
-      workItemId,
-      query,
-      limit: 40,
-    }).catch(() => ({
-      highlights: new Map<string, number>(),
-      projectFacts: new Map<string, number>(),
-      evidence: new Map<string, number>(),
-      artifacts: new Map<string, number>(),
-    }));
-    const lexicalRanks = await loadPostgresLexicalScores({ userId, workItemId, query });
-
+    // Broad catalog summaries are selected by authority, current-head
+    // validation, accomplishment scores, and subsystem coverage. A query
+    // embedding and four full-text queries cannot improve that exhaustive
+    // requirement selection, so skip them on this hot path.
     const highlightHits = workItem.highlights
       .filter((highlight) => isHighlightEligible(highlight, purpose))
       .map((highlight): ProjectKnowledgeHit => {
@@ -747,18 +861,42 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .sort((left, right) => right.score - left.score)
       .slice(0, selectedLimits.artifacts);
 
-    const hits = [...highlightHits, ...projectFactHits, ...evidenceHits, ...artifactHits].sort(
+    const rawPolicyContext = [
+      ...policyLifecycleFacts.map((fact) => ({
+        subsystemKey: fact.subsystemKey,
+        title: fact.statement,
+        content: fact.statement,
+      })),
+      ...workItem.highlights.map((highlight) => ({
+        subsystemKey: highlightSubsystemKey(highlight.metadata),
+        title: highlight.text,
+        content: highlight.summary,
+      })),
+      ...workItem.projectFacts.map((fact) => ({
+        subsystemKey: fact.subsystemKey,
+        title: fact.statement,
+        content: fact.statement,
+      })),
+    ];
+    const hits = filterSupersededProjectClaims(
+      [...highlightHits, ...projectFactHits, ...evidenceHits, ...artifactHits],
+      rawPolicyContext,
+    ).sort(
       (left, right) => right.score - left.score,
     );
+    const filteredHighlightHits = hits.filter((hit) => hit.kind === "highlight");
+    const filteredProjectFactHits = hits.filter((hit) => hit.kind === "project_fact");
+    const filteredEvidenceHits = hits.filter((hit) => hit.kind === "evidence");
+    const filteredArtifactHits = hits.filter((hit) => hit.kind === "artifact");
     const warnings = [
-      ...(artifactHits.length
+      ...(filteredArtifactHits.length
         ? [
           regroundArtifactSources
             ? "Prior artifacts are derivative context and were exposed only through their direct Highlight or durable-evidence provenance."
             : "Prior artifacts are derivative context. Re-ground their factual content in highlight and evidence citations before reuse.",
           ]
         : []),
-      ...(highlightHits.some((hit) => hit.sensitivityFlag)
+      ...(filteredHighlightHits.some((hit) => hit.sensitivityFlag)
         ? ["Sensitive project context is present in this private retrieval result."]
         : []),
     ];
@@ -767,10 +905,10 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       query,
       purpose,
       hits,
-      selectedHighlightIds: highlightHits.map((hit) => hit.id),
-      selectedProjectFactIds: projectFactHits.map((hit) => hit.id),
-      selectedEvidenceItemIds: evidenceHits.map((hit) => hit.id),
-      selectedArtifactIds: artifactHits.map((hit) => hit.id),
+      selectedHighlightIds: filteredHighlightHits.map((hit) => hit.id),
+      selectedProjectFactIds: filteredProjectFactHits.map((hit) => hit.id),
+      selectedEvidenceItemIds: filteredEvidenceHits.map((hit) => hit.id),
+      selectedArtifactIds: filteredArtifactHits.map((hit) => hit.id),
       warnings,
     };
   },

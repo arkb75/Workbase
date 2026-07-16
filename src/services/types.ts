@@ -156,6 +156,7 @@ export interface ProjectResearchService {
     question: string;
     purpose: ProjectResearchPurpose;
     hints?: string[];
+    preloadedKnowledge?: ProjectKnowledgeResult;
     onAgentEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
   }): Promise<ProjectResearchResult>;
 }

@@ -6,7 +6,12 @@ import type {
   ProjectKnowledgeHit,
   ProjectResearchResult,
 } from "@/src/domain/project-chat";
-import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
+import {
+  createStructuredGenerationBudget,
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+} from "@/src/lib/bedrock-structured-llm-client";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -224,6 +229,7 @@ interface PathCandidate {
   path: string;
   size: number | null;
   origin: "manifest" | "search";
+  matchedQueries: string[];
   score: number;
 }
 
@@ -277,6 +283,49 @@ function questionTokens(question: string) {
     .slice(0, 20);
 }
 
+const controlFlowResearchPattern = /\b(?:retry|retries|backoff|attempts?|loop|iterations?|terminat(?:e|es|ed|ing|ion)?|break|exit|stop reason|timeout|limits?|budget)\b/i;
+const testResearchPattern = /\b(?:tests?|specs?|coverage|safeguards?|regressions?)\b/i;
+const explicitCodeLocatorPattern = /`[^`\n]+`|\b(?:[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[a-z][a-z0-9]*_[a-z0-9_]+)\b|\b[^\s/]+\.(?:ts|tsx|js|jsx|py|go|rs|java|sql|prisma)\b/;
+
+export function hasHighConfidenceDeterministicResearchPlan(question: string) {
+  return controlFlowResearchPattern.test(question) || explicitCodeLocatorPattern.test(question);
+}
+
+export function deterministicResearchQueries(question: string) {
+  if (controlFlowResearchPattern.test(question)) {
+    const queries: string[] = [];
+    if (/\b(?:limits?|bounded?|maximum|max(?:imum)? attempts?|iterations?|budget)\b/i.test(question)) {
+      queries.push("maxIterations");
+    }
+    if (/\b(?:terminat(?:e|es|ed|ing|ion)?|stop reason|break|exit|what stops|when does)\b/i.test(question)) {
+      queries.push("stopReason");
+    }
+    if (/\b(?:retry|retries|backoff)\b/i.test(question)) queries.push("retry");
+    if (/\b(?:loop|while)\b/i.test(question)) queries.push("while");
+    return Array.from(new Set(queries)).slice(0, 2);
+  }
+
+  const terms = questionTokens(question).slice(0, 5).join(" ") || "architecture implementation";
+  return Array.from(new Set([terms, "architecture workflow service data flow"])).slice(0, 2);
+}
+
+export function repositoryExcerptFocusTerms(question: string, matchedQueries: readonly string[] = []) {
+  const explicitTerms = questionTokens(question).filter((term) =>
+    !new Set(["attached", "inspect", "project", "repository", "where", "what", "which"]).has(term)
+  );
+  const expanded = controlFlowResearchPattern.test(question)
+    ? [
+        "retry", "retries", "backoff", "attempt", "attempts", "while", "break", "return", "throw",
+        "maxIterations", "maxAttempts", "maxRetries", "stopReason", "timeout", "budget", "limit",
+      ]
+    : [];
+  return Array.from(new Set([
+    ...matchedQueries.flatMap((query) => query.split(/[^A-Za-z0-9_$.-]+/).filter((term) => term.length >= 3)),
+    ...expanded,
+    ...explicitTerms,
+  ])).slice(0, 20);
+}
+
 export function repositoryPathScore(path: string, question: string, origin: PathCandidate["origin"] = "manifest") {
   const normalizedPath = path.toLowerCase();
   const tokenScore = questionTokens(question).reduce(
@@ -287,7 +336,15 @@ export function repositoryPathScore(path: string, question: string, origin: Path
     ? 8
     : 0;
   const sourceScore = /\.(?:ts|tsx|js|jsx|py|go|rs|java|sql|md|json|yaml|yml)$/i.test(path) ? 3 : 0;
-  return (origin === "search" ? 100 : 0) + tokenScore + architectureScore + sourceScore;
+  const isTestPath = /(?:^|\/)(?:__tests__\/|tests?\/|[^/]+\.(?:test|spec)\.)/i.test(path);
+  const testAdjustment = isTestPath
+    ? (testResearchPattern.test(question) ? 30 : -90)
+    : 15;
+  const controlRuntimeAdjustment = controlFlowResearchPattern.test(question) &&
+    /(?:agent|client|controller|engine|executor|runtime|service|worker|workflow|retry)/i.test(normalizedPath)
+    ? 45
+    : 0;
+  return (origin === "search" ? 100 : 0) + tokenScore + architectureScore + sourceScore + testAdjustment + controlRuntimeAdjustment;
 }
 
 function coveragePathScore(
@@ -532,10 +589,9 @@ function defaultPlan(
   entries: readonly RepositorySessionEntry[],
   scope: ResearchScope,
 ) {
-  const terms = questionTokens(question).slice(0, 5).join(" ") || "architecture implementation";
   const queries = scope === "bounded_comprehensive"
-    ? ["architecture workflow retrieval", "github ingestion review tests"]
-    : Array.from(new Set([terms, "architecture workflow service data flow"])).slice(0, 2);
+    ? []
+    : deterministicResearchQueries(question);
   return {
     coverageTargets: scope === "bounded_comprehensive"
       ? REPRESENTATIVE_COVERAGE_TARGETS.map((target) => target.label)
@@ -550,6 +606,20 @@ function defaultPlan(
   };
 }
 
+function failedResearchModelUsage(error: unknown, phase: string) {
+  const usage = error instanceof StructuredOutputError ? error.tokenUsage : null;
+  return {
+    phase,
+    usage,
+    status: error instanceof StructuredOutputError
+      ? error.status
+      : error instanceof StructuredGenerationBudgetError
+        ? error.code
+        : "failed",
+    unknownUsageAttempts: usage || error instanceof StructuredGenerationBudgetError ? 0 : 1,
+  };
+}
+
 async function createResearchPlan(input: {
   question: string;
   purpose: "answer_question" | "discover_highlights";
@@ -558,7 +628,15 @@ async function createResearchPlan(input: {
   hints?: string[];
   scope: ResearchScope;
 }) {
-  if (resolveWorkbaseLlmProvider() === "mock") return defaultPlan(input.question, input.entries, input.scope);
+  const plannerMode = process.env.WORKBASE_RESEARCH_PLANNER_MODE ?? "hybrid";
+  if (
+    resolveWorkbaseLlmProvider() === "mock" ||
+    plannerMode === "deterministic" ||
+    (plannerMode === "hybrid" && (
+      input.scope === "bounded_comprehensive" ||
+      hasHighConfidenceDeterministicResearchPlan(input.question)
+    ))
+  ) return defaultPlan(input.question, input.entries, input.scope);
   try {
     const result = await getBedrockStructuredLlmClient().generateStructured({
       systemPrompt: [
@@ -584,9 +662,16 @@ async function createResearchPlan(input: {
       schemaName: "repository_research_plan",
       schemaDescription: "A bounded repository coverage and search plan.",
       jsonSchema: planJsonSchema,
-      maxTokens: 8_000,
+      maxTokens: 2_000,
       temperature: 0,
-      effort: "high",
+      effort: "medium",
+      transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+      budget: createStructuredGenerationBudget({
+        maxModelCalls: 1,
+        maxRepairPasses: 0,
+        maxOutputTokens: 2_000,
+        maxTotalTokens: 16_000,
+      }),
     });
     const allowedSources = new Set(input.entries.map((entry) => entry.sourceId));
     return {
@@ -596,8 +681,11 @@ async function createResearchPlan(input: {
       searches: result.data.searches.filter((search) => allowedSources.has(search.sourceId)).slice(0, 2),
       tokenUsage: result.tokenUsage,
     };
-  } catch {
-    return defaultPlan(input.question, input.entries, input.scope);
+  } catch (error) {
+    return {
+      ...defaultPlan(input.question, input.entries, input.scope),
+      tokenUsage: failedResearchModelUsage(error, "planning"),
+    };
   }
 }
 
@@ -622,7 +710,8 @@ async function selectFiles(input: {
     .slice()
     .sort((left, right) => right.score - left.score)
     .slice(0, 80);
-  if (resolveWorkbaseLlmProvider() === "mock") {
+  const selectorMode = process.env.WORKBASE_RESEARCH_SELECTOR_MODE ?? "deterministic";
+  if (resolveWorkbaseLlmProvider() === "mock" || selectorMode !== "model") {
     return {
       handles: ranked.slice(0, INITIAL_FILE_TARGET).map((candidate) => candidate.handle),
       reasons: Object.fromEntries(ranked.slice(0, INITIAL_FILE_TARGET).map((candidate) => [candidate.handle, "Highest deterministic request relevance score."])),
@@ -646,9 +735,16 @@ async function selectFiles(input: {
       schemaName: "repository_file_selection",
       schemaDescription: "Repository path handles selected for bounded reads.",
       jsonSchema: selectionJsonSchema,
-      maxTokens: 8_000,
+      maxTokens: 2_000,
       temperature: 0,
-      effort: "high",
+      effort: "medium",
+      transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+      budget: createStructuredGenerationBudget({
+        maxModelCalls: 1,
+        maxRepairPasses: 0,
+        maxOutputTokens: 2_000,
+        maxTotalTokens: 16_000,
+      }),
     });
     const allowed = new Set(ranked.map((candidate) => candidate.handle));
     const handles = Array.from(new Set(result.data.files.map((file) => file.handle)))
@@ -660,12 +756,12 @@ async function selectFiles(input: {
       unresolvedTargets: result.data.unresolvedTargets,
       tokenUsage: result.tokenUsage,
     };
-  } catch {
+  } catch (error) {
     return {
       handles: ranked.slice(0, INITIAL_FILE_TARGET).map((candidate) => candidate.handle),
       reasons: Object.fromEntries(ranked.slice(0, INITIAL_FILE_TARGET).map((candidate) => [candidate.handle, "Fallback request relevance score."])),
       unresolvedTargets: [] as string[],
-      tokenUsage: null,
+      tokenUsage: failedResearchModelUsage(error, "file_selection"),
     };
   }
 }
@@ -745,7 +841,7 @@ export async function researchProject(
   },
 ): Promise<ProjectResearchResult> {
   const question = normalizeWhitespace(input.question).slice(0, 4_000);
-  const knowledge = await projectKnowledgeRetrievalService.retrieve({
+  const knowledge = input.preloadedKnowledge ?? await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,
     workItemId: input.workItemId,
     query: question,
@@ -802,6 +898,7 @@ export async function researchProject(
         const existing = pathCandidates.find((entry) => `${entry.sourceId}:${entry.path}` === key);
         if (existing) {
           existing.origin = "search";
+          existing.matchedQueries = Array.from(new Set([...existing.matchedQueries, ...candidate.matchedQueries]));
           existing.score = repositoryPathScore(existing.path, question, "search");
         }
       }
@@ -848,6 +945,7 @@ export async function researchProject(
         path: path.path,
         size: path.size,
         origin: "manifest",
+        matchedQueries: [],
       }));
       manifestSummaries.push({
         sourceId: entry.sourceId,
@@ -938,6 +1036,7 @@ export async function researchProject(
         path: match.path,
         size: match.size,
         origin: "search",
+        matchedQueries: [search.query],
       }));
     } catch (error) {
       await traceResearchTool({
@@ -1000,21 +1099,23 @@ export async function researchProject(
   context = { ...context, run: { ...context.run, phase: "reading", allowedActions: ["read_selected_files"] } };
   await persistResearchState({ runId: input.runId, phase: "reading", context, coverage, usage: budget.getUsage(), notebook: { paths: pathCandidates, citations: exploredEvidence }, warnings, modelUsage });
 
-  readBatches:
   while (
     readQueue.length &&
     attemptedHandles.size < MAX_FILE_READS &&
     (researchScope === "bounded_comprehensive" || exploredEvidence.length < INITIAL_FILE_TARGET)
   ) {
-    const batch = readQueue.splice(0, 4).filter((candidate) => !attemptedHandles.has(candidate.handle));
-    for (const candidate of batch) {
-      if (
-        attemptedHandles.size >= MAX_FILE_READS ||
-        (researchScope === "targeted" && exploredEvidence.length >= INITIAL_FILE_TARGET)
-      ) break;
-      attemptedHandles.add(candidate.handle);
+    const remainingReads = MAX_FILE_READS - attemptedHandles.size;
+    const remainingTarget = researchScope === "targeted"
+      ? INITIAL_FILE_TARGET - exploredEvidence.length
+      : remainingReads;
+    const batch = readQueue
+      .splice(0, Math.min(4, remainingReads, remainingTarget))
+      .filter((candidate) => !attemptedHandles.has(candidate.handle));
+    batch.forEach((candidate) => attemptedHandles.add(candidate.handle));
+    const batchEvidence = new Map<string, ProjectKnowledgeCitation>();
+    await Promise.all(batch.map(async (candidate) => {
       const entry = entries.find((repository) => repository.sourceId === candidate.sourceId);
-      if (!entry) continue;
+      if (!entry) return;
       try {
         await traceResearchTool({
           runId: input.runId,
@@ -1025,12 +1126,16 @@ export async function researchProject(
             repository: candidate.repository,
             commitSha: entry.session.snapshot.revision.commitSha,
             path: candidate.path,
-            lineStart: 1,
-            lineEnd: 160,
+            focusTerms: repositoryExcerptFocusTerms(question, candidate.matchedQueries),
+            lineWindow: 160,
           },
         });
-        const result = await entry.session.readFile({ path: candidate.path, lineStart: 1, lineEnd: 160 });
-        exploredEvidence.push(makeFileCitation(result));
+        const result = await entry.session.readFile({
+          path: candidate.path,
+          focusTerms: repositoryExcerptFocusTerms(question, candidate.matchedQueries),
+          lineWindow: 160,
+        });
+        batchEvidence.set(candidate.handle, makeFileCitation(result));
         await traceResearchTool({
           runId: input.runId,
           type: "tool_result",
@@ -1074,10 +1179,14 @@ export async function researchProject(
         warnings.push(`${candidate.repository}/${candidate.path}: ${code}`);
         if (code === "budget_exhausted") {
           budgetStopped = true;
-          break readBatches;
         }
       }
+    }));
+    for (const candidate of batch) {
+      const citation = batchEvidence.get(candidate.handle);
+      if (citation) exploredEvidence.push(citation);
     }
+    if (budgetStopped) break;
   }
 
   if (researchScope === "bounded_comprehensive") {
@@ -1101,7 +1210,7 @@ export async function researchProject(
     coverage.uninspected.push(`Repositories omitted by the three-repository cap: ${omittedRepositories.join(", ")}.`);
   }
 
-  const partial = Boolean(
+  let partial = Boolean(
     failures.length ||
     omittedRepositories.length ||
     coverage.uninspected.length ||
@@ -1161,6 +1270,7 @@ export async function researchProject(
     });
     modelUsage.push({ phase: "project_fact_extraction", usage: candidates.tokenUsage });
     coverage.uninspected.push(...candidates.coverageGaps.filter((gap) => !coverage.uninspected.includes(gap)));
+    partial ||= candidates.coverageGaps.length > 0;
     if (!candidates.candidateIds.length) {
       return baseResult({
         status: "insufficient_context",

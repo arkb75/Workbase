@@ -57,7 +57,14 @@ describe("repository synthesis limit fallback", () => {
       confidence: "high",
       citationIndexes: [1, 2, 3, 4],
     })]);
-    expect(result.highlights).toEqual([]);
+    expect(result.highlights).toEqual([
+      expect.objectContaining({
+        text: expect.stringContaining("Bedrock Converse agent"),
+        visibility: "private",
+        confidence: "high",
+        citationIndexes: [1, 2, 3, 4],
+      }),
+    ]);
   });
 
   it("grounds retrieval/provenance synthesis in several distinct services", () => {
@@ -101,6 +108,7 @@ describe("repository synthesis limit fallback", () => {
         "src/services/project-knowledge-retrieval-service.ts",
         "src/services/project-answer-grounding-service.ts",
         "src/services/chat-citation-service.ts",
+        "src/services/prior-turn-provenance-service.ts",
       ],
       "real multi-turn history",
     ],
@@ -110,6 +118,7 @@ describe("repository synthesis limit fallback", () => {
         "src/services/artifact-workflow-service.ts",
         "src/services/artifact-generation-service.ts",
         "src/services/artifact-persistence-service.ts",
+        "workflows/artifact.ts",
       ],
       "freeform briefs",
     ],
@@ -118,7 +127,9 @@ describe("repository synthesis limit fallback", () => {
       [
         "src/services/knowledge-change-service.ts",
         "src/services/knowledge-review-service.ts",
+        "src/services/knowledge-reconciliation-service.ts",
         "src/services/knowledge-staleness-service.ts",
+        "components/knowledge-update-inbox.tsx",
       ],
       "auto-applied when safe",
     ],
@@ -130,5 +141,16 @@ describe("repository synthesis limit fallback", () => {
       confidence: "high",
     })]);
     expect(result.facts[0]?.citationIndexes.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not turn one matching filename into a broad multi-component capability", () => {
+    const result = fallbackSubsystemSynthesis("ai_runtime", [
+      entry("src/lib/bedrock-converse-agent.ts"),
+    ]);
+
+    expect(result.facts[0]?.statement).toBe("src/lib/bedrock-converse-agent.ts defines supported repository behavior.");
+    expect(result.facts[0]?.statement).not.toContain("structured generation");
+    expect(result.highlights).toEqual([]);
+    expect(result.unresolvedQuestions[0]).toContain("clause-level evidence");
   });
 });

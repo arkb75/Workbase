@@ -15,6 +15,9 @@ import {
   redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
+// Static analysis remains blob-compatible with v13. Path-to-capability mapping
+// is versioned by REPOSITORY_COVERAGE_POLICY_VERSION and is cheaply rebased
+// without rereading every unchanged GitHub blob.
 export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = "repository-coverage-v13";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
@@ -111,8 +114,7 @@ export async function resolveRepositoryTargetHeads(input: {
     select: { id: true },
     orderBy: { createdAt: "asc" },
   });
-  const targets: RepositoryTargetHead[] = [];
-  for (const source of sources) {
+  const targets = await Promise.all(sources.map(async (source): Promise<RepositoryTargetHead> => {
     const attached = await authorizeAttachedRepository({ ...input, sourceId: source.id });
     const commit = await resolveGitHubCommit({
       token: attached.token,
@@ -122,7 +124,7 @@ export async function resolveRepositoryTargetHeads(input: {
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
     const resolvedAt = new Date().toISOString();
-    targets.push({
+    return {
       sourceId: attached.sourceId,
       repository: attached.repository.fullName,
       branch: attached.repository.defaultBranch,
@@ -130,8 +132,8 @@ export async function resolveRepositoryTargetHeads(input: {
       treeSha: commit.commit.tree.sha,
       committedAt: commit.commit.committer?.date ?? null,
       resolvedAt,
-    });
-  }
+    };
+  }));
   return targets;
 }
 

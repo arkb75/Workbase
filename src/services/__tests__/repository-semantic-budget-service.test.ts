@@ -13,6 +13,7 @@ vi.mock("@/src/services/bedrock-runtime", () => ({
 
 import {
   analyzeRepositoryFile,
+  analyzeRepositoryFileBatch,
   createRepositorySemanticBudget,
 } from "@/src/services/repository-coverage-service";
 
@@ -50,6 +51,152 @@ describe("repository semantic task and budget", () => {
         attempts: [{ status: "success" }],
       };
     });
+  });
+
+  it("reduces three uncached semantic files to one structured model call", async () => {
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 3,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+    const paths = ["src/chat.ts", "src/retrieval.ts", "src/artifact.ts"];
+    generateStructuredMock.mockImplementationOnce(async (request: { budget?: typeof budget.model }) => {
+      if (request.budget) {
+        request.budget.usage.modelCalls += 1;
+        request.budget.usage.inputTokens += 90;
+        request.budget.usage.outputTokens += 30;
+        request.budget.usage.totalTokens += 120;
+      }
+      return {
+        data: {
+          files: paths.map((path, index) => ({
+            fileKey: `file-${index + 1}`,
+            path,
+            analysis: {
+              summary: `${path} implements project behavior.`,
+              subsystemKeys: ["project_chat_grounding"],
+              findings: [{
+                statement: `${path} performs a supported project-scoped operation.`,
+                kind: "behavior",
+                capabilityKeys: ["project_chat_grounding"],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: 1,
+                lineEnd: 1,
+              }],
+              unresolvedQuestions: [],
+            },
+          })),
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: { inputTokens: 90, outputTokens: 30, totalTokens: 120 },
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const analyses = await analyzeRepositoryFileBatch(paths.map((path) => ({
+      repository: "workbase/demo",
+      commitSha: "a".repeat(40),
+      path,
+      content: "export const operation = () => true;",
+      task: {
+        objective: "Determine the implemented project behavior.",
+        capabilityKeys: ["project_chat_grounding"],
+        questions: [],
+        expectedOutputs: ["An exact-line supported finding"],
+      },
+      budget,
+    })));
+
+    expect(generateStructuredMock).toHaveBeenCalledTimes(1);
+    expect(analyses).toHaveLength(3);
+    expect(analyses.map((analysis) => analysis.path)).toEqual(paths);
+    expect(analyses.every((analysis) => analysis.semanticStatus === "succeeded")).toBe(true);
+    expect(analyses.every((analysis) => analysis.facts[0]?.lineStart === 1 && analysis.facts[0]?.lineEnd === 1)).toBe(true);
+    expect(analyses.flatMap((analysis) => analysis.tokenUsage)).toHaveLength(1);
+    expect(budget.model.usage).toMatchObject({ modelCalls: 1, totalTokens: 120 });
+  });
+
+  it("degrades only missing or invalid file members and retains their exact gaps", async () => {
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 3,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+    generateStructuredMock.mockImplementationOnce(async (request: { budget?: typeof budget.model }) => {
+      if (request.budget) request.budget.usage.modelCalls += 1;
+      const analysis = (statement: string, lineStart: number, capabilityKey = "ai_runtime") => ({
+        summary: statement,
+        subsystemKeys: [capabilityKey],
+        findings: [{
+          statement,
+          kind: "behavior",
+          capabilityKeys: [capabilityKey],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart,
+          lineEnd: lineStart,
+        }],
+        unresolvedQuestions: [],
+      });
+      return {
+        data: {
+          files: [{
+            fileKey: "file-1",
+            path: "src/valid.ts",
+            analysis: analysis("The valid file invokes the configured model runtime.", 1),
+          }, {
+            // file-2 is deliberately omitted.
+            fileKey: "file-3",
+            path: "src/out-of-window.ts",
+            analysis: analysis("The invalid finding points outside the supplied file window.", 99),
+          }, {
+            fileKey: "file-4",
+            path: "src/wrong-capability.ts",
+            analysis: analysis("The finding uses a capability assigned to a different file task.", 1, "retrieval_provenance"),
+          }],
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: null,
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const files = ["src/valid.ts", "src/missing.ts", "src/out-of-window.ts", "src/wrong-capability.ts"];
+
+    const analyses = await analyzeRepositoryFileBatch(files.map((path) => ({
+      repository: "workbase/demo",
+      commitSha: "b".repeat(40),
+      path,
+      content: "const localValue = true;",
+      task: {
+        objective: "Determine the AI runtime behavior.",
+        capabilityKeys: ["ai_runtime"],
+        questions: [],
+        expectedOutputs: [],
+      },
+      budget,
+    })));
+
+    expect(generateStructuredMock).toHaveBeenCalledTimes(1);
+    expect(analyses[0]).toMatchObject({ path: "src/valid.ts", semanticStatus: "succeeded" });
+    expect(analyses[1]).toMatchObject({ path: "src/missing.ts", semanticStatus: "failed", facts: [] });
+    expect(analyses[1]?.unresolvedQuestions.join(" ")).toContain("provider omitted file-2");
+    expect(analyses[2]).toMatchObject({ path: "src/out-of-window.ts", semanticStatus: "degraded", facts: [] });
+    expect(analyses[2]?.unresolvedQuestions.join(" ")).toContain("Rejected out-of-window finding at 99-99");
+    expect(analyses[3]).toMatchObject({ path: "src/wrong-capability.ts", semanticStatus: "degraded", facts: [] });
+    expect(analyses[3]?.unresolvedQuestions.join(" ")).toContain("capabilities outside this file task: retrieval_provenance");
   });
 
   it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {

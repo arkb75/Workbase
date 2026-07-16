@@ -44,6 +44,7 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import {
+  nestArtifactEvidenceUnderHighlights,
   readArtifactEvidenceProvenance,
   readArtifactHighlightProvenance,
 } from "@/src/lib/artifact-provenance";
@@ -874,8 +875,9 @@ export default async function WorkItemDetailPage({
         summary: highlight.summary,
         visibility: highlight.visibility,
         confidence: highlight.confidence,
+        evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
       }));
-    const usedHighlights = artifact.highlightProvenance.length
+    const usedHighlightSnapshots = artifact.highlightProvenance.length
       ? readArtifactHighlightProvenance(artifact.highlightProvenance)
       : legacyUsedHighlights;
     const fallbackHighlights = resultRefs?.unreviewedFallbackHighlights ?? [];
@@ -892,6 +894,20 @@ export default async function WorkItemDetailPage({
     const supportingEvidence = artifact.evidenceProvenance.length
       ? readArtifactEvidenceProvenance(artifact.evidenceProvenance)
       : legacySupportingEvidence;
+    const usedHighlights = nestArtifactEvidenceUnderHighlights(
+      usedHighlightSnapshots.map((highlight) =>
+        highlight.evidenceItemIds.length
+          ? highlight
+          : {
+              ...highlight,
+              evidenceItemIds:
+                workItem.highlights
+                  .find((current) => current.id === highlight.id)
+                  ?.evidence.map((entry) => entry.evidenceItemId) ?? [],
+            },
+      ),
+      supportingEvidence,
+    );
 
     return {
       id: artifact.id,
@@ -912,7 +928,6 @@ export default async function WorkItemDetailPage({
       hasTrace: Boolean(trace),
       usedHighlights,
       fallbackHighlights,
-      supportingEvidence,
     };
   });
   const chatThreads = chatWorkspace.threads.map((chatThread) => ({

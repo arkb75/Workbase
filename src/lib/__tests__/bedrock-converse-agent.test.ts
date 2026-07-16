@@ -604,6 +604,30 @@ describe("sanitizeBedrockConverseEventValue", () => {
     expect(serialized).not.toContain("should-not-remain");
     expect(serialized).not.toContain("secret-token");
   });
+
+  it("preserves numeric usage telemetry while redacting token-shaped secrets", () => {
+    const sanitized = sanitizeBedrockConverseEventValue({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cacheReadInputTokens: 2_000,
+      cacheWriteInputTokens: 100,
+      accessToken: "github_pat_should-not-remain-1234567890",
+      token: "plain-secret",
+      inputTokensFromHeader: 999,
+    });
+
+    expect(sanitized).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cacheReadInputTokens: 2_000,
+      cacheWriteInputTokens: 100,
+      accessToken: "[REDACTED]",
+      token: "[REDACTED]",
+      inputTokensFromHeader: "[REDACTED]",
+    });
+  });
 });
 
 describe("exported error types", () => {

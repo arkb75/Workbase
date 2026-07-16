@@ -353,6 +353,72 @@ describe("githubRepositoryExplorationService", () => {
     });
   });
 
+  it("selects a bounded excerpt around relevant terms instead of always reading the file head", async () => {
+    const lines = Array.from({ length: 300 }, (_, index) => `const filler${index + 1} = true;`);
+    lines[220] = "while (iteration < maxIterations) {";
+    lines[221] = "  if (stopReason === 'end_turn') break;";
+    lines[222] = "}";
+    const content = lines.join("\n");
+    githubClientMocks.fetchGitHubTree.mockResolvedValue({
+      sha: treeSha,
+      url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,
+      truncated: false,
+      tree: [treeEntry({ path: "src/runtime.ts", sha: authBlobSha, size: Buffer.byteLength(content) })],
+    });
+    githubClientMocks.fetchGitHubBlob.mockResolvedValue({
+      sha: authBlobSha,
+      size: Buffer.byteLength(content),
+      url: `https://api.github.com/repos/workbase/demo/git/blobs/${authBlobSha}`,
+      content: Buffer.from(content).toString("base64"),
+      encoding: "base64",
+    });
+
+    const session = await startSession();
+    const result = await session.readFile({
+      path: "src/runtime.ts",
+      focusTerms: ["maxIterations", "stopReason"],
+      lineWindow: 40,
+    });
+
+    expect(result.lineStart).toBeGreaterThan(160);
+    expect(result.lineEnd - result.lineStart + 1).toBe(40);
+    expect(result.content).toContain("iteration < maxIterations");
+    expect(result.content).toContain("stopReason === 'end_turn'");
+    expect(result.citation.url).toContain(`#L${result.lineStart}-L${result.lineEnd}`);
+  });
+
+  it("keeps distinct high-priority controls together when one term repeats later", async () => {
+    const lines = Array.from({ length: 420 }, (_, index) => `const filler${index + 1} = true;`);
+    lines[149] = "if (iterations >= limits.maxIterations) throw new Error('bounded');";
+    lines[250] = "const stopReason = response.stopReason;";
+    for (let index = 251; index < 360; index += 8) {
+      lines[index] = `if (stopReason === 'reason_${index}') throw new Error(stopReason);`;
+    }
+    const content = lines.join("\n");
+    githubClientMocks.fetchGitHubTree.mockResolvedValue({
+      sha: treeSha,
+      url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,
+      truncated: false,
+      tree: [treeEntry({ path: "src/runtime.ts", sha: authBlobSha, size: Buffer.byteLength(content) })],
+    });
+    githubClientMocks.fetchGitHubBlob.mockResolvedValue({
+      sha: authBlobSha,
+      size: Buffer.byteLength(content),
+      url: `https://api.github.com/repos/workbase/demo/git/blobs/${authBlobSha}`,
+      content: Buffer.from(content).toString("base64"),
+      encoding: "base64",
+    });
+
+    const result = await (await startSession()).readFile({
+      path: "src/runtime.ts",
+      focusTerms: ["maxIterations", "stopReason"],
+      lineWindow: 160,
+    });
+
+    expect(result.content).toContain("limits.maxIterations");
+    expect(result.content).toContain("response.stopReason");
+  });
+
   it("rejects unlisted paths, oversized responses, and binary blob content", async () => {
     const session = await startSession();
 
@@ -445,6 +511,81 @@ describe("githubRepositoryExplorationService", () => {
       code: "budget_exhausted",
     });
     expect(githubClientMocks.fetchGitHubBlob).toHaveBeenCalledTimes(8);
+  });
+
+  it("allows bounded concurrent reads without oversubscribing the shared budget", async () => {
+    const content = "safe";
+    githubClientMocks.fetchGitHubTree.mockResolvedValue({
+      sha: treeSha,
+      url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,
+      truncated: false,
+      tree: [treeEntry({ path: "src/safe.ts", sha: authBlobSha, size: content.length })],
+    });
+    githubClientMocks.fetchGitHubBlob.mockImplementation(async () => ({
+      sha: authBlobSha,
+      size: content.length,
+      url: `https://api.github.com/repos/workbase/demo/git/blobs/${authBlobSha}`,
+      content: Buffer.from(content).toString("base64"),
+      encoding: "base64" as const,
+    }));
+    const session = await startSession();
+
+    const results = await Promise.allSettled(Array.from({ length: 9 }, () =>
+      session.readFile({ path: "src/safe.ts" }),
+    ));
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(8);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(githubClientMocks.fetchGitHubBlob).toHaveBeenCalledTimes(8);
+    expect(session.getUsage().fileReads).toBe(8);
+  });
+
+  it("transfers a released concurrency slot to its queued waiter before admitting a newcomer", async () => {
+    const content = "safe";
+    githubClientMocks.fetchGitHubTree.mockResolvedValue({
+      sha: treeSha,
+      url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,
+      truncated: false,
+      tree: [treeEntry({ path: "src/safe.ts", sha: authBlobSha, size: content.length })],
+    });
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    const releases: Array<() => void> = [];
+    githubClientMocks.fetchGitHubBlob.mockImplementation(() => new Promise((resolve) => {
+      activeRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      releases.push(() => {
+        activeRequests -= 1;
+        resolve({
+          sha: authBlobSha,
+          size: content.length,
+          url: `https://api.github.com/repos/workbase/demo/git/blobs/${authBlobSha}`,
+          content: Buffer.from(content).toString("base64"),
+          encoding: "base64" as const,
+        });
+      });
+    }));
+    const session = await startSession();
+    const firstWave = Array.from({ length: 5 }, () =>
+      session.readFile({ path: "src/safe.ts" }),
+    );
+
+    await vi.waitFor(() => expect(githubClientMocks.fetchGitHubBlob).toHaveBeenCalledTimes(4));
+    releases.shift()!();
+    // Let the completed operation release its service slot, but deliberately
+    // enqueue a fresh call before the awakened waiter's continuation runs.
+    await Promise.resolve();
+    await Promise.resolve();
+    const newcomer = session.readFile({ path: "src/safe.ts" });
+
+    for (let index = 0; index < 5; index += 1) {
+      await vi.waitFor(() => expect(releases.length).toBeGreaterThan(0));
+      releases.shift()!();
+    }
+    await Promise.all([...firstWave, newcomer]);
+
+    expect(githubClientMocks.fetchGitHubBlob).toHaveBeenCalledTimes(6);
+    expect(maximumActiveRequests).toBeLessThanOrEqual(4);
   });
 
   it("uses typed exploration errors for callers to handle safely", () => {

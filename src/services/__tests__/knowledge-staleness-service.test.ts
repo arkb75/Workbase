@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   currentImmutableProvenanceHeads,
   currentObservations,
+  isStrongCanonicalReplacement,
+  validateAssertion,
 } from "@/src/services/knowledge-staleness-service";
 import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
@@ -115,5 +117,90 @@ describe("knowledge staleness observations", () => {
     ]));
 
     expect(Object.fromEntries(heads)).toEqual({ "source-1": "current-sha" });
+  });
+
+  it("does not treat unrelated knowledge in the same subsystem as a canonical replacement", () => {
+    expect(isStrongCanonicalReplacement({
+      priorId: "fact-inventory",
+      priorText: "The refresh inventories every safe repository path at an immutable commit.",
+      priorSubsystemKey: "repository_knowledge_lifecycle",
+      candidateText: "Parallel semantic workers inspect bounded capability packages and report coverage gaps.",
+      candidateSubsystemKey: "repository_knowledge_lifecycle",
+      candidateSupersedesId: null,
+    })).toBe(false);
+
+    expect(isStrongCanonicalReplacement({
+      priorId: "fact-inventory",
+      priorText: "The refresh inventories safe repository files at an immutable commit.",
+      priorSubsystemKey: "repository_knowledge_lifecycle",
+      candidateText: "The repository refresh inventories safe repository files at an immutable commit.",
+      candidateSubsystemKey: "repository_knowledge_lifecycle",
+      candidateSupersedesId: null,
+    })).toBe(true);
+
+    expect(isStrongCanonicalReplacement({
+      priorId: "fact-inventory",
+      priorText: "Old wording.",
+      priorSubsystemKey: "repository_knowledge_lifecycle",
+      candidateText: "Completely revised wording.",
+      candidateSubsystemKey: "project_chat_grounding",
+      candidateSupersedesId: "fact-inventory",
+    })).toBe(true);
+  });
+
+  it("does not revalidate a modal implementation claim from stale documentation alone", async () => {
+    const assertion = "Every generated Project Fact requires mandatory human approval before it can be used.";
+    const documentationOnly = await validateAssertion({
+      assertion,
+      priorReferences: ["source-1:README.md"],
+      currentReferences: new Set(["source-1:README.md"]),
+      observations: [{
+        statement: assertion,
+        path: "README.md",
+        subsystemKeys: ["knowledge_review_lifecycle"],
+        commitSha: "a".repeat(40),
+        sourceId: "source-1",
+      }],
+    });
+
+    expect(documentationOnly).toMatchObject({
+      verdict: "unknown",
+      reason: expect.stringContaining("documentation alone cannot revalidate"),
+    });
+
+    const executableEvidence = await validateAssertion({
+      assertion,
+      priorReferences: ["source-1:README.md"],
+      currentReferences: new Set(["source-1:README.md"]),
+      observations: [{
+        statement: assertion,
+        path: "src/services/knowledge-review-service.ts",
+        subsystemKeys: ["knowledge_review_lifecycle"],
+        commitSha: "a".repeat(40),
+        sourceId: "source-1",
+      }],
+    });
+
+    expect(executableEvidence.verdict).toBe("supported");
+  });
+
+  it("does not revalidate an absolute claim from executable evidence that omits its qualifier", async () => {
+    const result = await validateAssertion({
+      assertion: "Artifacts are only generated from approved Highlights.",
+      priorReferences: ["source-1:src/services/artifact-workflow-service.ts"],
+      currentReferences: new Set(["source-1:src/services/artifact-workflow-service.ts"]),
+      observations: [{
+        statement: "The artifact workflow retrieves approved Highlights before generation.",
+        path: "src/services/artifact-workflow-service.ts",
+        subsystemKeys: ["artifact_generation"],
+        commitSha: "a".repeat(40),
+        sourceId: "source-1",
+      }],
+    });
+
+    expect(result).toMatchObject({
+      verdict: "unknown",
+      reason: expect.stringContaining("modal implementation assertion"),
+    });
   });
 });

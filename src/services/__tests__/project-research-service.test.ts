@@ -75,6 +75,10 @@ vi.mock("@/src/services/github-repository-exploration-service", () => ({
 import { GitHubRepositoryExplorationError } from "@/src/services/github-repository-exploration-service";
 import {
   classifyRepositoryResearchScope,
+  deterministicResearchQueries,
+  hasHighConfidenceDeterministicResearchPlan,
+  repositoryExcerptFocusTerms,
+  repositoryPathScore,
   researchProject,
 } from "@/src/services/project-research-service";
 
@@ -161,6 +165,18 @@ describe("deterministic project research controller", () => {
     ]);
   });
 
+  it("uses deterministic planning for exact code and control-flow questions", () => {
+    expect(hasHighConfidenceDeterministicResearchPlan(
+      "Where are retry limits enforced, and what terminates the loop?",
+    )).toBe(true);
+    expect(hasHighConfidenceDeterministicResearchPlan(
+      "How does `maxIterations` stop the agent?",
+    )).toBe(true);
+    expect(hasHighConfidenceDeterministicResearchPlan(
+      "Explain how the product decides what context matters.",
+    )).toBe(false);
+  });
+
   it("covers representative project areas for a comprehensive assessment", async () => {
     const result = await researchProject({
       runId: "run-1",
@@ -171,7 +187,7 @@ describe("deterministic project research controller", () => {
     });
 
     expect(listPathsMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(searchMock).not.toHaveBeenCalled();
     expect(readFileMock).toHaveBeenCalledTimes(8);
     expect(result.status).toBe("answered");
     expect(result.citations.map((citation) => citation.kind)).toEqual(["project_fact", "project_fact"]);
@@ -183,11 +199,9 @@ describe("deterministic project research controller", () => {
     expect(result.coverageGaps).toEqual([]);
     expect(result.partial).toBe(false);
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ maxFacts: 8 }));
-    expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(appendEventMock).not.toHaveBeenCalledWith(expect.objectContaining({
       type: "tool_call",
       toolName: "search_repository",
-      payload: expect.objectContaining({ query: expect.any(String), reason: expect.any(String) }),
-      isUserVisible: false,
     }));
     expect(appendEventMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "tool_result",
@@ -258,6 +272,75 @@ describe("deterministic project research controller", () => {
       "data and service boundaries",
     ]);
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ maxFacts: 4 }));
+  });
+
+  it("uses focused control-flow searches and prefers runtime code over tests", async () => {
+    const question = "Inspect the repository: where are retry limits enforced, and what terminates the loop?";
+    expect(deterministicResearchQueries(question)).toEqual(["maxIterations", "stopReason"]);
+    expect(repositoryPathScore("src/services/retry-runtime.ts", question, "search")).toBeGreaterThan(
+      repositoryPathScore("src/services/__tests__/retry-runtime.test.ts", question, "search"),
+    );
+    expect(repositoryExcerptFocusTerms(question)).toEqual(expect.arrayContaining([
+      "maxIterations",
+      "stopReason",
+      "retry",
+      "while",
+    ]));
+
+    searchMock.mockImplementation(async () => {
+      usage.searches += 1;
+      return {
+        matches: [
+          {
+            path: "src/lib/bedrock-converse-agent.ts",
+            blobSha: "blob-runtime",
+            size: 120,
+            immutableUrl: "https://example.test/runtime",
+            requiresRead: true as const,
+          },
+          {
+            path: "src/lib/__tests__/bedrock-converse-agent.test.ts",
+            blobSha: "blob-test",
+            size: 120,
+            immutableUrl: "https://example.test/test",
+            requiresRead: true as const,
+          },
+        ],
+        apiTotalCount: 2,
+        searchIncomplete: false,
+        treeTruncated: false,
+        usage: { ...usage },
+      };
+    });
+    factCandidateMock.mockResolvedValue({
+      candidateIds: ["candidate-1", "candidate-2"],
+      activeProjectFactIds: ["fact-1", "fact-2"],
+      coverageGaps: ["The inspected excerpts did not establish a retry or backoff policy."],
+      tokenUsage: null,
+    });
+
+    const result = await researchProject({
+      runId: "run-control-flow",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question,
+      purpose: "answer_question",
+    });
+
+    expect(result.status).toBe("answered");
+    expect(result.partial).toBe(true);
+    expect(result.answer).toContain("did not establish a retry or backoff policy");
+    expect(searchMock.mock.calls.map(([input]) => input.query)).toEqual(["maxIterations", "stopReason"]);
+    expect(readFileMock).toHaveBeenCalledWith(expect.objectContaining({
+      path: "src/lib/bedrock-converse-agent.ts",
+      focusTerms: expect.arrayContaining(["maxIterations", "stopReason"]),
+      lineWindow: 160,
+    }));
+    const readPaths = readFileMock.mock.calls.map(([input]) => input.path);
+    const runtimeIndex = readPaths.indexOf("src/lib/bedrock-converse-agent.ts");
+    const testIndex = readPaths.indexOf("src/lib/__tests__/bedrock-converse-agent.test.ts");
+    expect(runtimeIndex).toBeGreaterThanOrEqual(0);
+    expect(testIndex === -1 || runtimeIndex < testIndex).toBe(true);
   });
 
   it("returns explicit partial coverage gaps when the broad research budget ends", async () => {

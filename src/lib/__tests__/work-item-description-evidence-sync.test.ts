@@ -31,6 +31,7 @@ vi.mock("@/src/services/knowledge-dependency-service", () => ({
 }));
 
 import { syncWorkItemDescriptionEvidenceForWorkItem } from "@/src/lib/evidence-persistence";
+import { buildEvidenceSearchText } from "@/src/lib/highlight-tags";
 
 describe("Work Item description evidence synchronization", () => {
   beforeEach(() => {
@@ -124,5 +125,49 @@ describe("Work Item description evidence synchronization", () => {
         included: true,
       }),
     }));
+  });
+
+  it("does not rewrite an unchanged description source, evidence row, or tags", async () => {
+    const content = "Built grounded project chat.";
+    prismaMock.workItem.findUniqueOrThrow.mockResolvedValue({
+      id: "work-item-1",
+      description: content,
+      sources: [{
+        id: "source-description",
+        workItemId: "work-item-1",
+        type: "manual_note",
+        label: "Work Item description",
+        externalId: "work-item-1:work-item-description-source",
+        rawContent: content,
+        metadata: { kind: "work_item_description", systemOwned: true },
+        createdAt: new Date("2026-07-12T20:00:00.000Z"),
+        updatedAt: new Date("2026-07-12T20:00:00.000Z"),
+        evidenceItems: [{
+          id: "evidence-description",
+          externalId: "work-item-1:work-item-description",
+          type: "manual_note_excerpt",
+          title: "Work Item description",
+          content,
+          searchText: buildEvidenceSearchText({
+            title: "Work Item description",
+            content,
+            metadata: { kind: "work_item_description", systemOwned: true },
+          }),
+          parentKind: "work_item",
+          parentKey: "work-item-1",
+          included: true,
+          lifecycleStatus: "active",
+        }],
+      }],
+    });
+
+    await syncWorkItemDescriptionEvidenceForWorkItem("work-item-1");
+
+    expect(prismaMock.source.create).not.toHaveBeenCalled();
+    expect(prismaMock.source.update).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceItem.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceItem.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceTag.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceTag.createMany).not.toHaveBeenCalled();
   });
 });

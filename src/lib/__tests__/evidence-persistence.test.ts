@@ -44,6 +44,7 @@ vi.mock("@/src/services/knowledge-change-service", () => ({
 
 import {
   createHighlightWithRelations,
+  evidenceTagsAreCurrent,
   syncManualEvidenceItemsForWorkItem,
   syncWorkItemDescriptionEvidenceForWorkItem,
   upsertEvidenceItemsForSource,
@@ -52,6 +53,23 @@ import {
 describe("evidence persistence", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("recognizes an unchanged Evidence tag set independent of row order", () => {
+    expect(evidenceTagsAreCurrent(
+      [
+        { dimension: "skill", tag: "typescript", score: 0.9 },
+        { dimension: "work", tag: "implementation", score: null },
+      ],
+      [
+        { dimension: "work", tag: "implementation", score: null },
+        { dimension: "skill", tag: "typescript", score: 0.9 },
+      ],
+    )).toBe(true);
+    expect(evidenceTagsAreCurrent(
+      [{ dimension: "skill", tag: "typescript", score: 0.9 }],
+      [{ dimension: "skill", tag: "typescript", score: 0.8 }],
+    )).toBe(false);
   });
 
   it("preserves immutable GitHub evidence revisions and retires records missing from a re-import", async () => {

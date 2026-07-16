@@ -4,10 +4,13 @@ import {
   capabilityCandidatesFromAnalysis,
   enforceMandatoryCoverage,
   immutableSemanticCacheWhere,
+  missingAssignedFileCandidateGaps,
   missingCapabilityCandidateGaps,
   partitionCapabilityReports,
   preserveSettledCapabilityReports,
+  reusableCurrentSnapshotSemanticAnalysis,
   reusableSemanticAnalysis,
+  semanticCoverageAssignmentGaps,
   semanticFileReportSignals,
   type CapabilityReport,
   type SemanticWorkPackage,
@@ -54,7 +57,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
     expect(packages).toHaveLength(4);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 3)).toBe(true);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
     expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
     for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
   });
@@ -72,7 +75,8 @@ describe("repository semantic orchestration guardrails", () => {
     });
 
     expect(packages).toHaveLength(4);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length === 3)).toBe(true);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 2 && entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([3, 3, 3, 3]);
     expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
       new Set(Object.keys(paths).map((key) => `${key}-specific`)),
     );
@@ -80,6 +84,99 @@ describe("repository semantic orchestration guardrails", () => {
       for (const key of entry.capabilityKeys.filter((value) => value in paths)) {
         expect(entry.fileSnapshotIds).toContain(`${key}-specific`);
       }
+    }
+  });
+
+  it("reports repository-scoped obligations that exceed package capacity", () => {
+    const gaps = semanticCoverageAssignmentGaps({
+      manifest: [
+        { key: "project_chat_grounding", label: "Chat", scopeKey: "owner/repo-a", files: [{ id: "a", path: "a.ts", score: 1 }] },
+        { key: "project_chat_grounding", label: "Chat", scopeKey: "owner/repo-b", files: [{ id: "b", path: "b.ts", score: 1 }] },
+      ],
+      packages: [{ capabilityKeys: ["project_chat_grounding"], fileSnapshotIds: ["a"] }],
+    });
+
+    expect(gaps).toEqual([
+      "Semantic coverage capacity omitted project_chat_grounding for owner/repo-b.",
+    ]);
+  });
+
+  it("reports an attached repository with no classifiable mandatory capability", () => {
+    const gaps = semanticCoverageAssignmentGaps({
+      manifest: [
+        { key: "ai_runtime", label: "AI runtime", scopeKey: "owner/repo-a", files: [{ id: "a", path: "agent.ts", score: 1 }] },
+      ],
+      packages: [{ capabilityKeys: ["ai_runtime"], fileSnapshotIds: ["a"] }],
+      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
+    });
+
+    expect(gaps).toEqual([
+      "No mandatory semantic capability could be classified for attached repository owner/repo-b; coverage cannot be verified.",
+    ]);
+  });
+
+  it("keeps capacity omissions explicit across three capability-rich repositories", () => {
+    const repositories = ["owner/repo-a", "owner/repo-b", "owner/repo-c"];
+    const scopedManifest = repositories.flatMap((scopeKey) => Object.entries(paths).map(([key, path]) => ({
+      key,
+      label: key,
+      scopeKey,
+      files: [{ id: `${scopeKey}:${key}`, path, score: 10 }],
+    })));
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect every mandatory capability across attached repositories.",
+        capabilityKeys: Object.keys(paths),
+        fileSnapshotIds: [],
+        questions: ["What does each repository implement?"],
+        expectedOutputs: ["Repository-scoped supported facts"],
+      }],
+      manifest: scopedManifest,
+    });
+    const gaps = semanticCoverageAssignmentGaps({
+      manifest: scopedManifest,
+      packages,
+      expectedScopeKeys: repositories,
+    });
+
+    expect(packages).toHaveLength(4);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds)).size).toBe(32);
+    expect(gaps).toHaveLength(4);
+    expect(gaps.every((gap) => gap.startsWith("Semantic coverage capacity omitted"))).toBe(true);
+  });
+
+  it("selects a mandatory capability representative from every attached repository", () => {
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect the AI runtime across attached repositories.",
+        capabilityKeys: ["ai_runtime"],
+        fileSnapshotIds: [],
+        questions: ["How is the runtime implemented?"],
+        expectedOutputs: ["Supported facts"],
+      }],
+      manifest: [
+        {
+          key: "ai_runtime",
+          label: "AI runtime",
+          scopeKey: "snapshot-repository-a",
+          files: [{ id: "repo-a-bedrock", path: "src/lib/bedrock-converse-agent.ts", score: 10 }],
+        },
+        {
+          key: "ai_runtime",
+          label: "AI runtime",
+          scopeKey: "snapshot-repository-b",
+          files: [{ id: "repo-b-runtime", path: "src/lib/llm-runtime.ts", score: 10 }],
+        },
+      ],
+    });
+
+    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+    expect(selectedIds).toEqual(new Set(["repo-a-bedrock", "repo-b-runtime"]));
+    for (const fileId of selectedIds) {
+      expect(packages.some((entry) =>
+        entry.fileSnapshotIds.includes(fileId) && entry.capabilityKeys.includes("ai_runtime")
+      )).toBe(true);
     }
   });
 
@@ -151,6 +248,20 @@ describe("repository semantic orchestration guardrails", () => {
       candidates: [{ key: "ai_runtime" }],
     })).toEqual([
       "No supported semantic finding was produced for required capability domain_data.",
+    ]);
+
+    expect(missingAssignedFileCandidateGaps({
+      files: [
+        { id: "repo-a-runtime", path: "repo-a/agent.ts", staticSubsystemKeys: ["ai_runtime"] },
+        { id: "repo-b-runtime", path: "repo-b/agent.ts", staticSubsystemKeys: ["ai_runtime"] },
+      ],
+      workPackageCapabilityKeys: ["ai_runtime"],
+      candidates: [{
+        key: "ai_runtime",
+        evidence: [{ fileSnapshotId: "repo-a-runtime", lineStart: 1, lineEnd: 2 }],
+      }],
+    })).toEqual([
+      "repo-b/agent.ts: No supported semantic finding was produced for assigned capability ai_runtime.",
     ]);
   });
 
@@ -246,6 +357,24 @@ describe("repository semantic orchestration guardrails", () => {
     expect(reusedSubset?.facts.map((fact) => fact.statement)).toEqual([
       "The workflow defines retry-safe steps.",
     ]);
+
+    expect(reusableCurrentSnapshotSemanticAnalysis({
+      semanticStatus: "succeeded",
+      semanticAnalyzerVersion: "repository-coverage-v13",
+      semanticAnalysis: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    })).toMatchObject({
+      path: "workflows/project-chat.ts",
+      facts: [expect.objectContaining({ statement: "The workflow defines retry-safe steps." })],
+    });
+    expect(reusableCurrentSnapshotSemanticAnalysis({
+      semanticStatus: "succeeded",
+      semanticAnalyzerVersion: "repository-coverage-v12",
+      semanticAnalysis: cached,
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    })).toBeNull();
   });
 
   it("scopes a highlight embedding file to retrieval instead of unrelated package capabilities", () => {

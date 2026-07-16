@@ -33,7 +33,14 @@ if (globalThis.prisma && !canReuseDevelopmentClient) {
 
 export const prisma = canReuseDevelopmentClient
   ? globalThis.prisma!
-  : new PrismaClient({ adapter });
+  : new PrismaClient({
+      adapter,
+      // Neon may need to wake a suspended compute before the first interactive
+      // transaction. Keep the ordinary 5s default from turning that one cold
+      // start into a rolled-back chat run; warm-path latency is gated
+      // separately by the application scenario suite.
+      transactionOptions: { maxWait: 15_000, timeout: 30_000 },
+    });
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.prisma = prisma;

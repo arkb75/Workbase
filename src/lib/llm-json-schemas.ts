@@ -585,7 +585,7 @@ export const artifactGenerationJsonSchema = {
     supportingEvidenceItemIds: {
       type: "array",
       minItems: 0,
-      maxItems: 12,
+      maxItems: 0,
       items: {
         type: "string",
         minLength: 1,
@@ -596,12 +596,12 @@ export const artifactGenerationJsonSchema = {
 
 export const artifactGenerationSchemaName = "workbase_artifact_generation";
 export const artifactGenerationSchemaDescription =
-  "Structured artifact draft content grounded only in approved Workbase highlights and bounded supporting evidence.";
+  "Structured artifact draft grounded only in approved Workbase highlights; exact evidence provenance is derived outside the model.";
 export const artifactGenerationExampleOutput = {
   content:
     "- Implemented a trainable feed ranking model using investor interaction signals and deterministic fallbacks.",
   usedHighlightIds: ["highlight-01"],
-  supportingEvidenceItemIds: ["ev-01"],
+  supportingEvidenceItemIds: [],
 } satisfies JsonValue;
 export const artifactGenerationRequiredFields = [
   "content",

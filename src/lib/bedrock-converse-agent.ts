@@ -25,6 +25,13 @@ const DEFAULT_EVENT_DEPTH_LIMIT = 5;
 
 const SENSITIVE_KEY_PATTERN =
   /(?:authorization|cookie|credential|password|passwd|secret|private.?key|api.?key|token)/i;
+const SAFE_NUMERIC_USAGE_KEYS = new Set([
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
+  "cacheReadInputTokens",
+  "cacheWriteInputTokens",
+]);
 const SENSITIVE_VALUE_PATTERNS = [
   /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
@@ -391,7 +398,10 @@ export function sanitizeBedrockConverseEventValue(value: unknown): JsonValue {
       .slice(0, DEFAULT_EVENT_COLLECTION_LIMIT)
       .map(([key, nestedValue]) => [
         truncate(key, 128),
-        SENSITIVE_KEY_PATTERN.test(key) ? "[REDACTED]" : visit(nestedValue, depth + 1),
+        SENSITIVE_KEY_PATTERN.test(key) &&
+        !(SAFE_NUMERIC_USAGE_KEYS.has(key) && typeof nestedValue === "number")
+          ? "[REDACTED]"
+          : visit(nestedValue, depth + 1),
       ]);
 
     if (Object.keys(current).length > DEFAULT_EVENT_COLLECTION_LIMIT) {

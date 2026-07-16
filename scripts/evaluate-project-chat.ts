@@ -23,6 +23,12 @@ import {
 } from "../src/services/project-answer-evaluation-service";
 import { findUnsupportedOwnershipClaims } from "../src/services/project-answer-grounding-service";
 import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
+import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
+import {
+  collectModelTokenUsage,
+  collectUnknownModelUsageAttempts,
+  estimateBedrockCostUsd,
+} from "../src/services/model-usage-service";
 
 const prompt = process.argv.slice(2).join(" ").trim() || "Summarize my strongest accomplishments and make sure your information is up to date";
 
@@ -50,8 +56,8 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
       await knowledgeRefreshService.inventory(refresh.runId);
       let remaining = 1;
       while (remaining > 0) {
-        const batch = await knowledgeRefreshService.analyzeBatch({ runId: refresh.runId, batchSize: 4 });
-        remaining = batch.remaining;
+        const chunk = await knowledgeRefreshService.analyzeChunk({ runId: refresh.runId, batchSize: 8, maxBatches: 8 });
+        remaining = chunk.remaining;
       }
       await knowledgeRefreshService.repairCoverage(refresh.runId);
       await knowledgeRefreshService.finalizeCoverage(refresh.runId);
@@ -87,6 +93,8 @@ async function currentRefresh(input: { userId: string; workItemId: string; runId
 }
 
 async function main() {
+  const evaluationStartedAt = new Date();
+  const evaluationStartedMs = Date.now();
   const user = await ensureDemoUser();
   const workItem = await prisma.workItem.findFirst({
     where: { userId: user.id, title: { equals: process.env.EVAL_WORK_ITEM_TITLE ?? "Workbase", mode: "insensitive" }, sources: { some: { type: "github_repo" } } },
@@ -117,6 +125,7 @@ async function main() {
     history: [],
     rollingSummary: null,
     allowResearch: false,
+    onAgentEvent: (event) => persistResearchAgentEvent(run.id, event),
   });
   if (result.status !== "answered") throw new Error(`Evaluation did not produce a final answer: ${result.status}`);
   await completeAgentRun({
@@ -177,7 +186,7 @@ async function main() {
   const citedProjectFactIds = message.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []);
   const citedHighlightIds = message.citations.flatMap((citation) => citation.highlightId ? [citation.highlightId] : []);
   const citedEvidenceItemIds = message.citations.flatMap((citation) => citation.evidenceItemId ? [citation.evidenceItemId] : []);
-  const [highPriorityLedger, citedProjectFacts, citedHighlights, citedEvidenceItems, completenessEvent] = await Promise.all([
+  const [highPriorityLedger, citedProjectFacts, citedHighlights, citedEvidenceItems, completenessEvent, candidateGenerationRuns, runEvents] = await Promise.all([
     prisma.repositoryCapabilityLedger.findMany({
       where: { refreshRunId: refresh.id, priority: { gte: 5 }, status: "semantic_verified" },
       orderBy: [{ priority: "desc" }, { capabilityKey: "asc" }],
@@ -198,7 +207,58 @@ async function main() {
       where: { agentRunId: run.id, toolName: "audit_answer_completeness" },
       orderBy: { sequence: "desc" },
     }),
+    prisma.generationRun.findMany({
+      where: {
+        workItemId: workItem.id,
+        updatedAt: { gte: evaluationStartedAt },
+      },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        provider: true,
+        modelId: true,
+        idempotencyKey: true,
+        tokenUsage: true,
+        estimatedCostUsd: true,
+        resultRefs: true,
+      },
+    }),
+    prisma.agentRunEvent.findMany({
+      where: { agentRunId: run.id },
+      select: { type: true, toolName: true, message: true, payload: true },
+      orderBy: { sequence: "asc" },
+    }),
   ]);
+  // Attribute provider work to this evaluation's immutable refresh or chat
+  // run, rather than every generation that happened to touch the same project
+  // during the wall-clock window (for example, a cron refresh).
+  const generationRuns = candidateGenerationRuns.filter((entry) =>
+    entry.idempotencyKey?.includes(refresh.id) || entry.idempotencyKey?.includes(run.id)
+  );
+  const generationUsage = collectModelTokenUsage(generationRuns.map((entry) => entry.tokenUsage));
+  const conversationUsageValues = runEvents.flatMap((event) => {
+    const usage = record(event.payload).usage;
+    return usage ? [usage] : [];
+  });
+  const conversationUsage = collectModelTokenUsage(conversationUsageValues);
+  const generationUnknownUsageAttempts = generationRuns.reduce((total, entry) => {
+    const refs = record(entry.resultRefs);
+    const recorded = refs.unknownUsageAttempts;
+    return total + (
+      typeof recorded === "number" && Number.isFinite(recorded) && recorded >= 0
+        ? Math.floor(recorded)
+        : entry.tokenUsage == null && entry.provider === "bedrock"
+          ? 1
+          : collectUnknownModelUsageAttempts(entry.tokenUsage)
+    );
+  }, 0);
+  const usageComplete = generationUnknownUsageAttempts + collectUnknownModelUsageAttempts(conversationUsageValues) === 0;
+  const modelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
+  const measuredCostUsd = generationRuns.reduce((total, entry) => total + (
+    entry.estimatedCostUsd ?? estimateBedrockCostUsd(entry.modelId, collectModelTokenUsage(entry.tokenUsage)) ?? 0
+  ), 0) + (estimateBedrockCostUsd(modelId, conversationUsage) ?? 0);
+  const elapsedMs = Date.now() - evaluationStartedMs;
   const completenessPayload = record(completenessEvent?.payload);
   const runtimeCompletenessAudit = parseRuntimeAccomplishmentAudit(completenessPayload);
   const countRange = runtimeCompletenessAudit
@@ -309,6 +369,7 @@ async function main() {
     citedRepositoryKnowledgeAtLatestCommit: latestProvenance.length > 0 && latestProvenance.every((entry) => entry.current),
     ownershipClaimsSupported: unsupportedOwnershipClaims.length === 0,
     durableSourcesOnly: message.citations.every((citation) => citation.kind !== "github_file"),
+    usageTelemetryComplete: usageComplete,
   };
   const diagnostics = {
     markdownStructured: headings >= Math.min(4, countRange.minimum),
@@ -356,10 +417,35 @@ async function main() {
     ledgerCoverage,
     latestProvenance,
     unsupportedOwnershipClaims,
+    performance: {
+      elapsedMs,
+      generationRunCount: generationRuns.length,
+      generationModelCallCount: generationRuns.reduce((total, entry) => {
+        const count = record(entry.resultRefs).auditAttemptCount;
+        return total + (typeof count === "number" && Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0);
+      }, 0),
+      converseModelCallCount: runEvents.filter((event) => record(event.payload).usage != null).length,
+      usageComplete,
+      generationUsage,
+      conversationUsage,
+      estimatedCostUsd: Number(measuredCostUsd.toFixed(6)),
+      generationRuns: generationRuns.map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        status: entry.status,
+        modelId: entry.modelId,
+        tokenUsage: collectModelTokenUsage(entry.tokenUsage),
+        estimatedCostUsd: entry.estimatedCostUsd,
+        durationMs: typeof record(entry.resultRefs).durationMs === "number" ? record(entry.resultRefs).durationMs : null,
+      })),
+    },
     answer: message.content,
     sources: message.citations.map((citation) => ({ ordinal: citation.ordinal, kind: citation.kind, title: citation.label })),
   }, null, 2)}\n`);
-  if (Object.values(checks).some((passed) => !passed)) process.exitCode = 2;
+  if (
+    Object.values(checks).some((passed) => !passed) ||
+    Object.values(diagnostics).some((passed) => !passed)
+  ) process.exitCode = 2;
 }
 
 main()

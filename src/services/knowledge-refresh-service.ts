@@ -9,6 +9,7 @@ import {
   analyzeRepositoryFile,
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
+  inferSubsystemsFromPath,
   mergeRepositoryFileAnalysis,
   REPOSITORY_COVERAGE_POLICY_VERSION,
   type RepositoryFileAnalysis,
@@ -24,7 +25,7 @@ import {
   repositorySemanticOrchestratorService,
 } from "@/src/services/repository-semantic-orchestrator-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v15";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v17";
 
 const targetHeadSchema = z.object({
   sourceId: z.string(),
@@ -79,6 +80,24 @@ export function isKnowledgeRefreshPartial(input: { qualityStatus: unknown; cover
       (semanticStatus !== undefined && semanticStatus !== "complete" && semanticStatus !== "not_required") ||
       (capabilityStatus !== undefined && capabilityStatus !== "verified") ||
       (Array.isArray(entry.coverageGaps) && entry.coverageGaps.length > 0);
+  });
+}
+
+export function repositoryOrchestrationCoverageGaps(input: {
+  repository: string;
+  repositories: string[];
+  filePaths: string[];
+  remainingGaps: string[];
+}) {
+  return input.remainingGaps.filter((gap) => {
+    const explicitlyScopedRepositories = input.repositories.filter((repository) => gap.includes(repository));
+    if (explicitlyScopedRepositories.length) return explicitlyScopedRepositories.includes(input.repository);
+    if (input.filePaths.some((path) => gap.startsWith(`${path}:`))) return true;
+    // Package-level provider failures, missing assigned IDs, and missing
+    // capability findings cannot always be attributed to one repository from
+    // the sanitized audit string. Keep them as conservative global gaps so a
+    // bounded orchestration failure can never be finalized as verified.
+    return true;
   });
 }
 
@@ -230,6 +249,7 @@ export async function inventoryKnowledgeRefresh(runId: string) {
           ...(outdatedAnalyses ? { analysisComplete: false, coverageComplete: false } : {}),
         },
       });
+      await rebaseSnapshotCapabilityMappings(existing.id);
     } else {
       const inventory = await repositoryKnowledgeSyncService.inventory({
         userId: (await prisma.workItem.findUniqueOrThrow({ where: { id: run.workItemId }, select: { userId: true } })).userId,
@@ -316,7 +336,46 @@ function rebaseCachedAnalysis(value: unknown, path: string): RepositoryFileAnaly
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
   if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.subsystemKeys)) return null;
-  return { ...analysis, path, facts: analysis.facts.map((fact) => ({ ...fact, path })) };
+  return {
+    ...analysis,
+    path,
+    subsystemKeys: Array.from(new Set([
+      ...analysis.subsystemKeys,
+      ...inferSubsystemsFromPath(path),
+    ])).slice(0, 16),
+    facts: analysis.facts.map((fact) => ({
+      ...fact,
+      path,
+      subsystemKeys: Array.from(new Set([
+        ...(fact.subsystemKeys ?? []),
+        ...inferSubsystemsFromPath(path),
+      ])).slice(0, 16),
+    })),
+  };
+}
+
+async function rebaseSnapshotCapabilityMappings(snapshotId: string) {
+  const files = await prisma.repositoryFileSnapshot.findMany({
+    where: {
+      snapshotId,
+      disposition: "analyzed",
+      analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+      analysis: { not: Prisma.DbNull },
+    },
+    select: { id: true, path: true, analysis: true },
+  });
+  const updates = files.flatMap((file) => {
+    const rebased = rebaseCachedAnalysis(file.analysis, file.path);
+    if (!rebased || JSON.stringify(rebased) === JSON.stringify(file.analysis)) return [];
+    return [prisma.repositoryFileSnapshot.update({
+      where: { id: file.id },
+      data: { analysis: toInputJson(rebased) },
+    })];
+  });
+  for (let offset = 0; offset < updates.length; offset += 50) {
+    await prisma.$transaction(updates.slice(offset, offset + 50));
+  }
+  return updates.length;
 }
 
 export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batchSize?: number }) {
@@ -429,6 +488,25 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     data: { progress: toInputJson({ repositories: run.snapshots.length, analyzedFiles, remainingFiles: remaining }) },
   });
   return { remaining, analyzed };
+}
+
+export async function analyzeKnowledgeRefreshChunk(input: {
+  runId: string;
+  batchSize?: number;
+  maxBatches?: number;
+}) {
+  const batchSize = Math.max(1, Math.min(input.batchSize ?? 8, 8));
+  const maxBatches = Math.max(1, Math.min(input.maxBatches ?? 8, 16));
+  let remaining = 1;
+  let analyzed = 0;
+  let batches = 0;
+  while (remaining > 0 && batches < maxBatches) {
+    const result = await analyzeKnowledgeRefreshBatch({ runId: input.runId, batchSize });
+    remaining = result.remaining;
+    analyzed += result.analyzed;
+    batches += 1;
+  }
+  return { remaining, analyzed, batches };
 }
 
 async function repairKnowledgeCoverageGapsLegacy(runId: string) {
@@ -588,11 +666,16 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     throw new Error(`Repository analysis is incomplete for ${incompleteFiles.length} eligible file${incompleteFiles.length === 1 ? "" : "s"}.`);
   }
   const coverageByRepository = [];
+  const repositories = parseTargets(run.targetHeads).map((target) => target.repository);
+  const orchestrationGaps = Array.isArray(record(run.orchestration).remainingGaps)
+    ? (record(run.orchestration).remainingGaps as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
   const semanticWorkers = await prisma.agentRun.findMany({
     where: { knowledgeRefreshRunId: runId, kind: "semantic_worker" },
     select: { id: true, request: true },
   });
   for (const snapshot of run.snapshots) {
+    const repository = parseTargets(run.targetHeads).find((target) => target.sourceId === snapshot.sourceId)?.repository ?? snapshot.sourceId;
     const analyzed = snapshot.files.flatMap((file) => {
       const cachedAnalysis = rebaseCachedAnalysis(file.analysis, file.path);
       const staticAnalysis = cachedAnalysis ? { ...cachedAnalysis, analysisMode: "static" as const, tokenUsage: [] } : null;
@@ -616,11 +699,17 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         ? [{ path: file.path, message: `Semantic analysis ${file.semanticStatus} for ${file.path}.` }]
         : [],
     );
+    const scopedOrchestrationGaps = repositoryOrchestrationCoverageGaps({
+      repository,
+      repositories,
+      filePaths: snapshot.files.map((file) => file.path),
+      remainingGaps: orchestrationGaps,
+    });
     const coverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
       ...(area.semanticPathCount === 0 ? [`${area.label} has static coverage but no successful semantic analysis.`] : []),
-    ]), ...semanticDegradations.map((entry) => entry.message)]));
+    ]), ...semanticDegradations.map((entry) => entry.message), ...scopedOrchestrationGaps]));
     const semanticPaths = analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length;
-    const semanticCoverageStatus = requiredAreas.length === 0 && semanticDegradations.length === 0
+    const semanticCoverageStatus = requiredAreas.length === 0 && semanticDegradations.length === 0 && scopedOrchestrationGaps.length === 0
       ? "not_required"
       : coverageGaps.length === 0
         ? "complete"
@@ -638,7 +727,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         ? "failed"
         : "partial";
     const coverage = {
-      repository: parseTargets(run.targetHeads).find((target) => target.sourceId === snapshot.sourceId)?.repository ?? snapshot.sourceId,
+      repository,
       commitSha: snapshot.commitSha,
       totalPaths: snapshot.files.length,
       analyzedPaths: snapshot.files.filter((file) => file.disposition === "analyzed").length,
@@ -744,6 +833,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       warnings: toInputJson({
         ...record(run.warnings),
         modelId: resolveBedrockConfig().modelId,
+        semanticOrchestrationGaps: orchestrationGaps,
         ...currentKnowledgeRefreshPolicyMetadata(),
       }),
     },
@@ -774,6 +864,7 @@ export const knowledgeRefreshService = {
   start: startKnowledgeRefresh,
   inventory: inventoryKnowledgeRefresh,
   analyzeBatch: analyzeKnowledgeRefreshBatch,
+  analyzeChunk: analyzeKnowledgeRefreshChunk,
   repairCoverage: repairKnowledgeCoverageGaps,
   finalizeCoverage: finalizeKnowledgeCoverage,
   complete: completeKnowledgeRefresh,

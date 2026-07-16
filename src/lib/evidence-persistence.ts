@@ -44,6 +44,23 @@ export type PersistedEvidenceItemWriteResult = {
   wasExisting: boolean;
 };
 
+type EvidenceTagIdentity = {
+  dimension: string;
+  tag: string;
+  score: number | null;
+};
+
+export function evidenceTagsAreCurrent(
+  existing: EvidenceTagIdentity[] | undefined,
+  expected: EvidenceTagIdentity[],
+) {
+  if (!existing || existing.length !== expected.length) return false;
+  const key = (tag: EvidenceTagIdentity) => `${tag.dimension}:${tag.tag}:${tag.score ?? ""}`;
+  const existingKeys = existing.map(key).sort();
+  const expectedKeys = expected.map(key).sort();
+  return existingKeys.every((value, index) => value === expectedKeys[index]);
+}
+
 function readMetadataRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -78,6 +95,11 @@ export async function upsertEvidenceItemsForSource(
   const existingItems = await prisma.evidenceItem.findMany({
     where: {
       sourceId,
+    },
+    include: {
+      tags: {
+        select: { dimension: true, tag: true, score: true },
+      },
     },
   });
   const existingByExternalId = new Map(
@@ -228,22 +250,29 @@ export async function upsertEvidenceItemsForSource(
       evidenceType: item.type,
     });
 
-    await prisma.evidenceTag.deleteMany({
-      where: {
-        evidenceItemId: persisted.id,
-      },
-    });
-
-    if (tags.length) {
-      await prisma.evidenceTag.createMany({
-        data: tags.map((tag) => ({
+    const expectedTags = tags.map((tag) => ({
+      dimension: tag.dimension,
+      tag: tag.tag,
+      score: tag.score ?? null,
+    }));
+    const tagsAlreadyCurrent = persisted.id === existing?.id &&
+      evidenceTagsAreCurrent(existing.tags, expectedTags);
+    if (!tagsAlreadyCurrent) {
+      await prisma.evidenceTag.deleteMany({
+        where: {
           evidenceItemId: persisted.id,
-          dimension: tag.dimension,
-          tag: tag.tag,
-          score: tag.score ?? null,
-        })),
-        skipDuplicates: true,
+        },
       });
+
+      if (expectedTags.length) {
+        await prisma.evidenceTag.createMany({
+          data: expectedTags.map((tag) => ({
+            evidenceItemId: persisted.id,
+            ...tag,
+          })),
+          skipDuplicates: true,
+        });
+      }
     }
 
     if (item.sourceType === "github_repo" && (!existing || isChangedRepositoryEvidence || isReactivatedRepositoryEvidence)) {
@@ -331,6 +360,7 @@ export async function syncManualEvidenceItemsForWorkItem(workItemId: string) {
 }
 
 export async function syncWorkItemDescriptionEvidenceForWorkItem(workItemId: string) {
+  const descriptionEvidenceExternalId = buildWorkItemDescriptionEvidenceExternalId(workItemId);
   const workItem = await prisma.workItem.findUniqueOrThrow({
     where: {
       id: workItemId,
@@ -342,6 +372,12 @@ export async function syncWorkItemDescriptionEvidenceForWorkItem(workItemId: str
         where: {
           type: "manual_note",
         },
+        include: {
+          evidenceItems: {
+            where: { externalId: descriptionEvidenceExternalId },
+            take: 1,
+          },
+        },
         orderBy: {
           createdAt: "asc",
         },
@@ -351,6 +387,33 @@ export async function syncWorkItemDescriptionEvidenceForWorkItem(workItemId: str
 
   const existingDescriptionSource =
     workItem.sources.find((source) => isWorkItemDescriptionSourceMetadata(source.metadata)) ?? null;
+  const expectedEvidence = {
+    title: "Work Item description",
+    content: workItem.description,
+    searchText: buildEvidenceSearchText({
+      title: "Work Item description",
+      content: workItem.description,
+      metadata: {
+        kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
+        systemOwned: true,
+      },
+    }),
+  };
+  const persistedDescriptionEvidence = existingDescriptionSource?.evidenceItems?.[0];
+  if (
+    existingDescriptionSource?.label === "Work Item description" &&
+    existingDescriptionSource.rawContent === workItem.description &&
+    persistedDescriptionEvidence?.title === expectedEvidence.title &&
+    persistedDescriptionEvidence.content === expectedEvidence.content &&
+    persistedDescriptionEvidence.searchText === expectedEvidence.searchText &&
+    persistedDescriptionEvidence.type === "manual_note_excerpt" &&
+    persistedDescriptionEvidence.parentKind === "work_item" &&
+    persistedDescriptionEvidence.parentKey === workItem.id &&
+    persistedDescriptionEvidence.included &&
+    persistedDescriptionEvidence.lifecycleStatus === "active"
+  ) {
+    return;
+  }
   const descriptionSource =
     existingDescriptionSource ??
     (await prisma.source.create({
@@ -392,14 +455,7 @@ export async function syncWorkItemDescriptionEvidenceForWorkItem(workItemId: str
       type: "manual_note_excerpt",
       title: "Work Item description",
       content: workItem.description,
-      searchText: buildEvidenceSearchText({
-        title: "Work Item description",
-        content: workItem.description,
-        metadata: {
-          kind: WORK_ITEM_DESCRIPTION_SOURCE_KIND,
-          systemOwned: true,
-        },
-      }),
+      searchText: expectedEvidence.searchText,
       parentKind: "work_item",
       parentKey: workItem.id,
       included: true,

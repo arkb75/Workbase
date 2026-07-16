@@ -135,6 +135,35 @@ describe("BedrockStructuredLlmClient", () => {
       "bedrock_json_schema",
       "strict_tool_use",
     ]);
+    expect(result.tokenUsage).toEqual({
+      attempts: [
+        { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+        { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+      ],
+      unknownUsageAttempts: 0,
+    });
+  });
+
+  it("retains known usage and marks an unobserved provider attempt before fallback success", async () => {
+    const { client } = makeClient([
+      new Error("native transport disconnected"),
+      { structuredData: { ok: true } },
+    ]);
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema", "strict_tool_use"],
+    });
+
+    expect(result.tokenUsage).toEqual({
+      attempts: [{ inputTokens: 10, outputTokens: 20, totalTokens: 30 }],
+      unknownUsageAttempts: 1,
+    });
   });
 
   it("uses schema-aware repair only after native structured modes fail", async () => {

@@ -31,6 +31,28 @@ type ExistingHighlightForEmbedding = ClaimSnapshot & {
 };
 
 let cachedEmbeddingClient: BedrockRuntimeClient | null = null;
+const embeddingPromiseCache = new Map<string, {
+  expiresAt: number;
+  promise: Promise<Awaited<ReturnType<typeof generateHighlightEmbeddingUncached>>>;
+  settled: boolean;
+}>();
+
+function embeddingCacheTtlMs() {
+  const configured = Number(process.env.WORKBASE_EMBEDDING_CACHE_TTL_MS ?? 300_000);
+  return Number.isFinite(configured) ? Math.max(0, Math.min(configured, 3_600_000)) : 300_000;
+}
+
+function pruneEmbeddingPromiseCache(now: number) {
+  for (const [key, entry] of embeddingPromiseCache) {
+    if (entry.settled && entry.expiresAt <= now) embeddingPromiseCache.delete(key);
+  }
+  while (embeddingPromiseCache.size >= 128) {
+    const oldest = Array.from(embeddingPromiseCache.entries())
+      .find(([, entry]) => entry.settled)?.[0];
+    if (!oldest) break;
+    embeddingPromiseCache.delete(oldest);
+  }
+}
 
 function getBedrockEmbeddingClient() {
   if (!cachedEmbeddingClient) {
@@ -123,7 +145,7 @@ export function vectorToSqlLiteral(vector: number[]) {
   return `[${vector.map((value) => Number(value).toString()).join(",")}]`;
 }
 
-export async function generateHighlightEmbedding(inputText: string) {
+async function generateHighlightEmbeddingUncached(inputText: string) {
   const config = resolveBedrockEmbeddingConfig();
 
   if (resolveWorkbaseLlmProvider() === "mock") {
@@ -162,10 +184,74 @@ export async function generateHighlightEmbedding(inputText: string) {
   };
 }
 
+export async function generateHighlightEmbedding(inputText: string) {
+  const identity = resolveCurrentHighlightEmbeddingIdentity();
+  const inputHash = hashEmbeddingInput(inputText);
+  const key = `${identity.modelId}:${identity.dimensions}:${inputHash}`;
+  const now = Date.now();
+  pruneEmbeddingPromiseCache(now);
+  const cached = embeddingPromiseCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const ttlMs = embeddingCacheTtlMs();
+  const promise = generateHighlightEmbeddingUncached(inputText);
+  const entry = {
+    expiresAt: Number.POSITIVE_INFINITY,
+    promise,
+    settled: false,
+  };
+  embeddingPromiseCache.set(key, entry);
+  try {
+    const result = await promise;
+    entry.settled = true;
+    entry.expiresAt = Date.now() + ttlMs;
+    if (ttlMs === 0) embeddingPromiseCache.delete(key);
+    return result;
+  } catch (error) {
+    embeddingPromiseCache.delete(key);
+    throw error;
+  }
+}
+
+type ExistingEmbeddingIdentity = {
+  inputHash: string;
+  modelId: string;
+  dimensions: number;
+};
+
+export function embeddingIdentityIsFresh(
+  row: ExistingEmbeddingIdentity | undefined,
+  inputText: string,
+) {
+  const expected = resolveCurrentHighlightEmbeddingIdentity();
+  return row?.inputHash === hashEmbeddingInput(inputText) &&
+    row.modelId === expected.modelId &&
+    row.dimensions === expected.dimensions;
+}
+
 export async function upsertHighlightEmbedding(input: {
   highlightId: string;
   inputText: string;
+  skipFreshnessCheck?: boolean;
 }) {
+  if (!input.skipFreshnessCheck) {
+    const existingRows = await prisma.$queryRaw<ExistingEmbeddingIdentity[]>`
+      SELECT "inputHash", "modelId", "dimensions"
+      FROM "HighlightEmbedding"
+      WHERE "highlightId" = ${input.highlightId}
+      LIMIT 1
+    `;
+    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
+      const identity = resolveCurrentHighlightEmbeddingIdentity();
+      return {
+        ...identity,
+        inputHash: hashEmbeddingInput(input.inputText),
+        inputText: input.inputText,
+        vector: null,
+        reused: true,
+      };
+    }
+  }
   const embedding = await generateHighlightEmbedding(input.inputText);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
 
@@ -183,7 +269,7 @@ export async function upsertHighlightEmbedding(input: {
       "updatedAt" = CURRENT_TIMESTAMP
   `;
 
-  return embedding;
+  return { ...embedding, reused: false };
 }
 
 export async function ensureHighlightEmbeddings(
@@ -209,6 +295,7 @@ export async function ensureHighlightEmbeddings(
   const existingByHighlightId = new Map(existingRows.map((row) => [row.highlightId, row]));
   const expectedIdentity = resolveCurrentHighlightEmbeddingIdentity();
 
+  const pending: Array<{ highlightId: string; inputText: string }> = [];
   for (const highlight of highlights) {
     const inputText = inputByHighlightId.get(highlight.id) ?? "";
     const nextHash = hashEmbeddingInput(inputText);
@@ -221,11 +308,15 @@ export async function ensureHighlightEmbeddings(
     ) {
       continue;
     }
-
-    await upsertHighlightEmbedding({
-      highlightId: highlight.id,
-      inputText,
-    });
+    pending.push({ highlightId: highlight.id, inputText });
+  }
+  // Embedding backfills are independent, but an unbounded Promise.all can
+  // spike Bedrock throttling and database connections. Small waves preserve
+  // throughput without turning one stale row into serial latency for all rows.
+  for (let offset = 0; offset < pending.length; offset += 4) {
+    await Promise.all(pending.slice(offset, offset + 4).map((entry) =>
+      upsertHighlightEmbedding({ ...entry, skipFreshnessCheck: true })
+    ));
   }
 }
 

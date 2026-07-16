@@ -35,9 +35,25 @@ import { persistResearchAgentEvent } from "@/src/services/research-event-persist
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
 import { publicKnowledgeVerificationService } from "@/src/services/public-knowledge-verification-service";
 import { recordChange } from "@/src/services/knowledge-reconciliation-service";
+import {
+  buildPublicArtifactCitations,
+  buildPublicArtifactVerificationSources,
+} from "@/src/services/artifact-publication-policy";
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+export function artifactBriefRequiresMeasuredImpact(brief: string) {
+  return /\b(?:quantif(?:y|ied|iable)|measur(?:e|ed|able)|metric|latency (?:improvement|reduction)|throughput (?:improvement|increase)|performance (?:improvement|gain)|\d+(?:\.\d+)?\s*(?:%|x|ms|seconds?|minutes?|hours?|users?|requests?))\b/i.test(brief);
+}
+
+export function hasMeasuredImpactEvidence(hits: Awaited<ReturnType<typeof projectKnowledgeRetrievalService.retrieve>>["hits"]) {
+  return hits.some((hit) =>
+    ["included_evidence", "verified_highlight", "verified_project_fact"].includes(hit.authority) &&
+    /\b\d+(?:\.\d+)?\s*(?:%|x|ms|s|sec(?:onds?)?|minutes?|hours?|users?|requests?|records?)\b/i.test(hit.content) &&
+    /\b(?:reduc|improv|increas|decreas|faster|slower|latency|throughput|saved|grew)\w*/i.test(hit.content)
+  );
 }
 
 function mapWorkItem(workItem: {
@@ -224,6 +240,9 @@ async function persistArtifact(input: {
         sensitivityFlag: false,
         visibility: { in: publicArtifactVisibilityRules[input.normalized.type] },
       },
+      include: {
+        evidence: { select: { evidenceItemId: true } },
+      },
     }),
     prisma.evidenceItem.findMany({
       where: {
@@ -231,6 +250,11 @@ async function persistArtifact(input: {
         workItemId: input.workItemId,
         included: true,
         lifecycleStatus: "active",
+        // Do not trust generator-returned Evidence IDs. Every persisted
+        // provenance item must be directly related to a used Highlight.
+        highlightEvidence: {
+          some: { highlightId: { in: input.draft.usedHighlightIds } },
+        },
       },
     }),
   ]);
@@ -248,23 +272,11 @@ async function persistArtifact(input: {
   if (!activeRun) throw new Error("The artifact run is no longer active.");
   const publicVerification = await publicKnowledgeVerificationService.verifyArtifact({
     content: input.draft.content,
-    sources: [
-      ...highlights.map((highlight) => ({
-        kind: "highlight" as const,
-        title: highlight.text,
-        content: highlight.summary,
-        ownershipClarity: highlight.ownershipClarity,
-        sensitivityFlag: highlight.sensitivityFlag,
-        publicSafetyStatus: highlight.publicSafetyStatus,
-      })),
-      ...evidence.map((item) => ({
-        kind: "evidence" as const,
-        title: item.title,
-        content: item.content,
-        sensitivityFlag: false,
-        publicSafetyStatus: "verified",
-      })),
-    ],
+    // Public output is authorized and verified only against approved,
+    // visibility-compatible Highlights. Exact Evidence remains immutable
+    // provenance beneath those Highlights and never expands what the Artifact
+    // is allowed to claim.
+    sources: buildPublicArtifactVerificationSources(highlights),
   });
   const persistedContent = publicVerification.eligible && publicVerification.correctedContent
     ? publicVerification.correctedContent
@@ -304,6 +316,7 @@ async function persistArtifact(input: {
             verificationStatus: highlight.verificationStatus,
             risksSummary: highlight.risksSummary,
             missingInfo: highlight.missingInfo,
+            evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
           }),
         })),
       },
@@ -388,6 +401,16 @@ async function generateCandidateBatch(input: {
     purpose: "project_research",
     limits: { evidence: 12, highlights: 8, artifacts: 3 },
   });
+  if (artifactBriefRequiresMeasuredImpact(input.brief) && !hasMeasuredImpactEvidence(knowledge.hits)) {
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "warning",
+      message: "Repository research did not establish a measured impact value; skipping speculative Highlight generation.",
+      payload: { coverageGap: "Add a measured or explicitly self-reported impact statement before requesting a quantified artifact." },
+      isUserVisible: false,
+    });
+    return [];
+  }
   const context = await loadArtifactContext(input.userId, input.workItemId);
   const pendingHighlightIds = new Set(
     knowledge.hits.flatMap((hit) =>
@@ -703,56 +726,13 @@ export async function executeArtifactAttempt(input: {
     const usedEvidenceIds = new Set(
       artifactResult.artifactDraft.supportingEvidenceItemIds,
     );
-    const citations = [
-      ...artifactResult.retrieval.highlights
-        .filter((highlight) => usedHighlightIds.has(highlight.id))
-        .map((highlight) => ({
-        kind: "highlight" as const,
-        label: highlight.text,
-        excerpt: highlight.summary,
-        highlightId: highlight.id,
-        })),
-      ...artifactResult.retrieval.supportingEvidence
-        .filter((item) => usedEvidenceIds.has(item.id))
-        .map((item) => {
-          const metadata =
-            item.type === "github_file_excerpt" &&
-            item.metadata &&
-            typeof item.metadata === "object" &&
-            !Array.isArray(item.metadata)
-              ? item.metadata
-              : null;
-          return {
-            kind: metadata ? ("github_file" as const) : ("evidence" as const),
-            label: item.title,
-            excerpt: item.content,
-            evidenceItemId: item.id,
-            sourceId: item.sourceId,
-            repository:
-              metadata && typeof metadata.repository === "string"
-                ? metadata.repository
-                : undefined,
-            commitSha:
-              metadata && typeof metadata.commitSha === "string"
-                ? metadata.commitSha
-                : undefined,
-            blobSha:
-              metadata && typeof metadata.blobSha === "string" ? metadata.blobSha : undefined,
-            path: metadata && typeof metadata.path === "string" ? metadata.path : undefined,
-            startLine:
-              metadata && typeof metadata.startLine === "number"
-                ? metadata.startLine
-                : undefined,
-            endLine:
-              metadata && typeof metadata.endLine === "number" ? metadata.endLine : undefined,
-            url: metadata && typeof metadata.url === "string" ? metadata.url : undefined,
-            contentHash:
-              metadata && typeof metadata.excerptHash === "string"
-                ? metadata.excerptHash
-                : undefined,
-          };
-        }),
-    ];
+    const citations = buildPublicArtifactCitations({
+      highlights: artifactResult.retrieval.highlights,
+      usedHighlightIds: [...usedHighlightIds],
+      supportingEvidence: artifactResult.retrieval.supportingEvidence.filter((item) =>
+        usedEvidenceIds.has(item.id),
+      ),
+    });
     await completeAgentRun({
       runId: run.id,
       content: artifact.content,
@@ -804,6 +784,11 @@ export async function executeArtifactAttempt(input: {
   });
 
   if (!candidates.length) {
+    if (artifactBriefRequiresMeasuredImpact(normalized.request.brief)) {
+      const message = "Repository research did not find approved or self-reported measured impact evidence. Add the actual metric, measurement window, and what changed before generating a quantified artifact.";
+      await failAgentRun({ runId: run.id, message, insufficient: true });
+      return { status: "insufficient_context", message };
+    }
     if (input.batchNumber < 2) {
       return { status: "retry_research", batchNumber: input.batchNumber + 1 };
     }

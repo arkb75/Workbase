@@ -53,8 +53,8 @@ describe("project answer grounding contract", () => {
     expect(options.budget?.limits).toEqual({
       maxModelCalls: 1,
       maxRepairPasses: 0,
-      maxOutputTokens: 8_000,
-      maxTotalTokens: 60_000,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 30_000,
     });
   });
 
@@ -138,4 +138,5 @@ describe("project answer grounding contract", () => {
       citationIndexes: [3],
     }]);
   });
+
 });

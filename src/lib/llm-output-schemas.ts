@@ -437,7 +437,7 @@ export const claimVerificationLlmOutputSchema = z.preprocess(
 export const artifactGenerationLlmOutputSchema = z.object({
   content: z.string().min(20).max(4000),
   usedHighlightIds: z.array(z.string().min(1)).min(1).max(8),
-  supportingEvidenceItemIds: z.array(z.string().min(1)).max(12),
+  supportingEvidenceItemIds: z.array(z.string().min(1)).max(0),
 });
 
 export const evidenceClusteringLlmOutputSchema = z.preprocess(

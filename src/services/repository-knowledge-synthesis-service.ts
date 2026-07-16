@@ -153,6 +153,8 @@ export interface SynthesisNotebookEntry {
   implementationBreadth: number;
   technicalDifficulty: number;
   changeType: "unchanged" | "added" | "modified" | "renamed";
+  /** Degraded entries come from deterministic extraction after a semantic-model failure. */
+  semanticStatus?: "succeeded" | "degraded";
 }
 
 export interface SynthesizedKnowledge {
@@ -192,7 +194,9 @@ export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNoteb
     const index = notebook.findIndex((entry) => pattern.test(entry.statement));
     return index >= 0 ? [index + 1] : [];
   });
-  if (citationIndexes.length < 4) return null;
+  // The statement names all five lifecycle stages, so every stage needs its
+  // own exact exported-entrypoint observation. Four-of-five is not entailment.
+  if (citationIndexes.length !== requiredSignals.length) return null;
   return {
     statement: "The repository implements an end-to-end knowledge lifecycle that starts a repository refresh, analyzes repository files in batches, synthesizes Project Facts and Highlights, reconciles them into durable memory, and revalidates or marks older knowledge stale.",
     category: "architecture",
@@ -227,68 +231,147 @@ function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemS
   };
 }
 
-const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, { statement: string; category: ProjectFactCategory; patterns: RegExp[] }> = {
+type DeterministicFactDefinition = {
+  statement: string;
+  category: ProjectFactCategory;
+  patterns: RegExp[];
+  minimumMatches?: number;
+  productImportance?: number;
+  implementationBreadth?: number;
+  technicalDifficulty?: number;
+  distinctiveness?: number;
+};
+
+type DeterministicSubsystemDefinition = DeterministicFactDefinition & {
+  facets?: DeterministicFactDefinition[];
+};
+
+const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinition> = {
     product_surface: {
-      statement: "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
+      statement: "The project is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
       category: "behavior",
       patterns: [/README\.md.*career/i, /README\.md.*GitHub/i, /README\.md.*resume/i, /README\.md.*LinkedIn/i],
+      minimumMatches: 4,
     },
     domain_data: {
       statement: "The Prisma data model persists work items, evidence, highlights, artifacts, project facts, chat threads/messages/citations, and durable agent runs.",
       category: "data_flow",
       patterns: [/schema\.prisma.*WorkItem/i, /schema\.prisma.*EvidenceItem/i, /schema\.prisma.*Highlight/i, /schema\.prisma.*Artifact/i, /schema\.prisma.*ProjectFact/i, /schema\.prisma.*ChatThread/i],
+      minimumMatches: 6,
     },
     ai_runtime: {
       statement: "The repository implements a Bedrock Converse agent, schema-constrained structured generation, project-chat orchestration, and streamed agent-run progress.",
       category: "architecture",
       patterns: [/bedrock-converse-agent/i, /bedrock-structured-llm-client/i, /project-chat-agent-service/i, /agent-runs.*stream/i],
+      minimumMatches: 4,
     },
     ingestion_integrations: {
       statement: "GitHub integration spans OAuth callback/connect routes, authenticated API access, bounded repository exploration, source import, and evidence promotion.",
       category: "data_flow",
       patterns: [/github\/callback/i, /github\/connect/i, /github-client/i, /github-repository-exploration/i, /github-repo-import/i, /repository-evidence-promotion/i],
+      minimumMatches: 6,
     },
     retrieval_provenance: {
       statement: "Project knowledge retrieval combines embedding or lexical signals with citation, provenance, prior-turn inspection, and answer-grounding services.",
       category: "architecture",
       patterns: [/project-knowledge-retrieval/i, /embedding-service/i, /chat-citation-service/i, /prior-turn-provenance/i, /project-answer-grounding/i],
+      minimumMatches: 5,
     },
     workflow_orchestration: {
       statement: "Durable workflows coordinate project chat and artifact generation through retry-safe steps, persisted runs, progress events, and review/resume boundaries.",
       category: "architecture",
       patterns: [/workflows\/project-chat/i, /artifact-workflow-service/i, /agent-run-workflow-start/i, /workbase-workflows/i],
+      minimumMatches: 4,
     },
     repository_knowledge_lifecycle: {
       statement: "The repository knowledge lifecycle inventories every eligible file at an immutable commit, performs bounded semantic analysis, synthesizes durable Project Facts and Highlights, reconciles updates, and invalidates stale downstream knowledge.",
       category: "architecture",
       patterns: [/knowledge-refresh-service/i, /repository-knowledge-synthesis/i, /knowledge-reconciliation/i, /knowledge-staleness/i],
+      minimumMatches: 4,
+      facets: [{
+        statement: "Repository semantic analysis is divided into bounded capability work packages, executed by parallel specialist workers, and consolidated by a coverage audit that preserves supported findings and explicit gaps.",
+        category: "architecture",
+        patterns: [
+          /repository-semantic-orchestrator-service.*(?:work package|workPackage|worker)/i,
+          /repository-semantic-orchestrator-service.*(?:coverage audit|coverageAudit|remaining gaps|remainingGaps)/i,
+        ],
+        minimumMatches: 2,
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      }],
     },
     project_chat_grounding: {
       statement: "Project chat combines real multi-turn history with retrieved durable memory, bounded specialist research, citation filtering, answer grounding, and prior-turn provenance inspection.",
       category: "architecture",
       patterns: [/project-chat-agent-service/i, /project-knowledge-retrieval/i, /project-answer-grounding/i, /chat-citation-service/i, /prior-turn-provenance/i],
+      minimumMatches: 5,
+      facets: [{
+        statement: "Project-chat execution uses deterministic intent and safety constraints for high-confidence paths, while reserving model-assisted routing for genuinely ambiguous requests that remain within attached-repository and budget limits.",
+        category: "behavior",
+        patterns: [
+          /project-execution-router-service.*deterministic/i,
+          /project-execution-router-service.*(?:route|safety|budget|repository)/i,
+        ],
+        minimumMatches: 2,
+        productImportance: 5,
+        implementationBreadth: 4,
+        technicalDifficulty: 4,
+        distinctiveness: 5,
+      }],
     },
     artifact_generation: {
       statement: "Artifact generation maps freeform briefs to supported career-content types, retrieves eligible Highlights, checks adequacy, and persists citation-backed outputs through a durable workflow.",
       category: "data_flow",
       patterns: [/artifact-workflow-service/i, /artifact-generation-service/i, /artifact-persistence/i, /workflows\/artifact/i],
+      minimumMatches: 4,
     },
     knowledge_review_lifecycle: {
       statement: "Knowledge changes are auto-applied when safe, recorded for later review, and propagated through revalidation, supersession, retirement, and downstream invalidation rules.",
       category: "data_flow",
       patterns: [/knowledge-change-service/i, /knowledge-review-service/i, /knowledge-reconciliation/i, /knowledge-staleness/i, /knowledge-update-inbox/i],
+      minimumMatches: 5,
     },
     review_ui: {
       statement: "The user interface provides project workspaces for chat, source management, highlight review, artifact generation/history, citations, and run progress.",
       category: "behavior",
       patterns: [/project-chat-workspace/i, /claim-card/i, /artifact-history-panel/i, /work-items.*page\.tsx/i, /generation-trace-panel/i],
+      minimumMatches: 5,
     },
     tests_operations: {
       statement: "Automated tests cover domain policies, Bedrock clients, GitHub ingestion/exploration, retrieval and grounding, project chat, artifacts, and durable workflows.",
       category: "behavior",
       patterns: [/domain.*__tests__/i, /bedrock.*test/i, /github.*test/i, /project-knowledge.*test/i, /project-chat.*test/i, /artifact.*test/i],
+      minimumMatches: 6,
     },
 };
+
+function deterministicFactFromDefinition(
+  definition: DeterministicFactDefinition,
+  notebook: SynthesisNotebookEntry[],
+) {
+  const matched: number[] = [];
+  for (const pattern of definition.patterns) {
+    const index = notebook.findIndex((entry) => pattern.test(`${entry.path} ${entry.statement}`));
+    if (index >= 0) matched.push(index + 1);
+  }
+  const minimumMatches = definition.minimumMatches ?? 1;
+  if (matched.length < minimumMatches) return null;
+  const selected = Array.from(new Set(matched)).slice(0, 6);
+  return {
+    statement: definition.statement,
+    category: definition.category,
+    confidence: selected.length >= 2 ? "high" as const : "medium" as const,
+    sensitivityFlag: false,
+    citationIndexes: selected,
+    reviewNotes: "Deterministically synthesized from the complete exact-line subsystem notebook.",
+    productImportance: definition.productImportance ?? Math.max(2, ...selected.map((index) => notebook[index - 1]?.productImportance ?? 0)),
+    implementationBreadth: definition.implementationBreadth ?? Math.max(2, Math.min(5, selected.length)),
+    technicalDifficulty: definition.technicalDifficulty ?? Math.max(2, ...selected.map((index) => notebook[index - 1]?.technicalDifficulty ?? 0)),
+    distinctiveness: definition.distinctiveness ?? 3,
+  };
+}
 
 export function fallbackSubsystemSynthesis(
   subsystemKey: string,
@@ -296,30 +379,49 @@ export function fallbackSubsystemSynthesis(
 ): RepositorySubsystemSynthesis {
   const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
   if (!definition) return mockSynthesis(notebook);
-  const selected: number[] = [];
-  for (const pattern of definition.patterns) {
-    const index = notebook.findIndex((entry, candidateIndex) =>
-      !selected.includes(candidateIndex + 1) && pattern.test(`${entry.path} ${entry.statement}`),
-    );
-    if (index >= 0) selected.push(index + 1);
-    if (selected.length >= 6) break;
+  const primary = deterministicFactFromDefinition(definition, notebook);
+  const facets = (definition.facets ?? [])
+    .map((facet) => deterministicFactFromDefinition(facet, notebook))
+    .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
+  const facts = [primary, ...facets]
+    .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
+    .slice(0, 3);
+  if (!facts.length) {
+    const exactFallback = mockSynthesis(notebook);
+    return {
+      ...exactFallback,
+      unresolvedQuestions: [
+        "The exact-line notebook did not contain enough clause-level evidence for a cross-file subsystem summary.",
+      ],
+    };
   }
-  if (!selected.length && notebook.length) selected.push(1);
+  const highlightSource = [...facts].sort((left, right) =>
+    right.productImportance - left.productImportance ||
+    right.implementationBreadth - left.implementationBreadth ||
+    right.technicalDifficulty - left.technicalDifficulty,
+  )[0];
+  const highlights = highlightSource && highlightSource.productImportance >= 4
+    ? [{
+        text: highlightSource.statement.length <= 240
+          ? highlightSource.statement
+          : `${highlightSource.statement.slice(0, 237).trimEnd()}...`,
+        summary: highlightSource.statement,
+        confidence: highlightSource.confidence,
+        sensitivityFlag: false,
+        visibility: "private" as const,
+        citationIndexes: highlightSource.citationIndexes,
+        productImportance: highlightSource.productImportance,
+        implementationBreadth: highlightSource.implementationBreadth,
+        technicalDifficulty: highlightSource.technicalDifficulty,
+        distinctiveness: highlightSource.distinctiveness,
+      }]
+    : [];
   return {
-    facts: selected.length ? [{
-      statement: definition.statement,
-      category: definition.category,
-      confidence: selected.length >= 2 ? "high" : "medium",
-      sensitivityFlag: false,
-      citationIndexes: selected,
-      reviewNotes: "Deterministically synthesized from the complete exact-line subsystem notebook after the model synthesis limit path.",
-      productImportance: Math.max(2, ...selected.map((index) => notebook[index - 1]?.productImportance ?? 0)),
-      implementationBreadth: Math.max(2, Math.min(5, selected.length)),
-      technicalDifficulty: Math.max(2, ...selected.map((index) => notebook[index - 1]?.technicalDifficulty ?? 0)),
-      distinctiveness: 3,
-    }] : [],
-    highlights: [],
-    unresolvedQuestions: selected.length >= 2 ? [] : ["This subsystem needs broader exact-line evidence before producing a cross-file summary."],
+    facts,
+    highlights,
+    unresolvedQuestions: primary && primary.citationIndexes.length >= 2
+      ? []
+      : ["This subsystem needs broader exact-line evidence before producing a cross-file summary."],
   };
 }
 
@@ -474,6 +576,7 @@ export async function synthesizeRepositoryKnowledge(
             implementationBreadth: fact.implementationBreadth,
             technicalDifficulty: fact.technicalDifficulty,
             changeType: file.changeType,
+            semanticStatus: file.semanticStatus === "degraded" ? "degraded" : "succeeded",
           });
         }
         notebookBySubsystem.set(subsystemKey, notebook);
@@ -511,13 +614,19 @@ export async function synthesizeRepositoryKnowledge(
     .filter((input) => input.notebook.length && (architectureSubsystems.has(input.subsystemKey) || input.pathCount >= 2))
     .sort((left, right) => right.priority - left.priority || left.subsystemKey.localeCompare(right.subsystemKey))
     .slice(0, BASE_COVERAGE_TARGETS.length + productSystemSubsystems.size);
-  const synthesizedSubsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> = [];
+  const synthesizedSubsystems: Array<RepositorySubsystemSynthesis & {
+    subsystemKey: string;
+    approvalEligible?: boolean;
+  }> = [];
   const tokenUsage: unknown[] = [];
-  if (options.fallbackOnly) {
+  const synthesisMode = process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "deterministic";
+  if (options.fallbackOnly || synthesisMode !== "model") {
     synthesizedSubsystems.push(...synthesisInputs.map((subsystem) => ({
       subsystemKey: subsystem.subsystemKey,
       ...fallbackSubsystemSynthesis(subsystem.subsystemKey, subsystem.notebook),
-      unresolvedQuestions: ["Reconciliation resumed from the persisted complete notebook after a partial prior attempt."],
+      ...(options.fallbackOnly
+        ? { unresolvedQuestions: ["Reconciliation resumed from the persisted complete notebook after a partial prior attempt."] }
+        : {}),
     })));
   } else {
     const batches = Array.from({ length: Math.ceil(synthesisInputs.length / 2) }, (_, index) =>
@@ -561,9 +670,9 @@ export async function synthesizeRepositoryKnowledge(
       unresolvedQuestions: result.unresolvedQuestions,
       notebook,
       tokenUsage,
-      // Structured-output transport failures must not discard exact-line,
-      // deterministic synthesis. Candidate-level confidence and sensitivity
-      // gates still quarantine unsafe content during reconciliation.
+      // Candidate-level reconciliation checks the cited entries and quarantines
+      // degraded extraction output while allowing fully succeeded exact-line
+      // deterministic synthesis to auto-apply.
       approvalEligible: true,
     };
   });
@@ -587,19 +696,76 @@ export async function materializeSynthesisCitations(input: {
     }
   }
   const citations = new Map<string, ProjectKnowledgeCitation>();
-  const contentByBlob = new Map<string, string>();
+  const reusableEvidence = await prisma.evidenceItem.findMany({
+    where: {
+      workItemId: input.workItemId,
+      type: "github_file_excerpt",
+      lifecycleStatus: { in: ["active", "needs_validation"] },
+    },
+    select: { sourceId: true, content: true, metadata: true },
+  });
+  const reusableByRange = new Map<string, { content: string; metadata: Record<string, unknown> }>();
+  for (const evidence of reusableEvidence) {
+    const metadata = evidence.metadata && typeof evidence.metadata === "object" && !Array.isArray(evidence.metadata)
+      ? evidence.metadata as Record<string, unknown>
+      : null;
+    if (
+      !metadata ||
+      typeof metadata.blobSha !== "string" ||
+      typeof metadata.path !== "string" ||
+      typeof metadata.startLine !== "number" ||
+      typeof metadata.endLine !== "number"
+    ) continue;
+    reusableByRange.set(
+      `${evidence.sourceId}:${metadata.blobSha}:${metadata.path}:${metadata.startLine}:${metadata.endLine}`,
+      { content: evidence.content, metadata },
+    );
+  }
+  const setCitation = (key: string, entry: SynthesisNotebookEntry, content: string, metadata?: Record<string, unknown>) => {
+    const excerpt = content.slice(0, 8 * 1024);
+    citations.set(key, {
+      kind: "github_file",
+      label: `${entry.path}:${entry.lineStart}-${entry.lineEnd}`,
+      excerpt,
+      sourceId: entry.sourceId,
+      repository: entry.repository,
+      commitSha: entry.commitSha,
+      blobSha: entry.blobSha,
+      path: entry.path,
+      startLine: entry.lineStart,
+      endLine: entry.lineEnd,
+      url: `https://github.com/${entry.repository}/blob/${entry.commitSha}/${entry.path.split("/").map(encodeURIComponent).join("/")}#L${entry.lineStart}-L${entry.lineEnd}`,
+      redacted: metadata?.redacted === true,
+      redactionCategories: Array.isArray(metadata?.redactionCategories)
+        ? metadata.redactionCategories.filter((value): value is string => typeof value === "string")
+        : [],
+    });
+  };
+  const requestedByBlob = new Map<string, Array<{ key: string; entry: SynthesisNotebookEntry }>>();
   for (const [key, entry] of requested) {
-    const target = input.targets.find((candidate) => candidate.sourceId === entry.sourceId);
-    if (!target) continue;
-    let content = contentByBlob.get(`${entry.sourceId}:${entry.blobSha}`);
-    if (content === undefined) {
+    const reusable = reusableByRange.get(`${entry.sourceId}:${entry.blobSha}:${entry.path}:${entry.lineStart}:${entry.lineEnd}`);
+    if (reusable) {
+      setCitation(key, entry, reusable.content, reusable.metadata);
+      continue;
+    }
+    const blobKey = `${entry.sourceId}:${entry.blobSha}`;
+    const group = requestedByBlob.get(blobKey) ?? [];
+    group.push({ key, entry });
+    requestedByBlob.set(blobKey, group);
+  }
+  const blobGroups = Array.from(requestedByBlob.values());
+  for (let offset = 0; offset < blobGroups.length; offset += 4) {
+    const loaded = await Promise.all(blobGroups.slice(offset, offset + 4).map(async (group) => {
+      const first = group[0]!.entry;
+      const target = input.targets.find((candidate) => candidate.sourceId === first.sourceId);
+      if (!target) return null;
       const read = await repositoryKnowledgeSyncService.readFile({
         userId: input.userId,
         workItemId: input.workItemId,
         target,
         entry: {
-          path: entry.path,
-          blobSha: entry.blobSha,
+          path: first.path,
+          blobSha: first.blobSha,
           sizeBytes: null,
           mode: "100644",
           objectType: "blob",
@@ -607,26 +773,17 @@ export async function materializeSynthesisCitations(input: {
           exclusionReason: null,
         },
       });
-      content = read.content;
-      contentByBlob.set(`${entry.sourceId}:${entry.blobSha}`, content);
+      return { group, content: read.content };
+    }));
+    for (const result of loaded) {
+      if (!result) continue;
+      const lines = result.content.split("\n");
+      for (const { key, entry } of result.group) {
+        const lineStart = Math.max(1, Math.min(entry.lineStart, lines.length));
+        const lineEnd = Math.max(lineStart, Math.min(entry.lineEnd, lineStart + 79, lines.length));
+        setCitation(key, { ...entry, lineStart, lineEnd }, lines.slice(lineStart - 1, lineEnd).join("\n"));
+      }
     }
-    const lines = content.split("\n");
-    const lineStart = Math.max(1, Math.min(entry.lineStart, lines.length));
-    const lineEnd = Math.max(lineStart, Math.min(entry.lineEnd, lineStart + 79, lines.length));
-    const excerpt = lines.slice(lineStart - 1, lineEnd).join("\n").slice(0, 8 * 1024);
-    citations.set(key, {
-      kind: "github_file",
-      label: `${entry.path}:${lineStart}-${lineEnd}`,
-      excerpt,
-      sourceId: entry.sourceId,
-      repository: entry.repository,
-      commitSha: entry.commitSha,
-      blobSha: entry.blobSha,
-      path: entry.path,
-      startLine: lineStart,
-      endLine: lineEnd,
-      url: `https://github.com/${entry.repository}/blob/${entry.commitSha}/${entry.path.split("/").map(encodeURIComponent).join("/")}#L${lineStart}-L${lineEnd}`,
-    });
   }
   return citations;
 }

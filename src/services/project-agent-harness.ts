@@ -96,7 +96,7 @@ const inspectPattern = /\b(?:inspect|search|read|check|look at|access|pull|refre
 const comprehensivePattern = /\b(?:comprehensive|everything|entire|whole|thorough|all (?:the )?files|across (?:the )?repo)\b/i;
 const broadSynthesisPattern = /\b(?:summarize|summary|overview|strongest|accomplishments?|achievements?|whole project|project-wide|across the project)\b/i;
 const provenancePattern = /\b(?:did you (?:use|inspect|search|read|call|access)|what (?:sources?|tools?|information) did you|which sources?|what sources?|use anything new|inspect(?:ed)? the repo|repository tools?|tool calls?|fallback|partial (?:answer|run|result))\b/i;
-const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug)\b/i;
+const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug|retry|backoff|loop|timeout|cache|queue|workflow|validation|error handling)\b/i;
 const reviewPattern = /\b(?:approve|deny|reject)\b/i;
 
 function highAuthorityMemory(hits: readonly ProjectKnowledgeHit[]) {
@@ -105,6 +105,40 @@ function highAuthorityMemory(hits: readonly ProjectKnowledgeHit[]) {
     hit.authority === "verified_project_fact" ||
     hit.authority === "included_evidence"
   );
+}
+
+const memoryAdequacyStopWords = new Set([
+  "architecture", "behavior", "code", "component", "database", "file", "flow",
+  "function", "implementation", "main", "project", "route", "service", "system",
+  "that", "the", "this", "what", "where", "which", "work", "works", "why",
+]);
+
+function meaningfulMemoryTerms(value: string) {
+  return new Set(value.toLowerCase().split(/[^a-z0-9_./-]+/).filter((term) =>
+    term.length > 2 && !memoryAdequacyStopWords.has(term)
+  ));
+}
+
+export function hasRelevantHighAuthorityMemory(
+  question: string,
+  hits: readonly ProjectKnowledgeHit[],
+) {
+  const authoritative = hits.filter((hit) =>
+    hit.authority === "verified_highlight" ||
+    hit.authority === "verified_project_fact" ||
+    hit.authority === "included_evidence"
+  );
+  if (!authoritative.length) return false;
+  const requested = meaningfulMemoryTerms(question);
+  // A generic architecture question has no distinctive lexical constraint;
+  // approved technical memory is adequate in that case.
+  if (!requested.size) return true;
+  const requiredOverlap = requested.size <= 2 ? 1 : Math.min(3, Math.ceil(requested.size * 0.4));
+  return authoritative.some((hit) => {
+    const available = meaningfulMemoryTerms(`${hit.title} ${hit.content}`);
+    const overlap = Array.from(requested).filter((term) => available.has(term)).length;
+    return overlap >= requiredOverlap;
+  });
 }
 
 export function routeProjectTurn(input: {
@@ -132,7 +166,7 @@ export function routeProjectTurn(input: {
   }
 
   const explicitRepositoryResearch = repositoryPattern.test(question) && (inspectPattern.test(question) || freshness === "required");
-  const unsupportedCodeQuestion = codePattern.test(question) && !highAuthorityMemory(input.memoryHits);
+  const unsupportedCodeQuestion = codePattern.test(question) && !hasRelevantHighAuthorityMemory(question, input.memoryHits);
   if (input.allowResearch !== false && (explicitRepositoryResearch || freshness === "required" || unsupportedCodeQuestion)) {
     return {
       kind: "repository_research",
@@ -140,7 +174,7 @@ export function routeProjectTurn(input: {
       coverage,
       deliverable: question,
       references: [],
-      confidence: explicitRepositoryResearch || freshness === "required" ? 0.99 : 0.82,
+      confidence: explicitRepositoryResearch || freshness === "required" ? 0.99 : 0.94,
       reason: explicitRepositoryResearch
         ? "The user explicitly requested attached-repository inspection."
         : freshness === "required"

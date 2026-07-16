@@ -13,6 +13,7 @@ export async function promoteRepositoryCitations(input: {
   const promotedIds: string[] = [];
   const newIds: string[] = [];
   const evidenceIdByCitationIndex = new Map<number, string>();
+  const sourceById = new Map<string, Awaited<ReturnType<typeof prisma.source.findFirst>>>();
 
   for (const [citationIndex, citation] of input.citations.entries()) {
     if (
@@ -26,9 +27,13 @@ export async function promoteRepositoryCitations(input: {
       !citation.endLine
     ) continue;
 
-    const source = await prisma.source.findFirst({
-      where: { id: citation.sourceId, workItemId: input.workItemId, type: "github_repo" },
-    });
+    let source = sourceById.get(citation.sourceId);
+    if (source === undefined) {
+      source = await prisma.source.findFirst({
+        where: { id: citation.sourceId, workItemId: input.workItemId, type: "github_repo" },
+      });
+      sourceById.set(citation.sourceId, source);
+    }
     if (!source) continue;
 
     const excerptHash = createHash("sha256").update(citation.excerpt).digest("hex");
@@ -71,6 +76,27 @@ export async function promoteRepositoryCitations(input: {
         autoAppliedAt: true,
       },
     });
+    const reviewScope = input.reviewScope ?? `citation:${citation.commitSha}:${citation.blobSha}`;
+    if (existing) {
+      const existingReviewKey = `${reviewScope}:promoted-evidence:${existing.id}`;
+      const priorReview = await prisma.knowledgeChange.findUnique({
+        where: {
+          workItemId_idempotencyKey: {
+            workItemId: input.workItemId,
+            idempotencyKey: existingReviewKey,
+          },
+        },
+        select: { id: true },
+      });
+      if (priorReview) {
+        // A durable workflow retry has already completed this immutable
+        // promotion. Avoid rewriting metadata timestamps and rebuilding tags;
+        // both create noise and can make old evidence look artificially new.
+        promotedIds.push(existing.id);
+        evidenceIdByCitationIndex.set(citationIndex, existing.id);
+        continue;
+      }
+    }
     const evidence = await prisma.evidenceItem.upsert({
       where: { sourceId_externalId: { sourceId: source.id, externalId } },
       create: {
@@ -88,7 +114,6 @@ export async function promoteRepositoryCitations(input: {
       },
       update: { content: citation.excerpt, searchText: buildEvidenceSearchText({ title: citation.path, content: citation.excerpt, metadata }), metadata },
     });
-    const reviewScope = input.reviewScope ?? `citation:${citation.commitSha}:${citation.blobSha}`;
     const reviewKey = `${reviewScope}:promoted-evidence:${evidence.id}`;
     const priorReview = await prisma.knowledgeChange.findUnique({
       where: {

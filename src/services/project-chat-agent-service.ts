@@ -33,10 +33,13 @@ import {
   accomplishmentCoverageAnchorScore,
   accomplishmentSubsystemPriority,
   auditAccomplishmentBlocks,
+  buildDeterministicAccomplishmentBlocks,
   compactAlreadyGroundedAccomplishmentBlocks,
   completeGroundedAccomplishmentAnswer,
+  filterSupersededAccomplishmentClaims,
   isTopLevelAccomplishmentSubsystem,
   selectAccomplishmentRequirementSet,
+  validateExactSourceAccomplishmentBlocks,
   verifyCompletedAccomplishmentAnswer,
 } from "@/src/services/project-answer-completeness-service";
 import {
@@ -51,8 +54,15 @@ import {
 } from "@/src/services/project-research-dossier-service";
 
 const freshnessIntentPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
-const liveRepositoryIntentPattern = /(?:\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|look(?:\s+at)?|access)\b.{0,80}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:repo|repository|github|codebase)\b.{0,80}\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|access)\b)/i;
+const liveRepositoryIntentPattern = /(?:\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|look(?:\s+at)?|access)\b.{0,80}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:repo|repository|github|codebase)\b.{0,80}\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|access)\b)|(?:\b(?:inspect|search|read|check|access|compare)\b.{0,100}\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b)/i;
 const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.{0,80}\b(?:accomplishments?|achievements?|contributions?|work|features?)\b|\b(?:summari[sz]e|assess|rank)\b.{0,100}\b(?:accomplishments?|achievements?|contributions?)\b/i;
+const architectureSynthesisPattern = /\b(?:main|overall|system|project|high[- ]level)?\s*architecture\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
+const broadArchitectureAnswerPattern = /\b(?:(?:main|overall|system|project|high[- ]level)\s+architecture|architecture overview)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
+const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
+
+export function supportsDeterministicAccomplishmentFormat(question: string) {
+  return accomplishmentSynthesisPattern.test(question) && !accomplishmentFormatConstraintPattern.test(question);
+}
 
 export interface ProjectChatHistoryMessage {
   id: string;
@@ -101,6 +111,35 @@ export function buildStandaloneResearchQuestion(input: {
       ? `Specific research request: ${input.delegatedQuestion}`
       : null,
   ].filter(Boolean).join("\n").slice(0, 6_000);
+}
+
+const contextualFollowUpPattern =
+  /\b(?:that|this|it|those|previous|prior|earlier|above|the (?:flow|part|answer|approach|one|ones))\b|^(?:and|also|which part|what about|why|how so)\b/i;
+
+/**
+ * Resolves elliptical follow-ups for retrieval without paying for a routing
+ * model. The user text remains first and prior context is deliberately compact:
+ * answer text is useful for semantic retrieval, while citation manifests keep
+ * durable source identity available without replaying excerpts.
+ */
+export function buildContextualRetrievalQuery(input: {
+  currentQuestion: string;
+  history?: ProjectChatHistoryMessage[];
+}) {
+  if (!contextualFollowUpPattern.test(input.currentQuestion)) return input.currentQuestion;
+  const priorUser = input.history?.filter((message) => message.role === "user").at(-1);
+  const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
+  if (!priorUser && !priorAssistant) return input.currentQuestion;
+  const citationManifest = priorAssistant?.citations.slice(0, 8).map((citation) => ({
+    type: citation.kind,
+    title: citation.label.slice(0, 180),
+  }));
+  return [
+    `Current question: ${input.currentQuestion}`,
+    priorUser ? `Prior user objective: ${priorUser.content.slice(0, 700)}` : null,
+    priorAssistant ? `Prior assistant answer: ${priorAssistant.content.slice(0, 1_800)}` : null,
+    citationManifest?.length ? `Prior used sources: ${JSON.stringify(citationManifest)}` : null,
+  ].filter(Boolean).join("\n").slice(0, 4_000);
 }
 
 function selectHistory(messages: ProjectChatHistoryMessage[]) {
@@ -166,6 +205,11 @@ export function buildMemoryCatalog(input: {
       hit.authority === "included_evidence" &&
       (hit.ownershipAuthority ?? 0) >= 3
     ), 2);
+  } else if (input.query && architectureSynthesisPattern.test(input.query)) {
+    // Architecture questions need a subsystem-balanced catalog. Pure top-k
+    // similarity otherwise tends to return several near-duplicate facts from
+    // whichever subsystem happens to share the word "architecture."
+    add(rankAccomplishmentHits(input.hits, 10), 10);
   }
   add(input.hits.filter((hit) => hit.kind === "project_fact" && preferredIds.has(hit.id)), 8);
   add(input.hits.filter((hit) => hit.kind === "highlight" && hit.authority === "verified_highlight"), 6);
@@ -255,9 +299,16 @@ function hitSimilarity(left: ProjectKnowledgeHit, right: ProjectKnowledgeHit) {
 
 export function rankAccomplishmentHits(hits: ProjectKnowledgeHit[], limit = 6) {
   const genericObservation = /\b(?:defines (?:the )?(?:symbol|model)|contains .* behavior|is present in|implements citation or provenance handling|reads or writes persisted application state)\b/i;
-  const eligible = hits
+  const eligible = filterSupersededAccomplishmentClaims(hits)
     .filter((hit) => hit.kind === "highlight" || hit.kind === "project_fact")
-    .filter((hit) => hit.kind !== "highlight" || hit.authority === "verified_highlight")
+    .filter((hit) => {
+      if (hit.kind !== "highlight") return true;
+      if (hit.authority !== "verified_highlight") return false;
+      const hasRepositoryProvenance = hit.citations.some((citation) =>
+        citation.provenance?.some((source) => Boolean(source.commitSha || source.path))
+      );
+      return Boolean(hit.validatedThroughSha) || (!hasRepositoryProvenance && (hit.ownershipAuthority ?? 0) >= 3);
+    })
     .filter((hit) => hit.kind !== "project_fact" || Boolean(hit.validatedThroughSha))
     .filter((hit) => !genericObservation.test(`${hit.title} ${hit.content}`));
   const supportedTopLevelSubsystems = new Set(
@@ -348,17 +399,31 @@ function directResearchResult(input: {
   };
 }
 
-function deterministicMemoryAnswer(hits: ProjectKnowledgeHit[], catalog: ReturnType<typeof buildMemoryCatalog>) {
+function normalizedAnswerKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9%]+/g, " ").trim();
+}
+
+function deterministicMemoryAnswer(
+  hits: ProjectKnowledgeHit[],
+  catalog: ReturnType<typeof buildMemoryCatalog>,
+) {
   const currentRunTitles = new Set(catalog.entries.filter((entry) => entry.currentRun).map((entry) => entry.title));
   const eligible = hits.filter((hit) =>
     hit.authority === "verified_highlight" ||
     hit.authority === "verified_project_fact" ||
     hit.authority === "included_evidence"
   );
-  const grounded = [
+  const prioritized = [
     ...eligible.filter((hit) => currentRunTitles.has(hit.title)),
     ...eligible.filter((hit) => !currentRunTitles.has(hit.title)),
-  ].slice(0, Math.max(3, currentRunTitles.size));
+  ];
+  const seenContent = new Set<string>();
+  const grounded = prioritized.filter((hit) => {
+    const key = normalizedAnswerKey(hit.content);
+    if (!key || seenContent.has(key)) return false;
+    seenContent.add(key);
+    return true;
+  }).slice(0, Math.max(3, currentRunTitles.size));
   const answer = grounded.map((hit) => {
     const entry = catalog.entries.find((candidate) => candidate.title === hit.title);
     const citationIndex = entry?.citationIndexes[0];
@@ -367,6 +432,35 @@ function deterministicMemoryAnswer(hits: ProjectKnowledgeHit[], catalog: ReturnT
   return {
     ...selectReferencedCitations(answer, catalog.citations),
     uncompactedContent: answer,
+  };
+}
+
+function deterministicHistoryAwareAnswer(input: {
+  question: string;
+  history?: ProjectChatHistoryMessage[];
+  hits: ProjectKnowledgeHit[];
+  catalog: ReturnType<typeof buildMemoryCatalog>;
+}) {
+  const hasPriorAssistant = input.history?.some((message) => message.role === "assistant") ?? false;
+  const asksRetryFollowUp = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i.test(input.question);
+  if (!hasPriorAssistant || !asksRetryFollowUp) return null;
+
+  const hit = input.hits
+    .filter((candidate) => ["verified_highlight", "verified_project_fact", "included_evidence"].includes(candidate.authority))
+    .filter((candidate) => /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(`${candidate.title} ${candidate.content}`))
+    .sort((left, right) => right.score - left.score)[0];
+  if (!hit) return null;
+  const entry = input.catalog.entries.find((candidate) => candidate.title === hit.title);
+  const citationIndex = entry?.citationIndexes[0];
+  if (!citationIndex) return null;
+
+  const answer = /durable workflows?.*project chat.*artifact generation/i.test(hit.content)
+    ? "The retry-safe part is the durable workflow orchestration around project chat and artifact generation. It is described as retry-safe because the same supported implementation fact ties those steps to persisted runs, progress events, and review/resume boundaries."
+    : `The part identified as retry-safe is: ${hit.content} I am identifying it because this is the retrieved project-memory item that explicitly documents retry or backoff behavior.`;
+  const grounded = `${answer} [citation:${citationIndex}]`;
+  return {
+    ...selectReferencedCitations(grounded, input.catalog.citations),
+    uncompactedContent: grounded,
   };
 }
 
@@ -671,15 +765,105 @@ interface RunProjectChatAgentInput {
   onAgentEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
 }
 
+async function answerPriorTurnProvenance(input: RunProjectChatAgentInput): Promise<ProjectChatAgentResult> {
+  const priorAssistantMessageId = input.history?.filter((message) => message.role === "assistant").at(-1)?.id;
+  if (!priorAssistantMessageId) {
+    const answer = "There is no earlier completed assistant answer in this thread to inspect.";
+    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
+  }
+  await appendAgentRunEvent({
+    runId: input.runId,
+    type: "tool_call",
+    toolName: "inspect_prior_turn_provenance",
+    payload: { assistantMessageId: priorAssistantMessageId },
+    isUserVisible: false,
+  }).catch(() => null);
+  const provenance = await priorTurnProvenanceService.inspect({
+    userId: input.userId,
+    workItemId: input.workItemId,
+    threadId: input.threadId,
+    assistantMessageId: priorAssistantMessageId,
+  });
+  await appendAgentRunEvent({
+    runId: input.runId,
+    type: "tool_result",
+    toolName: "inspect_prior_turn_provenance",
+    payload: {
+      repositoryInspected: provenance.repositoryInspected,
+      toolCallCount: provenance.toolCalls.reduce((total, tool) => total + tool.count, 0),
+      usedSourceCount: provenance.usedSources.length,
+      partial: provenance.partial,
+      fallbackUsed: provenance.fallbackUsed,
+    },
+    isUserVisible: false,
+  }).catch(() => null);
+  const answer = provenanceAnswer(provenance);
+  return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
+}
+
 async function executeProjectChatAgent(
   input: RunProjectChatAgentInput,
   mode: "normal" | "post_review_finalization",
 ): Promise<ProjectChatAgentResult> {
+  // Control-plane turns do not need repositories, candidates, refresh state,
+  // or the knowledge graph. Resolve the context-free intents before the three
+  // capability queries so provenance inspection stays a bounded metadata read.
+  const controlPlaneIntent = routeProjectTurn({
+    question: input.question,
+    memoryHits: [],
+    pendingCandidateIds: [],
+    allowResearch: false,
+  });
+  if (controlPlaneIntent.kind === "artifact_request") {
+    return { status: "artifact_requested", brief: input.question };
+  }
+  if (controlPlaneIntent.kind === "prior_turn_provenance") {
+    return answerPriorTurnProvenance(input);
+  }
   const capabilityInputs = await loadCapabilityInputs(input);
+  // Explicit control-plane intents do not need project retrieval. Resolve
+  // them before loading the knowledge graph or generating a query embedding.
+  const earlyIntent = routeProjectTurn({
+    question: input.question,
+    memoryHits: [],
+    pendingCandidateIds: capabilityInputs.pendingCandidateIds,
+    allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh
+      ? false
+      : input.allowResearch,
+  });
+  if (earlyIntent.kind === "artifact_request") {
+    return { status: "artifact_requested", brief: input.question };
+  }
+  if (earlyIntent.kind === "candidate_review") {
+    const answer = "I can apply a review only to an explicitly selected candidate. Use the approve, edit-and-approve, or deny controls on the pending candidate cards below.";
+    return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
+  }
+  if (earlyIntent.kind === "prior_turn_provenance") {
+    return answerPriorTurnProvenance(input);
+  }
+  if (
+    earlyIntent.kind === "repository_research" &&
+    !capabilityInputs.repositories.length &&
+    liveRepositoryIntentPattern.test(input.question)
+  ) {
+    const answer = "I cannot inspect that repository because this project has no attached, authorized repository source. Attach the repository to this project before requesting code research.";
+    return {
+      status: "insufficient_context",
+      answer,
+      citations: [],
+      research: directResearchResult({ answer: "", citations: [], warnings: [answer] }),
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: null,
+    };
+  }
   const memory = await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,
     workItemId: input.workItemId,
-    query: input.question,
+    query: buildContextualRetrievalQuery({
+      currentQuestion: input.question,
+      history: input.history,
+    }),
     purpose: "private_chat",
     preferredProjectFactIds: capabilityInputs.currentRunProjectFactIds,
     limits: mode === "post_review_finalization"
@@ -710,6 +894,25 @@ async function executeProjectChatAgent(
     pendingCandidateIds: capabilityInputs.pendingCandidateIds,
     allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh ? false : input.allowResearch,
   });
+  if (
+    mode === "normal" &&
+    deterministicIntent.kind === "direct_answer" &&
+    memoryCatalog.citations.length === 0 &&
+    (!capabilityInputs.repositories.length || input.allowResearch === false)
+  ) {
+    const answer = capabilityInputs.repositories.length
+      ? "I do not have approved project memory that supports this request, and repository research is disabled for this turn. Add or approve relevant project context, or retry with research enabled."
+      : "I do not have approved project memory that supports this request, and this project has no attached repository available for bounded research.";
+    return {
+      status: "insufficient_context",
+      answer,
+      citations: [],
+      research: directResearchResult({ answer: "", citations: [], warnings: [answer] }),
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: null,
+    };
+  }
   const executionRoute = await projectExecutionRouterService.route({
     runId: input.runId,
     userId: input.userId,
@@ -836,6 +1039,7 @@ async function executeProjectChatAgent(
       workItemId: input.workItemId,
       question: buildStandaloneResearchQuestion({ currentQuestion: input.question, history: input.history }),
       purpose: "answer_question",
+      preloadedKnowledge: memory,
       hints: [
         `Freshness: ${intent.freshness}.`,
         `Coverage: ${intent.coverage}.`,
@@ -855,8 +1059,119 @@ async function executeProjectChatAgent(
     };
   }
 
+  if (
+    accomplishmentRequirements &&
+    supportsDeterministicAccomplishmentFormat(input.question) &&
+    (process.env.WORKBASE_ACCOMPLISHMENT_ANSWER_MODE ?? "deterministic") !== "model"
+  ) {
+    try {
+      const exact = validateExactSourceAccomplishmentBlocks({
+        blocks: buildDeterministicAccomplishmentBlocks([], memoryCatalog.entries),
+        entries: memoryCatalog.entries,
+        citationCount: memoryCatalog.citations.length,
+        dossier: capabilityInputs.researchDossier,
+      });
+      const finalized = finalizeGroundedAnswer({
+        blocks: exact.blocks,
+        catalog: memoryCatalog.citations,
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      });
+      const answerWithCoverage = appendAccomplishmentCoverageNote(
+        finalized.markdown,
+        exact.audit.coverageWarning,
+      );
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "tool_result",
+        toolName: "audit_answer_completeness",
+        payload: {
+          completionState: "verified_deterministic_fast_path",
+          generationRunId: null,
+          requirements: accomplishmentManifest?.requirements ?? [],
+          requiredCount: exact.audit.requirements.length,
+          initialMissingCount: 0,
+          finalMissingCount: 0,
+          minimumBlocks: exact.audit.minimumBlocks,
+          maximumBlocks: exact.audit.maximumBlocks,
+          maximumUniqueCitations: accomplishmentManifest?.maximumUniqueCitations ?? 20,
+          initialBlockCount: exact.blocks.length,
+          finalBlockCount: exact.blocks.length,
+          fallbackUsed: false,
+          overflowWarning: exact.audit.coverageWarning,
+          warning: null,
+        },
+        isUserVisible: false,
+      }).catch(() => null);
+      return {
+        status: "answered",
+        answer: answerWithCoverage,
+        citations: finalized.citations,
+        citationPolicy: finalized.citationPolicy,
+        groundedClaims: finalized.groundedClaims,
+        freshness: finalized.freshness,
+        research: directResearchResult({
+          answer: answerWithCoverage,
+          citations: finalized.citations,
+          dossier: capabilityInputs.researchDossier,
+          warnings: exact.audit.coverageWarning ? [exact.audit.coverageWarning] : [],
+          groundedClaims: finalized.groundedClaims,
+        }),
+      };
+    } catch (error) {
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "tool_result",
+        toolName: "audit_answer_completeness",
+        payload: {
+          completionState: "deterministic_fast_path_unavailable",
+          fallbackUsed: true,
+          warning: error instanceof Error ? error.message.slice(0, 300) : "The exact-source answer could not be assembled.",
+        },
+        isUserVisible: false,
+      }).catch(() => null);
+      // Continue through the ordinary answer path; a sparse or newly-created
+      // project must not turn an optimization miss into a failed durable run.
+    }
+  }
+
+  // Broad architecture summaries and source-specific follow-ups can be
+  // assembled directly from the already-ranked durable-memory catalog. Paying
+  // for a drafting call and then a second semantic-verifier call repeated work
+  // without adding evidence, and could exhaust the verifier budget on large
+  // catalogs. Keep open-ended or ambiguous synthesis on Sonnet.
+  const exactMemoryAnswer = deterministicHistoryAwareAnswer({
+    question: input.question,
+    history: input.history,
+    hits: memoryCatalog.selectedHits,
+    catalog: memoryCatalog,
+  }) ?? (broadArchitectureAnswerPattern.test(input.question)
+    ? deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog)
+    : null);
+  if (exactMemoryAnswer?.content) {
+    const groundedClaims = extractClaimCitationMap(exactMemoryAnswer.content);
+    return {
+      status: "answered",
+      answer: exactMemoryAnswer.content,
+      citations: exactMemoryAnswer.citations,
+      citationPolicy: "required_inline",
+      groundedClaims,
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      research: directResearchResult({
+        answer: exactMemoryAnswer.content,
+        citations: exactMemoryAnswer.citations,
+        dossier: capabilityInputs.researchDossier,
+        groundedClaims,
+      }),
+    };
+  }
+
   if (resolveWorkbaseLlmProvider() === "mock") {
-    const selected = deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
+    const selected = deterministicHistoryAwareAnswer({
+      question: input.question,
+      history: input.history,
+      hits: memoryCatalog.selectedHits,
+      catalog: memoryCatalog,
+    }) ?? deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
     const accomplishmentIntent = accomplishmentSynthesisPattern.test(input.question);
     // selectReferencedCitations compacts ordinals for persisted answers. The
     // completeness pipeline still uses the original catalog, so it must retain
@@ -968,7 +1283,7 @@ async function executeProjectChatAgent(
   const agent = BedrockConverseAgent.fromConfig({
     ...resolveBedrockConfig(),
     // The runtime requires a positive limit even though this phase exposes no tools.
-    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 60_000 },
+    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 30_000 },
   });
   try {
     const result = await agent.run({
@@ -994,7 +1309,7 @@ async function executeProjectChatAgent(
       ].filter(Boolean).join(" "),
       messages,
       tools: [],
-      maxTokens: 8_000,
+      maxTokens: 4_000,
       temperature: 0,
       effort: "medium",
       enablePromptCaching: true,

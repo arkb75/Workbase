@@ -14,10 +14,11 @@ import {
   type ProjectAnswerGroundingEntry,
 } from "@/src/services/project-answer-grounding-service";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
+import { filterSupersededProjectClaims } from "@/src/services/project-knowledge-policy";
 
 const MAX_ACCOMPLISHMENT_BLOCKS = 10;
 const MAX_CITATIONS_PER_BLOCK = 4;
-const MAX_MEMBERS_PER_REQUIREMENT = 2;
+const MAX_MEMBERS_PER_REQUIREMENT = 3;
 export const MAX_ACCOMPLISHMENT_CITATIONS = 20;
 export const TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS = [
   "product_surface",
@@ -173,12 +174,20 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\brepository (?:refresh|knowledge|snapshot|coverage|synthesis)\b/i,
     /\b(?:immutable|pinned) commit\b/i,
     /\b(?:reconcil|supersed|stale|revalidat|semantic analys)\w*/i,
+    /\b(?:capability )?work packages?\b/i,
+    /\b(?:parallel )?(?:semantic )?specialist workers?\b/i,
+    /\b(?:structural )?coverage audit(?:or)?\b/i,
+    /\b(?:supported findings|explicit gaps|coverage gaps?)\b/i,
   ],
   project_chat_grounding: [
     /\bmulti[- ]turn\b/i,
     /\b(?:conversation|chat) history\b/i,
     /\b(?:retrieval|citation|grounding|grounded answer)\b/i,
     /\bproject chat\b/i,
+    /\b(?:execution|intent) rout(?:e|er|ing)\b/i,
+    /\bdeterministic (?:intent|safety|constraint|path)\w*/i,
+    /\bmodel[- ]assisted rout(?:e|er|ing)\b/i,
+    /\b(?:genuinely )?ambiguous requests?\b/i,
   ],
   artifact_generation: [
     /\b(?:resume bullet|linkedin experience|project summary|artifact generation)\w*/i,
@@ -189,6 +198,10 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\b(?:approv|reject|review|revert|retir|supersed|revalidat)\w*/i,
     /\bknowledge (?:change|lifecycle|review)\b/i,
     /\b(?:stale|quarantin)\w*/i,
+    /\bauto[- ]appl(?:y|ied)\b/i,
+    /\b(?:later|retrospective) review\b/i,
+    /\b(?:downstream )?invalidat\w*/i,
+    /\bupdate inbox\b/i,
   ],
   workflow_orchestration: [
     /\bdurable workflow\w*/i,
@@ -218,9 +231,15 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\b(?:model|relation|migration) history\b/i,
   ],
   review_ui: [
-    /\b(?:review|project) workspace\b/i,
+    /\b(?:review|project) workspaces?\b/i,
     /\b(?:chat|source|highlight|fact|artifact) (?:tab|panel|view|interface)\b/i,
     /\b(?:citation|progress|review) (?:card|display|control)\b/i,
+    /\b(?:saved )?(?:chat )?threads?\b/i,
+    /\bsource management\b/i,
+    /\bhighlight review\b/i,
+    /\bartifact (?:generation|history)\b/i,
+    /\b(?:inline )?citations?\b/i,
+    /\b(?:run|generation) progress\b/i,
   ],
   tests_operations: [
     /\bautomated tests? cover\b/i,
@@ -230,6 +249,23 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\b(?:unit|integration|end-to-end|workflow|ui) tests?\b/i,
   ],
 };
+
+/**
+ * Active durable memory can briefly contain both sides of a behavior change
+ * while staleness reconciliation catches up. If the catalog contains the
+ * current auto-apply/review-later policy, do not summarize an older blanket
+ * mandatory-review claim as a peer accomplishment. Public-artifact approval
+ * rules are intentionally exempt because they remain a separate invariant.
+ *
+ * Highly absolute security/reliability wording is also omitted from an
+ * accomplishment summary: those phrases require stronger proof than ordinary
+ * implementation facts and are quarantined by current synthesis policy.
+ */
+export function filterSupersededAccomplishmentClaims<
+  T extends { subsystemKey?: string | null; title: string; content: string },
+>(entries: T[]) {
+  return filterSupersededProjectClaims(entries);
+}
 
 export function accomplishmentCoverageAnchorScore(entry: {
   subsystemKey?: string | null;
@@ -327,7 +363,7 @@ function stableRequirementHeading(requirementKeyValue: string) {
 export function selectAccomplishmentRequirementSet(
   entries: AccomplishmentGroundingEntry[],
 ): AccomplishmentRequirementSelection {
-  const eligible = entries
+  const eligible = filterSupersededAccomplishmentClaims(entries)
     .filter((entry) => entry.citationIndexes.length > 0)
     .filter((entry) => entry.kind === "highlight" || entry.kind === "project_fact")
     .filter((entry) => entry.currentRun || Boolean(entry.accomplishmentRanking))
@@ -472,8 +508,9 @@ export function selectAccomplishmentRequirementSet(
       .map((entry) => requirementKey(entry))
       .filter((key) => !selectedRequirementKeys.has(key)),
   );
-  const coverageWarning = omittedCapabilityKeys.size
-    ? `This summary covers ${requirements.length} capability area${requirements.length === 1 ? "" : "s"} within the 10-item and 20-source answer limits; ${omittedCapabilityKeys.size} additional supported capability area${omittedCapabilityKeys.size === 1 ? " was" : "s were"} not included.`
+  const omittedMemberCount = omitted.length;
+  const coverageWarning = omittedMemberCount
+    ? `This summary covers ${requirements.length} capability area${requirements.length === 1 ? "" : "s"} within the 10-item and 20-source answer limits; ${omittedCapabilityKeys.size} additional capability area${omittedCapabilityKeys.size === 1 ? "" : "s"} and ${omittedMemberCount - omittedCapabilityKeys.size} additional supported facet${omittedMemberCount - omittedCapabilityKeys.size === 1 ? " were" : "s were"} not included.`
     : null;
   return { requirements, omittedImportantEntries: omitted, coverageWarning };
 }
@@ -745,7 +782,10 @@ export async function completeGroundedAccomplishmentAnswer(input: {
   const initialAudit = auditAccomplishmentBlocks(input.blocks, input.entries);
   const exactSourceBlocks = buildDeterministicAccomplishmentBlocks([], input.entries);
   const exactSourceCitationCount = Math.max(0, ...input.entries.flatMap((entry) => entry.citationIndexes));
-  if (resolveWorkbaseLlmProvider() === "mock") {
+  if (
+    resolveWorkbaseLlmProvider() === "mock" ||
+    (process.env.WORKBASE_COMPLETENESS_EDITOR_MODE ?? "deterministic") !== "model"
+  ) {
     const exactSource = validateExactSourceAccomplishmentBlocks({
       blocks: exactSourceBlocks,
       entries: input.entries,

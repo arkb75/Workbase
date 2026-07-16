@@ -267,7 +267,7 @@ function CitationList({
               {(citation.kind === "project_fact" || citation.kind === "highlight") && citation.provenance.length ? (
                 <details className="mt-1 text-xs text-[color:var(--ink-muted)]">
                   <summary className="cursor-pointer font-medium text-[color:var(--accent)]">
-                    View underlying repository evidence
+                    View underlying evidence
                   </summary>
                   <div className="mt-2 grid gap-2 border-l border-black/8 pl-3">
                     {citation.provenance.map((entry) => (

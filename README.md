@@ -2,7 +2,7 @@
 
 Workbase is an internal MVP for early-career CS students and engineers who want to turn real technical work into verified career content.
 
-The prototype is built around one hard rule: Artifacts are generated from approved Claims only. Raw notes and source inputs never go straight into output generation.
+The prototype is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
 
 ## Stack
 
@@ -19,10 +19,11 @@ The prototype is built around one hard rule: Artifacts are generated from approv
 1. Complete onboarding for the demo user
 2. Create a Work Item
 3. Attach manual notes and import a real GitHub repository
-4. Review included Evidence and cluster it into work themes
-5. Generate candidate Claims with Evidence
-6. Review, edit, approve, reject, or mark Claims as Sensitive
-7. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved Claims only
+4. Refresh commit-pinned repository knowledge and cluster Evidence into work themes
+5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory
+6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates
+7. Keep, edit, revert, retire, or sensitivity-classify those changes without blocking ordinary private project chat
+8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only
 
 ## Local setup
 
@@ -93,11 +94,15 @@ The test suite covers:
 - evidence persistence refresh/dedupe behavior
 - artifact eligibility constraints
 - claim regeneration behavior
-- a server-side workflow from source notes to approved-claim artifact generation
+- multi-turn project chat, citation grounding, retrieval, and prior-turn provenance
+- commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
+- durable chat and artifact workflows, including review/resume behavior
+- a server-side workflow from source notes to approved-Highlight artifact generation
 
 ## Notes
 
-- GitHub import is intentionally bounded: README, recent commits, PRs, issues, releases, and changed file paths only.
-- Included evidence items are the source of truth for clustering and future claim generation.
-- Claim research, verification, and artifact generation live behind typed service interfaces in `src/services`.
-- Sensitive or private claims are excluded from public-facing Artifact generation.
+- GitHub import is intentionally bounded, and repository research is read-only and limited to repositories attached to the project.
+- Exact repository excerpts are immutable provenance beneath reviewed Project Facts or Highlights, not peer sources in chat.
+- Safe repository knowledge is auto-applied for private use and marked for retrospective review; sensitive or weakly supported knowledge is quarantined.
+- Project chat, research, review, retrieval, and artifact generation live behind typed service interfaces in `src/services`.
+- Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.

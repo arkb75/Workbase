@@ -80,6 +80,19 @@ describe("repository Evidence promotion lifecycle", () => {
   });
 
   it("does not reopen an already recorded promotion card during workflow retry", async () => {
+    prismaMock.evidenceItem.findUnique.mockResolvedValue({
+      id: "evidence-1",
+      title: "src/runtime.ts:10-14",
+      content: "export function run() {}",
+      included: false,
+      lifecycleStatus: "active",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+      publicSafetyStatus: "not_eligible",
+      validatedThroughSha: "commit-1",
+      lastValidatedAt: new Date(),
+      autoAppliedAt: new Date(),
+    });
     prismaMock.knowledgeChange.findUnique.mockResolvedValue({ id: "change-existing" });
 
     await promoteRepositoryCitations({
@@ -100,6 +113,8 @@ describe("repository Evidence promotion lifecycle", () => {
     });
 
     expect(prismaMock.evidenceItem.update).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceItem.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceTag.deleteMany).not.toHaveBeenCalled();
     expect(upsertReviewableKnowledgeChangeMock).not.toHaveBeenCalled();
   });
 });

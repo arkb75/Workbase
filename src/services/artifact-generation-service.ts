@@ -15,6 +15,7 @@ import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockArtifactGenerationService } from "@/src/services/mock-artifact-generation-service";
+import { deriveArtifactEvidenceItemIds } from "@/src/services/artifact-publication-policy";
 
 function buildArtifactInputSummary(params: {
   workItemId: string;
@@ -66,13 +67,11 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
 
     const structuredClient = getBedrockStructuredLlmClient();
     const allowedHighlightIds = new Set(highlights.map((highlight) => highlight.id));
-    const allowedEvidenceItemIds = new Set(
-      supportingEvidence.map((item) => item.id),
-    );
+    const allowedEvidenceItemIds = new Set(supportingEvidence.map((item) => item.id));
     const systemPrompt = [
       "You draft Workbase artifacts from already-approved highlights.",
       "Return JSON that matches the provided schema exactly.",
-      "Only use the provided approved highlights and supporting evidence.",
+      "Only use the provided approved highlights. Raw supporting evidence is deliberately unavailable during drafting.",
     ].join(" ");
     const userPrompt = formatTaggedSections([
       {
@@ -85,7 +84,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
           "Return a top-level JSON object with `content`, `usedHighlightIds`, and `supportingEvidenceItemIds`.",
           "Never invent work, metrics, outcomes, scope, or technologies.",
           "Only cite highlight IDs that were provided in the approvedHighlights input.",
-          "Only cite supportingEvidenceItemIds that were provided in the supportingEvidence input.",
+          "Return an empty supportingEvidenceItemIds array. Workbase derives exact evidence provenance from the selected approved Highlights after generation.",
           buildArtifactContentInstructions(request.type),
         ].join("\n"),
       },
@@ -120,7 +119,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
               tag: "request_brief",
               content: [
                 request.brief,
-                "Follow this brief only where the approved highlights and cited evidence support it.",
+                "Follow this brief only where the approved highlights support it.",
               ].join("\n"),
             },
           ]
@@ -135,19 +134,6 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
             confidence: highlight.confidence,
             ownershipClarity: highlight.ownershipClarity,
             tags: highlight.tags,
-          })),
-          null,
-          2,
-        ),
-      },
-      {
-        tag: "supporting_evidence",
-        content: JSON.stringify(
-          supportingEvidence.map((item) => ({
-            id: item.id,
-            title: item.title,
-            excerpt: item.content,
-            tags: item.tags ?? [],
           })),
           null,
           2,
@@ -185,13 +171,9 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
             }
           });
 
-          value.supportingEvidenceItemIds.forEach((evidenceItemId, index) => {
-            if (!allowedEvidenceItemIds.has(evidenceItemId)) {
-              errors.push(
-                `supportingEvidenceItemIds[${index}] references an unknown evidenceItemId.`,
-              );
-            }
-          });
+          if (value.supportingEvidenceItemIds.length) {
+            errors.push("supportingEvidenceItemIds must be empty; provenance is derived from approved Highlights.");
+          }
 
           if (new Set(value.usedHighlightIds).size !== value.usedHighlightIds.length) {
             errors.push("usedHighlightIds must not contain duplicates.");
@@ -214,7 +196,11 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         tone: request.tone,
         content: result.data.content.trim(),
         usedHighlightIds: result.data.usedHighlightIds,
-        supportingEvidenceItemIds: result.data.supportingEvidenceItemIds,
+        supportingEvidenceItemIds: deriveArtifactEvidenceItemIds({
+          highlights,
+          usedHighlightIds: result.data.usedHighlightIds,
+          allowedEvidenceItemIds,
+        }),
       };
       const generationRun = await createGenerationRun({
         workItemId: request.workItemId,

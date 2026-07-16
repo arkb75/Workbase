@@ -151,7 +151,7 @@ describe("project answer completeness", () => {
 
     expect(selection.requirements).toHaveLength(10);
     expect(selection.omittedImportantEntries).toHaveLength(1);
-    expect(selection.coverageWarning).toMatch(/10 capability areas.*1 additional supported capability area/i);
+    expect(selection.coverageWarning).toMatch(/10 capability areas.*1 additional capability area/i);
   });
 
   it("fits all twelve top-level systems into ten requirements through explicit aliases", () => {
@@ -170,7 +170,7 @@ describe("project answer completeness", () => {
     expect(selection.coverageWarning).toBeNull();
   });
 
-  it("caps a broad requirement at two representatives and does not warn about dropped same-area detail", () => {
+  it("retains a third important same-area facet within the per-block citation budget", () => {
     const product = entry(1, "product_surface", {
       importance: 3,
       ranking: {
@@ -195,6 +195,7 @@ describe("project answer completeness", () => {
     expect(requirement.requirementKey).toBe("product_and_artifact_generation");
     expect(requirement.members.map((member) => member.subsystemKey)).toEqual([
       "product_surface",
+      "artifact_generation",
       "artifact_generation",
     ]);
     expect(selection.coverageWarning).toBeNull();
@@ -221,9 +222,21 @@ describe("project answer completeness", () => {
     },
     {
       subsystem: "review_ui",
-      broadTitle: "Built the project workspace user interface",
-      broadContent: "The project workspace provides chat, source, review, artifact, citation, and progress views.",
+      broadTitle: "Built complete project workspaces",
+      broadContent: "The user interface provides project workspaces for chat, source management, highlight review, artifact generation and history, inline citations, and run progress.",
       narrowTitle: "Refined one citation popover",
+    },
+    {
+      subsystem: "project_chat_grounding",
+      broadTitle: "Implemented hybrid project-chat execution routing",
+      broadContent: "Deterministic intent and safety constraints handle high-confidence paths while model-assisted routing handles genuinely ambiguous requests.",
+      narrowTitle: "Adjusted one chat context mapper",
+    },
+    {
+      subsystem: "repository_knowledge_lifecycle",
+      broadTitle: "Built parallel semantic specialist research with structural coverage auditing",
+      broadContent: "Capability work packages run through parallel semantic specialist workers and a structural coverage auditor preserves supported findings and explicit gaps.",
+      narrowTitle: "Versioned one repository snapshot field",
     },
   ])("prioritizes broad $subsystem coverage anchors over a higher-scored narrow detail", ({
     subsystem,
@@ -253,6 +266,73 @@ describe("project answer completeness", () => {
 
     const requirement = selectAccomplishmentRequirementSet([narrow, broad]).requirements[0]!;
     expect(requirement.members[0]?.title).toBe(broadTitle);
+  });
+
+  it("prefers the current auto-apply lifecycle and omits a superseded blanket review gate", () => {
+    const staleGate = entry(1, "product_surface", {
+      title: "End-to-end career platform with mandatory human review gate",
+      content: "Every generated Claim requires human approval before any knowledge can be used.",
+    });
+    const currentLifecycle = entry(2, "knowledge_review_lifecycle", {
+      title: "Auto-applied safe knowledge with retrospective review",
+      content: "Knowledge changes are auto-applied when safe, recorded for later review, and propagated through revalidation, supersession, retirement, and downstream invalidation.",
+    });
+    const workspace = entry(3, "review_ui", {
+      title: "Complete project workspaces",
+      content: "Project workspaces provide chat, source management, highlight review, artifact history, citations, and run progress.",
+    });
+    const publicArtifactPolicy = entry(4, "artifact_generation", {
+      title: "Approved-Highlight public artifact policy",
+      content: "Approved Highlights are required before public artifacts can be generated, and sensitive material is excluded.",
+    });
+
+    const selection = selectAccomplishmentRequirementSet([
+      staleGate,
+      currentLifecycle,
+      workspace,
+      publicArtifactPolicy,
+    ]);
+    const selectedTitles = selection.requirements.flatMap((requirement) =>
+      requirement.members.map((member) => member.title)
+    );
+
+    expect(selectedTitles).toContain(currentLifecycle.title);
+    expect(selectedTitles).toContain(workspace.title);
+    expect(selectedTitles).toContain(publicArtifactPolicy.title);
+    expect(selectedTitles).not.toContain(staleGate.title);
+  });
+
+  it("preserves the four architecture and lifecycle facets required by broad accomplishment summaries", () => {
+    const router = entry(1, "project_chat_grounding", {
+      title: "Hybrid deterministic and model-assisted execution routing",
+      content: "Deterministic intent and safety constraints handle high-confidence paths while model-assisted routing handles genuinely ambiguous requests.",
+    });
+    const semanticWorkers = entry(2, "repository_knowledge_lifecycle", {
+      title: "Parallel semantic specialists with structural coverage auditing",
+      content: "Capability work packages run through parallel semantic specialist workers and a coverage auditor preserves supported findings and explicit gaps.",
+    });
+    const reviewLifecycle = entry(3, "knowledge_review_lifecycle", {
+      title: "Auto-apply, review-later, quarantine, and supersession lifecycle",
+      content: "Safe knowledge is auto-applied for later review; unsafe changes are quarantined while revalidation, supersession, retirement, and downstream invalidation preserve history.",
+    });
+    const workspace = entry(4, "review_ui", {
+      title: "Full project workspaces",
+      content: "Project workspaces include chat threads, source management, highlight review, artifact generation and history, inline citations, and run progress.",
+    });
+
+    const selectedTitles = selectAccomplishmentRequirementSet([
+      router,
+      semanticWorkers,
+      reviewLifecycle,
+      workspace,
+    ]).requirements.flatMap((requirement) => requirement.members.map((member) => member.title));
+
+    expect(selectedTitles).toEqual(expect.arrayContaining([
+      router.title,
+      semanticWorkers.title,
+      reviewLifecycle.title,
+      workspace.title,
+    ]));
   });
 
   it("deduplicates near-identical same-subsystem facts while preserving distinct work", () => {

@@ -18,7 +18,6 @@ import {
   requiresLiveRepositoryResearch,
   runProjectChatAgent,
 } from "@/src/services/project-chat-agent-service";
-import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
 import {
   isKnowledgeRefreshPartial,
   knowledgeRefreshService,
@@ -76,7 +75,13 @@ async function startRequiredKnowledgeRefresh(runId: string) {
     include: { messages: { where: { role: "user" }, orderBy: { sequence: "desc" }, take: 1 } },
   });
   const question = run.messages[0]?.content ?? "";
-  if (!requiresLiveRepositoryResearch(question) && !looksLikeArtifactRequest(question)) {
+  // Artifact adequacy is evaluated by ArtifactWorkflow itself, which starts
+  // from approved Highlights and performs bounded targeted research only when
+  // they are insufficient. Refreshing every attached repository before every
+  // artifact request duplicated that work and made the common adequate-memory
+  // path pay the full repository cost. Explicit freshness/repository language
+  // still enters the refresh barrier here.
+  if (!requiresLiveRepositoryResearch(question)) {
     return { required: false as const, refreshRunId: null, alreadyComplete: false };
   }
   const refresh = await startKnowledgeRefresh({
@@ -93,9 +98,9 @@ async function inventoryRequiredKnowledge(refreshRunId: string) {
   return knowledgeRefreshService.inventory(refreshRunId);
 }
 
-async function analyzeRequiredKnowledgeBatch(refreshRunId: string) {
+async function analyzeRequiredKnowledgeChunk(refreshRunId: string) {
   "use step";
-  return knowledgeRefreshService.analyzeBatch({ runId: refreshRunId, batchSize: 4 });
+  return knowledgeRefreshService.analyzeChunk({ runId: refreshRunId, batchSize: 8, maxBatches: 8 });
 }
 
 async function finalizeRequiredCoverage(refreshRunId: string) {
@@ -167,8 +172,8 @@ async function runRequiredKnowledgeRefresh(runId: string) {
     await inventoryRequiredKnowledge(requirement.refreshRunId);
     let remaining = 1;
     while (remaining > 0) {
-      const batch = await analyzeRequiredKnowledgeBatch(requirement.refreshRunId);
-      remaining = batch.remaining;
+      const chunk = await analyzeRequiredKnowledgeChunk(requirement.refreshRunId);
+      remaining = chunk.remaining;
       await emitProgress(
         runId,
         remaining > 0
@@ -549,8 +554,8 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
     await inventoryRequiredKnowledge(refreshRunId);
     let remaining = 1;
     while (remaining > 0) {
-      const batch = await analyzeRequiredKnowledgeBatch(refreshRunId);
-      remaining = batch.remaining;
+      const chunk = await analyzeRequiredKnowledgeChunk(refreshRunId);
+      remaining = chunk.remaining;
     }
     await repairRequiredCoverage(refreshRunId);
     await finalizeRequiredCoverage(refreshRunId);

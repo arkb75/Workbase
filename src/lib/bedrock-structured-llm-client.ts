@@ -579,49 +579,70 @@ export class BedrockStructuredLlmClient {
       (mode): mode is NativeStructuredOutputMode => mode !== "text_repair_fallback",
     );
     const attempts: StructuredOutputAttemptRecord[] = [];
+    const observedTokenUsage: JsonValue[] = [];
+    let unknownUsageAttempts = 0;
+    const tokenUsageSnapshot = (): JsonValue | null => {
+      if (!observedTokenUsage.length && !unknownUsageAttempts) return null;
+      // Preserve the existing single-call shape for callers that inspect raw
+      // provider fields, while retaining every charged attempt on fallbacks.
+      if (observedTokenUsage.length === 1 && !unknownUsageAttempts) {
+        return observedTokenUsage[0]!;
+      }
+      return {
+        attempts: observedTokenUsage,
+        unknownUsageAttempts,
+      } as JsonValue;
+    };
     const converse = async (
       request: Parameters<ConverseTextRuntime["converse"]>[0],
       phase: StructuredGenerationPhase,
     ) => {
       const budget = params.budget;
-      if (!budget) return this.runtime.converse(request);
-      if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
-        throw new StructuredGenerationBudgetError(
-          "model_call_budget_exhausted",
-          `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
-          snapshotStructuredGenerationBudget(budget),
+      let boundedRequest = request;
+      if (budget) {
+        if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
+          throw new StructuredGenerationBudgetError(
+            "model_call_budget_exhausted",
+            `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
+            snapshotStructuredGenerationBudget(budget),
+          );
+        }
+        if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
+          throw new StructuredGenerationBudgetError(
+            "repair_budget_exhausted",
+            `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
+            snapshotStructuredGenerationBudget(budget),
+          );
+        }
+        const remainingTokens = budget.limits.maxTotalTokens - budget.usage.totalTokens;
+        const inputTokenReserve = estimatedInputTokenUpperBound(request);
+        const permittedOutputTokens = Math.min(
+          request.maxTokens,
+          budget.limits.maxOutputTokens,
+          remainingTokens - inputTokenReserve,
         );
+        if (permittedOutputTokens < 1) {
+          throw new StructuredGenerationBudgetError(
+            "token_budget_exhausted",
+            `The structured-generation token budget is exhausted before another bounded request can start.`,
+            snapshotStructuredGenerationBudget(budget),
+          );
+        }
+        budget.usage.modelCalls += 1;
+        if (phase === "repair") budget.usage.repairPasses += 1;
+        boundedRequest = { ...request, maxTokens: permittedOutputTokens };
       }
-      if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
-        throw new StructuredGenerationBudgetError(
-          "repair_budget_exhausted",
-          `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
-          snapshotStructuredGenerationBudget(budget),
-        );
-      }
-      const remainingTokens = budget.limits.maxTotalTokens - budget.usage.totalTokens;
-      const inputTokenReserve = estimatedInputTokenUpperBound(request);
-      const permittedOutputTokens = Math.min(
-        request.maxTokens,
-        budget.limits.maxOutputTokens,
-        remainingTokens - inputTokenReserve,
-      );
-      if (permittedOutputTokens < 1) {
-        throw new StructuredGenerationBudgetError(
-          "token_budget_exhausted",
-          `The structured-generation token budget is exhausted before another bounded request can start.`,
-          snapshotStructuredGenerationBudget(budget),
-        );
-      }
-      budget.usage.modelCalls += 1;
-      if (phase === "repair") budget.usage.repairPasses += 1;
       let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
       try {
-        response = await this.runtime.converse({ ...request, maxTokens: permittedOutputTokens });
+        response = await this.runtime.converse(boundedRequest);
       } catch (error) {
-        budget.usage.unknownUsageCalls += 1;
+        unknownUsageAttempts += 1;
+        if (budget) budget.usage.unknownUsageCalls += 1;
         throw error;
       }
+      if (response.tokenUsage) observedTokenUsage.push(response.tokenUsage);
+      else unknownUsageAttempts += 1;
+      if (!budget) return response;
       const inputTokens = numericTokenUsage(response.tokenUsage, "inputTokens");
       const outputTokens = numericTokenUsage(response.tokenUsage, "outputTokens");
       const reportedTotal = numericTokenUsage(response.tokenUsage, "totalTokens");
@@ -705,7 +726,7 @@ export class BedrockStructuredLlmClient {
           data: parsed.data,
           rawOutput: parsed.rawOutput,
           parsedOutput: parsed.parsedJson,
-          tokenUsage: response.tokenUsage,
+          tokenUsage: tokenUsageSnapshot(),
           estimatedCostUsd: null,
           provider: this.config.provider,
           modelId: this.config.modelId,
@@ -737,7 +758,7 @@ export class BedrockStructuredLlmClient {
         lastFailure?.status ?? "provider_error",
         lastFailure?.rawOutput ?? null,
         lastFailure?.validationErrors ?? null,
-        lastFailure?.tokenUsage ?? null,
+        tokenUsageSnapshot(),
         lastFailure?.transportMode ?? null,
         normalizeAttemptRecords(attempts),
       );
@@ -777,7 +798,7 @@ export class BedrockStructuredLlmClient {
           "provider_error",
           lastFailure?.rawOutput ?? null,
           lastFailure?.validationErrors ?? null,
-          lastFailure?.tokenUsage ?? null,
+          tokenUsageSnapshot(),
           "text_repair_fallback",
           normalizeAttemptRecords(attempts),
         );
@@ -806,7 +827,7 @@ export class BedrockStructuredLlmClient {
         data: firstAttempt.data,
         rawOutput: firstAttempt.rawOutput,
         parsedOutput: firstAttempt.parsedJson,
-        tokenUsage: firstTextResponse.tokenUsage,
+        tokenUsage: tokenUsageSnapshot(),
         estimatedCostUsd: null,
         provider: this.config.provider,
         modelId: this.config.modelId,
@@ -863,7 +884,7 @@ export class BedrockStructuredLlmClient {
         "provider_error",
         firstAttempt.rawOutput,
         firstAttempt.validationErrors as JsonValue,
-        firstTextResponse.tokenUsage,
+        tokenUsageSnapshot(),
         "text_repair_fallback",
         normalizeAttemptRecords(attempts),
       );
@@ -897,13 +918,7 @@ export class BedrockStructuredLlmClient {
         data: repairedAttempt.data,
         rawOutput: combinedRawOutput,
         parsedOutput: repairedAttempt.parsedJson,
-        tokenUsage:
-          firstTextResponse.tokenUsage || repairResponse.tokenUsage
-            ? ({
-                firstAttempt: firstTextResponse.tokenUsage,
-                repairAttempt: repairResponse.tokenUsage,
-              } as JsonValue)
-            : null,
+        tokenUsage: tokenUsageSnapshot(),
         estimatedCostUsd: null,
         provider: this.config.provider,
         modelId: this.config.modelId,
@@ -926,12 +941,7 @@ export class BedrockStructuredLlmClient {
       repairedAttempt.status,
       combinedRawOutput,
       repairedAttempt.validationErrors as JsonValue,
-      firstTextResponse.tokenUsage || repairResponse.tokenUsage
-        ? ({
-            firstAttempt: firstTextResponse.tokenUsage,
-            repairAttempt: repairResponse.tokenUsage,
-          } as JsonValue)
-        : null,
+      tokenUsageSnapshot(),
       "text_repair_fallback",
       normalizeAttemptRecords(attempts),
     );

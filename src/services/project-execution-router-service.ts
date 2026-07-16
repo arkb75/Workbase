@@ -6,7 +6,7 @@ import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import type { ProjectTurnIntent } from "@/src/services/project-agent-harness";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const PROJECT_EXECUTION_ROUTER_VERSION = "project-execution-router-v1";
+export const PROJECT_EXECUTION_ROUTER_VERSION = "project-execution-router-v2";
 
 const routingSchema = z.object({
   mode: z.enum(["memory_only", "targeted_repository_research", "repository_refresh", "clarification", "insufficient_context"]),
@@ -64,6 +64,43 @@ export function deterministicExecutionDecision(intent: ProjectTurnIntent, reposi
   };
 }
 
+export function shouldUseModelExecutionRouter(input: {
+  deterministicIntent: ProjectTurnIntent;
+  mode?: string;
+}) {
+  const mode = input.mode ?? process.env.WORKBASE_EXECUTION_ROUTER_MODE ?? "hybrid";
+  if (mode === "deterministic") return false;
+  if (mode === "model") return true;
+  // Deterministic routing is the safety and cost envelope. The model is useful
+  // only when confidence is genuinely ambiguous; paying for it on explicit
+  // freshness, provenance, artifact, or ordinary high-authority memory paths
+  // adds latency without changing the authorized action.
+  return input.deterministicIntent.confidence < 0.9;
+}
+
+export function enforceExecutionRoutingSafety(input: {
+  deterministic: ExecutionRoutingDecision;
+  model: z.infer<typeof routingSchema>;
+  repositoryCount: number;
+}): ExecutionRoutingDecision {
+  const fallback = input.deterministic;
+  const model = input.model;
+  const researchModes = new Set(["targeted_repository_research", "repository_refresh"]);
+  if (!input.repositoryCount && fallback.mode === "insufficient_context") return fallback;
+  if (!input.repositoryCount && researchModes.has(model.mode)) return fallback;
+  if (fallback.mode === "repository_refresh" && model.mode !== "repository_refresh") return fallback;
+  if (fallback.mode === "targeted_repository_research" && !researchModes.has(model.mode)) return fallback;
+  const breadthRank = { targeted: 0, broad: 1, exhaustive: 2 } as const;
+  if (breadthRank[model.breadth] < breadthRank[fallback.breadth]) return fallback;
+  return {
+    ...model,
+    suggestedWorkerCount: Math.min(4, model.suggestedWorkerCount),
+    routerVersion: PROJECT_EXECUTION_ROUTER_VERSION,
+    generationRunId: null,
+    fallbackUsed: false,
+  };
+}
+
 export async function routeProjectExecution(input: {
   runId: string;
   userId: string;
@@ -77,7 +114,10 @@ export async function routeProjectExecution(input: {
   const fallback = deterministicExecutionDecision(input.deterministicIntent, input.repositories.length);
   if (["artifact_request", "candidate_review", "prior_turn_provenance"].includes(input.deterministicIntent.kind)) return fallback;
   const mode = process.env.WORKBASE_EXECUTION_ROUTER_MODE ?? "hybrid";
-  if (mode === "deterministic" || resolveWorkbaseLlmProvider() === "mock") return fallback;
+  if (
+    resolveWorkbaseLlmProvider() === "mock" ||
+    !shouldUseModelExecutionRouter({ deterministicIntent: input.deterministicIntent, mode })
+  ) return fallback;
   try {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
@@ -125,8 +165,15 @@ export async function routeProjectExecution(input: {
         },
       }),
     });
-    const decision: ExecutionRoutingDecision = { ...result.data, routerVersion: PROJECT_EXECUTION_ROUTER_VERSION, generationRunId: result.generationRunId, fallbackUsed: false };
-    return mode === "shadow" ? { ...fallback, shadowDecision: decision } : decision;
+    const decision = enforceExecutionRoutingSafety({
+      deterministic: fallback,
+      model: result.data,
+      repositoryCount: input.repositories.length,
+    });
+    const auditedDecision = decision.fallbackUsed
+      ? decision
+      : { ...decision, generationRunId: result.generationRunId };
+    return mode === "shadow" ? { ...fallback, shadowDecision: auditedDecision } : auditedDecision;
   } catch {
     return fallback;
   }

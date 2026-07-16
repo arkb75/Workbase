@@ -22,7 +22,8 @@ import {
 } from "@/src/services/repository-knowledge-synthesis-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 
-export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v1";
+export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v2";
+export const STRONG_KNOWLEDGE_IDENTITY_THRESHOLD = 0.72;
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -35,8 +36,32 @@ function hash(value: string) {
 export function shouldQuarantineSynthesizedCandidate(candidate: {
   sensitivityFlag: boolean;
   confidence: string;
-}) {
-  return candidate.sensitivityFlag || candidate.confidence === "low";
+  statement?: string;
+  text?: string;
+  summary?: string;
+}, sources: Array<Pick<SynthesisNotebookEntry, "path" | "statement" | "semanticStatus">> = []) {
+  if (candidate.sensitivityFlag || candidate.confidence === "low") return true;
+  if (sources.some((source) => source.semanticStatus === "degraded")) return true;
+  const claim = normalizeWhitespace([
+    candidate.statement ?? "",
+    candidate.text ?? "",
+    candidate.summary ?? "",
+  ].join(" "));
+  // These phrases imply guarantees that ordinary source code or prose cannot
+  // establish by themselves. They require a narrower claim rather than silent
+  // auto-approval.
+  if (/\b(?:tamper[- ]evident|production[- ]grade|always produces?|guarantees?)\b/i.test(claim)) return true;
+  const modalTerms = Array.from(claim.matchAll(/\b(?:mandatory|always|never|exclusively|every|all|only)\b/gi))
+    .map((match) => match[0]!.toLowerCase());
+  if (!modalTerms.length) return false;
+  // An unrelated executable file is not evidence for an absolute qualifier.
+  // At least one executable exact-line observation must itself state every
+  // qualifier used by the synthesized claim.
+  const hasClauseLevelCorroboration = sources.some((source) =>
+    /\.(?:[cm]?[jt]sx?|prisma|sql|py|go|rs|java)$/i.test(source.path) &&
+    modalTerms.every((term) => normalizeWhitespace(source.statement).toLowerCase().includes(term))
+  );
+  return !hasClauseLevelCorroboration;
 }
 
 export function repositoryHighlightPublicDisposition(unsafe: boolean) {
@@ -145,24 +170,31 @@ async function preparePromotedEvidence(input: {
     where: { refreshRunId: input.runId },
     select: { id: true, sourceId: true, commitSha: true },
   });
-  for (const [reference, evidenceId] of promotedIdByReference) {
-    const notebook = input.synthesis.flatMap((subsystem) => subsystem.notebook).find((entry) => referenceKey(entry) === reference);
-    const snapshot = notebook
-      ? snapshots.find((entry) => entry.sourceId === notebook.sourceId && entry.commitSha === notebook.commitSha)
-      : null;
-    await prisma.evidenceItem.update({
+  const notebookByReference = new Map(
+    input.synthesis.flatMap((subsystem) => subsystem.notebook)
+      .map((entry) => [referenceKey(entry), entry] as const),
+  );
+  const snapshotByHead = new Map(
+    snapshots.map((snapshot) => [`${snapshot.sourceId}:${snapshot.commitSha}`, snapshot.id] as const),
+  );
+  const updates = Array.from(promotedIdByReference, ([reference, evidenceId]) => {
+    const notebook = notebookByReference.get(reference);
+    const repositorySnapshotId = notebook
+      ? snapshotByHead.get(`${notebook.sourceId}:${notebook.commitSha}`)
+      : undefined;
+    // Promotion already applies lifecycle/review/validation fields. This pass
+    // only attaches refresh-specific identity, avoiding a second timestamp and
+    // lifecycle rewrite for every excerpt.
+    return prisma.evidenceItem.update({
       where: { id: evidenceId },
       data: {
         logicalKey: notebook ? `github_file:${notebook.path}:${notebook.lineStart}:${notebook.lineEnd}` : undefined,
-        repositorySnapshotId: snapshot?.id,
-        lifecycleStatus: "active",
-        reviewState: "pending_review",
-        approvalSource: "automation",
-        validatedThroughSha: notebook?.commitSha,
-        lastValidatedAt: new Date(),
-        autoAppliedAt: new Date(),
+        repositorySnapshotId,
       },
     });
+  });
+  for (let offset = 0; offset < updates.length; offset += 8) {
+    await Promise.all(updates.slice(offset, offset + 8));
   }
   return { materialized, promotedIdByReference };
 }
@@ -175,6 +207,7 @@ async function applyFact(input: {
   evidenceIds: string[];
   commitSha: string;
   validationHeads: Record<string, string>;
+  sourceEntries: SynthesisNotebookEntry[];
 }) {
   if (!input.evidenceIds.length) return null;
   const existing = await prisma.projectFact.findMany({
@@ -188,13 +221,18 @@ async function applyFact(input: {
     .map((fact) => ({ fact, score: knowledgeSimilarity(input.candidate.statement, fact.statement) }))
     .sort((left, right) => right.score - left.score);
   const closest = ranked.find((entry) => entry.fact.subsystemKey === input.subsystem.subsystemKey) ?? null;
-  const unsafe = shouldQuarantineSynthesizedCandidate(input.candidate);
+  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
   const validatesUserEdit = Boolean(
     closest &&
-    closest.score >= 0.35 &&
+    closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
     closest.fact.approvalSource === "user" &&
-    closest.fact.lifecycleStatus === "needs_validation",
+    closest.fact.lifecycleStatus === "needs_validation" &&
+    !shouldQuarantineSynthesizedCandidate({
+      confidence: closest.fact.confidence,
+      sensitivityFlag: closest.fact.sensitivityFlag,
+      statement: closest.fact.statement,
+    }, input.sourceEntries),
   );
 
   if ((exact || validatesUserEdit) && !unsafe && closest) {
@@ -266,7 +304,7 @@ async function applyFact(input: {
     return closest.fact.id;
   }
 
-  const supersedes = !unsafe && closest && closest.score >= 0.55
+  const supersedes = !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.fact
     : null;
   const fact = await prisma.$transaction(async (tx) => {
@@ -331,9 +369,10 @@ async function applyHighlight(input: {
   evidence: Array<{ title: string; excerpt: string; commitSha?: string }>;
   commitSha: string;
   validationHeads: Record<string, string>;
+  sourceEntries: SynthesisNotebookEntry[];
 }) {
   if (!input.evidenceIds.length) return null;
-  const unsafe = shouldQuarantineSynthesizedCandidate(input.candidate);
+  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
   // Repository contents can verify implementation but cannot establish who
   // personally performed the work. Running a public-claim verifier for every
   // repository-derived Highlight is both expensive and guaranteed to fail the
@@ -363,9 +402,15 @@ async function applyHighlight(input: {
   );
   const validatesUserEdit = Boolean(
     closest &&
-    closest.score >= 0.35 &&
+    closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
     closest.highlight.approvalSource === "user" &&
-    closest.highlight.lifecycleStatus === "needs_validation",
+    closest.highlight.lifecycleStatus === "needs_validation" &&
+    !shouldQuarantineSynthesizedCandidate({
+      confidence: closest.highlight.confidence,
+      sensitivityFlag: closest.highlight.sensitivityFlag,
+      text: closest.highlight.text,
+      summary: closest.highlight.summary,
+    }, input.sourceEntries),
   );
   if ((exact || validatesUserEdit) && !unsafe && closest) {
     await prisma.$transaction(async (tx) => {
@@ -431,7 +476,9 @@ async function applyHighlight(input: {
     });
     return closest.highlight.id;
   }
-  const supersedes = !unsafe && closest && closest.score >= 0.55 ? closest.highlight : null;
+  const supersedes = !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+    ? closest.highlight
+    : null;
   const tags = inferHighlightTags({
     text,
     summary: input.candidate.summary,
@@ -535,6 +582,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         evidenceIds,
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
+        sourceEntries: citedEntries,
       });
       if (factId) {
         produced.projectFactIds.push(factId);
@@ -558,6 +606,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         evidence,
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
+        sourceEntries: citedEntries,
       });
       if (highlightId) {
         produced.highlightIds.push(highlightId);

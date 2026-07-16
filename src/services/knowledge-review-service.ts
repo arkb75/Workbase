@@ -12,7 +12,11 @@ import {
   invalidateHighlightDependents,
 } from "@/src/services/knowledge-dependency-service";
 import {
+  buildArtifactEmbeddingText,
+  buildEvidenceEmbeddingText,
   buildProjectFactEmbeddingText,
+  upsertArtifactEmbedding,
+  upsertEvidenceEmbedding,
   upsertProjectFactEmbedding,
 } from "@/src/services/knowledge-embedding-service";
 import {
@@ -227,6 +231,14 @@ async function createEditedSuccessor(input: {
       reason: "Supporting Evidence was superseded by a user-edited immutable revision.",
       idempotencyScope: `edit-evidence:${change.id}:${successor.id}`,
     });
+    await upsertEvidenceEmbedding({
+      evidenceItemId: successor.id,
+      inputText: buildEvidenceEmbeddingText({
+        title: successor.title,
+        content: successor.content,
+        searchText: successor.searchText,
+      }),
+    }).catch(() => undefined);
     return { kind: "evidence" as const, id: successor.id };
   }
   if (change.artifact) {
@@ -254,6 +266,10 @@ async function createEditedSuccessor(input: {
       await tx.artifact.update({ where: { id: change.artifact!.id }, data: { lifecycleStatus: "superseded" } });
       return created;
     });
+    await upsertArtifactEmbedding({
+      artifactId: successor.id,
+      inputText: buildArtifactEmbeddingText(successor),
+    }).catch(() => undefined);
     return { kind: "artifact" as const, id: successor.id };
   }
   throw new Error("The knowledge change no longer references an item.");

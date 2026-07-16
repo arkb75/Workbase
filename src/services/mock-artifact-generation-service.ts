@@ -1,5 +1,6 @@
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { targetAngleKeywordMap } from "@/src/lib/options";
+import { deriveArtifactEvidenceItemIds } from "@/src/services/artifact-publication-policy";
 
 function scoreHighlight(text: string, angle: string) {
   if (angle === "general") {
@@ -64,6 +65,7 @@ function toResumeBullet(text: string, tone: string) {
 
 export const mockArtifactGenerationService: ArtifactGenerationService = {
   async generate({ request, highlights, supportingEvidence }) {
+    const allowedEvidenceItemIds = new Set(supportingEvidence.map((item) => item.id));
     const selectedHighlights = selectHighlights(highlights, request.targetAngle);
 
     if (!selectedHighlights.length) {
@@ -117,7 +119,11 @@ export const mockArtifactGenerationService: ArtifactGenerationService = {
       tone: request.tone,
       content,
       usedHighlightIds: selectedHighlights.map((highlight) => highlight.id),
-      supportingEvidenceItemIds: supportingEvidence.slice(0, 4).map((item) => item.id),
+      supportingEvidenceItemIds: deriveArtifactEvidenceItemIds({
+        highlights: selectedHighlights,
+        usedHighlightIds: selectedHighlights.map((highlight) => highlight.id),
+        allowedEvidenceItemIds,
+      }),
     };
   },
 };

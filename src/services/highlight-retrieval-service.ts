@@ -2,7 +2,6 @@ import { Prisma } from "@/src/generated/prisma/client";
 import type {
   ArtifactRequest,
   ClaimSnapshot,
-  EvidenceItemSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
 import { createGenerationRun } from "@/src/lib/generation-runs";
@@ -13,6 +12,7 @@ import { publicArtifactVisibilityRules, targetAngleKeywordMap } from "@/src/lib/
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import type { HighlightRetrievalService } from "@/src/services/types";
+import { selectArtifactSupportingEvidence } from "@/src/services/artifact-publication-policy";
 
 const genericBriefTerms = new Set([
   "write", "generate", "create", "artifact", "resume", "bullet", "bullets",
@@ -203,59 +203,6 @@ async function getLexicalRanks(params: {
   `);
 }
 
-function selectSupportingEvidence(params: {
-  selectedHighlights: ClaimSnapshot[];
-  evidenceItems: EvidenceItemSnapshot[];
-  queryText: string;
-}) {
-  const evidenceById = new Map(
-    params.evidenceItems.map((item) => [item.id, item] as const),
-  );
-  const supporting = new Map<string, EvidenceItemSnapshot>();
-  const parentKeys = new Set<string>();
-
-  for (const highlight of params.selectedHighlights) {
-    for (const ref of highlight.evidence.sourceRefs) {
-      if (ref.evidenceItemId) {
-        const evidenceItem = evidenceById.get(ref.evidenceItemId);
-
-        if (evidenceItem?.included) {
-          supporting.set(evidenceItem.id, evidenceItem);
-          if (evidenceItem.parentKey) {
-            parentKeys.add(`${evidenceItem.parentKind ?? "parent"}:${evidenceItem.parentKey}`);
-          }
-        }
-      }
-    }
-  }
-
-  const queryTerms = params.queryText.toLowerCase().split(/\W+/).filter(Boolean);
-
-  const siblingCandidates = params.evidenceItems
-    .filter((item) => item.included)
-    .filter((item) => !supporting.has(item.id))
-    .filter((item) =>
-      item.parentKey
-        ? parentKeys.has(`${item.parentKind ?? "parent"}:${item.parentKey}`)
-        : false,
-    )
-    .map((item) => ({
-      item,
-      score: queryTerms.reduce(
-        (score, term) => score + (item.searchText.toLowerCase().includes(term) ? 1 : 0),
-        0,
-      ),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 8);
-
-  for (const candidate of siblingCandidates) {
-    supporting.set(candidate.item.id, candidate.item);
-  }
-
-  return Array.from(supporting.values()).slice(0, 12);
-}
-
 export const highlightRetrievalService: HighlightRetrievalService = {
   async retrieve({ workItem, request, highlights, evidenceItems }) {
     const allowedVisibilities = publicArtifactVisibilityRules[request.type];
@@ -330,10 +277,9 @@ export const highlightRetrievalService: HighlightRetrievalService = {
       .slice(0, 8)
       .map((entry) => entry.highlight);
 
-    const supportingEvidence = selectSupportingEvidence({
-      selectedHighlights: rankedHighlights,
+    const supportingEvidence = selectArtifactSupportingEvidence({
+      highlights: rankedHighlights,
       evidenceItems,
-      queryText,
     });
     const adequacy = assessContextAdequacy({
       request,

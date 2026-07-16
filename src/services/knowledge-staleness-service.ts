@@ -1,6 +1,10 @@
 import { prisma } from "@/src/lib/prisma";
 import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
-import { knowledgeSimilarity, recordChange } from "@/src/services/knowledge-reconciliation-service";
+import {
+  knowledgeSimilarity,
+  recordChange,
+  STRONG_KNOWLEDGE_IDENTITY_THRESHOLD,
+} from "@/src/services/knowledge-reconciliation-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 import { REPOSITORY_KNOWLEDGE_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
@@ -12,6 +16,24 @@ type CurrentObservation = {
   commitSha: string;
   sourceId: string;
 };
+
+const executableRepositoryPathPattern = /\.(?:[cm]?[jt]sx?|prisma|sql|py|go|rs|java)$/i;
+
+export function isStrongCanonicalReplacement(input: {
+  priorId: string;
+  priorText: string;
+  priorSubsystemKey: string | null;
+  candidateText: string;
+  candidateSubsystemKey: string | null;
+  candidateSupersedesId: string | null;
+}) {
+  if (input.candidateSupersedesId === input.priorId) return true;
+  if (
+    !input.priorSubsystemKey ||
+    input.priorSubsystemKey !== input.candidateSubsystemKey
+  ) return false;
+  return knowledgeSimilarity(input.priorText, input.candidateText) >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD;
+}
 
 function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -62,13 +84,28 @@ function relevantObservations(assertion: string, subsystemKey: string | null, ob
     .map((entry) => entry.observation);
 }
 
-async function validateAssertion(input: {
+export async function validateAssertion(input: {
   assertion: string;
   priorReferences: string[];
   currentReferences: Set<string>;
   observations: CurrentObservation[];
 }) {
-  const strongest = input.observations
+  // Documentation is useful project context, but it cannot by itself prove an
+  // absolute implementation invariant. Otherwise an unchanged stale README can
+  // continually revalidate a behavior that current executable code no longer
+  // implements.
+  const modalTerms = Array.from(
+    input.assertion.matchAll(/\b(?:mandatory|always|never|exclusively|every|all|only|guarantee[sd]?|production[- ]grade|tamper[- ]evident)\b/gi),
+  ).map((match) => match[0]!.toLowerCase());
+  const requiresExecutableEvidence = modalTerms.length > 0;
+  const eligibleObservations = requiresExecutableEvidence
+    ? input.observations.filter((observation) => {
+        if (!executableRepositoryPathPattern.test(observation.path)) return false;
+        const statement = observation.statement.toLowerCase();
+        return modalTerms.every((term) => statement.includes(term));
+      })
+    : input.observations;
+  const strongest = eligibleObservations
     .map((observation) => ({ observation, score: knowledgeSimilarity(input.assertion, observation.statement) }))
     .sort((left, right) => right.score - left.score)[0];
   if (strongest && strongest.score >= 0.35) {
@@ -87,7 +124,9 @@ async function validateAssertion(input: {
   }
   return {
     verdict: "unknown" as const,
-    reason: "The complete current snapshot did not decisively support or contradict this repository-derived assertion; it requires review rather than automatic retirement.",
+    reason: requiresExecutableEvidence
+      ? "The modal implementation assertion was not supported by current executable repository evidence; documentation alone cannot revalidate it."
+      : "The complete current snapshot did not decisively support or contradict this repository-derived assertion; it requires review rather than automatic retirement.",
     observationIndexes: [],
   };
 }
@@ -178,27 +217,41 @@ export async function reconcileStaleKnowledge(input: {
   });
   const retiredFactIds: string[] = [];
   const retiredHighlightIds: string[] = [];
-  const appliedFactSubsystems = new Set((await prisma.projectFact.findMany({
+  const appliedFacts = await prisma.projectFact.findMany({
     where: { id: { in: input.appliedFactIds.length ? input.appliedFactIds : [""] } },
-    select: { subsystemKey: true },
-  })).flatMap((fact) => fact.subsystemKey ? [fact.subsystemKey] : []));
-  const appliedHighlightSubsystems = new Set((await prisma.highlight.findMany({
+    select: {
+      id: true,
+      statement: true,
+      subsystemKey: true,
+      supersedesProjectFactId: true,
+    },
+  });
+  const appliedHighlights = await prisma.highlight.findMany({
     where: { id: { in: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] } },
-    select: { metadata: true },
-  })).flatMap((highlight) => {
-    const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
-      ? highlight.metadata as Record<string, unknown>
-      : null;
-    return typeof metadata?.subsystemKey === "string" ? [metadata.subsystemKey] : [];
-  }));
+    select: {
+      id: true,
+      text: true,
+      summary: true,
+      metadata: true,
+      supersedesHighlightId: true,
+    },
+  });
 
   for (const fact of activeFacts) {
     if (!isRepositoryDerived(fact.evidence)) continue;
-    if (fact.approvalSource === "automation" && fact.reviewState === "pending_review" && fact.subsystemKey && appliedFactSubsystems.has(fact.subsystemKey)) {
+    const canonicalReplacement = appliedFacts.find((candidate) => isStrongCanonicalReplacement({
+      priorId: fact.id,
+      priorText: fact.statement,
+      priorSubsystemKey: fact.subsystemKey,
+      candidateText: candidate.statement,
+      candidateSubsystemKey: candidate.subsystemKey,
+      candidateSupersedesId: candidate.supersedesProjectFactId,
+    }));
+    if (fact.approvalSource === "automation" && fact.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Project Fact in the same capability area.";
       await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: reason } });
       retiredFactIds.push(fact.id);
-      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "project_fact", action: "retired", entityId: fact.id, beforeSnapshot: { statement: fact.statement, lifecycleStatus: fact.lifecycleStatus }, afterSnapshot: { statement: fact.statement, lifecycleStatus: "retired" }, reason, suffix: `${fact.id}:canonical-replacement:${run.id}` });
+      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "project_fact", action: "retired", entityId: fact.id, beforeSnapshot: { statement: fact.statement, lifecycleStatus: fact.lifecycleStatus }, afterSnapshot: { statement: fact.statement, lifecycleStatus: "retired" }, reason, provenance: { replacementProjectFactId: canonicalReplacement.id }, suffix: `${fact.id}:canonical-replacement:${run.id}` });
       continue;
     }
     const references = priorReferences(fact.evidence);
@@ -301,11 +354,27 @@ export async function reconcileStaleKnowledge(input: {
       ? highlight.metadata as Record<string, unknown>
       : null;
     const subsystemKey = typeof metadata?.subsystemKey === "string" ? metadata.subsystemKey : null;
-    if (highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && subsystemKey && appliedHighlightSubsystems.has(subsystemKey)) {
+    const canonicalReplacement = appliedHighlights.find((candidate) => {
+      const candidateMetadata = candidate.metadata && typeof candidate.metadata === "object" && !Array.isArray(candidate.metadata)
+        ? candidate.metadata as Record<string, unknown>
+        : null;
+      const candidateSubsystemKey = typeof candidateMetadata?.subsystemKey === "string"
+        ? candidateMetadata.subsystemKey
+        : null;
+      return isStrongCanonicalReplacement({
+        priorId: highlight.id,
+        priorText: `${highlight.text} ${highlight.summary}`,
+        priorSubsystemKey: subsystemKey,
+        candidateText: `${candidate.text} ${candidate.summary}`,
+        candidateSubsystemKey,
+        candidateSupersedesId: candidate.supersedesHighlightId,
+      });
+    });
+    if (highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Highlight in the same capability area.";
       await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: reason } });
       retiredHighlightIds.push(highlight.id);
-      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "highlight", action: "retired", entityId: highlight.id, beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus }, afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" }, reason, suffix: `${highlight.id}:canonical-replacement:${run.id}` });
+      await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "highlight", action: "retired", entityId: highlight.id, beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus }, afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" }, reason, provenance: { replacementHighlightId: canonicalReplacement.id }, suffix: `${highlight.id}:canonical-replacement:${run.id}` });
       continue;
     }
     const supportingObservations = relevantObservations(`${highlight.text} ${highlight.summary}`, subsystemKey, observations);

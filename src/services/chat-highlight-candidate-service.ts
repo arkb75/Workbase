@@ -1,4 +1,4 @@
-import type { JsonValue, ClaimSnapshot } from "@/src/domain/types";
+import type { JsonValue, ClaimSnapshot, HighlightDraft } from "@/src/domain/types";
 import { createHighlightWithRelations } from "@/src/lib/evidence-persistence";
 import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { inferEvidenceTags } from "@/src/lib/highlight-tags";
@@ -23,7 +23,7 @@ import { recordChange } from "@/src/services/knowledge-reconciliation-service";
 
 const ownershipPattern =
   /\b(i|we)\s+(built|created|designed|implemented|led|owned|shipped|migrated|optimized|improved|reduced|increased|launched|fixed|introduced|architected)\b/i;
-const impactPattern = /\b\d+(?:\.\d+)?\s*(?:%|x|ms|s|sec|seconds?|minutes?|hours?|users?|requests?|records?)\b/i;
+const impactPattern = /\b\d+(?:\.\d+)?\s*(?:%|x|×|ms|s|sec|seconds?|minutes?|hours?|users?|requests?|records?)(?=\s|[.,;:!?)]|$)/i;
 const nonAssertionPattern =
   /\b(did (?:i|we)|have (?:i|we)|if (?:i|we)|hypothetically|for example|imagine (?:i|we)|(?:i|we) (?:did not|didn't|never|might|could|would))\b/i;
 
@@ -46,6 +46,20 @@ export function classifyChatCandidateMatch(input: {
   if (input.verificationStatus === "approved") return "revision" as const;
   if (input.verificationStatus === "rejected") return "rejected_guidance_match" as const;
   return "duplicate" as const;
+}
+
+export function chatCandidateTextSimilarity(left: string, right: string) {
+  const tokens = (value: string) => new Set(normalizeWhitespace(value.toLowerCase())
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2));
+  const leftTokens = tokens(left);
+  const rightTokens = tokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  const overlap = Array.from(leftTokens).filter((token) => rightTokens.has(token)).length;
+  return Math.max(
+    overlap / new Set([...leftTokens, ...rightTokens]).size,
+    overlap / Math.min(leftTokens.size, rightTokens.size),
+  );
 }
 
 function mapHighlight(highlight: Awaited<ReturnType<typeof loadCandidateContext>>["highlights"][number]): ClaimSnapshot {
@@ -113,14 +127,17 @@ export async function proposeHighlightFromChatContext(input: {
   text: string;
   batchNumber?: number;
 }) {
+  if (!isHighlightWorthyUserContext(input.text)) {
+    return null;
+  }
+
+  // Most chat turns are questions, not reusable ownership/impact statements.
+  // Reject those in memory before paying for an idempotency lookup and the
+  // larger candidate context graph.
   const existingCandidate = await prisma.agentRunCandidate.findFirst({
     where: { agentRunId: input.agentRunId },
   });
   if (existingCandidate) return existingCandidate;
-
-  if (!isHighlightWorthyUserContext(input.text)) {
-    return null;
-  }
 
   const dlp = redactRepositorySecrets(normalizeWhitespace(input.text));
   const context = await loadCandidateContext(input.userId, input.workItemId);
@@ -204,7 +221,64 @@ export async function proposeHighlightFromChatContext(input: {
     });
   }
 
-  const evidenceSnapshot = {
+  const existingHighlights = context.highlights.map(mapHighlight);
+  const useModelGeneration = (process.env.WORKBASE_CHAT_CONTEXT_GENERATION_MODE ?? "deterministic") === "model";
+
+  let candidateDraft: HighlightDraft;
+  let autoSafe: boolean;
+  let publicVerification: Awaited<ReturnType<typeof publicKnowledgeVerificationService.verify>>;
+  let generationRunIds: string[] = [];
+
+  if (!useModelGeneration) {
+    autoSafe = !dlp.categories.length;
+    publicVerification = {
+      eligible: false,
+      correctedText: null,
+      reasons: dlp.categories.length
+        ? ["The user statement contained suspected secret material and was redacted."]
+        : ["Self-reported context is active as private project memory; public artifact use requires a separate visibility and safety review."],
+      claimChecks: [],
+      tokenUsage: null,
+    };
+    const conciseText = normalizedText.length <= 240
+      ? normalizedText
+      : `${normalizedText.slice(0, 237).trimEnd()}...`;
+    candidateDraft = {
+      text: conciseText,
+      summary: normalizedText.slice(0, 1_000),
+      confidence: "high",
+      ownershipClarity: ownershipPattern.test(normalizedText) ? "clear" : "partial",
+      sensitivityFlag: dlp.categories.length > 0,
+      verificationStatus: autoSafe ? "approved" : "flagged",
+      visibility: "private",
+      risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000),
+      missingInfo: "This statement is self-reported and has not been independently corroborated.",
+      rejectionReason: null,
+      verificationNotes: "Auto-applied from an explicit user-authored project statement for later review.",
+      metadata: {
+        origin: "chat_user_statement",
+        selfReported: true,
+        corroborationStatus: "not_checked",
+        messageId: input.messageId,
+        publicVerification,
+        dlpCategories: dlp.categories,
+      },
+      evidence: {
+        summary: normalizedText,
+        verificationNotes: "The user supplied this statement directly in project chat.",
+        sourceRefs: [{
+          evidenceItemId: evidence.id,
+          sourceId: source.id,
+          sourceLabel: source.label,
+          sourceType: "chat_context",
+          title: evidence.title,
+          excerpt: evidence.content,
+        }],
+      },
+      tags: evidenceTags,
+    };
+  } else {
+    const evidenceSnapshot = {
     id: evidence.id,
     workItemId: evidence.workItemId,
     sourceId: evidence.sourceId,
@@ -227,7 +301,7 @@ export async function proposeHighlightFromChatContext(input: {
     createdAt: evidence.createdAt,
     updatedAt: evidence.updatedAt,
   };
-  const normalizedEvidence = await sourceIngestionService.normalize({
+    const normalizedEvidence = await sourceIngestionService.normalize({
     workItem: {
       id: context.id,
       userId: context.userId,
@@ -250,8 +324,7 @@ export async function proposeHighlightFromChatContext(input: {
     ],
     evidenceItems: [evidenceSnapshot],
   });
-  const existingHighlights = context.highlights.map(mapHighlight);
-  const generated = await claimResearchService.generate({
+    const generated = await claimResearchService.generate({
     workItem: {
       id: context.id,
       userId: context.userId,
@@ -264,7 +337,7 @@ export async function proposeHighlightFromChatContext(input: {
     evidenceItems: normalizedEvidence,
     existingHighlights,
   });
-  const verified = await claimVerificationService.verify({
+    const verified = await claimVerificationService.verify({
     workItem: {
       id: context.id,
       userId: context.userId,
@@ -277,19 +350,17 @@ export async function proposeHighlightFromChatContext(input: {
     evidenceItems: normalizedEvidence,
     highlights: generated.highlights,
   });
-  const draft = verified[0];
+    const draft = verified[0];
 
-  if (!draft) {
-    return null;
-  }
+    if (!draft) return null;
 
-  const autoSafe =
-    !dlp.categories.length &&
-    draft.verificationStatus === "approved" &&
-    !draft.sensitivityFlag &&
-    draft.confidence !== "low";
-  const publicVerification = autoSafe
-    ? await publicKnowledgeVerificationService.verify({
+    autoSafe =
+      !dlp.categories.length &&
+      draft.verificationStatus === "approved" &&
+      !draft.sensitivityFlag &&
+      draft.confidence !== "low";
+    publicVerification = autoSafe
+      ? await publicKnowledgeVerificationService.verify({
         text: draft.text,
         summary: draft.summary,
         confidence: draft.confidence,
@@ -297,44 +368,63 @@ export async function proposeHighlightFromChatContext(input: {
         sensitivityFlag: draft.sensitivityFlag,
         evidence: [{ title: evidence.title, excerpt: evidence.content }],
       })
-    : { eligible: false, correctedText: null, reasons: dlp.categories.length ? ["The user statement contained suspected secret material and was redacted."] : ["The generated Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
+      : { eligible: false, correctedText: null, reasons: dlp.categories.length ? ["The user statement contained suspected secret material and was redacted."] : ["The generated Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
 
-  const candidateDraft = {
-    ...draft,
-    text: publicVerification.eligible && publicVerification.correctedText ? publicVerification.correctedText : draft.text,
-    verificationStatus: autoSafe ? ("approved" as const) : ("flagged" as const),
-    visibility: publicVerification.eligible ? draft.visibility : ("private" as const),
-    risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000) || draft.risksSummary,
-    metadata: {
-      ...(draft.metadata && typeof draft.metadata === "object" && !Array.isArray(draft.metadata)
-        ? draft.metadata
-        : {}),
-      origin: "chat_user_statement",
-      selfReported: true,
-      messageId: input.messageId,
-      publicVerification,
-      dlpCategories: dlp.categories,
-    },
-  };
-  const nearest = existingHighlights.length
+    candidateDraft = {
+      ...draft,
+      text: publicVerification.eligible && publicVerification.correctedText ? publicVerification.correctedText : draft.text,
+      verificationStatus: autoSafe ? ("approved" as const) : ("flagged" as const),
+      visibility: publicVerification.eligible ? draft.visibility : ("private" as const),
+      risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000) || draft.risksSummary,
+      metadata: {
+        ...(draft.metadata && typeof draft.metadata === "object" && !Array.isArray(draft.metadata)
+          ? draft.metadata
+          : {}),
+        origin: "chat_user_statement",
+        selfReported: true,
+        messageId: input.messageId,
+        publicVerification,
+        dlpCategories: dlp.categories,
+      },
+    };
+    const verificationRun = readGenerationRunMetadata(verified);
+    generationRunIds = [
+      ...generated.generationRunIds.generation,
+      verificationRun?.id ?? generated.generationRunIds.verification,
+    ].filter((id): id is string => Boolean(id));
+  }
+
+  const nearest = useModelGeneration && existingHighlights.length
     ? await findNearestHighlightEmbedding({
         workItemId: input.workItemId,
         inputText: buildHighlightEmbeddingText(candidateDraft),
         limit: 1,
       }).catch(() => [])
     : [];
-  const match = nearest[0]?.cosineDistance != null && nearest[0].cosineDistance <= 0.18
-    ? existingHighlights.find((highlight) => highlight.id === nearest[0]?.highlightId) ?? null
+  const deterministicMatch = !useModelGeneration
+    ? existingHighlights
+        .map((highlight) => ({
+          highlight,
+          similarity: chatCandidateTextSimilarity(normalizedText, `${highlight.text} ${highlight.summary}`),
+        }))
+        .sort((left, right) => right.similarity - left.similarity)[0] ?? null
     : null;
+  const matchDistance = useModelGeneration
+    ? nearest[0]?.cosineDistance ?? null
+    : deterministicMatch && deterministicMatch.similarity >= 0.62 ? 0.1 : null;
+  const match = useModelGeneration
+    ? matchDistance != null && matchDistance <= 0.18
+      ? existingHighlights.find((highlight) => highlight.id === nearest[0]?.highlightId) ?? null
+      : null
+    : matchDistance != null ? deterministicMatch!.highlight : null;
   const matchClassification = classifyChatCandidateMatch({
     verificationStatus: match?.verificationStatus ?? null,
-    cosineDistance: nearest[0]?.cosineDistance ?? null,
+    cosineDistance: matchDistance,
   });
   const batchNumber = input.batchNumber ?? 1;
   const ordinal = await prisma.agentRunCandidate.count({
     where: { agentRunId: input.agentRunId, batchNumber },
   });
-  const verificationRun = readGenerationRunMetadata(verified);
 
   if (matchClassification === "duplicate" || matchClassification === "rejected_guidance_match") {
     return null;
@@ -371,7 +461,10 @@ export async function proposeHighlightFromChatContext(input: {
         });
         return { highlight, candidate };
       });
-      await upsertHighlightEmbedding({ highlightId: created.highlight.id, inputText: buildHighlightEmbeddingText(candidateDraft) });
+      await upsertHighlightEmbedding({
+        highlightId: created.highlight.id,
+        inputText: buildHighlightEmbeddingText(candidateDraft),
+      }).catch(() => undefined);
       await recordChange({
         workItemId: input.workItemId,
         entityKind: "highlight",
@@ -394,12 +487,9 @@ export async function proposeHighlightFromChatContext(input: {
           currentSnapshot: snapshotHighlight(match) as never,
           suggestedDraft: serializeHighlightDraft(candidateDraft) as never,
           matchReason: "New self-reported chat context may strengthen this approved highlight.",
-          cosineDistance: nearest[0]?.cosineDistance ?? null,
+          cosineDistance: matchDistance,
           sourceEvidenceIds: getDraftEvidenceIds(candidateDraft),
-          generationRunIds: [
-            ...generated.generationRunIds.generation,
-            verificationRun?.id ?? generated.generationRunIds.verification,
-          ].filter((id): id is string => Boolean(id)),
+          generationRunIds,
         },
       });
 
@@ -452,7 +542,7 @@ export async function proposeHighlightFromChatContext(input: {
   await upsertHighlightEmbedding({
     highlightId: created.highlight.id,
     inputText: buildHighlightEmbeddingText(candidateDraft),
-  });
+  }).catch(() => undefined);
   await recordChange({
     workItemId: input.workItemId,
     entityKind: "highlight",

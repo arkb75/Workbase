@@ -3,6 +3,7 @@ import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
+  embeddingIdentityIsFresh,
   generateHighlightEmbedding,
   hashEmbeddingInput,
   resolveCurrentHighlightEmbeddingIdentity,
@@ -51,7 +52,20 @@ export function buildProjectFactEmbeddingText(input: {
 export async function upsertEvidenceEmbedding(input: {
   evidenceItemId: string;
   inputText: string;
+  skipFreshnessCheck?: boolean;
 }) {
+  if (!input.skipFreshnessCheck) {
+    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
+      SELECT "inputHash", "modelId", "dimensions"
+      FROM "EvidenceEmbedding"
+      WHERE "evidenceItemId" = ${input.evidenceItemId}
+      LIMIT 1
+    `;
+    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
+      const identity = resolveCurrentHighlightEmbeddingIdentity();
+      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
+    }
+  }
   const embedding = await generateHighlightEmbedding(input.inputText);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
 
@@ -69,13 +83,26 @@ export async function upsertEvidenceEmbedding(input: {
       "updatedAt" = CURRENT_TIMESTAMP
   `;
 
-  return embedding;
+  return { ...embedding, reused: false };
 }
 
 export async function upsertArtifactEmbedding(input: {
   artifactId: string;
   inputText: string;
+  skipFreshnessCheck?: boolean;
 }) {
+  if (!input.skipFreshnessCheck) {
+    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
+      SELECT "inputHash", "modelId", "dimensions"
+      FROM "ArtifactEmbedding"
+      WHERE "artifactId" = ${input.artifactId}
+      LIMIT 1
+    `;
+    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
+      const identity = resolveCurrentHighlightEmbeddingIdentity();
+      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
+    }
+  }
   const embedding = await generateHighlightEmbedding(input.inputText);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
 
@@ -93,13 +120,26 @@ export async function upsertArtifactEmbedding(input: {
       "updatedAt" = CURRENT_TIMESTAMP
   `;
 
-  return embedding;
+  return { ...embedding, reused: false };
 }
 
 export async function upsertProjectFactEmbedding(input: {
   projectFactId: string;
   inputText: string;
+  skipFreshnessCheck?: boolean;
 }) {
+  if (!input.skipFreshnessCheck) {
+    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
+      SELECT "inputHash", "modelId", "dimensions"
+      FROM "ProjectFactEmbedding"
+      WHERE "projectFactId" = ${input.projectFactId}
+      LIMIT 1
+    `;
+    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
+      const identity = resolveCurrentHighlightEmbeddingIdentity();
+      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
+    }
+  }
   const embedding = await generateHighlightEmbedding(input.inputText);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
 
@@ -117,7 +157,7 @@ export async function upsertProjectFactEmbedding(input: {
       "updatedAt" = CURRENT_TIMESTAMP
   `;
 
-  return embedding;
+  return { ...embedding, reused: false };
 }
 
 export async function ensureProjectKnowledgeEmbeddings(input: {
@@ -193,26 +233,29 @@ export async function ensureProjectKnowledgeEmbeddings(input: {
     row.modelId === expectedIdentity.modelId &&
     row.dimensions === expectedIdentity.dimensions;
 
-  await Promise.allSettled([
+  const writes = [
     ...input.projectFacts.flatMap((fact) => {
       const inputText = projectFactInputById.get(fact.id) ?? "";
       return isFresh(projectFactById.get(fact.id), inputText)
         ? []
-        : [upsertProjectFactEmbedding({ projectFactId: fact.id, inputText })];
+        : [() => upsertProjectFactEmbedding({ projectFactId: fact.id, inputText, skipFreshnessCheck: true })];
     }),
     ...input.evidenceItems.flatMap((item) => {
       const inputText = evidenceInputById.get(item.id) ?? "";
       return isFresh(evidenceById.get(item.id), inputText)
         ? []
-        : [upsertEvidenceEmbedding({ evidenceItemId: item.id, inputText })];
+        : [() => upsertEvidenceEmbedding({ evidenceItemId: item.id, inputText, skipFreshnessCheck: true })];
     }),
     ...input.artifacts.flatMap((artifact) => {
       const inputText = artifactInputById.get(artifact.id) ?? "";
       return isFresh(artifactById.get(artifact.id), inputText)
         ? []
-        : [upsertArtifactEmbedding({ artifactId: artifact.id, inputText })];
+        : [() => upsertArtifactEmbedding({ artifactId: artifact.id, inputText, skipFreshnessCheck: true })];
     }),
-  ]);
+  ];
+  for (let offset = 0; offset < writes.length; offset += 4) {
+    await Promise.allSettled(writes.slice(offset, offset + 4).map((write) => write()));
+  }
 }
 
 export async function findNearestProjectKnowledge(input: {

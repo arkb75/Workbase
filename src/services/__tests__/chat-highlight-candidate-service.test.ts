@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatCandidateTextSimilarity,
   classifyChatCandidateMatch,
   isHighlightWorthyUserContext,
 } from "@/src/services/chat-highlight-candidate-service";
@@ -11,6 +12,9 @@ describe("chat highlight candidate detection", () => {
         "I designed and shipped the queue worker, reducing imports from 40 minutes to 11 minutes.",
       ),
     ).toBe(true);
+    expect(isHighlightWorthyUserContext(
+      "I measured a 37% reduction in import latency after adding batching.",
+    )).toBe(true);
   });
 
   it("does not turn routine project questions into candidates", () => {
@@ -23,6 +27,17 @@ describe("chat highlight candidate detection", () => {
       .toBe(false);
     expect(isHighlightWorthyUserContext("I did not build the queue worker; another team owned it."))
       .toBe(false);
+  });
+
+  it("matches a self-reported revision without paying for a vector lookup", () => {
+    expect(chatCandidateTextSimilarity(
+      "I reduced repository refresh latency by 37% after batching file analysis.",
+      "Reduced repository refresh latency by 37% through batched file analysis.",
+    )).toBeGreaterThanOrEqual(0.62);
+    expect(chatCandidateTextSimilarity(
+      "I reduced repository refresh latency by 37%.",
+      "Implemented GitHub OAuth callback validation.",
+    )).toBeLessThan(0.62);
   });
 });
 

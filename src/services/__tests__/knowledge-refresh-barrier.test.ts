@@ -21,6 +21,7 @@ import {
   isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
   policyScopedKnowledgeRefreshIdempotencyKey,
+  repositoryOrchestrationCoverageGaps,
 } from "@/src/services/knowledge-refresh-service";
 
 function analysis(input: {
@@ -80,19 +81,19 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v13",
-      coveragePolicyVersion: "repository-coverage-v5",
-      orchestrationPolicyVersion: "repository-orchestration-v4",
-      synthesisPolicyVersion: "repository-synthesis-v15",
+      coveragePolicyVersion: "repository-coverage-v6",
+      orchestrationPolicyVersion: "repository-orchestration-v5",
+      synthesisPolicyVersion: "repository-synthesis-v17",
     };
 
     expect(isReusableKnowledgeRefresh({
-      warnings: { ...currentWarnings, coveragePolicyVersion: "repository-coverage-v4" },
+      warnings: { ...currentWarnings, coveragePolicyVersion: "repository-coverage-v5" },
       qualityStatus: "verified",
       completedTargets: [target],
       targets: [target],
     })).toBe(false);
     expect(isReusableKnowledgeRefresh({
-      warnings: { ...currentWarnings, orchestrationPolicyVersion: "repository-orchestration-v3" },
+      warnings: { ...currentWarnings, orchestrationPolicyVersion: "repository-orchestration-v4" },
       qualityStatus: "verified",
       completedTargets: [target],
       targets: [target],
@@ -249,12 +250,82 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v13",
-          coveragePolicyVersion: "repository-coverage-v5",
-          orchestrationPolicyVersion: "repository-orchestration-v4",
-          synthesisPolicyVersion: "repository-synthesis-v15",
+          coveragePolicyVersion: "repository-coverage-v6",
+          orchestrationPolicyVersion: "repository-orchestration-v5",
+          synthesisPolicyVersion: "repository-synthesis-v17",
         }),
       }),
     }));
+  });
+
+  it("preserves repository-scoped semantic capacity gaps through final coverage", async () => {
+    const target = (sourceId: string, repository: string) => ({
+      sourceId,
+      repository,
+      branch: "main",
+      commitSha: sourceId.repeat(40).slice(0, 40),
+      treeSha: "e".repeat(40),
+      committedAt: null,
+      resolvedAt: new Date().toISOString(),
+    });
+    const file = (id: string) => ({
+      id,
+      path: "src/agent.ts",
+      disposition: "analyzed",
+      analyzerVersion: "repository-coverage-v13",
+      analysis: analysis({ mode: "static" }),
+      semanticStatus: "succeeded",
+      semanticAnalyzerVersion: "repository-coverage-v13",
+      semanticRefreshRunId: "refresh-multi",
+      semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
+    });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
+      id: "refresh-multi",
+      workItemId: "work-item-1",
+      targetHeads: [target("a", "owner/repo-a"), target("b", "owner/repo-b")],
+      warnings: null,
+      orchestration: {
+        remainingGaps: ["Semantic coverage capacity omitted ai_runtime for owner/repo-b."],
+      },
+      snapshots: [
+        { id: "snapshot-a", sourceId: "a", commitSha: "a".repeat(40), files: [file("file-a")] },
+        { id: "snapshot-b", sourceId: "b", commitSha: "b".repeat(40), files: [file("file-b")] },
+      ],
+    });
+
+    const result = await finalizeKnowledgeCoverage("refresh-multi");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({ repository: "owner/repo-a", coverageStatus: "complete", coverageGaps: [] }),
+      expect.objectContaining({
+        repository: "owner/repo-b",
+        coverageStatus: "partial",
+        capabilityCoverageStatus: "partial",
+        coverageGaps: ["Semantic coverage capacity omitted ai_runtime for owner/repo-b."],
+      }),
+    ]);
+    expect(prismaMock.knowledgeRefreshRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        qualityStatus: "degraded",
+        warnings: expect.objectContaining({
+          semanticOrchestrationGaps: ["Semantic coverage capacity omitted ai_runtime for owner/repo-b."],
+        }),
+      }),
+    }));
+  });
+
+  it("keeps unscoped orchestration failures conservatively visible", () => {
+    expect(repositoryOrchestrationCoverageGaps({
+      repository: "owner/repo-a",
+      repositories: ["owner/repo-a", "owner/repo-b"],
+      filePaths: ["src/agent.ts"],
+      remainingGaps: [
+        "Semantic coverage capacity omitted ai_runtime for owner/repo-b.",
+        "Assigned semantic file missing-id was unavailable in the current repository refresh.",
+      ],
+    })).toEqual([
+      "Assigned semantic file missing-id was unavailable in the current repository refresh.",
+    ]);
   });
 
   it("derives partial state from semantic quality and coverage instead of inventory alone", () => {

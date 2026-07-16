@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findWorkItem: vi.fn(),
+  findPolicyFacts: vi.fn(),
   queryRaw: vi.fn(),
   ensureHighlightEmbeddings: vi.fn(),
   ensureProjectKnowledgeEmbeddings: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/src/lib/prisma", () => ({
   prisma: {
     workItem: { findFirstOrThrow: mocks.findWorkItem },
+    projectFact: { findMany: mocks.findPolicyFacts },
     $queryRaw: mocks.queryRaw,
   },
 }));
@@ -108,6 +110,7 @@ describe("project knowledge retrieval mappings", () => {
       evidence: new Map(),
       artifacts: new Map(),
     });
+    mocks.findPolicyFacts.mockResolvedValue([]);
     mocks.syncWorkItemDescriptionEvidence.mockResolvedValue(undefined);
   });
 
@@ -212,6 +215,10 @@ describe("project knowledge retrieval mappings", () => {
       select: { id: true },
     });
     expect(mocks.syncWorkItemDescriptionEvidence).toHaveBeenCalledWith("work-item-1");
+    expect(mocks.ensureHighlightEmbeddings).not.toHaveBeenCalled();
+    expect(mocks.ensureProjectKnowledgeEmbeddings).not.toHaveBeenCalled();
+    expect(mocks.findNearestProjectKnowledge).not.toHaveBeenCalled();
+    expect(mocks.queryRaw).not.toHaveBeenCalled();
 
     const hit = result.hits.find((entry) => entry.id === highlight.id);
     expect(hit).toMatchObject({
@@ -265,5 +272,33 @@ describe("project knowledge retrieval mappings", () => {
       authority: "included_evidence",
       ownershipAuthority: 3,
     });
+  });
+
+  it("hydrates the combined semantic shortlist instead of a recency-truncated subset", async () => {
+    const rankedIds = Array.from({ length: 60 }, (_, index) => `highlight-${index + 1}`);
+    mocks.findNearestProjectKnowledge.mockResolvedValue({
+      highlights: new Map(rankedIds.map((id, index) => [id, 1 - index / 100])),
+      projectFacts: new Map(),
+      evidence: new Map(),
+      artifacts: new Map(),
+    });
+    mocks.findWorkItem.mockResolvedValue({
+      id: "work-item-1",
+      highlights: [],
+      projectFacts: [],
+      evidenceItems: [],
+      artifacts: [],
+    });
+
+    await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Where is retry backoff implemented?",
+      purpose: "private_chat",
+    });
+
+    const hydratedQuery = mocks.findWorkItem.mock.calls[1]![0];
+    expect(hydratedQuery.include.highlights.where.id.in).toEqual(rankedIds.slice(0, 48));
+    expect(hydratedQuery.include.highlights.take).toBe(48);
   });
 });

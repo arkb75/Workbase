@@ -38,8 +38,28 @@ export function readArtifactHighlightProvenance(
         typeof snapshot.confidence === "string"
           ? snapshot.confidence
           : entry.highlight?.confidence ?? "medium",
+      evidenceItemIds: Array.isArray(snapshot.evidenceItemIds)
+        ? snapshot.evidenceItemIds.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [],
     };
   });
+}
+
+export function nestArtifactEvidenceUnderHighlights<
+  Highlight extends { evidenceItemIds: string[] },
+  Evidence extends { id: string },
+>(highlights: Highlight[], evidence: Evidence[]) {
+  const evidenceById = new Map(evidence.map((item) => [item.id, item] as const));
+
+  return highlights.map((highlight) => ({
+    ...highlight,
+    provenance: highlight.evidenceItemIds.flatMap((evidenceItemId) => {
+      const item = evidenceById.get(evidenceItemId);
+      return item ? [item] : [];
+    }),
+  }));
 }
 
 export function readArtifactEvidenceProvenance(

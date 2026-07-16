@@ -6,6 +6,7 @@ import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
   analyzeRepositoryFile,
+  analyzeRepositoryFileBatch,
   analyzeRepositoryFiles,
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
@@ -27,10 +28,30 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v4";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v5";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
-export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 160_000;
-const MAX_FILES_PER_WORKER = 3;
+export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
+const MAX_FILES_PER_WORKER = 8;
+const SEMANTIC_MICRO_BATCH_SIZE = 3;
+
+const SEMANTIC_FACET_SUPPLEMENTS = [
+  {
+    capabilityKey: "project_chat_grounding",
+    pathPattern: /project-execution-router-service|project-agent-harness/i,
+  },
+  {
+    capabilityKey: "repository_knowledge_lifecycle",
+    pathPattern: /repository-semantic-orchestrator-service/i,
+  },
+  {
+    capabilityKey: "knowledge_review_lifecycle",
+    pathPattern: /knowledge-reconciliation-service|knowledge-staleness-service/i,
+  },
+  {
+    capabilityKey: "review_ui",
+    pathPattern: /project-chat-workspace|knowledge-update-inbox|work-items\/\[id\]\/page\.tsx/i,
+  },
+] as const;
 
 const workPackageSchema = z.object({
   packages: z.array(z.object({
@@ -79,9 +100,17 @@ export interface SemanticWorkPackage {
     maxInputBytes: number;
     maxOutputTokens: number;
     maxTotalTokens: number;
-    maxRepairPasses: 1;
+    maxRepairPasses: 0 | 1;
   };
 }
+
+type CapabilityManifestArea = {
+  key: string;
+  label: string;
+  /** Distinguishes the same capability in separate immutable repository snapshots. */
+  scopeKey?: string;
+  files: Array<{ id: string; path: string; score: number }>;
+};
 
 export interface CapabilityCandidate {
   key: string;
@@ -131,6 +160,28 @@ export function missingCapabilityCandidateGaps(input: {
   return Array.from(new Set(input.capabilityKeys))
     .filter((key) => !coveredKeys.has(key))
     .map((key) => `No supported semantic finding was produced for required capability ${key}.`);
+}
+
+export function missingAssignedFileCandidateGaps(input: {
+  files: Array<{
+    id: string;
+    path: string;
+    staticSubsystemKeys: string[];
+  }>;
+  workPackageCapabilityKeys: string[];
+  candidates: Array<Pick<CapabilityCandidate, "key" | "evidence">>;
+}) {
+  return input.files.flatMap((file) => {
+    const assignedKeys = fileRelevantCapabilityKeys({
+      workPackageCapabilityKeys: input.workPackageCapabilityKeys,
+      staticSubsystemKeys: file.staticSubsystemKeys,
+    });
+    return assignedKeys.flatMap((key) => input.candidates.some((candidate) =>
+      candidate.key === key && candidate.evidence.some((evidence) => evidence.fileSnapshotId === file.id)
+    )
+      ? []
+      : [`${file.path}: No supported semantic finding was produced for assigned capability ${key}.`]);
+  });
 }
 
 export function partitionCapabilityReports(reports: Array<Pick<CapabilityReport, "packageId" | "partial">>) {
@@ -239,6 +290,31 @@ export function reusableSemanticAnalysis(input: {
   } satisfies RepositoryFileAnalysis;
 }
 
+/**
+ * A source/commit pair owns one immutable RepositorySnapshot row. When a
+ * policy-only refresh reuses that snapshot, the successful semantic result is
+ * already on the current file row; looking only for a different historical
+ * row needlessly repeats the model call. Keep the version and capability
+ * checks identical to cross-snapshot cache reuse before accepting it.
+ */
+export function reusableCurrentSnapshotSemanticAnalysis(input: {
+  semanticStatus: string | null;
+  semanticAnalyzerVersion: string | null;
+  semanticAnalysis: unknown;
+  path: string;
+  capabilityKeys: string[];
+}) {
+  if (
+    input.semanticStatus !== "succeeded" ||
+    input.semanticAnalyzerVersion !== REPOSITORY_KNOWLEDGE_ANALYZER_VERSION
+  ) return null;
+  return reusableSemanticAnalysis({
+    value: input.semanticAnalysis,
+    path: input.path,
+    capabilityKeys: input.capabilityKeys,
+  });
+}
+
 export function fileRelevantCapabilityKeys(input: {
   workPackageCapabilityKeys: string[];
   staticSubsystemKeys: string[];
@@ -317,7 +393,7 @@ function stablePackageId(refreshRunId: string, capabilityKeys: string[], fileSna
 
 export function enforceMandatoryCoverage(input: {
   packages: Array<Omit<SemanticWorkPackage, "id" | "budget">>;
-  manifest: Array<{ key: string; files: Array<{ id: string; path: string; score: number }> }>;
+  manifest: CapabilityManifestArea[];
 }) {
   const pathAffinity: Record<string, RegExp> = {
     product_surface: /(?:^README\.md$|^app\/work-items\/|^components\/chat\/project-chat-workspace)/i,
@@ -366,40 +442,111 @@ export function enforceMandatoryCoverage(input: {
   }
   const mandatoryLoads = packages.map(() => [] as string[]);
   for (const target of BASE_COVERAGE_TARGETS) {
-    const manifestEntry = input.manifest.find((entry) => entry.key === target.key && entry.files.length);
-    if (!manifestEntry) continue;
-    const representative = [...manifestEntry.files].sort((left, right) =>
-      (affinityScore(target.key, right.path) + right.score) - (affinityScore(target.key, left.path) + left.score) || left.path.localeCompare(right.path),
-    )[0]!;
-    const packageIndex = mandatoryLoads
-      .map((files, index) => ({
-        index,
-        count: files.length,
-        plannerClaimed: plannerClaims[index]!.has(target.key),
-      }))
-      .filter((entry) => entry.count < MAX_FILES_PER_WORKER)
-      .sort((left, right) =>
-        Number(right.plannerClaimed) - Number(left.plannerClaimed) ||
-        left.count - right.count ||
-        left.index - right.index,
-      )[0]?.index;
-    if (packageIndex == null) continue;
-    packages[packageIndex]!.capabilityKeys.push(target.key);
-    if (!mandatoryLoads[packageIndex]!.includes(representative.id)) mandatoryLoads[packageIndex]!.push(representative.id);
+    // A capability can occur in several attached repositories. Treat each
+    // snapshot-scoped manifest row as an independent coverage obligation; a
+    // plain `find` here silently selected only the first attached repository.
+    for (const manifestEntry of input.manifest.filter((entry) => entry.key === target.key && entry.files.length)) {
+      const representative = [...manifestEntry.files].sort((left, right) =>
+        (affinityScore(target.key, right.path) + right.score) - (affinityScore(target.key, left.path) + left.score) || left.path.localeCompare(right.path),
+      )[0]!;
+      const alreadyAssignedIndex = mandatoryLoads.findIndex((files) => files.includes(representative.id));
+      const packageIndex = alreadyAssignedIndex >= 0
+        ? alreadyAssignedIndex
+        : mandatoryLoads
+            .map((files, index) => ({
+              index,
+              count: files.length,
+              plannerClaimed: plannerClaims[index]!.has(target.key),
+            }))
+            .filter((entry) => entry.count < MAX_FILES_PER_WORKER)
+            .sort((left, right) =>
+              left.count - right.count ||
+              Number(right.plannerClaimed) - Number(left.plannerClaimed) ||
+              left.index - right.index,
+            )[0]?.index;
+      if (packageIndex == null) continue;
+      packages[packageIndex]!.capabilityKeys.push(target.key);
+      if (!mandatoryLoads[packageIndex]!.includes(representative.id)) mandatoryLoads[packageIndex]!.push(representative.id);
+    }
+  }
+
+  // One representative per broad capability is enough for a coverage check,
+  // but it misses critical facets inside large systems. Add a small curated
+  // supplement for the execution router, semantic worker/auditor, auto-apply
+  // lifecycle, and complete workspace. Immutable-blob caching keeps these
+  // extra reads free on unchanged commits.
+  for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {
+    for (const manifestEntry of input.manifest.filter((entry) => entry.key === facet.capabilityKey)) {
+      const representative = manifestEntry.files
+        .filter((file) => facet.pathPattern.test(file.path))
+        .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))[0];
+      if (!representative || mandatoryLoads.some((files) => files.includes(representative.id))) continue;
+      const packageIndex = packages
+        .map((entry, index) => ({
+          index,
+          ownsCapability: entry.capabilityKeys.includes(facet.capabilityKey),
+          load: mandatoryLoads[index]!.length,
+        }))
+        .filter((entry) => entry.load < MAX_FILES_PER_WORKER)
+        .sort((left, right) =>
+          left.load - right.load ||
+          Number(right.ownsCapability) - Number(left.ownsCapability) ||
+          left.index - right.index,
+        )[0]?.index;
+      if (packageIndex == null) continue;
+      packages[packageIndex]!.capabilityKeys.push(facet.capabilityKey);
+      mandatoryLoads[packageIndex]!.push(representative.id);
+    }
+  }
+
+  const capabilitiesByFileId = new Map<string, Set<string>>();
+  for (const area of input.manifest) {
+    for (const file of area.files) {
+      const capabilities = capabilitiesByFileId.get(file.id) ?? new Set<string>();
+      capabilities.add(area.key);
+      capabilitiesByFileId.set(file.id, capabilities);
+    }
   }
   return packages.map((entry, index) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)),
     fileSnapshotIds: Array.from(new Set([
       ...mandatoryLoads[index]!,
-      ...entry.fileSnapshotIds,
+      ...entry.fileSnapshotIds.filter((fileId) => {
+        const capabilities = capabilitiesByFileId.get(fileId);
+        return capabilities && entry.capabilityKeys.some((key) => capabilities.has(key));
+      }),
     ])).slice(0, MAX_FILES_PER_WORKER),
   })).filter((entry) => entry.fileSnapshotIds.length);
 }
 
+export function semanticCoverageAssignmentGaps(input: {
+  manifest: CapabilityManifestArea[];
+  packages: Array<Pick<SemanticWorkPackage, "capabilityKeys" | "fileSnapshotIds">>;
+  expectedScopeKeys?: string[];
+}) {
+  const manifestScopes = new Set(input.manifest.flatMap((area) => area.scopeKey ? [area.scopeKey] : []));
+  const missingRepositoryScopes = (input.expectedScopeKeys ?? []).flatMap((scopeKey) =>
+    manifestScopes.has(scopeKey)
+      ? []
+      : [`No mandatory semantic capability could be classified for attached repository ${scopeKey}; coverage cannot be verified.`]
+  );
+  const assignmentGaps = input.manifest.flatMap((area) => {
+    const areaFileIds = new Set(area.files.map((file) => file.id));
+    const assigned = input.packages.some((workPackage) =>
+      workPackage.capabilityKeys.includes(area.key) &&
+      workPackage.fileSnapshotIds.some((fileId) => areaFileIds.has(fileId))
+    );
+    return assigned
+      ? []
+      : [`Semantic coverage capacity omitted ${area.key} for ${area.scopeKey ?? "an attached repository"}.`];
+  });
+  return Array.from(new Set([...missingRepositoryScopes, ...assignmentGaps]));
+}
+
 function defaultPackages(input: {
   refreshRunId: string;
-  manifest: Array<{ key: string; label: string; files: Array<{ id: string; path: string; score: number }> }>;
+  manifest: CapabilityManifestArea[];
 }) {
   const selectedByKey = input.manifest.flatMap((area) => {
     const file = [...area.files].sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))[0];
@@ -444,10 +591,11 @@ async function planWorkPackages(input: {
   refreshRunId: string;
   workItemId: string;
   projectTitle: string;
-  manifest: Array<{ key: string; label: string; files: Array<{ id: string; path: string; score: number }> }>;
+  manifest: CapabilityManifestArea[];
 }) {
   const fallback = defaultPackages({ refreshRunId: input.refreshRunId, manifest: input.manifest });
-  if (resolveWorkbaseLlmProvider() === "mock") {
+  const plannerMode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "deterministic";
+  if (resolveWorkbaseLlmProvider() === "mock" || plannerMode !== "model") {
     return { packages: fallback, generationRunId: null, fallbackUsed: true, usage: emptyUsage() };
   }
   const allowedIds = new Set(input.manifest.flatMap((area) => area.files.map((file) => file.id)));
@@ -557,6 +705,12 @@ async function runWorkPackage(input: {
   const tokenUsage: unknown[] = [];
   const diagnosticNotes: string[] = [];
   const cacheHits: NonNullable<CapabilityReport["cacheHits"]> = [];
+  const returnedFileIds = new Set(files.map((file) => file.id));
+  for (const fileSnapshotId of input.workPackage.fileSnapshotIds) {
+    if (!returnedFileIds.has(fileSnapshotId)) {
+      gaps.push(`Assigned semantic file ${fileSnapshotId} was unavailable in the current repository refresh.`);
+    }
+  }
   let relevantFileCount = 0;
   const budget = createRepositorySemanticBudget({
     maxInputBytes: input.workPackage.budget.maxInputBytes,
@@ -565,6 +719,14 @@ async function runWorkPackage(input: {
     maxOutputTokens: input.workPackage.budget.maxOutputTokens,
     maxTotalTokens: input.workPackage.budget.maxTotalTokens,
   });
+  const pending = [] as Array<{
+    file: (typeof files)[number];
+    target: RepositoryTargetHead;
+    staticAnalysis: RepositoryFileAnalysis;
+    freshStaticAnalysis: RepositoryFileAnalysis | undefined;
+    read: Awaited<ReturnType<typeof repositoryKnowledgeSyncService.readFile>>;
+    fileTask: NonNullable<ReturnType<typeof buildFileSemanticTask>>;
+  }>;
   for (const file of files.sort((left, right) => left.path.localeCompare(right.path))) {
     try {
       const target = input.targets.get(file.snapshot.sourceId);
@@ -582,27 +744,36 @@ async function runWorkPackage(input: {
       // the model to invent a relationship merely to make that file fit.
       if (!fileTask) continue;
       relevantFileCount += 1;
-      const cachedFile = await prisma.repositoryFileSnapshot.findFirst({
-        where: immutableSemanticCacheWhere({
-          fileSnapshotId: file.id,
-          sourceId: file.snapshot.sourceId,
-          path: file.path,
-          blobSha: file.blobSha,
-        }),
-        select: {
-          id: true,
-          semanticAnalysis: true,
-          semanticDiagnostics: true,
-        },
-        orderBy: { semanticAnalyzedAt: "desc" },
+      const currentSemantic = reusableCurrentSnapshotSemanticAnalysis({
+        semanticStatus: file.semanticStatus,
+        semanticAnalyzerVersion: file.semanticAnalyzerVersion,
+        semanticAnalysis: file.semanticAnalysis,
+        path: file.path,
+        capabilityKeys: fileTask.capabilityKeys,
       });
-      const cachedSemantic = cachedFile
+      const cachedFile = currentSemantic
+        ? { id: file.id, semanticAnalysis: file.semanticAnalysis, semanticDiagnostics: file.semanticDiagnostics }
+        : await prisma.repositoryFileSnapshot.findFirst({
+            where: immutableSemanticCacheWhere({
+              fileSnapshotId: file.id,
+              sourceId: file.snapshot.sourceId,
+              path: file.path,
+              blobSha: file.blobSha,
+            }),
+            select: {
+              id: true,
+              semanticAnalysis: true,
+              semanticDiagnostics: true,
+            },
+            orderBy: { semanticAnalyzedAt: "desc" },
+          });
+      const cachedSemantic = currentSemantic ?? (cachedFile
         ? reusableSemanticAnalysis({
             value: cachedFile.semanticAnalysis,
             path: file.path,
             capabilityKeys: fileTask.capabilityKeys,
           })
-        : null;
+        : null);
       if (cachedFile && cachedSemantic) {
         const semanticDiagnostics = [
           ...(Array.isArray(cachedSemantic.semanticDiagnostics)
@@ -613,6 +784,7 @@ async function runWorkPackage(input: {
             cachedFileSnapshotId: cachedFile.id,
             blobSha: file.blobSha,
             analyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            cacheScope: cachedFile.id === file.id ? "current_snapshot" : "prior_snapshot",
           },
         ];
         const reused = {
@@ -661,46 +833,7 @@ async function runWorkPackage(input: {
         content: read.content,
       }]);
       await prisma.repositoryFileSnapshot.update({ where: { id: file.id }, data: { semanticStatus: "pending" } });
-      const semantic = await analyzeRepositoryFile({
-        workItemId: input.workItemId,
-        refreshRunId: input.refreshRunId,
-        repository: target.repository,
-        commitSha: target.commitSha,
-        path: file.path,
-        content: read.content,
-        task: fileTask,
-        budget,
-      });
-      const semanticStatus = semantic.semanticStatus ?? (semantic.facts.length ? "succeeded" : "degraded");
-      await prisma.repositoryFileSnapshot.update({
-        where: { id: file.id },
-        data: {
-          // Keep static mapping and semantic extraction as separate layers. This
-          // prevents a prior refresh's semantic facts from leaking into a later run.
-          analysis: inputJson({ ...(freshStaticAnalysis ?? staticAnalysis), redacted: read.redacted, redactionCategories: read.redactionCategories }),
-          semanticStatus,
-          semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
-          semanticRefreshRunId: input.refreshRunId,
-          semanticAnalysis: inputJson(semantic),
-          semanticDiagnostics: inputJson(semantic.semanticDiagnostics ?? []),
-          semanticAnalyzedAt: new Date(),
-          analyzedAt: new Date(),
-        },
-      });
-      inspected.push(file.id);
-      tokenUsage.push(...semantic.tokenUsage);
-      const reportSignals = semanticFileReportSignals({
-        path: file.path,
-        semanticStatus,
-        unresolvedQuestions: semantic.unresolvedQuestions,
-      });
-      gaps.push(...reportSignals.gaps);
-      diagnosticNotes.push(...reportSignals.diagnosticNotes);
-      candidates.push(...capabilityCandidatesFromAnalysis({
-        fileSnapshotId: file.id,
-        analysis: semantic,
-        relevantCapabilityKeys: fileTask.capabilityKeys,
-      }));
+      pending.push({ file, target, staticAnalysis, freshStaticAnalysis, read, fileTask });
     } catch (error) {
       const message = errorMessage(error);
       gaps.push(`${file.path}: Semantic worker provider or persistence failure: ${message}`);
@@ -716,8 +849,113 @@ async function runWorkPackage(input: {
       }).catch(() => null);
     }
   }
+
+  // Cache checks and repository reads stay file-local, while only uncached
+  // semantic windows are grouped. This preserves immutable-blob reuse and
+  // exact per-file persistence while reducing provider round trips by roughly
+  // threefold on an initial refresh.
+  for (let offset = 0; offset < pending.length; offset += SEMANTIC_MICRO_BATCH_SIZE) {
+    const group = pending.slice(offset, offset + SEMANTIC_MICRO_BATCH_SIZE);
+    let semanticAnalyses: RepositoryFileAnalysis[];
+    try {
+      const semanticInputs = group.map((entry) => ({
+        workItemId: input.workItemId,
+        refreshRunId: input.refreshRunId,
+        repository: entry.target.repository,
+        commitSha: entry.target.commitSha,
+        path: entry.file.path,
+        content: entry.read.content,
+        task: entry.fileTask,
+        budget,
+        staticAnalysis: entry.freshStaticAnalysis ?? entry.staticAnalysis,
+      }));
+      semanticAnalyses = group.length === 1
+        ? [await analyzeRepositoryFile(semanticInputs[0]!)]
+        : await analyzeRepositoryFileBatch(semanticInputs);
+    } catch (error) {
+      const message = errorMessage(error);
+      semanticAnalyses = [];
+      gaps.push(`Semantic micro-batch ${Math.floor(offset / SEMANTIC_MICRO_BATCH_SIZE) + 1} failed before per-file extraction: ${message}`);
+    }
+    for (const [index, entry] of group.entries()) {
+      const semantic = semanticAnalyses[index];
+      if (!semantic) {
+        const message = "Semantic micro-batch returned no file result.";
+        gaps.push(`${entry.file.path}: ${message}`);
+        await prisma.repositoryFileSnapshot.update({
+          where: { id: entry.file.id },
+          data: {
+            semanticStatus: "failed",
+            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticRefreshRunId: input.refreshRunId,
+            semanticDiagnostics: inputJson([{ status: "missing_batch_result", message }]),
+            semanticAnalyzedAt: new Date(),
+          },
+        }).catch(() => null);
+        continue;
+      }
+      // Provider usage belongs to the batch even if this file's persistence
+      // subsequently fails. Recording before the write prevents cost
+      // telemetry from silently dropping a charged call on a DB error.
+      tokenUsage.push(...semantic.tokenUsage);
+      try {
+        const semanticStatus = semantic.semanticStatus ?? (semantic.facts.length ? "succeeded" : "degraded");
+        await prisma.repositoryFileSnapshot.update({
+          where: { id: entry.file.id },
+          data: {
+            // Keep static mapping and semantic extraction as separate layers. This
+            // prevents a prior refresh's semantic facts from leaking into a later run.
+            analysis: inputJson({ ...(entry.freshStaticAnalysis ?? entry.staticAnalysis), redacted: entry.read.redacted, redactionCategories: entry.read.redactionCategories }),
+            semanticStatus,
+            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticRefreshRunId: input.refreshRunId,
+            semanticAnalysis: inputJson(semantic),
+            semanticDiagnostics: inputJson(semantic.semanticDiagnostics ?? []),
+            semanticAnalyzedAt: new Date(),
+            analyzedAt: new Date(),
+          },
+        });
+        inspected.push(entry.file.id);
+        const reportSignals = semanticFileReportSignals({
+          path: entry.file.path,
+          semanticStatus,
+          unresolvedQuestions: semantic.unresolvedQuestions,
+        });
+        gaps.push(...reportSignals.gaps);
+        diagnosticNotes.push(...reportSignals.diagnosticNotes);
+        candidates.push(...capabilityCandidatesFromAnalysis({
+          fileSnapshotId: entry.file.id,
+          analysis: semantic,
+          relevantCapabilityKeys: entry.fileTask.capabilityKeys,
+        }));
+      } catch (error) {
+        const message = errorMessage(error);
+        gaps.push(`${entry.file.path}: Semantic result persistence failed: ${message}`);
+        await prisma.repositoryFileSnapshot.update({
+          where: { id: entry.file.id },
+          data: {
+            semanticStatus: "failed",
+            semanticAnalyzerVersion: REPOSITORY_KNOWLEDGE_ANALYZER_VERSION,
+            semanticRefreshRunId: input.refreshRunId,
+            semanticDiagnostics: inputJson([{ status: "result_persistence_failure", message }]),
+            semanticAnalyzedAt: new Date(),
+          },
+        }).catch(() => null);
+      }
+    }
+  }
   gaps.push(...missingCapabilityCandidateGaps({
     capabilityKeys: input.workPackage.capabilityKeys,
+    candidates,
+  }));
+  gaps.push(...missingAssignedFileCandidateGaps({
+    files: files.flatMap((file) => {
+      const staticAnalysis = parseAnalysis(file.analysis);
+      return staticAnalysis
+        ? [{ id: file.id, path: file.path, staticSubsystemKeys: staticAnalysis.subsystemKeys }]
+        : [];
+    }),
+    workPackageCapabilityKeys: input.workPackage.capabilityKeys,
     candidates,
   }));
   const usage = snapshotRepositorySemanticBudget(budget);
@@ -766,22 +1004,37 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       .map((area) => ({
       key: area.key,
       label: area.label,
+      scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
       files: analyzed.filter((entry) => entry.analysis.subsystemKeys.includes(area.key)).map((entry) => ({
         id: entry.file.id,
         path: entry.path,
-        score: entry.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) + entry.analysis.architectureSignals.length * 4,
+        score:
+          entry.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
+          entry.analysis.architectureSignals.length * 4 +
+          (entry.file.changeType === "unchanged" ? 0 : 24),
       })),
       }));
   });
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = enforceMandatoryCoverage({ packages: planned.packages, manifest });
-  const perWorkerTokens = Math.floor((REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - 32_000) / Math.max(1, guardedPlan.length));
+  const plannerTokenReserve = planned.generationRunId ? 16_000 : 0;
+  const perWorkerTokens = Math.floor((REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve) / Math.max(1, guardedPlan.length));
   const packages: SemanticWorkPackage[] = guardedPlan.map((entry) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),
     fileSnapshotIds: Array.from(new Set(entry.fileSnapshotIds)).sort().slice(0, MAX_FILES_PER_WORKER),
     id: stablePackageId(refreshRunId, entry.capabilityKeys, entry.fileSnapshotIds),
-    budget: { maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxModelCalls: 8, maxInputBytes: 64 * 1024, maxOutputTokens: 8_000, maxTotalTokens: perWorkerTokens, maxRepairPasses: 1 as const },
+    budget: {
+      maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
+      // Enforce the micro-batched execution shape in the budget itself. A
+      // future regression to one provider call per file should fail closed
+      // instead of silently restoring the old cost profile.
+      maxModelCalls: Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE)),
+      maxInputBytes: 64 * 1024,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: perWorkerTokens,
+      maxRepairPasses: 0 as const,
+    },
   })).sort((left, right) => left.id.localeCompare(right.id));
   await prisma.knowledgeRefreshRun.update({
     where: { id: refreshRunId },
@@ -814,7 +1067,14 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         },
       })]
     : []));
-  const remainingGaps = Array.from(new Set(finalReports.flatMap((report) => report.gaps)));
+  const remainingGaps = Array.from(new Set([
+    ...finalReports.flatMap((report) => report.gaps),
+    ...semanticCoverageAssignmentGaps({
+      manifest,
+      packages,
+      expectedScopeKeys: Array.from(targets.values()).map((target) => target.repository),
+    }),
+  ]));
   const packageCompletion = partitionCapabilityReports(finalReports);
   const workerUsage = aggregateWorkerUsage(finalReports);
   const actualUsage = {
@@ -858,7 +1118,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   });
   await prisma.agentRun.update({
     where: { id: root.id },
-    data: { status: "completed", result: inputJson({ reports: finalReports, remainingGaps, partial: finalReports.some((report) => report.partial), usage: actualUsage }), finishedAt: new Date() },
+    data: { status: "completed", result: inputJson({ reports: finalReports, remainingGaps, partial: remainingGaps.length > 0 || finalReports.some((report) => report.partial), usage: actualUsage }), finishedAt: new Date() },
   });
   await prisma.knowledgeRefreshRun.update({
     where: { id: refreshRunId },
@@ -867,7 +1127,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       orchestration: inputJson({ policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION, rootAgentRunId: root.id, coverageAuditRunId: coverageAudit.id, fallbackUsed: planned.fallbackUsed, generationRunId: planned.generationRunId, packages, reportCount: finalReports.length, remainingGaps }),
       budgetUsage: inputJson({
         limits: { maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS },
-        allocations: { plannerTokens: 32_000, workerTokens: perWorkerTokens * packages.length },
+        allocations: { plannerTokens: plannerTokenReserve, workerTokens: perWorkerTokens * packages.length },
         actual: actualUsage,
       }),
     },
