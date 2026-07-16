@@ -72,40 +72,37 @@ describe("repository synthesis limit fallback", () => {
     expect(semanticFactsForSubsystem(base, "domain_data").map((fact) => fact.statement)).toEqual(["Persists a normalized project record."]);
   });
 
-  it("creates a cross-file AI runtime fact instead of a filename-only observation", () => {
+  it("creates a capability-level AI runtime fact from clause-level semantic observations", () => {
     const result = fallbackSubsystemSynthesis("ai_runtime", [
-      entry("src/lib/bedrock-converse-agent.ts"),
-      entry("src/lib/bedrock-structured-llm-client.ts"),
-      entry("src/services/project-chat-agent-service.ts"),
-      entry("app/api/agent-runs/[id]/stream/route.ts"),
+      entry("src/lib/bedrock-converse-agent.ts", "BedrockConverseTransport wraps ConverseCommand and returns normalized stopReason and usage metadata."),
+      entry("src/lib/bedrock-converse-agent.ts", "The runtime enforces maxIterations, maxToolCalls, and maxTotalTokens."),
+      entry("src/lib/bedrock-converse-agent.ts", "Sensitive value redaction removes credentials before events are exposed."),
     ]);
 
     expect(result.facts).toEqual([expect.objectContaining({
-      statement: expect.stringContaining("Bedrock Converse agent"),
+      statement: expect.stringContaining("wraps Bedrock Converse"),
       confidence: "high",
-      citationIndexes: [1, 2, 3, 4],
+      citationIndexes: [1, 2, 3],
     })]);
     expect(result.highlights).toEqual([
       expect.objectContaining({
-        text: expect.stringContaining("Bedrock Converse agent"),
+        text: expect.stringContaining("wraps Bedrock Converse"),
         visibility: "private",
         confidence: "high",
-        citationIndexes: [1, 2, 3, 4],
+        citationIndexes: [1, 2, 3],
       }),
     ]);
   });
 
-  it("grounds retrieval/provenance synthesis in several distinct services", () => {
+  it("grounds retrieval/provenance synthesis in distinct supported behaviors", () => {
     const result = fallbackSubsystemSynthesis("retrieval_provenance", [
-      entry("src/services/project-knowledge-retrieval-service.ts"),
-      entry("src/services/highlight-embedding-service.ts"),
-      entry("src/services/chat-citation-service.ts"),
-      entry("src/services/prior-turn-provenance-service.ts"),
-      entry("src/services/project-answer-grounding-service.ts"),
+      entry("src/services/project-knowledge-retrieval-service.ts", "Per-kind candidates merge vector and lexical top-k IDs."),
+      entry("src/services/project-knowledge-retrieval-service.ts", "Broad and public artifact requests trigger re-grounding through direct provenance."),
+      entry("src/services/project-knowledge-retrieval-service.ts", "Repository excerpts are retained as nested provenance subordinate to reviewed memory."),
     ]);
 
-    expect(result.facts[0]?.citationIndexes).toHaveLength(5);
-    expect(result.facts[0]?.statement).toContain("citation, provenance");
+    expect(result.facts[0]?.citationIndexes).toHaveLength(3);
+    expect(result.facts[0]?.statement).toContain("vector and lexical top-k");
   });
 
   it("retains the cross-file repository knowledge lifecycle as a ranked fact", () => {
@@ -132,37 +129,44 @@ describe("repository synthesis limit fallback", () => {
     [
       "project_chat_grounding",
       [
-        "src/services/project-chat-agent-service.ts",
-        "src/services/project-knowledge-retrieval-service.ts",
-        "src/services/project-answer-grounding-service.ts",
-        "src/services/chat-citation-service.ts",
-        "src/services/prior-turn-provenance-service.ts",
+        entry("src/services/project-chat-agent-service.ts", "selectHistory retains the latest 12 messages within a bounded history budget."),
+        entry("src/services/project-agent-harness.ts", "highAuthorityMemory admits verified_highlight and verified_project_fact sources."),
+        entry("src/services/project-chat-agent-service.ts", "The latest-commit refresh target SHAs ground current answers."),
+        entry("src/services/project-chat-agent-service.ts", "A retry request without supporting evidence fails closed, preventing hallucinated behavior."),
       ],
-      "real multi-turn history",
+      "bounded multi-turn history",
     ],
     [
       "artifact_generation",
       [
-        "src/services/artifact-workflow-service.ts",
-        "src/services/artifact-generation-service.ts",
-        "src/services/artifact-persistence-service.ts",
-        "workflows/artifact.ts",
+        entry("src/services/artifact-workflow-service.ts", "artifactBriefRequiresMeasuredImpact detects metric-bearing briefs."),
+        entry("src/services/artifact-workflow-service.ts", "hasMeasuredImpactEvidence requires authority-backed numeric evidence."),
+        entry("src/services/artifact-workflow-service.ts", "After bounded research the workflow requests the actual metric and enforces a hard stop instead of producing unsupported output."),
       ],
-      "freeform briefs",
+      "fails closed",
     ],
     [
       "knowledge_review_lifecycle",
       [
-        "src/services/knowledge-change-service.ts",
-        "src/services/knowledge-review-service.ts",
-        "src/services/knowledge-reconciliation-service.ts",
-        "src/services/knowledge-staleness-service.ts",
-        "components/knowledge-update-inbox.tsx",
+        entry("src/services/knowledge-review-service.ts", "An edit creates a new immutable EvidenceItem and marks the prior item superseded."),
+        entry("src/services/knowledge-review-service.ts", "The edit invalidates downstream dependents and regenerates its embedding."),
+        entry("src/services/knowledge-review-service.ts", "knowledgeRevertMode selects restore_retired, restore_in_place, or retire_applied_revision."),
       ],
-      "auto-applied when safe",
+      "immutable successors",
     ],
-  ])("creates a broad deterministic baseline for %s", (subsystemKey, paths, expected) => {
-    const result = fallbackSubsystemSynthesis(subsystemKey, paths.map((path) => entry(path)));
+    [
+      "review_ui",
+      [
+        entry("app/work-items/[id]/page.tsx", "The page imports actions covering the complete knowledge-review lifecycle."),
+        entry("app/work-items/[id]/page.tsx", "The Project Facts panel groups facts by status with nested provenance."),
+        entry("app/work-items/[id]/page.tsx", "ArtifactHistoryEntry builds artifact provenance trees."),
+        entry("components/chat/project-chat-workspace.tsx", "The candidate contract renders candidate review cards."),
+        entry("components/chat/project-chat-workspace.tsx", "citationHref maps citations to a work-item tab URL for review evidence."),
+      ],
+      "review UI",
+    ],
+  ])("creates a broad deterministic baseline for %s", (subsystemKey, notebook, expected) => {
+    const result = fallbackSubsystemSynthesis(subsystemKey, notebook);
 
     expect(result.facts).toEqual([expect.objectContaining({
       statement: expect.stringContaining(expected),
