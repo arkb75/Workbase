@@ -89,6 +89,10 @@ describe("complete repository coverage", () => {
     expect(windows).toHaveLength(1);
     expect(Buffer.byteLength(windows[0]!.content, "utf8")).toBeLessThanOrEqual(8 * 1024);
     expect(windows[0]!.content).toMatch(/^\d+:/m);
+
+    const batchedWindow = selectSemanticWindows(content, 5 * 1024);
+    expect(Buffer.byteLength(batchedWindow[0]!.content, "utf8")).toBeLessThanOrEqual(5 * 1024);
+    expect(batchedWindow[0]!.content).toMatch(/^\d+:/m);
   });
 
   it("gives semantic credit only to capability keys supported by semantic findings", () => {

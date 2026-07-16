@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import type { JsonValue } from "@/src/domain/types";
-import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+} from "@/src/lib/bedrock-structured-llm-client";
 import { sanitizeBedrockConverseEventValue } from "@/src/lib/bedrock-converse-agent";
 import { resolveBedrockConfig } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
@@ -63,7 +66,9 @@ function cumulativeAuditUsage(input: {
   priorResultRefs: unknown;
   currentTokenUsage: unknown;
   modelId: string;
+  countCurrentAttempt?: boolean;
 }) {
+  const countCurrentAttempt = input.countCurrentAttempt ?? true;
   const priorRefs = objectValue(input.priorResultRefs);
   const priorHasKnownUsage = input.priorTokenUsage != null;
   const currentUsage = collectModelTokenUsage(input.currentTokenUsage);
@@ -79,8 +84,9 @@ function cumulativeAuditUsage(input: {
     (input.priorResultRefs != null || priorHasKnownUsage ? 1 : 0);
   const priorUnknownUsageAttempts = nonNegativeInteger(priorRefs?.unknownUsageAttempts) ??
     (input.priorResultRefs != null && !priorHasKnownUsage && input.modelId !== "mock" ? 1 : 0);
-  const unknownUsageAttempts = priorUnknownUsageAttempts +
-    (currentExplicitUnknownUsage || (!currentHasKnownUsage && input.modelId !== "mock" ? 1 : 0));
+  const unknownUsageAttempts = priorUnknownUsageAttempts + (countCurrentAttempt
+    ? (currentExplicitUnknownUsage || (!currentHasKnownUsage && input.modelId !== "mock" ? 1 : 0))
+    : 0);
   const usage = addModelTokenUsage(
     collectModelTokenUsage(input.priorTokenUsage),
     currentUsage,
@@ -90,7 +96,7 @@ function cumulativeAuditUsage(input: {
   return {
     usage,
     hasKnownUsage: priorHasKnownUsage || currentHasKnownUsage,
-    auditAttemptCount: priorAttemptCount + 1,
+    auditAttemptCount: priorAttemptCount + (countCurrentAttempt ? 1 : 0),
     unknownUsageAttempts,
     usageComplete: unknownUsageAttempts === 0,
     knownEstimatedCostUsd,
@@ -171,11 +177,13 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
   } catch (error) {
     if (run) {
       const structured = error instanceof StructuredOutputError ? error : null;
+      const admissionFailure = error instanceof StructuredGenerationBudgetError;
       const auditUsage = cumulativeAuditUsage({
         priorTokenUsage: run.tokenUsage,
         priorResultRefs: run.resultRefs,
         currentTokenUsage: structured?.tokenUsage ?? null,
         modelId: run.modelId,
+        countCurrentAttempt: !admissionFailure,
       });
       const tokenUsage = auditUsage.hasKnownUsage ? modelTokenUsageJson(auditUsage.usage) : null;
       await prisma.generationRun.update({
@@ -196,6 +204,8 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             unknownUsageAttempts: auditUsage.unknownUsageAttempts,
             usageComplete: auditUsage.usageComplete,
             knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
+            admissionFailure,
+            budgetCode: admissionFailure ? error.code : null,
           }),
         },
       });

@@ -286,10 +286,12 @@ function chunkByLines(content: string) {
   return chunks.length ? chunks : [{ lineStart: 1, lineEnd: 1, content: "1: " }];
 }
 
-export function selectSemanticWindows(content: string) {
+export function selectSemanticWindows(content: string, semanticByteLimit = 8 * 1024) {
   const lines = content.split("\n");
   const totalBytes = Buffer.byteLength(content, "utf8");
-  const semanticByteLimit = 8 * 1024;
+  if (!Number.isInteger(semanticByteLimit) || semanticByteLimit < 1) {
+    throw new Error("semanticByteLimit must be a positive integer.");
+  }
   if (totalBytes <= semanticByteLimit) return chunkByLines(content);
   const signalPattern = /\b(?:export|class|interface|type|enum|function|model|datasource|generator|workflow|createHook|Converse|Bedrock|citation|provenance|retriev|artifact|highlight|github|oauth|prisma|transaction|route|page|schema|authorize|redact|encrypt)\b/i;
   const signalIndexes = lines
@@ -793,7 +795,11 @@ export async function analyzeRepositoryFileBatch(
   }
 
   const prepared = input.map((file, index) => {
-    const window = selectSemanticWindows(file.content)[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };
+    // Three 8KB windows plus schema/output reserves can exceed a worker's
+    // conservative byte-based admission budget even though actual token usage
+    // would be much lower. A 5KB high-signal window keeps three-file batching
+    // viable without dropping a file or increasing the provider-call count.
+    const window = selectSemanticWindows(file.content, 5 * 1024)[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };
     return {
       file,
       fileKey: `file-${index + 1}`,

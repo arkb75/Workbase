@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JsonValue } from "@/src/domain/types";
 import { Prisma } from "@/src/generated/prisma/client";
+import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-llm-client";
 
 const prismaMock = vi.hoisted(() => ({
   generationRun: {
@@ -159,6 +160,46 @@ describe("structured generation audit usage", () => {
       unknownUsageAttempts: 1,
       usageComplete: false,
       knownEstimatedCostUsd: 0,
+    }));
+  });
+
+  it("does not count a pre-dispatch budget admission failure as a provider attempt", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-budget",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+    });
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "semantic_extraction",
+      idempotencyKey: "semantic:budget-admission",
+      inputSummary: { path: "src/large-service.ts" },
+      execute: async () => {
+        throw new StructuredGenerationBudgetError(
+          "token_budget_exhausted",
+          "The request did not fit before dispatch.",
+          {
+            modelCalls: 0,
+            repairPasses: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            unknownUsageCalls: 0,
+          },
+        );
+      },
+    })).rejects.toThrow("did not fit before dispatch");
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.estimatedCostUsd).toBe(0);
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditAttemptCount: 0,
+      unknownUsageAttempts: 0,
+      usageComplete: true,
+      admissionFailure: true,
+      budgetCode: "token_budget_exhausted",
     }));
   });
 
