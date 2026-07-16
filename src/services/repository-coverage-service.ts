@@ -109,6 +109,7 @@ const semanticAnalysisSchema = z.object({
     statement: boundedSemanticText(10, 500),
     kind: z.enum(semanticFindingKindOptions),
     capabilityKeys: z.array(boundedSemanticText(2, 100)).min(1),
+    signalKeys: z.array(boundedSemanticText(2, 120)).max(12).default([]),
     confidence: z.enum(["low", "medium", "high"]),
     sensitivityFlag: z.boolean(),
     lineStart: z.number().int().min(1),
@@ -130,11 +131,12 @@ const semanticAnalysisJsonSchema: JsonSchemaObject = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["statement", "kind", "capabilityKeys", "confidence", "sensitivityFlag", "lineStart", "lineEnd"],
+        required: ["statement", "kind", "capabilityKeys", "signalKeys", "confidence", "sensitivityFlag", "lineStart", "lineEnd"],
         properties: {
           statement: { type: "string", minLength: 10, maxLength: 500 },
           kind: { type: "string", enum: [...semanticFindingKindOptions] },
           capabilityKeys: { type: "array", minItems: 1, items: { type: "string", minLength: 2, maxLength: 100 } },
+          signalKeys: { type: "array", maxItems: 12, items: { type: "string", minLength: 2, maxLength: 120 } },
           confidence: { type: "string", enum: ["low", "medium", "high"] },
           sensitivityFlag: { type: "boolean" },
           lineStart: { type: "integer" },
@@ -205,6 +207,7 @@ function buildSemanticBatchAnalysisJsonSchema(fileKeys: string[]): JsonSchemaObj
 export interface RepositorySemanticTask {
   objective: string;
   capabilityKeys: string[];
+  semanticSignalKeys?: string[];
   questions: string[];
   expectedOutputs: string[];
 }
@@ -274,6 +277,7 @@ export interface RepositoryChunkAnalysis {
     implementationBreadth: number;
     technicalDifficulty: number;
     subsystemKeys?: string[];
+    semanticSignals?: string[];
     evidenceMode?: "static" | "semantic" | "deterministic_fallback";
   }>;
   unresolvedQuestions: string[];
@@ -388,6 +392,7 @@ export function selectSemanticWindows(
   const taskCapabilityKeys = unique(hints.task?.capabilityKeys ?? [], 20);
   const taskText = [
     ...taskCapabilityKeys,
+    ...(hints.task?.semanticSignalKeys ?? []),
     hints.task?.objective ?? "",
     ...(hints.task?.questions ?? []),
     ...(hints.task?.expectedOutputs ?? []),
@@ -538,10 +543,12 @@ async function analyzeChunk(input: {
     researchTask: input.task ? {
       objective: input.task.objective,
       capabilityKeys: allowedCapabilityKeys,
+      semanticSignalKeys: input.task.semanticSignalKeys ?? [],
       questions: input.task.questions,
       expectedOutputs: input.task.expectedOutputs,
     } : null,
     allowedCapabilityKeys,
+    allowedSemanticSignalKeys: input.task?.semanticSignalKeys ?? [],
     content: input.content,
   });
   const inputBytes = Buffer.byteLength(userPrompt, "utf8");
@@ -578,6 +585,7 @@ async function analyzeChunk(input: {
         "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
         "Use stable snake_case subsystem keys and mark security-sensitive findings as sensitive.",
         "Assign each finding only to the capabilityKeys it directly supports; do not copy every file-level subsystem key onto every finding.",
+        "signalKeys are stable implementation facets, not freeform tags. Use only supplied allowedSemanticSignalKeys and attach every one directly established by the cited lines.",
         "Follow the supplied research task: answer its objective and questions, target its expected outputs, and use only its allowed capability keys.",
       ].join(" "),
       userPrompt,
@@ -592,6 +600,7 @@ async function analyzeChunk(input: {
           statement: "The operation scopes retrieval by both user and work item.",
           kind: "invariant",
           capabilityKeys: ["retrieval_provenance"],
+          signalKeys: [],
           confidence: "high",
           sensitivityFlag: false,
           lineStart: input.lineStart,
@@ -608,9 +617,14 @@ async function analyzeChunk(input: {
       transportPreference: ["bedrock_json_schema"],
       budget: input.budget?.model,
       extraValidation: (value) => value.findings.flatMap((finding, index) =>
-        finding.capabilityKeys
+        [
+          ...finding.capabilityKeys
           .filter((key) => !allowedCapabilityKeys.includes(key))
           .map((key) => `Finding ${index + 1} uses capability key ${key}, which is outside the work package.`),
+          ...(finding.signalKeys ?? [])
+            .filter((key) => !(input.task?.semanticSignalKeys ?? []).includes(key))
+            .map((key) => `Finding ${index + 1} uses semantic signal ${key}, which is outside the file task.`),
+        ]
       ),
     }),
   });
@@ -648,6 +662,7 @@ async function analyzeChunk(input: {
       implementationBreadth: 2,
       technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
       subsystemKeys: unique(finding.capabilityKeys, 6),
+      semanticSignals: unique(finding.signalKeys ?? [], 12),
       evidenceMode: "semantic" as const,
     }];
   });
@@ -773,9 +788,15 @@ export async function analyzeRepositoryFile(input: {
   path: string;
   content: string;
   task?: RepositorySemanticTask;
+  staticAnalysis?: Pick<RepositoryFileAnalysis, "facts" | "subsystemKeys">;
   budget?: RepositorySemanticBudget;
 }): Promise<RepositoryFileAnalysis> {
-  const chunks = resolveWorkbaseLlmProvider() === "mock" ? chunkByLines(input.content) : selectSemanticWindows(input.content);
+  const chunks = resolveWorkbaseLlmProvider() === "mock"
+    ? chunkByLines(input.content)
+    : selectSemanticWindows(input.content, 8 * 1024, {
+        task: input.task,
+        staticAnalysis: input.staticAnalysis,
+      });
   const analyses: RepositoryChunkAnalysis[] = [];
   const tokenUsage: unknown[] = [];
   const semanticDiagnostics: unknown[] = [];
@@ -976,10 +997,12 @@ export async function analyzeRepositoryFileBatch(
       researchTask: {
         objective: entry.file.task.objective,
         capabilityKeys: entry.allowedCapabilityKeys,
+        semanticSignalKeys: entry.file.task.semanticSignalKeys ?? [],
         questions: entry.file.task.questions,
         expectedOutputs: entry.file.task.expectedOutputs,
       },
       allowedCapabilityKeys: entry.allowedCapabilityKeys,
+      allowedSemanticSignalKeys: entry.file.task.semanticSignalKeys ?? [],
       content: entry.window.content,
     })),
   });
@@ -1041,6 +1064,7 @@ export async function analyzeRepositoryFileBatch(
           "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
           "Return at most three decisive findings and two concrete unresolved questions per file.",
           "Assign each finding only to that file's allowed capability keys and follow its research task.",
+          "signalKeys are stable implementation facets. Use only that file's allowedSemanticSignalKeys and attach every supplied signal directly established by the cited lines.",
         ].join(" "),
         userPrompt,
         schema: semanticBatchAnalysisSchema,
@@ -1057,6 +1081,7 @@ export async function analyzeRepositoryFileBatch(
                 statement: "The operation scopes persisted work to the current project.",
                 kind: "invariant",
                 capabilityKeys: [entry.allowedCapabilityKeys[0] ?? "product_surface"],
+                signalKeys: [],
                 confidence: "high",
                 sensitivityFlag: false,
                 lineStart: entry.window.lineStart,
@@ -1148,6 +1173,13 @@ export async function analyzeRepositoryFileBatch(
         rejected.push(`Rejected finding with capabilities outside this file task: ${invalidKeys.join(", ")}.`);
         return [];
       }
+      const invalidSignalKeys = (finding.signalKeys ?? []).filter((key) =>
+        !(entry.file.task.semanticSignalKeys ?? []).includes(key)
+      );
+      if (invalidSignalKeys.length) {
+        rejected.push(`Rejected finding with semantic signals outside this file task: ${invalidSignalKeys.join(", ")}.`);
+        return [];
+      }
       if (
         finding.lineStart < entry.window.lineStart ||
         finding.lineEnd > entry.window.lineEnd ||
@@ -1177,6 +1209,7 @@ export async function analyzeRepositoryFileBatch(
         implementationBreadth: 2,
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
         subsystemKeys: unique(finding.capabilityKeys, 6),
+        semanticSignals: unique(finding.signalKeys ?? [], 12),
         evidenceMode: "semantic" as const,
         path: entry.file.path,
       }];

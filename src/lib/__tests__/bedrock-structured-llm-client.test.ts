@@ -10,7 +10,11 @@ import {
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 
-function makeClient(responses: Array<{ text?: string; structuredData?: unknown } | Error>) {
+function makeClient(responses: Array<{
+  text?: string;
+  structuredData?: unknown;
+  tokenUsage?: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+} | Error>) {
   const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
   let callIndex = 0;
   const runtime: ConverseTextRuntime = {
@@ -25,11 +29,13 @@ function makeClient(responses: Array<{ text?: string; structuredData?: unknown }
       return {
         text: response.text ?? "",
         structuredData: response.structuredData ?? null,
-        tokenUsage: {
-          inputTokens: 10,
-          outputTokens: 20,
-          totalTokens: 30,
-        },
+        tokenUsage: "tokenUsage" in response
+          ? response.tokenUsage ?? null
+          : {
+              inputTokens: 10,
+              outputTokens: 20,
+              totalTokens: 30,
+            },
       };
     },
   };
@@ -308,6 +314,42 @@ describe("BedrockStructuredLlmClient", () => {
       budget,
     })).rejects.toMatchObject({ code: "token_budget_exhausted" });
     expect(calls).toHaveLength(1);
+  });
+
+  it("charges a conservative request reserve when provider token usage is unavailable", async () => {
+    const { client } = makeClient([{
+      structuredData: { ok: true },
+      tokenUsage: null,
+    }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 2_000,
+      maxTotalTokens: 10_000,
+    });
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return supported JSON.",
+      userPrompt: "Summarize this bounded repository notebook.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 2_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(budget.usage).toMatchObject({
+      modelCalls: 1,
+      unknownUsageCalls: 1,
+      outputTokens: 2_000,
+    });
+    expect(budget.usage.inputTokens).toBeGreaterThan(0);
+    expect(budget.usage.totalTokens).toBe(
+      budget.usage.inputTokens + budget.usage.outputTokens,
+    );
   });
 
   it("admits a bounded repository-sized prompt without treating every byte as a token", async () => {

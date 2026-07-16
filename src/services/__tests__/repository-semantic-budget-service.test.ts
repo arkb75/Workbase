@@ -558,6 +558,64 @@ describe("repository semantic task and budget", () => {
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
   });
 
+  it("uses task and static-analysis hints when a singleton large file is windowed", async () => {
+    const lines = Array.from({ length: 900 }, (_, index) =>
+      index === 719
+        ? "export function routeCitationToReviewEvidence() { return citationHref; }"
+        : `const filler${index} = "${"x".repeat(24)}";`
+    );
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => ({
+      data: {
+        summary: "The selected window contains the assigned citation-navigation implementation.",
+        subsystemKeys: ["review_ui"],
+        findings: [],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+      request,
+    }));
+
+    await analyzeRepositoryFile({
+      repository: "workbase/demo",
+      commitSha: "a".repeat(40),
+      path: "components/chat/project-chat-workspace.tsx",
+      content: lines.join("\n"),
+      task: {
+        objective: "Determine how citations navigate to review evidence.",
+        capabilityKeys: ["review_ui"],
+        semanticSignalKeys: ["review_ui.citation_navigation"],
+        questions: ["Where is citation navigation implemented?"],
+        expectedOutputs: ["An exact-line citation-navigation observation"],
+      },
+      staticAnalysis: {
+        subsystemKeys: ["review_ui"],
+        facts: [{
+          path: "components/chat/project-chat-workspace.tsx",
+          statement: "The workspace defines citation navigation.",
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 720,
+          lineEnd: 720,
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 3,
+          subsystemKeys: ["review_ui"],
+        }],
+      },
+    });
+
+    const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt);
+    expect(prompt.content).toContain("720: export function routeCitationToReviewEvidence");
+    expect(prompt.researchTask.semanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
+  });
+
   it("returns an explicit gap without calling the provider when the input-byte budget is exhausted", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 1,

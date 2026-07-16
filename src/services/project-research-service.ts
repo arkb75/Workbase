@@ -780,6 +780,7 @@ function projectFactCitation(fact: {
 }
 
 async function buildProvisionalAnswer(input: {
+  workItemId: string;
   candidateIds: string[];
   activeProjectFactIds?: string[];
   coverage: ResearchCoverage;
@@ -789,13 +790,42 @@ async function buildProvisionalAnswer(input: {
     where: {
       id: { in: input.candidateIds },
       ...(input.activeProjectFactIds?.length
-        ? { projectFactId: { in: input.activeProjectFactIds }, status: "approved" as const }
+        ? {
+            projectFactId: { in: input.activeProjectFactIds },
+            status: { in: ["approved", "edited_and_approved"] as const },
+            projectFact: { status: "approved" as const, lifecycleStatus: "active" as const },
+          }
         : {}),
     },
     include: { projectFact: true },
     orderBy: { ordinal: "asc" },
   });
-  const facts = candidates.flatMap((candidate) => candidate.projectFact ? [candidate.projectFact] : []);
+  const candidateFacts = candidates.flatMap((candidate) =>
+    candidate.projectFact ? [candidate.projectFact] : []
+  );
+  const candidateFactIds = new Set(candidateFacts.map((fact) => fact.id));
+  const directlyReusedIds = (input.activeProjectFactIds ?? []).filter((id) =>
+    !candidateFactIds.has(id)
+  );
+  const directlyReusedFacts = directlyReusedIds.length
+    ? await prisma.projectFact.findMany({
+        where: {
+          id: { in: directlyReusedIds },
+          workItemId: input.workItemId,
+          status: "approved",
+          lifecycleStatus: "active",
+        },
+      })
+    : [];
+  const factById = new Map(
+    [...candidateFacts, ...directlyReusedFacts].map((fact) => [fact.id, fact] as const),
+  );
+  const facts = input.activeProjectFactIds?.length
+    ? input.activeProjectFactIds.flatMap((id) => {
+        const fact = factById.get(id);
+        return fact ? [fact] : [];
+      })
+    : candidateFacts;
   const citations = facts.map(projectFactCitation);
   const answer = [
     input.partial
@@ -805,7 +835,9 @@ async function buildProvisionalAnswer(input: {
     input.coverage.uninspected.length
       ? `\nUnresolved coverage: ${input.coverage.uninspected.join("; ")}`
       : "",
-    "\nNew and updated Project Facts are active now and remain available in the review-later inbox.",
+    input.candidateIds.length
+      ? "\nNew and updated Project Facts are active now and remain available in the review-later inbox."
+      : "\nThis answer reused an existing approved Project Fact; no new review item was created.",
   ].filter(Boolean).join("\n");
   return { answer, citations, facts };
 }
@@ -1271,7 +1303,7 @@ export async function researchProject(
     modelUsage.push({ phase: "project_fact_extraction", usage: candidates.tokenUsage });
     coverage.uninspected.push(...candidates.coverageGaps.filter((gap) => !coverage.uninspected.includes(gap)));
     partial ||= candidates.coverageGaps.length > 0;
-    if (!candidates.candidateIds.length) {
+    if (!candidates.candidateIds.length && !candidates.activeProjectFactIds.length) {
       return baseResult({
         status: "insufficient_context",
         answer: "Repository files were inspected, but the excerpts did not support a reviewable Project Fact.",
@@ -1283,6 +1315,7 @@ export async function researchProject(
       });
     }
     const provisional = await buildProvisionalAnswer({
+      workItemId: input.workItemId,
       candidateIds: candidates.candidateIds,
       activeProjectFactIds: candidates.activeProjectFactIds,
       coverage,
@@ -1344,6 +1377,27 @@ export async function researchProject(
     });
   } catch (error) {
     warnings.push(`Project Fact extraction stopped: ${error instanceof Error ? error.message : "unknown error"}`);
+    context = {
+      ...context,
+      run: {
+        ...context.run,
+        phase: "finalizing",
+        allowedActions: ["retry_fact_extraction_from_saved_notebook"],
+      },
+    };
+    await persistResearchState({
+      runId: input.runId,
+      phase: "finalizing",
+      context,
+      coverage,
+      usage: budget.getUsage(),
+      notebook: { paths: pathCandidates, citations: exploredEvidence },
+      warnings,
+      partial: true,
+      modelUsage,
+      candidateIds: [],
+      provisionalProjectFactIds: [],
+    });
     return baseResult({
       status: "insufficient_context",
       answer: "Repository excerpts were collected, but Workbase could not extract a supported Project Fact.",

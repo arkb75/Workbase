@@ -67,6 +67,7 @@ import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-sta
 import { resolveAgentCandidate } from "@/src/services/candidate-review-service";
 import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
 import { repositoryKnowledgeRefreshApplicationService } from "@/src/services/repository-knowledge-refresh-application-service";
+import { knowledgeRefreshService } from "@/src/services/knowledge-refresh-service";
 import { knowledgeLifecycleService, knowledgeReviewService } from "@/src/services/knowledge-review-service";
 import {
   artifactGenerationWorkflow,
@@ -970,9 +971,19 @@ export async function cancelAgentRunAction(formData: FormData) {
   if (run.workflowId) {
     try {
       await getRun(run.workflowId).cancel();
-    } catch {
-      // Persist cancellation even if the workflow provider already stopped the run.
+    } catch (error) {
+      throw new Error(
+        `Workflow cancellation could not be confirmed, so the run remains active. ${
+          error instanceof Error ? error.message : "Retry cancellation shortly."
+        }`,
+      );
     }
+  }
+  if (run.knowledgeRefreshRunId) {
+    await knowledgeRefreshService.releaseInline({
+      runId: run.knowledgeRefreshRunId,
+      ownerToken: `inline-agent:${run.id}`,
+    });
   }
   await prisma.$transaction([
     prisma.agentRun.update({

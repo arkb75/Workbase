@@ -4,6 +4,7 @@ const prismaMock = vi.hoisted(() => ({
   source: { findMany: vi.fn() },
   agentRun: { updateMany: vi.fn(), findUnique: vi.fn() },
   agentRunCandidate: { findMany: vi.fn() },
+  projectFact: { findMany: vi.fn() },
 }));
 
 const retrievalMock = vi.hoisted(() => vi.fn());
@@ -163,6 +164,7 @@ describe("deterministic project research controller", () => {
       { ordinal: 1, projectFact: { id: "fact-1", statement: "The chat service uses a deterministic intent router.", category: "architecture", confidence: "high" } },
       { ordinal: 2, projectFact: { id: "fact-2", statement: "Repository reads are pinned to an immutable commit.", category: "behavior", confidence: "high" } },
     ]);
+    prismaMock.projectFact.findMany.mockResolvedValue([]);
   });
 
   it("uses deterministic planning for exact code and control-flow questions", () => {
@@ -272,6 +274,49 @@ describe("deterministic project research controller", () => {
       "data and service boundaries",
     ]);
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ maxFacts: 4 }));
+  });
+
+  it("answers from a canonical fact reused by another run without creating a new review candidate", async () => {
+    factCandidateMock.mockResolvedValue({
+      candidateIds: [],
+      activeProjectFactIds: ["fact-reused"],
+      coverageGaps: [],
+      tokenUsage: null,
+    });
+    prismaMock.agentRunCandidate.findMany.mockResolvedValue([]);
+    prismaMock.projectFact.findMany.mockResolvedValue([{
+      id: "fact-reused",
+      statement: "Repository research reads files from an immutable commit revision.",
+      category: "behavior",
+      confidence: "high",
+    }]);
+
+    const result = await researchProject({
+      runId: "run-reusing-canonical-fact",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question: "How are repository reads pinned?",
+      purpose: "answer_question",
+    });
+
+    expect(result.status).toBe("answered");
+    expect(result.candidateIds).toEqual([]);
+    expect(result.answer).toContain("immutable commit revision");
+    expect(result.answer).toContain("no new review item was created");
+    expect(result.citations).toEqual([
+      expect.objectContaining({
+        kind: "project_fact",
+        projectFactId: "fact-reused",
+      }),
+    ]);
+    expect(prismaMock.projectFact.findMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ["fact-reused"] },
+        workItemId: "work-item-1",
+        status: "approved",
+        lifecycleStatus: "active",
+      },
+    });
   });
 
   it("uses focused control-flow searches and prefers runtime code over tests", async () => {

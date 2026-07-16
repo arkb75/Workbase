@@ -84,6 +84,33 @@ describe("knowledge dependency invalidation", () => {
     });
   });
 
+  it("does not invalidate a dependent after a refresh generation loses its mutation fence", async () => {
+    prismaMock.projectFact.findMany.mockResolvedValue([{
+      id: "fact-fenced",
+      statement: "Current fact",
+      lifecycleStatus: "active",
+      validatedThroughSha: "old-sha",
+      validationHeads: { "source-1": "old-sha" },
+    }]);
+    prismaMock.highlight.findMany.mockResolvedValue([]);
+    const mutationFence = vi.fn().mockRejectedValue(
+      new Error("The refresh generation was superseded."),
+    );
+
+    await expect(invalidateEvidenceDependents({
+      workItemId: "work-1",
+      evidenceItemId: "evidence-1",
+      reason: "The supporting excerpt is stale.",
+      idempotencyScope: "refresh-old:evidence-1",
+      refreshRunId: "refresh-old",
+      mutationFence,
+    })).rejects.toThrow("superseded");
+
+    expect(mutationFence).toHaveBeenCalledOnce();
+    expect(prismaMock.projectFact.update).not.toHaveBeenCalled();
+    expect(upsertReviewableKnowledgeChangeMock).not.toHaveBeenCalled();
+  });
+
   it("makes a Highlight dependency transition reviewable when it stales an Artifact", async () => {
     prismaMock.artifact.findMany.mockResolvedValue([{
       id: "artifact-2",

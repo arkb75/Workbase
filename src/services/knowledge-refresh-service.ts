@@ -27,10 +27,23 @@ import {
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   repositorySemanticOrchestratorService,
 } from "@/src/services/repository-semantic-orchestrator-service";
-import { KNOWLEDGE_LIFECYCLE_POLICY_VERSION } from "@/src/services/knowledge-reconciliation-service";
+import {
+  isNewerKnowledgeRefreshGeneration,
+  KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+  lockKnowledgeRefreshWorkItem,
+} from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v23";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v25";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
+const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
+  "queued",
+  "inventorying",
+  "analyzing",
+  "routing",
+  "semantic_analysis",
+  "auditing",
+  "reconciling",
+] as const;
 
 const targetHeadSchema = z.object({
   sourceId: z.string(),
@@ -50,6 +63,10 @@ function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function currentKnowledgeRefreshPolicyHash() {
+  return hash(JSON.stringify(currentKnowledgeRefreshPolicyMetadata())).slice(0, 16);
+}
+
 function currentKnowledgeRefreshPolicyMetadata() {
   return {
     analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
@@ -62,8 +79,33 @@ function currentKnowledgeRefreshPolicyMetadata() {
 }
 
 export function policyScopedKnowledgeRefreshIdempotencyKey(baseKey: string) {
-  const policyHash = hash(JSON.stringify(currentKnowledgeRefreshPolicyMetadata())).slice(0, 16);
-  return `${baseKey}:policy:${policyHash}`;
+  return `${baseKey}:policy:${currentKnowledgeRefreshPolicyHash()}`;
+}
+
+export function knowledgeRefreshBaseIdempotencyKey(input: {
+  trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+  requestedKey?: string;
+  targets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha">>;
+}) {
+  const headsHash = hash(
+    input.targets
+      .map((target) => `${target.sourceId}:${target.commitSha}`)
+      .sort()
+      .join("|"),
+  );
+  // Attach, scheduled, manual, and chat triggers are all ordinary requests for
+  // the same immutable repository state. Sharing a base key lets the caller
+  // coalesce their active work regardless of which surface won the race.
+  // Backfills remain explicitly scoped because a knowledge edit may require a
+  // forced revalidation even while an ordinary refresh is running.
+  if (input.trigger !== "backfill") return `repository_heads:${headsHash}`;
+  return input.requestedKey ?? `${input.trigger}:${headsHash}`;
+}
+
+function assertKnowledgeRefreshCanExecute(runId: string, status: string) {
+  if (status === "failed" || status === "cancelled") {
+    throw new Error(`Repository refresh ${runId} is ${status} and cannot continue.`);
+  }
 }
 
 function record(value: unknown) {
@@ -122,6 +164,11 @@ function parseTargets(value: unknown): RepositoryTargetHead[] {
   return z.array(targetHeadSchema).parse(value);
 }
 
+function safeParseTargets(value: unknown) {
+  const parsed = z.array(targetHeadSchema).safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 export function isReusableKnowledgeRefresh(input: {
   warnings: unknown;
   qualityStatus: unknown;
@@ -142,6 +189,89 @@ function sameKnowledgeRefreshTargets(
       completed.sourceId === target.sourceId && completed.commitSha === target.commitSha
     )
   );
+}
+
+type ActiveKnowledgeRefreshSummary = {
+  id: string;
+  trigger: string;
+  status: string;
+  targetHeads: unknown;
+  createdAt: Date;
+};
+
+async function cancelSupersededActiveRefreshes(input: {
+  workItemId: string;
+  currentRunId: string;
+  currentTrigger: string;
+  currentTargets: RepositoryTargetHead[];
+  currentCreatedAt: Date;
+  activeRuns: ActiveKnowledgeRefreshSummary[];
+}, client: Pick<Prisma.TransactionClient, "knowledgeRefreshRun">) {
+  const supersededIds = input.activeRuns.flatMap((candidate) => {
+    if (candidate.id === input.currentRunId) return [];
+    const candidateTargets = safeParseTargets(candidate.targetHeads);
+    if (!candidateTargets) return [];
+    const duplicateOrdinaryGeneration = input.currentTrigger !== "backfill" &&
+      candidate.trigger !== "backfill" &&
+      sameKnowledgeRefreshTargets(candidateTargets, input.currentTargets) &&
+      candidate.createdAt.getTime() <= input.currentCreatedAt.getTime();
+    const replacedByNewerHead = isNewerKnowledgeRefreshGeneration({
+      currentTargets: candidateTargets,
+      candidateTargets: input.currentTargets,
+      currentCreatedAt: candidate.createdAt,
+      candidateCreatedAt: input.currentCreatedAt,
+    });
+    return duplicateOrdinaryGeneration || replacedByNewerHead ? [candidate.id] : [];
+  });
+  if (!supersededIds.length) return [];
+  await client.knowledgeRefreshRun.updateMany({
+    where: {
+      id: { in: supersededIds },
+      workItemId: input.workItemId,
+      status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_STATUSES] },
+    },
+    data: {
+      status: "cancelled",
+      finishedAt: new Date(),
+      error: toInputJson({
+        message: `Superseded by newer repository refresh ${input.currentRunId}.`,
+      }),
+    },
+  });
+  return supersededIds;
+}
+
+async function withKnowledgeRefreshWorkItemLock<T>(
+  workItemId: string,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+) {
+  return prisma.$transaction(async (tx) => {
+    await lockKnowledgeRefreshWorkItem(tx, workItemId);
+    return operation(tx);
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    timeout: 10_000,
+  });
+}
+
+function activeKnowledgeRefreshes(
+  client: Pick<Prisma.TransactionClient, "knowledgeRefreshRun">,
+  workItemId: string,
+) {
+  return client.knowledgeRefreshRun.findMany({
+    where: {
+      workItemId,
+      status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_STATUSES] },
+    },
+    select: {
+      id: true,
+      trigger: true,
+      status: true,
+      targetHeads: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 function currentKnowledgeRefreshPolicyMatches(warningsValue: unknown) {
@@ -240,65 +370,233 @@ export async function startKnowledgeRefresh(input: {
   if (!workItem) throw new Error("The project is not authorized for this user.");
   const targets = await repositoryKnowledgeSyncService.resolveTargetHeads(input);
   if (!targets.length) throw new Error("No attached GitHub repository is available for a current knowledge refresh.");
-  const latestCompleted = await prisma.knowledgeRefreshRun.findFirst({
-    where: { workItemId: input.workItemId, status: "completed" },
-    orderBy: { finishedAt: "desc" },
-  });
-  const completedTargets = latestCompleted?.completedHeads && Array.isArray(latestCompleted.completedHeads)
-    ? parseTargets(latestCompleted.completedHeads)
-    : [];
   const forceRevalidation = input.trigger === "backfill" && input.idempotencyKey?.startsWith("knowledge-edit:");
-  if (
-    !forceRevalidation &&
-    isReusableKnowledgeRefresh({
-      warnings: latestCompleted?.warnings,
-      qualityStatus: latestCompleted?.qualityStatus,
-      completedTargets,
-      targets,
-    })
-  ) {
-    return { runId: latestCompleted!.id, status: latestCompleted!.status, targets };
-  }
-  if (
-    !forceRevalidation &&
-    input.trigger === "chat_freshness" &&
-    latestCompleted &&
-    isReusableDegradedChatRefresh({
-      warnings: latestCompleted.warnings,
-      qualityStatus: latestCompleted.qualityStatus,
-      completedTargets,
-      targets,
-      finishedAt: latestCompleted.finishedAt,
-    })
-  ) {
-    return {
-      runId: latestCompleted.id,
-      status: latestCompleted.status,
-      targets,
-      degradedCooldown: true,
-    };
-  }
-  const headsHash = hash(targets.map((target) => `${target.sourceId}:${target.commitSha}`).join("|"));
-  const idempotencyKey = policyScopedKnowledgeRefreshIdempotencyKey(
-    input.idempotencyKey ?? `${input.trigger}:${headsHash}`,
-  );
-  const run = await prisma.knowledgeRefreshRun.upsert({
-    where: { workItemId_idempotencyKey: { workItemId: input.workItemId, idempotencyKey } },
-    create: {
-      workItemId: input.workItemId,
-      idempotencyKey,
+  const ordinaryTrigger = input.trigger !== "backfill";
+  const currentPolicySuffix = `:policy:${currentKnowledgeRefreshPolicyHash()}`;
+  return withKnowledgeRefreshWorkItemLock(input.workItemId, async (tx) => {
+    const [policyRuns, activeRuns] = await Promise.all([
+      ordinaryTrigger
+        ? tx.knowledgeRefreshRun.findMany({
+            where: {
+              workItemId: input.workItemId,
+              idempotencyKey: { endsWith: currentPolicySuffix },
+              trigger: { not: "backfill" },
+            },
+            select: {
+              id: true,
+              status: true,
+              targetHeads: true,
+              completedHeads: true,
+              qualityStatus: true,
+              warnings: true,
+              finishedAt: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+          })
+        : Promise.resolve([]),
+      activeKnowledgeRefreshes(tx, input.workItemId),
+    ]);
+    const matchingRuns = policyRuns.filter((run) => {
+      const runTargets = safeParseTargets(run.targetHeads);
+      return runTargets ? sameKnowledgeRefreshTargets(runTargets, targets) : false;
+    });
+    const activeRun = matchingRuns.find((run) =>
+      ACTIVE_KNOWLEDGE_REFRESH_STATUSES.includes(
+        run.status as (typeof ACTIVE_KNOWLEDGE_REFRESH_STATUSES)[number],
+      )
+    );
+    if (activeRun) {
+      await cancelSupersededActiveRefreshes({
+        workItemId: input.workItemId,
+        currentRunId: activeRun.id,
+        currentTrigger: input.trigger,
+        currentTargets: targets,
+        currentCreatedAt: activeRun.createdAt,
+        activeRuns,
+      }, tx);
+      return { runId: activeRun.id, status: activeRun.status, targets, coalesced: true };
+    }
+    const latestCompleted = ordinaryTrigger
+      ? matchingRuns.find((run) => run.status === "completed") ?? null
+      : await tx.knowledgeRefreshRun.findFirst({
+          where: { workItemId: input.workItemId, status: "completed" },
+          orderBy: { finishedAt: "desc" },
+        });
+    const completedTargets = latestCompleted?.completedHeads && Array.isArray(latestCompleted.completedHeads)
+      ? parseTargets(latestCompleted.completedHeads)
+      : [];
+    if (
+      !forceRevalidation &&
+      isReusableKnowledgeRefresh({
+        warnings: latestCompleted?.warnings,
+        qualityStatus: latestCompleted?.qualityStatus,
+        completedTargets,
+        targets,
+      })
+    ) {
+      await cancelSupersededActiveRefreshes({
+        workItemId: input.workItemId,
+        currentRunId: latestCompleted!.id,
+        currentTrigger: input.trigger,
+        currentTargets: targets,
+        currentCreatedAt: latestCompleted!.createdAt,
+        activeRuns,
+      }, tx);
+      return { runId: latestCompleted!.id, status: latestCompleted!.status, targets };
+    }
+    if (
+      !forceRevalidation &&
+      input.trigger === "chat_freshness" &&
+      latestCompleted &&
+      isReusableDegradedChatRefresh({
+        warnings: latestCompleted.warnings,
+        qualityStatus: latestCompleted.qualityStatus,
+        completedTargets,
+        targets,
+        finishedAt: latestCompleted.finishedAt,
+      })
+    ) {
+      await cancelSupersededActiveRefreshes({
+        workItemId: input.workItemId,
+        currentRunId: latestCompleted.id,
+        currentTrigger: input.trigger,
+        currentTargets: targets,
+        currentCreatedAt: latestCompleted.createdAt,
+        activeRuns,
+      }, tx);
+      return {
+        runId: latestCompleted.id,
+        status: latestCompleted.status,
+        targets,
+        degradedCooldown: true,
+      };
+    }
+    const baseIdempotencyKey = knowledgeRefreshBaseIdempotencyKey({
       trigger: input.trigger,
-      targetHeads: toInputJson(targets),
-      progress: toInputJson({ repositories: targets.length, inventoried: 0, analyzedFiles: 0 }),
-    },
-    update: {},
+      requestedKey: input.idempotencyKey,
+      targets,
+    });
+    const attemptIdempotencyKey = ordinaryTrigger
+      ? `${baseIdempotencyKey}:after:${matchingRuns[0]?.id ?? "initial"}`
+      : baseIdempotencyKey;
+    const idempotencyKey = policyScopedKnowledgeRefreshIdempotencyKey(
+      attemptIdempotencyKey,
+    );
+    const run = await tx.knowledgeRefreshRun.upsert({
+      where: { workItemId_idempotencyKey: { workItemId: input.workItemId, idempotencyKey } },
+      create: {
+        workItemId: input.workItemId,
+        idempotencyKey,
+        trigger: input.trigger,
+        targetHeads: toInputJson(targets),
+        progress: toInputJson({ repositories: targets.length, inventoried: 0, analyzedFiles: 0 }),
+      },
+      update: {},
+    });
+    await cancelSupersededActiveRefreshes({
+      workItemId: input.workItemId,
+      currentRunId: run.id,
+      currentTrigger: input.trigger,
+      currentTargets: targets,
+      currentCreatedAt: run.createdAt,
+      activeRuns: await activeKnowledgeRefreshes(tx, input.workItemId),
+    }, tx);
+    return { runId: run.id, status: run.status, targets };
   });
-  return { runId: run.id, status: run.status, targets };
+}
+
+export async function claimInlineKnowledgeRefreshExecution(input: {
+  runId: string;
+  ownerToken: string;
+}) {
+  const freshClaim = await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: input.runId,
+      status: "queued",
+      workflowId: null,
+      startedAt: null,
+    },
+    data: {
+      status: "inventorying",
+      workflowId: input.ownerToken,
+      startedAt: new Date(),
+      finishedAt: null,
+    },
+  });
+  if (freshClaim.count) return true;
+  const resumedClaim = await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: input.runId,
+      status: "queued",
+      workflowId: null,
+      startedAt: { not: null },
+    },
+    data: {
+      status: "inventorying",
+      workflowId: input.ownerToken,
+      finishedAt: null,
+    },
+  });
+  if (resumedClaim.count) return true;
+  const orphanedActiveClaim = await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: input.runId,
+      status: {
+        in: ACTIVE_KNOWLEDGE_REFRESH_STATUSES.filter((status) => status !== "queued"),
+      },
+      workflowId: null,
+    },
+    data: {
+      workflowId: input.ownerToken,
+      finishedAt: null,
+    },
+  });
+  if (orphanedActiveClaim.count) return true;
+  const current = await prisma.knowledgeRefreshRun.findUnique({
+    where: { id: input.runId },
+    select: { status: true, workflowId: true, startedAt: true },
+  });
+  if (
+    !current ||
+    !ACTIVE_KNOWLEDGE_REFRESH_STATUSES.includes(
+      current.status as (typeof ACTIVE_KNOWLEDGE_REFRESH_STATUSES)[number],
+    )
+  ) {
+    return false;
+  }
+  if (current.workflowId === input.ownerToken) return true;
+  // Ownership changes only through an explicit release after Workflow
+  // cancellation has been confirmed. AgentRun terminal state alone is not a
+  // safe fencing signal because a cancellation RPC can fail while the durable
+  // workflow continues executing.
+  return false;
+}
+
+export async function releaseInlineKnowledgeRefreshExecution(input: {
+  runId: string;
+  ownerToken: string;
+}) {
+  const released = await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: input.runId,
+      workflowId: input.ownerToken,
+      status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_STATUSES] },
+    },
+    data: {
+      status: "queued",
+      workflowId: null,
+      finishedAt: null,
+    },
+  });
+  return released.count > 0;
 }
 
 export async function inventoryKnowledgeRefresh(runId: string) {
   const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
   if (run.status === "completed") return { runId, completed: true };
+  assertKnowledgeRefreshCanExecute(runId, run.status);
   const targets = parseTargets(run.targetHeads);
   await prisma.knowledgeRefreshRun.update({
     where: { id: runId },
@@ -459,6 +757,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     include: { snapshots: true, workItem: { select: { userId: true } } },
   });
   if (run.status === "completed") return { remaining: 0, analyzed: 0 };
+  assertKnowledgeRefreshCanExecute(input.runId, run.status);
   const targets = new Map(parseTargets(run.targetHeads).map((target) => [target.sourceId, target]));
   const snapshots = run.snapshots.filter((snapshot) => snapshot.inventoryComplete && !snapshot.analysisComplete);
   const batch = await prisma.repositoryFileSnapshot.findMany({
@@ -711,9 +1010,25 @@ async function repairKnowledgeCoverageGapsLegacy(runId: string) {
 }
 
 export async function repairKnowledgeCoverageGaps(runId: string) {
+  const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    select: { status: true },
+  });
+  assertKnowledgeRefreshCanExecute(runId, current.status);
   try {
-    return await repositorySemanticOrchestratorService.orchestrate(runId);
+    const result = await repositorySemanticOrchestratorService.orchestrate(runId);
+    const after = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true },
+    });
+    assertKnowledgeRefreshCanExecute(runId, after.status);
+    return result;
   } catch (error) {
+    const after = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true },
+    });
+    assertKnowledgeRefreshCanExecute(runId, after.status);
     const legacy = await repairKnowledgeCoverageGapsLegacy(runId);
     return {
       ...legacy,
@@ -730,6 +1045,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     where: { id: runId },
     include: { snapshots: { include: { files: { orderBy: { path: "asc" } } } } },
   });
+  assertKnowledgeRefreshCanExecute(runId, run.status);
   const incompleteFiles = run.snapshots.flatMap((snapshot) =>
     snapshot.files.filter((file) =>
       file.disposition === "eligible" ||
@@ -924,15 +1240,23 @@ export async function finalizeKnowledgeCoverage(runId: string) {
 }
 
 export async function completeKnowledgeRefresh(runId: string) {
-  return prisma.knowledgeRefreshRun.update({
-    where: { id: runId },
+  const completed = await prisma.knowledgeRefreshRun.updateMany({
+    where: { id: runId, status: "reconciling" },
     data: { status: "completed", finishedAt: new Date() },
   });
+  const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
+  if (!completed.count && current.status !== "completed") {
+    throw new Error(`Repository refresh ${runId} lost its generation fence before completion.`);
+  }
+  return current;
 }
 
 export async function failKnowledgeRefresh(runId: string, error: unknown) {
-  return prisma.knowledgeRefreshRun.update({
-    where: { id: runId },
+  await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: runId,
+      status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_STATUSES] },
+    },
     data: {
       status: "failed",
       qualityStatus: "failed",
@@ -940,10 +1264,13 @@ export async function failKnowledgeRefresh(runId: string, error: unknown) {
       error: toInputJson({ message: error instanceof Error ? error.message : "Unknown repository refresh error." }),
     },
   });
+  return prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
 }
 
 export const knowledgeRefreshService = {
   start: startKnowledgeRefresh,
+  claimInline: claimInlineKnowledgeRefreshExecution,
+  releaseInline: releaseInlineKnowledgeRefreshExecution,
   inventory: inventoryKnowledgeRefresh,
   analyzeBatch: analyzeKnowledgeRefreshBatch,
   analyzeChunk: analyzeKnowledgeRefreshChunk,

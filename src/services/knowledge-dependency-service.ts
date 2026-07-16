@@ -49,7 +49,13 @@ export async function invalidateEvidenceDependents(input: {
   reason: string;
   idempotencyScope: string;
   refreshRunId?: string | null;
+  mutationFence?: <T>(
+    operation: (client: Prisma.TransactionClient) => Promise<T>,
+  ) => Promise<T>;
 }) {
+  const mutate = input.mutationFence ??
+    (<T>(operation: (client: Prisma.TransactionClient) => Promise<T>) =>
+      operation(prisma as unknown as Prisma.TransactionClient));
   const [facts, highlights] = await Promise.all([
     prisma.projectFact.findMany({
       where: {
@@ -82,15 +88,17 @@ export async function invalidateEvidenceDependents(input: {
   ]);
 
   for (const fact of facts) {
-    await prisma.projectFact.update({
-      where: { id: fact.id },
-      data: {
-        lifecycleStatus: "needs_validation",
-        validatedThroughSha: null,
-        validationHeads: Prisma.JsonNull,
-        lastValidatedAt: null,
-      },
-    });
+    await mutate((client) =>
+      client.projectFact.update({
+        where: { id: fact.id },
+        data: {
+          lifecycleStatus: "needs_validation",
+          validatedThroughSha: null,
+          validationHeads: Prisma.JsonNull,
+          lastValidatedAt: null,
+        },
+      })
+    );
     await recordInvalidation({
       workItemId: input.workItemId,
       refreshRunId: input.refreshRunId,
@@ -118,15 +126,17 @@ export async function invalidateEvidenceDependents(input: {
   }
 
   for (const highlight of highlights) {
-    await prisma.highlight.update({
-      where: { id: highlight.id },
-      data: {
-        lifecycleStatus: "needs_validation",
-        validatedThroughSha: null,
-        validationHeads: Prisma.JsonNull,
-        lastValidatedAt: null,
-      },
-    });
+    await mutate((client) =>
+      client.highlight.update({
+        where: { id: highlight.id },
+        data: {
+          lifecycleStatus: "needs_validation",
+          validatedThroughSha: null,
+          validationHeads: Prisma.JsonNull,
+          lastValidatedAt: null,
+        },
+      })
+    );
     await recordInvalidation({
       workItemId: input.workItemId,
       refreshRunId: input.refreshRunId,
@@ -168,10 +178,12 @@ export async function invalidateEvidenceDependents(input: {
     select: { id: true, content: true, lifecycleStatus: true, staleReason: true },
   });
   for (const artifact of artifacts) {
-    await prisma.artifact.update({
-      where: { id: artifact.id },
-      data: { lifecycleStatus: "stale", staleReason: input.reason },
-    });
+    await mutate((client) =>
+      client.artifact.update({
+        where: { id: artifact.id },
+        data: { lifecycleStatus: "stale", staleReason: input.reason },
+      })
+    );
     await recordInvalidation({
       workItemId: input.workItemId,
       refreshRunId: input.refreshRunId,

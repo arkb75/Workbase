@@ -1,10 +1,13 @@
+import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
+import { reviewSnapshotMatchesEntity } from "@/src/services/knowledge-change-service";
 import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
 import {
   knowledgeSimilarity,
   recordContentAddressedRevalidations,
   recordChange,
   STRONG_KNOWLEDGE_IDENTITY_THRESHOLD,
+  withKnowledgeRefreshGenerationFence,
 } from "@/src/services/knowledge-reconciliation-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
@@ -19,6 +22,126 @@ type CurrentObservation = {
 };
 
 const executableRepositoryPathPattern = /\.(?:[cm]?[jt]sx?|prisma|sql|py|go|rs|java)$/i;
+
+type ProjectFactCasSnapshot = Pick<
+  Prisma.ProjectFactModel,
+  | "id"
+  | "statement"
+  | "status"
+  | "lifecycleStatus"
+  | "reviewState"
+  | "approvalSource"
+  | "rejectionReason"
+  | "validatedThroughSha"
+  | "lastValidatedAt"
+  | "updatedAt"
+>;
+
+type HighlightCasSnapshot = Pick<
+  Prisma.HighlightModel,
+  | "id"
+  | "text"
+  | "summary"
+  | "verificationStatus"
+  | "lifecycleStatus"
+  | "reviewState"
+  | "approvalSource"
+  | "rejectionReason"
+  | "validatedThroughSha"
+  | "lastValidatedAt"
+  | "updatedAt"
+>;
+
+type EvidenceCasSnapshot = Pick<
+  Prisma.EvidenceItemModel,
+  | "id"
+  | "title"
+  | "content"
+  | "included"
+  | "lifecycleStatus"
+  | "reviewState"
+  | "approvalSource"
+  | "validatedThroughSha"
+  | "lastValidatedAt"
+  | "repositorySnapshotId"
+  | "purgeEligibleAt"
+  | "updatedAt"
+>;
+
+type ArtifactCasSnapshot = Pick<
+  Prisma.ArtifactModel,
+  | "id"
+  | "content"
+  | "lifecycleStatus"
+  | "reviewState"
+  | "approvalSource"
+  | "validatedThroughSha"
+  | "lastValidatedAt"
+  | "staleReason"
+  | "updatedAt"
+>;
+
+function projectFactCasWhere(fact: ProjectFactCasSnapshot): Prisma.ProjectFactWhereInput {
+  return {
+    id: fact.id,
+    statement: fact.statement,
+    status: fact.status,
+    lifecycleStatus: fact.lifecycleStatus,
+    reviewState: fact.reviewState,
+    approvalSource: fact.approvalSource,
+    rejectionReason: fact.rejectionReason,
+    validatedThroughSha: fact.validatedThroughSha,
+    lastValidatedAt: fact.lastValidatedAt,
+    ...(fact.updatedAt ? { updatedAt: fact.updatedAt } : {}),
+  };
+}
+
+function highlightCasWhere(highlight: HighlightCasSnapshot): Prisma.HighlightWhereInput {
+  return {
+    id: highlight.id,
+    text: highlight.text,
+    summary: highlight.summary,
+    verificationStatus: highlight.verificationStatus,
+    lifecycleStatus: highlight.lifecycleStatus,
+    reviewState: highlight.reviewState,
+    approvalSource: highlight.approvalSource,
+    rejectionReason: highlight.rejectionReason,
+    validatedThroughSha: highlight.validatedThroughSha,
+    lastValidatedAt: highlight.lastValidatedAt,
+    ...(highlight.updatedAt ? { updatedAt: highlight.updatedAt } : {}),
+  };
+}
+
+function evidenceCasWhere(evidence: EvidenceCasSnapshot): Prisma.EvidenceItemWhereInput {
+  return {
+    id: evidence.id,
+    title: evidence.title,
+    content: evidence.content,
+    included: evidence.included,
+    lifecycleStatus: evidence.lifecycleStatus,
+    reviewState: evidence.reviewState,
+    approvalSource: evidence.approvalSource,
+    validatedThroughSha: evidence.validatedThroughSha,
+    lastValidatedAt: evidence.lastValidatedAt,
+    repositorySnapshotId: evidence.repositorySnapshotId,
+    purgeEligibleAt: evidence.purgeEligibleAt,
+    ...(evidence.updatedAt ? { updatedAt: evidence.updatedAt } : {}),
+  };
+}
+
+function artifactCasWhere(artifact: ArtifactCasSnapshot): Prisma.ArtifactWhereInput {
+  return {
+    id: artifact.id,
+    content: artifact.content,
+    lifecycleStatus: artifact.lifecycleStatus,
+    reviewState: artifact.reviewState,
+    approvalSource: artifact.approvalSource,
+    validatedThroughSha: artifact.validatedThroughSha,
+    lastValidatedAt: artifact.lastValidatedAt,
+    staleReason: artifact.staleReason,
+    ...(artifact.updatedAt ? { updatedAt: artifact.updatedAt } : {}),
+  };
+}
 
 export function isStrongCanonicalReplacement(input: {
   priorId: string;
@@ -335,50 +458,114 @@ export async function reconcileStaleKnowledge(input: {
     `${snapshot.sourceId}:${file.path}`,
     `${targetBySource.get(snapshot.sourceId) ?? snapshot.sourceId}:${file.path}`,
   ])));
-  const activeFacts = await prisma.projectFact.findMany({
-    where: {
-      workItemId: run.workItemId,
-      lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
-      id: { notIn: input.appliedFactIds.length ? input.appliedFactIds : [""] },
-    },
-    include: { evidence: { include: { evidenceItem: true } } },
-  });
-  const activeHighlights = await prisma.highlight.findMany({
-    where: {
-      workItemId: run.workItemId,
-      lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
-      id: { notIn: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] },
-    },
-    include: { evidence: { include: { evidenceItem: true } } },
-  });
   const retiredFactIds: string[] = [];
   const retiredHighlightIds: string[] = [];
   let recoveredDependency = false;
-  const appliedFacts = await prisma.projectFact.findMany({
-    where: { id: { in: input.appliedFactIds.length ? input.appliedFactIds : [""] } },
-    select: {
-      id: true,
-      statement: true,
-      subsystemKey: true,
-      supersedesProjectFactId: true,
-    },
-  });
-  const appliedHighlights = await prisma.highlight.findMany({
-    where: { id: { in: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] } },
-    select: {
-      id: true,
-      text: true,
-      summary: true,
-      metadata: true,
-      supersedesHighlightId: true,
-    },
-  });
-  const automaticRevalidations: Array<Parameters<typeof recordContentAddressedRevalidations>[0][number]> = [];
+  const [
+    activeFacts,
+    activeHighlights,
+    appliedFacts,
+    appliedHighlights,
+    pendingReviewChanges,
+  ] = await Promise.all([
+    prisma.projectFact.findMany({
+      where: {
+        workItemId: run.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
+        id: { notIn: input.appliedFactIds.length ? input.appliedFactIds : [""] },
+      },
+      include: { evidence: { include: { evidenceItem: true } } },
+    }),
+    prisma.highlight.findMany({
+      where: {
+        workItemId: run.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation", "stale"] },
+        id: { notIn: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] },
+      },
+      include: { evidence: { include: { evidenceItem: true } } },
+    }),
+    prisma.projectFact.findMany({
+      where: { id: { in: input.appliedFactIds.length ? input.appliedFactIds : [""] } },
+      select: {
+        id: true,
+        statement: true,
+        subsystemKey: true,
+        supersedesProjectFactId: true,
+      },
+    }),
+    prisma.highlight.findMany({
+      where: { id: { in: input.appliedHighlightIds.length ? input.appliedHighlightIds : [""] } },
+      select: {
+        id: true,
+        text: true,
+        summary: true,
+        metadata: true,
+        supersedesHighlightId: true,
+      },
+    }),
+    prisma.knowledgeChange.findMany({
+      where: {
+        workItemId: run.workItemId,
+        decision: "pending",
+        OR: [
+          { projectFactId: { not: null } },
+          { highlightId: { not: null } },
+        ],
+      },
+      select: {
+        projectFactId: true,
+        highlightId: true,
+        action: true,
+        afterSnapshot: true,
+      },
+    }),
+  ]);
+  const activeFactById = new Map(activeFacts.map((fact) => [fact.id, fact]));
+  const activeHighlightById = new Map(activeHighlights.map((highlight) => [highlight.id, highlight]));
+  const isNeedsValidationWarning = (change: (typeof pendingReviewChanges)[number]) => {
+    const after = change.afterSnapshot && typeof change.afterSnapshot === "object" && !Array.isArray(change.afterSnapshot)
+      ? change.afterSnapshot as Record<string, unknown>
+      : null;
+    const entityId = change.projectFactId ?? change.highlightId;
+    const entity = change.projectFactId
+      ? activeFactById.get(change.projectFactId)
+      : change.highlightId
+        ? activeHighlightById.get(change.highlightId)
+        : null;
+    return Boolean(
+      entityId &&
+      entity &&
+      change.action === "updated" &&
+      after?.lifecycleStatus === "needs_validation" &&
+      reviewSnapshotMatchesEntity({
+        entityId,
+        afterSnapshot: change.afterSnapshot,
+        entity: entity as unknown as Record<string, unknown>,
+      })
+    );
+  };
+  const pendingFactReviewIds = new Set(
+    pendingReviewChanges.flatMap((change) =>
+      change.projectFactId && isNeedsValidationWarning(change) ? [change.projectFactId] : []
+    ),
+  );
+  const pendingHighlightReviewIds = new Set(
+    pendingReviewChanges.flatMap((change) =>
+      change.highlightId && isNeedsValidationWarning(change) ? [change.highlightId] : []
+    ),
+  );
+  type AutomaticRevalidation = Parameters<typeof recordContentAddressedRevalidations>[0][number];
+  const automaticRevalidations: AutomaticRevalidation[] = [];
   // Use one timestamp for grouped state writes and their audit snapshots so
   // the recorded after-state exactly matches the persisted revalidation.
   const contentRevalidatedAt = new Date();
   const factRevalidationGroups = new Map<string, {
-    ids: string[];
+    entries: Array<{
+      id: string;
+      where: Prisma.ProjectFactWhereInput;
+      audit: AutomaticRevalidation;
+      wasInactive: boolean;
+    }>;
     currentSha: string;
     validationHeads: Record<string, string>;
   }>();
@@ -395,7 +582,13 @@ export async function reconcileStaleKnowledge(input: {
     }));
     if (destructiveStalenessAllowed && fact.approvalSource === "automation" && fact.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Project Fact in the same capability area.";
-      await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: reason } });
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.projectFact.updateMany({
+          where: projectFactCasWhere(fact),
+          data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: reason },
+        })
+      );
+      if (retired.count !== 1) continue;
       retiredFactIds.push(fact.id);
       await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "project_fact", action: "retired", entityId: fact.id, beforeSnapshot: { statement: fact.statement, lifecycleStatus: fact.lifecycleStatus }, afterSnapshot: { statement: fact.statement, lifecycleStatus: "retired" }, reason, provenance: { replacementProjectFactId: canonicalReplacement.id }, suffix: `${fact.id}:canonical-replacement:${run.id}` });
       continue;
@@ -421,7 +614,7 @@ export async function reconcileStaleKnowledge(input: {
         autoAppliedAt: fact.autoAppliedAt,
         evidenceItemIds: fact.evidence.map((entry) => entry.evidenceItemId),
       };
-      automaticRevalidations.push({
+      const audit: AutomaticRevalidation = {
         workItemId: run.workItemId,
         refreshRunId: run.id,
         entityKind: "project_fact",
@@ -445,22 +638,28 @@ export async function reconcileStaleKnowledge(input: {
         reason: "Every immutable repository excerpt still resolves to the same source/path/blob at the current head.",
         provenance: { commitSha: currentSha, automatic: true, contentAddressed: true },
         contentIdentity: contentIdentity(contentAddressed.matches),
-      });
+      };
       const needsUpdate = fact.lifecycleStatus !== "active" ||
         fact.status !== "approved" ||
         fact.rejectionReason !== null ||
         fact.validatedThroughSha !== currentSha ||
         !sameJson(fact.validationHeads, validationHeads);
       if (needsUpdate) {
-        recoveredDependency ||= fact.lifecycleStatus !== "active";
         const key = `${currentSha}:${JSON.stringify(validationHeads)}`;
         const group = factRevalidationGroups.get(key) ?? {
-          ids: [],
+          entries: [],
           currentSha,
           validationHeads,
         };
-        group.ids.push(fact.id);
+        group.entries.push({
+          id: fact.id,
+          where: projectFactCasWhere(fact),
+          audit,
+          wasInactive: fact.lifecycleStatus !== "active",
+        });
         factRevalidationGroups.set(key, group);
+      } else {
+        automaticRevalidations.push(audit);
       }
       continue;
     }
@@ -471,20 +670,24 @@ export async function reconcileStaleKnowledge(input: {
     const currentSha = immutableHeads.values().next().value ?? null;
     const validationHeads = Object.fromEntries(immutableHeads);
     if (validation.verdict === "supported" && currentSha) {
+      const revalidatedAt = new Date();
+      const revalidated = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.projectFact.updateMany({
+          where: projectFactCasWhere(fact),
+          data: {
+            lifecycleStatus: "active",
+            status: "approved",
+            reviewState: "pending_review",
+            rejectionReason: null,
+            validatedThroughSha: currentSha,
+            validationHeads,
+            lastValidatedAt: revalidatedAt,
+            autoAppliedAt: revalidatedAt,
+          },
+        })
+      );
+      if (revalidated.count !== 1) continue;
       recoveredDependency ||= fact.lifecycleStatus !== "active";
-      await prisma.projectFact.update({
-        where: { id: fact.id },
-        data: {
-          lifecycleStatus: "active",
-          status: "approved",
-          reviewState: "pending_review",
-          rejectionReason: null,
-          validatedThroughSha: currentSha,
-          validationHeads,
-          lastValidatedAt: new Date(),
-          autoAppliedAt: new Date(),
-        },
-      });
       await recordChange({
         workItemId: run.workItemId,
         refreshRunId: run.id,
@@ -515,7 +718,8 @@ export async function reconcileStaleKnowledge(input: {
           publicSafetyStatus: fact.publicSafetyStatus,
           validatedThroughSha: currentSha,
           validationHeads,
-          autoAppliedAt: new Date(),
+          lastValidatedAt: revalidatedAt,
+          autoAppliedAt: revalidatedAt,
           evidenceItemIds: fact.evidence.map((entry) => entry.evidenceItemId),
         },
         reason: validation.reason,
@@ -523,10 +727,13 @@ export async function reconcileStaleKnowledge(input: {
         suffix: `${fact.id}:${currentSha}`,
       });
     } else if (destructiveStalenessAllowed && validation.verdict === "removed") {
-      await prisma.projectFact.update({
-        where: { id: fact.id },
-        data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: validation.reason },
-      });
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.projectFact.updateMany({
+          where: projectFactCasWhere(fact),
+          data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: validation.reason },
+        })
+      );
+      if (retired.count !== 1) continue;
       retiredFactIds.push(fact.id);
       await recordChange({
         workItemId: run.workItemId,
@@ -540,8 +747,20 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${fact.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
-    } else if (destructiveStalenessAllowed) {
-      await prisma.projectFact.update({ where: { id: fact.id }, data: { lifecycleStatus: "needs_validation" } });
+    } else if (
+      destructiveStalenessAllowed &&
+      (
+        fact.lifecycleStatus !== "needs_validation" ||
+        !pendingFactReviewIds.has(fact.id)
+      )
+    ) {
+      const marked = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.projectFact.updateMany({
+          where: projectFactCasWhere(fact),
+          data: { lifecycleStatus: "needs_validation" },
+        })
+      );
+      if (marked.count !== 1) continue;
       await recordChange({
         workItemId: run.workItemId,
         refreshRunId: run.id,
@@ -559,22 +778,36 @@ export async function reconcileStaleKnowledge(input: {
     }
   }
 
-  await runBounded(Array.from(factRevalidationGroups.values()), 8, (group) =>
-    prisma.projectFact.updateMany({
-      where: { id: { in: group.ids } },
-      data: {
-        lifecycleStatus: "active",
-        status: "approved",
-        rejectionReason: null,
-        validatedThroughSha: group.currentSha,
-        validationHeads: group.validationHeads,
-        lastValidatedAt: contentRevalidatedAt,
-      },
-    })
-  );
+  await runBounded(Array.from(factRevalidationGroups.values()), 8, async (group) => {
+    const updated = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+      tx.projectFact.updateManyAndReturn({
+        where: { OR: group.entries.map((entry) => entry.where) },
+        data: {
+          lifecycleStatus: "active",
+          status: "approved",
+          rejectionReason: null,
+          validatedThroughSha: group.currentSha,
+          validationHeads: group.validationHeads,
+          lastValidatedAt: contentRevalidatedAt,
+        },
+        select: { id: true },
+      })
+    );
+    const winnerIds = new Set(updated.map((fact) => fact.id));
+    for (const entry of group.entries) {
+      if (!winnerIds.has(entry.id)) continue;
+      automaticRevalidations.push(entry.audit);
+      recoveredDependency ||= entry.wasInactive;
+    }
+  });
 
   const highlightRevalidationGroups = new Map<string, {
-    ids: string[];
+    entries: Array<{
+      id: string;
+      where: Prisma.HighlightWhereInput;
+      audit: AutomaticRevalidation;
+      wasInactive: boolean;
+    }>;
     currentSha: string;
     validationHeads: Record<string, string>;
   }>();
@@ -603,7 +836,13 @@ export async function reconcileStaleKnowledge(input: {
     });
     if (destructiveStalenessAllowed && highlight.approvalSource === "automation" && highlight.reviewState === "pending_review" && canonicalReplacement) {
       const reason = "A newer current-head synthesis replaced this unreviewed automated Highlight in the same capability area.";
-      await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: reason } });
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.highlight.updateMany({
+          where: highlightCasWhere(highlight),
+          data: { lifecycleStatus: "retired", rejectionReason: reason },
+        })
+      );
+      if (retired.count !== 1) continue;
       retiredHighlightIds.push(highlight.id);
       await recordChange({ workItemId: run.workItemId, refreshRunId: run.id, entityKind: "highlight", action: "retired", entityId: highlight.id, beforeSnapshot: { text: highlight.text, lifecycleStatus: highlight.lifecycleStatus }, afterSnapshot: { text: highlight.text, lifecycleStatus: "retired" }, reason, provenance: { replacementHighlightId: canonicalReplacement.id }, suffix: `${highlight.id}:canonical-replacement:${run.id}` });
       continue;
@@ -614,7 +853,7 @@ export async function reconcileStaleKnowledge(input: {
       if (!currentSha) continue;
       const validationHeads = Object.fromEntries(contentAddressed.heads);
       const validatedAt = contentRevalidatedAt;
-      automaticRevalidations.push({
+      const audit: AutomaticRevalidation = {
         workItemId: run.workItemId,
         refreshRunId: run.id,
         entityKind: "highlight",
@@ -649,21 +888,27 @@ export async function reconcileStaleKnowledge(input: {
         reason: "Every immutable repository excerpt still resolves to the same source/path/blob at the current head.",
         provenance: { commitSha: currentSha, automatic: true, contentAddressed: true },
         contentIdentity: contentIdentity(contentAddressed.matches),
-      });
+      };
       const needsUpdate = highlight.lifecycleStatus !== "active" ||
         highlight.rejectionReason !== null ||
         highlight.validatedThroughSha !== currentSha ||
         !sameJson(highlight.validationHeads, validationHeads);
       if (needsUpdate) {
-        recoveredDependency ||= highlight.lifecycleStatus !== "active";
         const key = `${currentSha}:${JSON.stringify(validationHeads)}`;
         const group = highlightRevalidationGroups.get(key) ?? {
-          ids: [],
+          entries: [],
           currentSha,
           validationHeads,
         };
-        group.ids.push(highlight.id);
+        group.entries.push({
+          id: highlight.id,
+          where: highlightCasWhere(highlight),
+          audit,
+          wasInactive: highlight.lifecycleStatus !== "active",
+        });
         highlightRevalidationGroups.set(key, group);
+      } else {
+        automaticRevalidations.push(audit);
       }
       continue;
     }
@@ -678,19 +923,23 @@ export async function reconcileStaleKnowledge(input: {
     const immutableHeads = currentImmutableProvenanceHeads(highlight.evidence, targetShaBySource);
     const currentSha = immutableHeads.values().next().value ?? null;
     if (validation.verdict === "supported" && currentSha) {
+      const revalidatedAt = new Date();
+      const revalidated = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.highlight.updateMany({
+          where: highlightCasWhere(highlight),
+          data: {
+            lifecycleStatus: "active",
+            reviewState: "pending_review",
+            rejectionReason: null,
+            validatedThroughSha: currentSha,
+            validationHeads: Object.fromEntries(immutableHeads),
+            lastValidatedAt: revalidatedAt,
+            autoAppliedAt: revalidatedAt,
+          },
+        })
+      );
+      if (revalidated.count !== 1) continue;
       recoveredDependency ||= highlight.lifecycleStatus !== "active";
-      await prisma.highlight.update({
-        where: { id: highlight.id },
-        data: {
-          lifecycleStatus: "active",
-          reviewState: "pending_review",
-          rejectionReason: null,
-          validatedThroughSha: currentSha,
-          validationHeads: Object.fromEntries(immutableHeads),
-          lastValidatedAt: new Date(),
-          autoAppliedAt: new Date(),
-        },
-      });
       await recordChange({
         workItemId: run.workItemId,
         refreshRunId: run.id,
@@ -719,7 +968,8 @@ export async function reconcileStaleKnowledge(input: {
           publicSafetyStatus: highlight.publicSafetyStatus,
           validatedThroughSha: currentSha,
           validationHeads: Object.fromEntries(immutableHeads),
-          autoAppliedAt: new Date(),
+          lastValidatedAt: revalidatedAt,
+          autoAppliedAt: revalidatedAt,
           evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
         },
         reason: validation.reason,
@@ -727,10 +977,13 @@ export async function reconcileStaleKnowledge(input: {
         suffix: `${highlight.id}:${currentSha}`,
       });
     } else if (destructiveStalenessAllowed && validation.verdict === "removed") {
-      await prisma.highlight.update({
-        where: { id: highlight.id },
-        data: { lifecycleStatus: "retired", rejectionReason: validation.reason },
-      });
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.highlight.updateMany({
+          where: highlightCasWhere(highlight),
+          data: { lifecycleStatus: "retired", rejectionReason: validation.reason },
+        })
+      );
+      if (retired.count !== 1) continue;
       retiredHighlightIds.push(highlight.id);
       await recordChange({
         workItemId: run.workItemId,
@@ -744,8 +997,20 @@ export async function reconcileStaleKnowledge(input: {
         provenance: { priorReferences: references, targetShas: Array.from(targetShas) },
         suffix: `${highlight.id}:${targets.map((target) => target.commitSha).join(":")}`,
       });
-    } else if (destructiveStalenessAllowed) {
-      await prisma.highlight.update({ where: { id: highlight.id }, data: { lifecycleStatus: "needs_validation" } });
+    } else if (
+      destructiveStalenessAllowed &&
+      (
+        highlight.lifecycleStatus !== "needs_validation" ||
+        !pendingHighlightReviewIds.has(highlight.id)
+      )
+    ) {
+      const marked = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.highlight.updateMany({
+          where: highlightCasWhere(highlight),
+          data: { lifecycleStatus: "needs_validation" },
+        })
+      );
+      if (marked.count !== 1) continue;
       await recordChange({
         workItemId: run.workItemId,
         refreshRunId: run.id,
@@ -763,18 +1028,27 @@ export async function reconcileStaleKnowledge(input: {
     }
   }
 
-  await runBounded(Array.from(highlightRevalidationGroups.values()), 8, (group) =>
-    prisma.highlight.updateMany({
-      where: { id: { in: group.ids } },
-      data: {
-        lifecycleStatus: "active",
-        rejectionReason: null,
-        validatedThroughSha: group.currentSha,
-        validationHeads: group.validationHeads,
-        lastValidatedAt: contentRevalidatedAt,
-      },
-    })
-  );
+  await runBounded(Array.from(highlightRevalidationGroups.values()), 8, async (group) => {
+    const updated = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+      tx.highlight.updateManyAndReturn({
+        where: { OR: group.entries.map((entry) => entry.where) },
+        data: {
+          lifecycleStatus: "active",
+          rejectionReason: null,
+          validatedThroughSha: group.currentSha,
+          validationHeads: group.validationHeads,
+          lastValidatedAt: contentRevalidatedAt,
+        },
+        select: { id: true },
+      })
+    );
+    const winnerIds = new Set(updated.map((highlight) => highlight.id));
+    for (const entry of group.entries) {
+      if (!winnerIds.has(entry.id)) continue;
+      automaticRevalidations.push(entry.audit);
+      recoveredDependency ||= entry.wasInactive;
+    }
+  });
 
   const repositoryEvidence = await prisma.evidenceItem.findMany({
     where: {
@@ -784,7 +1058,12 @@ export async function reconcileStaleKnowledge(input: {
     },
   });
   const evidenceRevalidationGroups = new Map<string, {
-    ids: string[];
+    entries: Array<{
+      id: string;
+      where: Prisma.EvidenceItemWhereInput;
+      audit: AutomaticRevalidation;
+      wasInactive: boolean;
+    }>;
     commitSha: string;
     snapshotId: string;
   }>();
@@ -795,7 +1074,7 @@ export async function reconcileStaleKnowledge(input: {
     });
     if (contentAddressed.allCurrent) {
       const current = contentAddressed.matches[0]!.current;
-      automaticRevalidations.push({
+      const audit: AutomaticRevalidation = {
         workItemId: run.workItemId,
         refreshRunId: run.id,
         entityKind: "evidence",
@@ -825,22 +1104,28 @@ export async function reconcileStaleKnowledge(input: {
           contentAddressed: true,
         },
         contentIdentity: `${current.sourceId}:${current.commitSha}:${current.path}:${current.blobSha}`,
-      });
+      };
       if (
         evidence.lifecycleStatus !== "active" ||
         evidence.validatedThroughSha !== current.commitSha ||
         evidence.repositorySnapshotId !== current.snapshotId ||
         evidence.purgeEligibleAt
       ) {
-        recoveredDependency ||= evidence.lifecycleStatus !== "active";
         const key = `${current.commitSha}:${current.snapshotId}`;
         const group = evidenceRevalidationGroups.get(key) ?? {
-          ids: [],
+          entries: [],
           commitSha: current.commitSha,
           snapshotId: current.snapshotId,
         };
-        group.ids.push(evidence.id);
+        group.entries.push({
+          id: evidence.id,
+          where: evidenceCasWhere(evidence),
+          audit,
+          wasInactive: evidence.lifecycleStatus !== "active",
+        });
         evidenceRevalidationGroups.set(key, group);
+      } else {
+        automaticRevalidations.push(audit);
       }
       continue;
     }
@@ -851,10 +1136,14 @@ export async function reconcileStaleKnowledge(input: {
     const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
     if (commitSha && targetShaBySource.get(evidence.sourceId) !== commitSha) {
       const reason = "This immutable repository excerpt is pinned to an older repository head and requires review.";
-      await prisma.evidenceItem.update({
-        where: { id: evidence.id },
-        data: { lifecycleStatus: "stale", purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
-      });
+      const purgeEligibleAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+      const marked = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.evidenceItem.updateMany({
+          where: evidenceCasWhere(evidence),
+          data: { lifecycleStatus: "stale", purgeEligibleAt },
+        })
+      );
+      if (marked.count !== 1) continue;
       await recordChange({
         workItemId: run.workItemId,
         refreshRunId: run.id,
@@ -873,22 +1162,33 @@ export async function reconcileStaleKnowledge(input: {
         reason,
         idempotencyScope: `refresh:${run.id}:evidence-stale:${evidence.id}`,
         refreshRunId: run.id,
+        mutationFence: (operation) =>
+          withKnowledgeRefreshGenerationFence(input.runId, operation),
       });
     }
   }
 
-  await runBounded(Array.from(evidenceRevalidationGroups.values()), 8, (group) =>
-    prisma.evidenceItem.updateMany({
-      where: { id: { in: group.ids } },
-      data: {
-        lifecycleStatus: "active",
-        validatedThroughSha: group.commitSha,
-        lastValidatedAt: contentRevalidatedAt,
-        repositorySnapshotId: group.snapshotId,
-        purgeEligibleAt: null,
-      },
-    })
-  );
+  await runBounded(Array.from(evidenceRevalidationGroups.values()), 8, async (group) => {
+    const updated = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+      tx.evidenceItem.updateManyAndReturn({
+        where: { OR: group.entries.map((entry) => entry.where) },
+        data: {
+          lifecycleStatus: "active",
+          validatedThroughSha: group.commitSha,
+          lastValidatedAt: contentRevalidatedAt,
+          repositorySnapshotId: group.snapshotId,
+          purgeEligibleAt: null,
+        },
+        select: { id: true },
+      })
+    );
+    const winnerIds = new Set(updated.map((evidence) => evidence.id));
+    for (const entry of group.entries) {
+      if (!winnerIds.has(entry.id)) continue;
+      automaticRevalidations.push(entry.audit);
+      recoveredDependency ||= entry.wasInactive;
+    }
+  });
 
   const staleArtifactIds: string[] = [];
   if (!destructiveStalenessAllowed && !recoveredDependency) {
@@ -902,7 +1202,11 @@ export async function reconcileStaleKnowledge(input: {
     },
     include: { highlightProvenance: { include: { highlight: true } }, evidenceProvenance: { include: { evidenceItem: true } } },
   });
-  const recoveredArtifactIds: string[] = [];
+  const recoverableArtifacts: Array<{
+    id: string;
+    where: Prisma.ArtifactWhereInput;
+    audit: AutomaticRevalidation;
+  }> = [];
   for (const artifact of artifacts) {
     const invalidHighlights = artifact.highlightProvenance.filter((entry) => entry.highlight && entry.highlight.lifecycleStatus !== "active");
     const invalidEvidence = artifact.evidenceProvenance.filter((entry) => entry.evidenceItem && entry.evidenceItem.lifecycleStatus !== "active");
@@ -910,7 +1214,7 @@ export async function reconcileStaleKnowledge(input: {
     if (!invalidHighlights.length && !invalidEvidence.length) {
       if (!hasKnowledgeProvenance) continue;
       const reason = "All immutable repository dependencies are active again after content-addressed revalidation.";
-      automaticRevalidations.push({
+      const audit: AutomaticRevalidation = {
         workItemId: run.workItemId,
         refreshRunId: run.id,
         entityKind: "artifact",
@@ -928,13 +1232,27 @@ export async function reconcileStaleKnowledge(input: {
           ...artifact.highlightProvenance.flatMap((entry) => entry.highlightId ? [`highlight:${entry.highlightId}`] : []),
           ...artifact.evidenceProvenance.flatMap((entry) => entry.evidenceItemId ? [`evidence:${entry.evidenceItemId}`] : []),
         ].sort().join("|"),
-      });
-      if (artifact.lifecycleStatus === "stale") recoveredArtifactIds.push(artifact.id);
+      };
+      if (artifact.lifecycleStatus === "stale") {
+        recoverableArtifacts.push({
+          id: artifact.id,
+          where: artifactCasWhere(artifact),
+          audit,
+        });
+      } else {
+        automaticRevalidations.push(audit);
+      }
       continue;
     }
     if (!destructiveStalenessAllowed || artifact.lifecycleStatus !== "active") continue;
     const reason = `Upstream knowledge changed: ${invalidHighlights.length} Highlight and ${invalidEvidence.length} Evidence reference${invalidHighlights.length + invalidEvidence.length === 1 ? "" : "s"} are no longer canonical.`;
-    await prisma.artifact.update({ where: { id: artifact.id }, data: { lifecycleStatus: "stale", staleReason: reason } });
+    const marked = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+      tx.artifact.updateMany({
+        where: artifactCasWhere(artifact),
+        data: { lifecycleStatus: "stale", staleReason: reason },
+      })
+    );
+    if (marked.count !== 1) continue;
     staleArtifactIds.push(artifact.id);
     await recordChange({
       workItemId: run.workItemId,
@@ -950,11 +1268,18 @@ export async function reconcileStaleKnowledge(input: {
     });
   }
 
-  if (recoveredArtifactIds.length) {
-    await prisma.artifact.updateMany({
-      where: { id: { in: recoveredArtifactIds } },
-      data: { lifecycleStatus: "active", staleReason: null },
-    });
+  if (recoverableArtifacts.length) {
+    const recovered = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+      tx.artifact.updateManyAndReturn({
+        where: { OR: recoverableArtifacts.map((artifact) => artifact.where) },
+        data: { lifecycleStatus: "active", staleReason: null },
+        select: { id: true },
+      })
+    );
+    const winnerIds = new Set(recovered.map((artifact) => artifact.id));
+    for (const artifact of recoverableArtifacts) {
+      if (winnerIds.has(artifact.id)) automaticRevalidations.push(artifact.audit);
+    }
   }
   await recordContentAddressedRevalidations(automaticRevalidations);
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applySynthesisCoverageGapsToRefreshState,
   allowsCanonicalKnowledgeReplacement,
+  isNewerKnowledgeRefreshGeneration,
   repositoryHighlightPublicDisposition,
   shouldQuarantineSynthesizedCandidate,
 } from "@/src/services/knowledge-reconciliation-service";
@@ -74,6 +76,78 @@ describe("repository knowledge auto-apply policy", () => {
     expect(repositoryHighlightPublicDisposition(false)).toMatchObject({
       eligible: false,
       reasons: [expect.stringContaining("requires reviewed ownership context")],
+    });
+  });
+
+  it("treats a later resolved differing head as a newer knowledge generation", () => {
+    const currentCreatedAt = new Date("2026-07-16T10:00:00.000Z");
+    const currentTargets = [{
+      sourceId: "source-1",
+      commitSha: "a".repeat(40),
+      resolvedAt: "2026-07-16T10:00:00.000Z",
+    }];
+    expect(isNewerKnowledgeRefreshGeneration({
+      currentTargets,
+      candidateTargets: [{
+        ...currentTargets[0],
+        commitSha: "b".repeat(40),
+        resolvedAt: "2026-07-16T10:01:00.000Z",
+      }],
+      currentCreatedAt,
+      candidateCreatedAt: new Date("2026-07-16T10:01:01.000Z"),
+    })).toBe(true);
+    expect(isNewerKnowledgeRefreshGeneration({
+      currentTargets,
+      candidateTargets: currentTargets,
+      currentCreatedAt,
+      candidateCreatedAt: new Date("2026-07-16T10:02:00.000Z"),
+    })).toBe(false);
+    expect(isNewerKnowledgeRefreshGeneration({
+      currentTargets,
+      candidateTargets: [{
+        ...currentTargets[0],
+        commitSha: "0".repeat(40),
+        resolvedAt: "2026-07-16T09:59:00.000Z",
+      }],
+      currentCreatedAt,
+      candidateCreatedAt: new Date("2026-07-16T10:02:00.000Z"),
+    })).toBe(false);
+  });
+
+  it("makes synthesis notebook overflow durable and partial for the affected repository", () => {
+    const state = applySynthesisCoverageGapsToRefreshState({
+      coverage: [{
+        repository: "owner/repo-a",
+        coverageStatus: "complete",
+        capabilityCoverageStatus: "complete",
+        coverageGaps: [],
+      }, {
+        repository: "owner/repo-b",
+        coverageStatus: "complete",
+        capabilityCoverageStatus: "complete",
+        coverageGaps: [],
+      }],
+      warnings: { existingWarning: true },
+      coverageGaps: [
+        "Repository owner/repo-b could not fit inside the bounded 20-entry synthesis notebook.",
+      ],
+    });
+
+    expect(state.coverage).toEqual([
+      expect.objectContaining({
+        repository: "owner/repo-a",
+        coverageStatus: "complete",
+      }),
+      expect.objectContaining({
+        repository: "owner/repo-b",
+        coverageStatus: "partial",
+        capabilityCoverageStatus: "partial",
+        coverageGaps: [expect.stringContaining("could not fit")],
+      }),
+    ]);
+    expect(state.warnings).toMatchObject({
+      existingWarning: true,
+      synthesisCoverageGaps: [expect.stringContaining("owner/repo-b")],
     });
   });
 });

@@ -458,6 +458,195 @@ export async function extractFactsWithRecovery(input: Parameters<typeof extractF
   }
 }
 
+const PROJECT_FACT_PERSISTENCE_ATTEMPTS = 5;
+
+type StoredProjectFactCandidate = {
+  id: string;
+  status: "pending" | "approved" | "edited_and_approved" | "denied";
+  projectFactId: string | null;
+  projectFact: {
+    id: string;
+    workItemId: string;
+    statement: string;
+    category: ProjectFactCategory;
+    confidence: "low" | "medium" | "high";
+    status: "draft" | "approved" | "rejected" | "superseded";
+    lifecycleStatus: "active" | "needs_validation" | "stale" | "superseded" | "retired" | "quarantined";
+    reviewNotes: string | null;
+  } | null;
+};
+
+function isActiveApprovedCandidate(candidate: StoredProjectFactCandidate) {
+  return (
+    (candidate.status === "approved" || candidate.status === "edited_and_approved") &&
+    candidate.projectFact?.status === "approved" &&
+    candidate.projectFact.lifecycleStatus === "active"
+  );
+}
+
+function isPendingReviewCandidate(candidate: StoredProjectFactCandidate) {
+  return (
+    candidate.status === "pending" &&
+    candidate.projectFact?.status === "draft" &&
+    candidate.projectFact.lifecycleStatus === "quarantined"
+  );
+}
+
+function reusableCandidateState(candidates: StoredProjectFactCandidate[]) {
+  const reusable = candidates.filter((candidate) =>
+    isActiveApprovedCandidate(candidate) || isPendingReviewCandidate(candidate)
+  );
+  return {
+    hadCandidates: candidates.length > 0,
+    candidates: reusable,
+    candidateIds: reusable.map((candidate) => candidate.id),
+    activeProjectFactIds: reusable.flatMap((candidate) =>
+      isActiveApprovedCandidate(candidate) && candidate.projectFactId
+        ? [candidate.projectFactId]
+        : []
+    ),
+  };
+}
+
+async function loadStoredProjectFactCandidates(input: {
+  runId: string;
+  userId: string;
+  workItemId: string;
+}) {
+  const candidates = await prisma.agentRunCandidate.findMany({
+    where: {
+      agentRunId: input.runId,
+      agentRun: {
+        userId: input.userId,
+        workItemId: input.workItemId,
+      },
+      kind: { in: ["new_project_fact", "project_fact_revision"] },
+    },
+    select: {
+      id: true,
+      status: true,
+      projectFactId: true,
+      projectFact: {
+        select: {
+          id: true,
+          workItemId: true,
+          statement: true,
+          category: true,
+          confidence: true,
+          status: true,
+          lifecycleStatus: true,
+          reviewNotes: true,
+        },
+      },
+    },
+    orderBy: [{ batchNumber: "asc" }, { ordinal: "asc" }],
+  });
+  return reusableCandidateState(candidates);
+}
+
+async function ensureProjectFactCandidateSideEffects(input: {
+  runId: string;
+  workItemId: string;
+  candidates: StoredProjectFactCandidate[];
+}) {
+  const repairable = input.candidates.flatMap((candidate) =>
+    candidate.projectFact ? [{ candidate, fact: candidate.projectFact }] : []
+  );
+  // Embeddings are an optimization because lexical retrieval remains available.
+  // Only approved active facts participate in retrieval. Re-attempt those on
+  // every workflow replay, but do not pay to embed quarantined pending facts.
+  const embeddings = Promise.allSettled(repairable
+    .filter(({ candidate }) => isActiveApprovedCandidate(candidate))
+    .map(({ fact }) =>
+      upsertProjectFactEmbedding({
+        projectFactId: fact.id,
+      inputText: buildProjectFactEmbeddingText(fact),
+    })
+  ));
+  // The review-later audit card is product state, so let a local write failure
+  // reach the persistence retry loop. The idempotency key makes this safe after
+  // the ProjectFact transaction has already committed.
+  // These serializable writes share pending-review indexes. Running them in
+  // parallel creates avoidable TransactionWriteConflict retries on Neon even
+  // though each card belongs to a different fact.
+  for (const { candidate, fact } of repairable) {
+    await recordChange({
+      workItemId: input.workItemId,
+      entityKind: "project_fact",
+      action: isActiveApprovedCandidate(candidate) ? "created" : "quarantined",
+      entityId: fact.id,
+      afterSnapshot: {
+        statement: fact.statement,
+        category: fact.category,
+        lifecycleStatus: fact.lifecycleStatus,
+      },
+      reason: isActiveApprovedCandidate(candidate)
+        ? "Repository research auto-applied a supported Project Fact for later review."
+        : "Repository research quarantined a Project Fact that failed the automatic safety gate.",
+      provenance: { agentRunId: input.runId },
+      suffix: `${input.runId}:${fact.id}`,
+    });
+  }
+  await embeddings;
+}
+
+function persistenceErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : null;
+}
+
+function isRetryableProjectFactPersistenceError(error: unknown) {
+  const code = persistenceErrorCode(error);
+  if (code === "P2002" || code === "P2034") return true;
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return message.includes("TransactionWriteConflict");
+}
+
+async function projectFactPersistenceBackoff(attempt: number) {
+  const baseDelayMs = Math.min(250, 10 * (2 ** attempt));
+  const delayMs = baseDelayMs + Math.floor(Math.random() * Math.max(1, baseDelayMs / 2));
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function acquireProjectFactMaterializationLock(
+  tx: Prisma.TransactionClient,
+  workItemId: string,
+) {
+  // Two-key advisory locks give this workflow its own namespace while keeping
+  // the lock scoped to one Work Item. PostgreSQL releases it automatically when
+  // the transaction commits or rolls back.
+  await tx.$queryRaw`
+    SELECT 1::int AS locked
+    FROM pg_advisory_xact_lock(
+      hashtext('workbase-project-fact-materialization'),
+      hashtext(${workItemId})
+    )
+  `;
+}
+
+async function repairAndReturnStoredCandidates(input: {
+  runId: string;
+  userId: string;
+  workItemId: string;
+  coverageGaps: string[];
+  tokenUsage: unknown;
+}) {
+  const stored = await loadStoredProjectFactCandidates(input);
+  if (!stored.hadCandidates) return null;
+  await ensureProjectFactCandidateSideEffects({
+    runId: input.runId,
+    workItemId: input.workItemId,
+    candidates: stored.candidates,
+  });
+  return {
+    candidateIds: stored.candidateIds,
+    activeProjectFactIds: stored.activeProjectFactIds,
+    coverageGaps: input.coverageGaps,
+    tokenUsage: input.tokenUsage,
+  };
+}
+
 export async function createProjectFactCandidates(input: {
   runId: string;
   userId: string;
@@ -468,28 +657,29 @@ export async function createProjectFactCandidates(input: {
   batchNumber?: number;
   maxFacts?: number;
 }) {
-  const existingCandidates = await prisma.agentRunCandidate.findMany({
-    where: {
-      agentRunId: input.runId,
-      kind: { in: ["new_project_fact", "project_fact_revision"] },
-    },
-    select: { id: true, projectFactId: true, status: true },
+  const [workItem] = await Promise.all([
+    prisma.workItem.findFirstOrThrow({
+      where: { id: input.workItemId, userId: input.userId },
+      select: { title: true },
+    }),
+    prisma.agentRun.findFirstOrThrow({
+      where: {
+        id: input.runId,
+        userId: input.userId,
+        workItemId: input.workItemId,
+      },
+      select: { id: true },
+    }),
+  ]);
+  const replayed = await repairAndReturnStoredCandidates({
+    runId: input.runId,
+    userId: input.userId,
+    workItemId: input.workItemId,
+    coverageGaps: [],
+    tokenUsage: null,
   });
-  if (existingCandidates.length) {
-    return {
-      candidateIds: existingCandidates.map((candidate) => candidate.id),
-      activeProjectFactIds: existingCandidates.flatMap((candidate) =>
-        candidate.status === "approved" && candidate.projectFactId ? [candidate.projectFactId] : [],
-      ),
-      coverageGaps: [],
-      tokenUsage: null,
-    };
-  }
+  if (replayed) return replayed;
 
-  const workItem = await prisma.workItem.findFirstOrThrow({
-    where: { id: input.workItemId, userId: input.userId },
-    select: { title: true },
-  });
   const repositoryCitations = input.citations.filter((citation) => citation.kind === "github_file");
   if (!repositoryCitations.length) return { candidateIds: [], activeProjectFactIds: [], coverageGaps: [], tokenUsage: null };
   const extracted = await extractFactsWithRecovery({
@@ -512,155 +702,190 @@ export async function createProjectFactCandidates(input: {
     new Set(validFacts.flatMap((fact) => fact.citationIndexes.map((index) => index - 1))),
   );
   const selectedCitations = selectedOriginalIndexes.map((index) => repositoryCitations[index]!);
-  const promoted = await promoteRepositoryCitations({
-    workItemId: input.workItemId,
-    citations: selectedCitations,
-    reviewScope: `project-fact-research:${input.runId}`,
-  });
   const localIndexByOriginal = new Map(
     selectedOriginalIndexes.map((originalIndex, localIndex) => [originalIndex, localIndex]),
   );
-  const existingFacts = await prisma.projectFact.findMany({
-    where: { workItemId: input.workItemId, status: "approved" },
-    include: { evidence: { include: { evidenceItem: { select: { metadata: true } } } } },
-    orderBy: { updatedAt: "desc" },
-  });
   const batchNumber = input.batchNumber ?? 1;
-  const created: Array<{ candidateId: string; projectFactId: string; statement: string; category: ProjectFactCategory; reviewNotes: string | null; autoSafe: boolean }> = [];
+  for (let attempt = 0; attempt < PROJECT_FACT_PERSISTENCE_ATTEMPTS; attempt += 1) {
+    try {
+      const winner = await repairAndReturnStoredCandidates({
+        runId: input.runId,
+        userId: input.userId,
+        workItemId: input.workItemId,
+        coverageGaps: extracted.coverageGaps,
+        tokenUsage: extracted.tokenUsage,
+      });
+      if (winner) return winner;
 
-  await prisma.$transaction(async (tx) => {
-    for (const fact of validFacts) {
-      const ranked = existingFacts
-        .map((existing) => ({ existing, score: similarity(fact.statement, existing.statement) }))
-        .sort((left, right) => right.score - left.score);
-      const closest = ranked[0] ?? null;
-      const citedShas = new Set(fact.citationIndexes.flatMap((oneBasedIndex) => {
-        const citation = repositoryCitations[oneBasedIndex - 1];
-        return citation?.commitSha ? [citation.commitSha] : [];
-      }));
-      const closestEvidenceShas = new Set(closest?.existing.evidence.flatMap((entry) => {
-        const metadata = entry.evidenceItem.metadata;
-        if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
-        const commitSha = (metadata as Record<string, unknown>).commitSha;
-        return typeof commitSha === "string" ? [commitSha] : [];
-      }) ?? []);
-      const alreadyGroundedAtRevision =
-        (closest?.score ?? 0) >= 0.86 &&
-        citedShas.size > 0 &&
-        Array.from(citedShas).every((sha) => closestEvidenceShas.has(sha));
-      if (alreadyGroundedAtRevision) continue;
-      const supersedes = (closest?.score ?? 0) >= 0.86
-        ? closest!.existing
-        : ranked.find(
-            (entry) => entry.existing.category === fact.category && entry.score >= 0.42,
-          )?.existing ?? null;
-      const evidenceIds = fact.citationIndexes.flatMap((oneBasedIndex) => {
-        const localIndex = localIndexByOriginal.get(oneBasedIndex - 1);
-        if (localIndex == null) return [];
-        const evidenceId = promoted.evidenceIdByCitationIndex.get(localIndex);
-        return evidenceId ? [evidenceId] : [];
+      const promoted = await promoteRepositoryCitations({
+        workItemId: input.workItemId,
+        citations: selectedCitations,
+        reviewScope: `project-fact-research:${input.runId}`,
       });
-      if (!evidenceIds.length) continue;
-      const autoSafe = !fact.sensitivityFlag && fact.confidence !== "low";
-      const projectFact = await tx.projectFact.create({
-        data: {
-          workItemId: input.workItemId,
-          statement: fact.statement,
-          category: fact.category,
-          confidence: fact.confidence,
-          status: autoSafe ? "approved" : "draft",
-          sensitivityFlag: fact.sensitivityFlag,
-          reviewNotes: fact.reviewNotes,
-          searchText: normalizeWhitespace([fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ")),
-          supersedesProjectFactId: supersedes?.id ?? null,
-          lifecycleStatus: autoSafe ? "active" : "quarantined",
-          reviewState: "pending_review",
-          approvalSource: "automation",
-          autoAppliedAt: autoSafe ? new Date() : null,
-          validatedThroughSha: Array.from(citedShas)[0] ?? null,
-          lastValidatedAt: new Date(),
-          evidence: {
-            create: evidenceIds.map((evidenceItemId) => ({ evidenceItemId })),
+      const reusedProjectFactIds = await prisma.$transaction(async (tx) => {
+        await acquireProjectFactMaterializationLock(tx, input.workItemId);
+        const sameRunCandidates = await tx.agentRunCandidate.findMany({
+          where: {
+            agentRunId: input.runId,
+            kind: { in: ["new_project_fact", "project_fact_revision"] },
           },
-        },
-      });
-      const candidate = await tx.agentRunCandidate.create({
-        data: {
-          agentRunId: input.runId,
-          projectFactId: projectFact.id,
-          kind: supersedes ? "project_fact_revision" : "new_project_fact",
-          status: autoSafe ? "approved" : "pending",
-          batchNumber,
-          ordinal: created.length + 1,
-          snapshot: toInputJson({
-            statement: fact.statement,
-            category: fact.category,
-            confidence: fact.confidence,
-            sensitivityFlag: fact.sensitivityFlag,
-            reviewNotes: fact.reviewNotes,
-            evidenceIds,
-            evidenceLabels: evidenceIds.map((id) => id),
-            partial: input.partial,
-            supersedesProjectFactId: supersedes?.id ?? null,
-          }),
-          reviewedAt: autoSafe ? new Date() : null,
-        },
-      });
-      if (autoSafe && supersedes) {
-        await tx.projectFact.updateMany({
-          where: { id: supersedes.id, status: "approved", lifecycleStatus: "active" },
-          data: { status: "superseded", lifecycleStatus: "superseded" },
+          select: { id: true },
         });
-      }
-      if (autoSafe) {
-        await tx.evidenceItem.updateMany({
-          where: { id: { in: evidenceIds } },
-          data: {
-            included: true,
+        if (sameRunCandidates.length) return [] as string[];
+
+        // This read deliberately happens after the database lock is acquired.
+        // A second process therefore observes facts committed by the winner and
+        // skips an identical current-revision statement instead of creating a
+        // parallel active successor.
+        const existingFacts = await tx.projectFact.findMany({
+          where: {
+            workItemId: input.workItemId,
+            status: "approved",
             lifecycleStatus: "active",
-            reviewState: "pending_review",
-            approvalSource: "automation",
-            autoAppliedAt: new Date(),
           },
+          include: { evidence: { select: { evidenceItemId: true } } },
+          orderBy: { updatedAt: "desc" },
         });
-      }
-      created.push({
-        candidateId: candidate.id,
-        projectFactId: projectFact.id,
-        statement: fact.statement,
-        category: fact.category,
-        reviewNotes: fact.reviewNotes ?? null,
-        autoSafe,
+        let ordinal = 0;
+        const reused: string[] = [];
+        for (const fact of validFacts) {
+          const ranked = existingFacts
+            .map((existing) => ({ existing, score: similarity(fact.statement, existing.statement) }))
+            .sort((left, right) => right.score - left.score);
+          const closest = ranked[0] ?? null;
+          const citedShas = new Set(fact.citationIndexes.flatMap((oneBasedIndex) => {
+            const citation = repositoryCitations[oneBasedIndex - 1];
+            return citation?.commitSha ? [citation.commitSha] : [];
+          }));
+          const evidenceIds = fact.citationIndexes.flatMap((oneBasedIndex) => {
+            const localIndex = localIndexByOriginal.get(oneBasedIndex - 1);
+            if (localIndex == null) return [];
+            const evidenceId = promoted.evidenceIdByCitationIndex.get(localIndex);
+            return evidenceId ? [evidenceId] : [];
+          });
+          const closestEvidenceIds = new Set(
+            closest?.existing.evidence.map((entry) => entry.evidenceItemId) ?? [],
+          );
+          const alreadyGroundedByImmutableContent =
+            (closest?.score ?? 0) >= 0.86 &&
+            evidenceIds.length > 0 &&
+            evidenceIds.every((evidenceId) => closestEvidenceIds.has(evidenceId));
+          if (alreadyGroundedByImmutableContent) {
+            reused.push(closest!.existing.id);
+            continue;
+          }
+          const supersedes = (closest?.score ?? 0) >= 0.86
+            ? closest!.existing
+            : ranked.find(
+                (entry) => entry.existing.category === fact.category && entry.score >= 0.42,
+              )?.existing ?? null;
+          if (!evidenceIds.length) continue;
+          const autoSafe = !fact.sensitivityFlag && fact.confidence !== "low";
+          const projectFact = await tx.projectFact.create({
+            data: {
+              workItemId: input.workItemId,
+              statement: fact.statement,
+              category: fact.category,
+              confidence: fact.confidence,
+              status: autoSafe ? "approved" : "draft",
+              sensitivityFlag: fact.sensitivityFlag,
+              reviewNotes: fact.reviewNotes,
+              searchText: normalizeWhitespace([fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ")),
+              supersedesProjectFactId: supersedes?.id ?? null,
+              lifecycleStatus: autoSafe ? "active" : "quarantined",
+              reviewState: "pending_review",
+              approvalSource: "automation",
+              autoAppliedAt: autoSafe ? new Date() : null,
+              validatedThroughSha: Array.from(citedShas)[0] ?? null,
+              lastValidatedAt: new Date(),
+              evidence: {
+                create: evidenceIds.map((evidenceItemId) => ({ evidenceItemId })),
+              },
+            },
+          });
+          ordinal += 1;
+          await tx.agentRunCandidate.create({
+            data: {
+              agentRunId: input.runId,
+              projectFactId: projectFact.id,
+              kind: supersedes ? "project_fact_revision" : "new_project_fact",
+              status: autoSafe ? "approved" : "pending",
+              batchNumber,
+              ordinal,
+              snapshot: toInputJson({
+                statement: fact.statement,
+                category: fact.category,
+                confidence: fact.confidence,
+                sensitivityFlag: fact.sensitivityFlag,
+                reviewNotes: fact.reviewNotes,
+                evidenceIds,
+                evidenceLabels: evidenceIds.map((id) => id),
+                partial: input.partial,
+                supersedesProjectFactId: supersedes?.id ?? null,
+              }),
+              reviewedAt: autoSafe ? new Date() : null,
+            },
+          });
+          if (autoSafe && supersedes) {
+            await tx.projectFact.updateMany({
+              where: { id: supersedes.id, status: "approved", lifecycleStatus: "active" },
+              data: { status: "superseded", lifecycleStatus: "superseded" },
+            });
+          }
+          if (autoSafe) {
+            await tx.evidenceItem.updateMany({
+              where: {
+                id: { in: evidenceIds },
+                approvalSource: { not: "user" },
+                reviewState: "pending_review",
+              },
+              data: {
+                included: true,
+                lifecycleStatus: "active",
+                approvalSource: "automation",
+                autoAppliedAt: new Date(),
+              },
+            });
+          }
+        }
+        return Array.from(new Set(reused));
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 15_000,
       });
+
+      const stored = await loadStoredProjectFactCandidates({
+        runId: input.runId,
+        userId: input.userId,
+        workItemId: input.workItemId,
+      });
+      await ensureProjectFactCandidateSideEffects({
+        runId: input.runId,
+        workItemId: input.workItemId,
+        candidates: stored.candidates,
+      });
+      return {
+        candidateIds: stored.candidateIds,
+        activeProjectFactIds: Array.from(new Set([
+          ...stored.activeProjectFactIds,
+          ...reusedProjectFactIds,
+        ])),
+        coverageGaps: extracted.coverageGaps,
+        tokenUsage: extracted.tokenUsage,
+      };
+    } catch (error) {
+      if (!isRetryableProjectFactPersistenceError(error)) throw error;
+      const winner = await repairAndReturnStoredCandidates({
+        runId: input.runId,
+        userId: input.userId,
+        workItemId: input.workItemId,
+        coverageGaps: extracted.coverageGaps,
+        tokenUsage: extracted.tokenUsage,
+      });
+      if (winner) return winner;
+      if (attempt >= PROJECT_FACT_PERSISTENCE_ATTEMPTS - 1) throw error;
+      await projectFactPersistenceBackoff(attempt);
     }
-  });
-
-  await Promise.allSettled(created.map((entry) => upsertProjectFactEmbedding({
-    projectFactId: entry.projectFactId,
-    inputText: buildProjectFactEmbeddingText(entry),
-  })));
-  await Promise.allSettled(created.map((entry) => recordChange({
-    workItemId: input.workItemId,
-    entityKind: "project_fact",
-    action: entry.autoSafe ? "created" : "quarantined",
-    entityId: entry.projectFactId,
-    afterSnapshot: { statement: entry.statement, category: entry.category, lifecycleStatus: entry.autoSafe ? "active" : "quarantined" },
-    reason: entry.autoSafe
-      ? "Repository research auto-applied a supported Project Fact for later review."
-      : "Repository research quarantined a Project Fact that failed the automatic safety gate.",
-    provenance: { agentRunId: input.runId },
-    suffix: `${input.runId}:${entry.projectFactId}`,
-  })));
-  if (!created.length && promoted.newIds.length) {
-    await prisma.evidenceItem.deleteMany({
-      where: { id: { in: promoted.newIds }, type: "github_file_excerpt", included: false },
-    });
   }
-
-  return {
-    candidateIds: created.map((entry) => entry.candidateId),
-    activeProjectFactIds: created.filter((entry) => entry.autoSafe).map((entry) => entry.projectFactId),
-    coverageGaps: extracted.coverageGaps,
-    tokenUsage: extracted.tokenUsage,
-  };
+  throw new Error("Project Fact persistence retry budget exhausted.");
 }

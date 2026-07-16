@@ -637,12 +637,27 @@ export class BedrockStructuredLlmClient {
         if (phase === "repair") budget.usage.repairPasses += 1;
         boundedRequest = { ...request, maxTokens: permittedOutputTokens };
       }
+      const chargeConservativeUnknownUsage = () => {
+        if (!budget) return;
+        const estimatedInputTokens = estimatedInputTokenReserve(boundedRequest);
+        const estimatedOutputTokens = boundedRequest.maxTokens;
+        budget.usage.inputTokens += estimatedInputTokens;
+        budget.usage.outputTokens += estimatedOutputTokens;
+        budget.usage.totalTokens += estimatedInputTokens + estimatedOutputTokens;
+      };
       let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
       try {
         response = await this.runtime.converse(boundedRequest);
       } catch (error) {
         unknownUsageAttempts += 1;
-        if (budget) budget.usage.unknownUsageCalls += 1;
+        if (budget) {
+          budget.usage.unknownUsageCalls += 1;
+          // A disconnected or malformed provider response may still represent
+          // a fully charged request. Consume the request's conservative
+          // admission reserve so an unmetered attempt cannot bypass a shared
+          // cumulative token ceiling through transport fallback.
+          chargeConservativeUnknownUsage();
+        }
         throw error;
       }
       if (response.tokenUsage) observedTokenUsage.push(response.tokenUsage);
@@ -652,7 +667,11 @@ export class BedrockStructuredLlmClient {
       const outputTokens = numericTokenUsage(response.tokenUsage, "outputTokens");
       const reportedTotal = numericTokenUsage(response.tokenUsage, "totalTokens");
       const totalTokens = reportedTotal || inputTokens + outputTokens;
-      if (!response.tokenUsage) budget.usage.unknownUsageCalls += 1;
+      if (!response.tokenUsage) {
+        budget.usage.unknownUsageCalls += 1;
+        chargeConservativeUnknownUsage();
+        return response;
+      }
       budget.usage.inputTokens += inputTokens;
       budget.usage.outputTokens += outputTokens;
       budget.usage.totalTokens += totalTokens;

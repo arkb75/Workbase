@@ -1,4 +1,4 @@
-import { createHook, FatalError, getWritable } from "workflow";
+import { createHook, FatalError, getWritable, sleep } from "workflow";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
 import type { BedrockConverseAgentEvent } from "@/src/lib/bedrock-converse-agent";
 import { classifyWorkflowFailure } from "@/src/lib/error-message";
@@ -23,7 +23,10 @@ import {
   knowledgeRefreshService,
   startKnowledgeRefresh,
 } from "@/src/services/knowledge-refresh-service";
-import { knowledgeReconciliationService } from "@/src/services/knowledge-reconciliation-service";
+import {
+  assertKnowledgeRefreshGenerationCurrent,
+  knowledgeReconciliationService,
+} from "@/src/services/knowledge-reconciliation-service";
 import { knowledgeStalenessService } from "@/src/services/knowledge-staleness-service";
 import { runtimeReadinessService } from "@/src/services/runtime-readiness-service";
 
@@ -90,7 +93,26 @@ async function startRequiredKnowledgeRefresh(runId: string) {
     trigger: "chat_freshness",
     idempotencyKey: `agent-run:${run.id}:freshness`,
   });
-  return { required: true as const, refreshRunId: refresh.runId, alreadyComplete: refresh.status === "completed" };
+  // Persist the shared-refresh link before ownership is claimed. Cancellation
+  // can then release the exact inline owner even while repository work is still
+  // inventorying or analyzing.
+  await prisma.agentRun.update({
+    where: { id: run.id },
+    data: { knowledgeRefreshRunId: refresh.runId },
+  });
+  const alreadyComplete = refresh.status === "completed";
+  const owner = alreadyComplete
+    ? false
+    : await knowledgeRefreshService.claimInline({
+        runId: refresh.runId,
+        ownerToken: `inline-agent:${run.id}`,
+      });
+  return {
+    required: true as const,
+    refreshRunId: refresh.runId,
+    alreadyComplete,
+    owner,
+  };
 }
 
 async function inventoryRequiredKnowledge(refreshRunId: string) {
@@ -115,12 +137,15 @@ async function repairRequiredCoverage(refreshRunId: string) {
 
 async function reconcileRequiredKnowledge(refreshRunId: string) {
   "use step";
+  await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   const reconciled = await knowledgeReconciliationService.reconcile(refreshRunId);
+  await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   const staleness = await knowledgeStalenessService.reconcile({
     runId: refreshRunId,
     appliedFactIds: reconciled.appliedFactIds,
     appliedHighlightIds: reconciled.appliedHighlightIds,
   });
+  await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   await knowledgeRefreshService.complete(refreshRunId);
   return {
     appliedFactIds: reconciled.appliedFactIds,
@@ -160,6 +185,75 @@ async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
   });
 }
 
+async function inspectRequiredKnowledgeRefresh(refreshRunId: string) {
+  "use step";
+  const refresh = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: refreshRunId },
+    select: { status: true, error: true },
+  });
+  const error = refresh.error && typeof refresh.error === "object" && !Array.isArray(refresh.error)
+    ? refresh.error as Record<string, unknown>
+    : null;
+  return {
+    status: refresh.status,
+    error: typeof error?.message === "string" ? error.message : null,
+  };
+}
+
+async function claimRequiredKnowledgeRefresh(runId: string, refreshRunId: string) {
+  "use step";
+  return knowledgeRefreshService.claimInline({
+    runId: refreshRunId,
+    ownerToken: `inline-agent:${runId}`,
+  });
+}
+
+function sharedRefreshWaitDelaySeconds(attempt: number) {
+  const delays = [2, 3, 5, 8, 13, 21, 30] as const;
+  const safeAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  return delays[Math.min(safeAttempt, delays.length - 1)]!;
+}
+
+async function waitForRequiredKnowledgeRefresh(runId: string, refreshRunId: string) {
+  await emitProgress(
+    runId,
+    "Another turn is already refreshing this repository revision; waiting for its shared result.",
+    "research",
+  );
+  const maxWaitSeconds = 15 * 60;
+  let elapsedSeconds = 0;
+  for (let attempt = 0; elapsedSeconds <= maxWaitSeconds; attempt += 1) {
+    const refresh = await inspectRequiredKnowledgeRefresh(refreshRunId);
+    if (refresh.status === "completed") {
+      await attachRefreshToAgentRun(runId, refreshRunId);
+      await emitProgress(runId, "Using the completed shared repository refresh.", "research");
+      return { refreshRunId };
+    }
+    if (refresh.status === "failed" || refresh.status === "cancelled") {
+      throw new Error(
+        refresh.error ?? "The shared repository refresh did not complete successfully.",
+      );
+    }
+    const claimed = await claimRequiredKnowledgeRefresh(runId, refreshRunId);
+    if (claimed) {
+      await emitProgress(
+        runId,
+        "The previous refresh owner stopped; resuming its checkpointed repository work.",
+        "research",
+      );
+      return { refreshRunId, claimed: true as const };
+    }
+    if (elapsedSeconds === maxWaitSeconds) break;
+    const delaySeconds = Math.min(
+      sharedRefreshWaitDelaySeconds(attempt),
+      maxWaitSeconds - elapsedSeconds,
+    );
+    await sleep(`${delaySeconds}s`);
+    elapsedSeconds += delaySeconds;
+  }
+  throw new Error("The shared repository refresh did not complete within the durable wait window.");
+}
+
 async function runRequiredKnowledgeRefresh(runId: string) {
   const requirement = await startRequiredKnowledgeRefresh(runId);
   if (!requirement.required || !requirement.refreshRunId) return null;
@@ -167,6 +261,10 @@ async function runRequiredKnowledgeRefresh(runId: string) {
     await attachRefreshToAgentRun(runId, requirement.refreshRunId);
     await emitProgress(runId, "Repository knowledge is already complete at the latest resolved commit.", "research");
     return { refreshRunId: requirement.refreshRunId };
+  }
+  if (!requirement.owner) {
+    const waited = await waitForRequiredKnowledgeRefresh(runId, requirement.refreshRunId);
+    if (!waited.claimed) return waited;
   }
   await emitProgress(runId, "Resolving the latest repository commit and inventorying every safe file.", "research");
   try {

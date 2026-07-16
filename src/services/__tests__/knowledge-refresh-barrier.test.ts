@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   knowledgeRefreshRun: {
+    findUnique: vi.fn(),
     findUniqueOrThrow: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
-  agentRun: { findMany: vi.fn() },
+  agentRun: { findMany: vi.fn(), findUnique: vi.fn() },
   repositoryCapabilityLedger: { upsert: vi.fn() },
   repositorySnapshot: { update: vi.fn() },
 }));
@@ -17,11 +19,14 @@ vi.mock("@/src/lib/llm-config", () => ({
 }));
 
 import {
+  claimInlineKnowledgeRefreshExecution,
   finalizeKnowledgeCoverage,
   isReusableDegradedChatRefresh,
   isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
+  knowledgeRefreshBaseIdempotencyKey,
   policyScopedKnowledgeRefreshIdempotencyKey,
+  releaseInlineKnowledgeRefreshExecution,
   repositoryCapabilityPriority,
   repositoryOrchestrationCoverageGaps,
 } from "@/src/services/knowledge-refresh-service";
@@ -69,6 +74,7 @@ describe("latest-commit freshness barrier", () => {
     prismaMock.repositoryCapabilityLedger.upsert.mockResolvedValue({});
     prismaMock.repositorySnapshot.update.mockResolvedValue({});
     prismaMock.knowledgeRefreshRun.update.mockResolvedValue({});
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValue({ count: 0 });
   });
 
   it("reserves high-priority ledger status for required product capabilities", () => {
@@ -91,10 +97,10 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v14",
+      semanticAnalyzerVersion: "repository-coverage-v15",
       coveragePolicyVersion: "repository-coverage-v7",
-      orchestrationPolicyVersion: "repository-orchestration-v9",
-      synthesisPolicyVersion: "repository-synthesis-v23",
+      orchestrationPolicyVersion: "repository-orchestration-v10",
+      synthesisPolicyVersion: "repository-synthesis-v25",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -126,6 +132,191 @@ describe("latest-commit freshness barrier", () => {
       .toMatch(/^chat:same-head:policy:[a-f0-9]{16}$/);
   });
 
+  it("coalesces every ordinary refresh trigger at the same immutable heads", () => {
+    const targets = [
+      { sourceId: "source-b", commitSha: "b".repeat(40) },
+      { sourceId: "source-a", commitSha: "a".repeat(40) },
+    ];
+    const ordinaryKeys = ([
+      ["repository_attach", "attach:first"],
+      ["scheduled", "scheduled:first"],
+      ["manual", "manual:first"],
+      ["chat_freshness", "agent-run:first:freshness"],
+    ] as const).map(([trigger, requestedKey]) => knowledgeRefreshBaseIdempotencyKey({
+      trigger,
+      requestedKey,
+      targets: trigger === "scheduled" ? [...targets].reverse() : targets,
+    }));
+
+    expect(new Set(ordinaryKeys)).toHaveLength(1);
+    expect(ordinaryKeys[0]).toMatch(/^repository_heads:[a-f0-9]{64}$/);
+    expect(knowledgeRefreshBaseIdempotencyKey({
+      trigger: "backfill",
+      requestedKey: "knowledge-edit:fact-1",
+      targets,
+    })).toBe("knowledge-edit:fact-1");
+  });
+
+  it("allows one inline chat workflow to own a shared refresh while later turns wait", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    prismaMock.knowledgeRefreshRun.findUnique
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        workflowId: "inline-agent:first",
+        startedAt: new Date("2026-07-16T10:00:00.000Z"),
+      })
+      .mockResolvedValueOnce({
+        status: "analyzing",
+        workflowId: "inline-agent:first",
+        startedAt: new Date("2026-07-16T10:00:00.000Z"),
+      });
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      status: "running",
+    });
+
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:first",
+    })).resolves.toBe(true);
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:first",
+    })).resolves.toBe(true);
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:second",
+    })).resolves.toBe(false);
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "refresh-shared",
+          status: "queued",
+          workflowId: null,
+        }),
+        data: expect.objectContaining({
+          status: "inventorying",
+          workflowId: "inline-agent:first",
+        }),
+      }),
+    );
+  });
+
+  it("does not infer a safe ownership handoff from terminal AgentRun state", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    prismaMock.knowledgeRefreshRun.findUnique.mockResolvedValue({
+      status: "semantic_analysis",
+      workflowId: "inline-agent:cancelled-owner",
+      startedAt: new Date("2026-07-16T10:00:00.000Z"),
+    });
+    prismaMock.agentRun.findUnique.mockResolvedValue({ status: "cancelled" });
+
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:replacement",
+    })).resolves.toBe(false);
+    expect(prismaMock.agentRun.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("claims an ownerless active refresh without resetting its checkpoint status", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-ownerless",
+      ownerToken: "inline-agent:replacement",
+    })).resolves.toBe(true);
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenNthCalledWith(3, {
+      where: {
+        id: "refresh-ownerless",
+        status: {
+          in: [
+            "inventorying",
+            "analyzing",
+            "routing",
+            "semantic_analysis",
+            "auditing",
+            "reconciling",
+          ],
+        },
+        workflowId: null,
+      },
+      data: {
+        workflowId: "inline-agent:replacement",
+        finishedAt: null,
+      },
+    });
+  });
+
+  it("preserves the original start boundary when a released refresh is resumed", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await expect(claimInlineKnowledgeRefreshExecution({
+      runId: "refresh-resumed",
+      ownerToken: "inline-agent:replacement",
+    })).resolves.toBe(true);
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: "refresh-resumed",
+        status: "queued",
+        workflowId: null,
+        startedAt: { not: null },
+      },
+      data: {
+        status: "inventorying",
+        workflowId: "inline-agent:replacement",
+        finishedAt: null,
+      },
+    });
+  });
+
+  it("releases only the cancelling inline owner without clobbering a successor", async () => {
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    await expect(releaseInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:first",
+    })).resolves.toBe(true);
+    await expect(releaseInlineKnowledgeRefreshExecution({
+      runId: "refresh-shared",
+      ownerToken: "inline-agent:first",
+    })).resolves.toBe(false);
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "refresh-shared",
+          workflowId: "inline-agent:first",
+        }),
+        data: {
+          status: "queued",
+          workflowId: null,
+          finishedAt: null,
+        },
+      }),
+    );
+  });
+
   it("briefly reuses a same-head degraded chat refresh without calling it verified", () => {
     const target = {
       sourceId: "source-1",
@@ -138,10 +329,10 @@ describe("latest-commit freshness barrier", () => {
     };
     const warnings = {
       analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v14",
+      semanticAnalyzerVersion: "repository-coverage-v15",
       coveragePolicyVersion: "repository-coverage-v7",
-      orchestrationPolicyVersion: "repository-orchestration-v9",
-      synthesisPolicyVersion: "repository-synthesis-v23",
+      orchestrationPolicyVersion: "repository-orchestration-v10",
+      synthesisPolicyVersion: "repository-synthesis-v25",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -240,7 +431,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v14",
+          semanticAnalyzerVersion: "repository-coverage-v15",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -294,7 +485,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v14",
+          semanticAnalyzerVersion: "repository-coverage-v15",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -330,10 +521,10 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v14",
-          semanticAnalyzerVersion: "repository-coverage-v14",
+          semanticAnalyzerVersion: "repository-coverage-v15",
           coveragePolicyVersion: "repository-coverage-v7",
-          orchestrationPolicyVersion: "repository-orchestration-v9",
-          synthesisPolicyVersion: "repository-synthesis-v23",
+          orchestrationPolicyVersion: "repository-orchestration-v10",
+          synthesisPolicyVersion: "repository-synthesis-v25",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
@@ -357,7 +548,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v14",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v14",
+      semanticAnalyzerVersion: "repository-coverage-v15",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

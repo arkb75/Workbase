@@ -20,6 +20,7 @@ import {
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
 import {
   materializeSynthesisCitations,
+  synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
   type SynthesizedKnowledge,
   type SynthesisNotebookEntry,
@@ -29,12 +30,267 @@ import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-s
 export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v3";
 export const STRONG_KNOWLEDGE_IDENTITY_THRESHOLD = 0.72;
 
+type KnowledgeRefreshFenceClient = Pick<
+  Prisma.TransactionClient,
+  "knowledgeRefreshRun" | "$queryRaw"
+>;
+
+export async function lockKnowledgeRefreshWorkItem(
+  client: Pick<Prisma.TransactionClient, "$queryRaw">,
+  workItemId: string,
+) {
+  // Generation starts and generation-owned mutations share this transaction
+  // lock. Whichever side acquires it first commits before the other can decide
+  // whether the refresh is still current, preventing an older generation from
+  // legally serializing a write after a newer run has begun.
+  await client.$queryRaw`
+    SELECT 1::int AS locked
+    FROM pg_advisory_xact_lock(
+      hashtextextended(${"workbase:knowledge-refresh:" + workItemId}, 0)
+    )
+  `;
+}
+
+function targetSignature(targets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha">>) {
+  return targets
+    .map((target) => `${target.sourceId}:${target.commitSha}`)
+    .sort()
+    .join("|");
+}
+
+function latestResolvedAt(targets: Array<Pick<RepositoryTargetHead, "resolvedAt">>) {
+  return targets.reduce((latest, target) => {
+    const resolvedAt = Date.parse(target.resolvedAt);
+    return Number.isFinite(resolvedAt) ? Math.max(latest, resolvedAt) : latest;
+  }, Number.NEGATIVE_INFINITY);
+}
+
+export function isNewerKnowledgeRefreshGeneration(input: {
+  currentTargets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha" | "resolvedAt">>;
+  candidateTargets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha" | "resolvedAt">>;
+  currentCreatedAt: Date;
+  candidateCreatedAt: Date;
+}) {
+  if (targetSignature(input.currentTargets) === targetSignature(input.candidateTargets)) {
+    return false;
+  }
+  const currentResolvedAt = latestResolvedAt(input.currentTargets);
+  const candidateResolvedAt = latestResolvedAt(input.candidateTargets);
+  if (candidateResolvedAt !== currentResolvedAt) {
+    return candidateResolvedAt > currentResolvedAt;
+  }
+  return input.candidateCreatedAt.getTime() > input.currentCreatedAt.getTime();
+}
+
+function repositoryTargets(value: unknown): RepositoryTargetHead[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((target): target is RepositoryTargetHead => {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return false;
+    const record = target as Record<string, unknown>;
+    return typeof record.sourceId === "string" &&
+      typeof record.commitSha === "string" &&
+      typeof record.resolvedAt === "string";
+  });
+}
+
+export class KnowledgeRefreshGenerationSupersededError extends Error {
+  constructor(runId: string, newerRunId?: string) {
+    super(
+      newerRunId
+        ? `Repository refresh ${runId} was superseded by newer refresh ${newerRunId}.`
+        : `Repository refresh ${runId} no longer owns the current knowledge generation.`,
+    );
+    this.name = "KnowledgeRefreshGenerationSupersededError";
+  }
+}
+
+export async function assertKnowledgeRefreshGenerationCurrent(
+  runId: string,
+  client: KnowledgeRefreshFenceClient = prisma as unknown as KnowledgeRefreshFenceClient,
+) {
+  const current = await client.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    select: {
+      id: true,
+      workItemId: true,
+      status: true,
+      targetHeads: true,
+      createdAt: true,
+    },
+  });
+  if (current.status !== "reconciling") {
+    throw new KnowledgeRefreshGenerationSupersededError(runId);
+  }
+  const currentTargets = repositoryTargets(current.targetHeads);
+  const candidates = await client.knowledgeRefreshRun.findMany({
+    where: {
+      workItemId: current.workItemId,
+      id: { not: current.id },
+      status: { not: "cancelled" },
+      createdAt: { gte: current.createdAt },
+    },
+    select: {
+      id: true,
+      targetHeads: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const superseding = candidates.find((candidate) =>
+    isNewerKnowledgeRefreshGeneration({
+      currentTargets,
+      candidateTargets: repositoryTargets(candidate.targetHeads),
+      currentCreatedAt: current.createdAt,
+      candidateCreatedAt: candidate.createdAt,
+    })
+  );
+  if (superseding) {
+    throw new KnowledgeRefreshGenerationSupersededError(runId, superseding.id);
+  }
+  return current;
+}
+
+export async function withKnowledgeRefreshGenerationFence<T>(
+  runId: string,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  options: { timeoutMs?: number } = {},
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const generation = await tx.knowledgeRefreshRun.findUniqueOrThrow({
+          where: { id: runId },
+          select: { workItemId: true },
+        });
+        await lockKnowledgeRefreshWorkItem(tx, generation.workItemId);
+        await assertKnowledgeRefreshGenerationCurrent(runId, tx);
+        return operation(tx);
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: options.timeoutMs ?? 15_000,
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : null;
+      if (code === "P2034" && attempt < 2) continue;
+      throw error;
+    }
+  }
+  throw new Error("The repository knowledge generation transaction could not be completed.");
+}
+
 export function allowsCanonicalKnowledgeReplacement(qualityStatus: unknown) {
   return qualityStatus === "verified";
 }
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+export function applySynthesisCoverageGapsToRefreshState(input: {
+  coverage: unknown;
+  warnings: unknown;
+  coverageGaps: string[];
+}) {
+  const coverageGaps = Array.from(new Set(input.coverageGaps));
+  const coverage = Array.isArray(input.coverage)
+    ? input.coverage.map((entry) => {
+        const current = objectRecord(entry);
+        const repository = typeof current.repository === "string" ? current.repository : null;
+        const repositoryGaps = repository
+          ? coverageGaps.filter((gap) => gap.startsWith(`Repository ${repository} `))
+          : [];
+        if (!repositoryGaps.length) return current;
+        return {
+          ...current,
+          coverageStatus: "partial",
+          capabilityCoverageStatus: "partial",
+          coverageGaps: Array.from(new Set([
+            ...stringArray(current.coverageGaps),
+            ...repositoryGaps,
+          ])),
+        };
+      })
+    : [];
+  const warnings = objectRecord(input.warnings);
+  return {
+    coverage,
+    warnings: {
+      ...warnings,
+      synthesisCoverageGaps: Array.from(new Set([
+        ...stringArray(warnings.synthesisCoverageGaps),
+        ...coverageGaps,
+      ])),
+    },
+  };
+}
+
+async function persistSynthesisCoverageGaps(
+  runId: string,
+  synthesis: SynthesizedKnowledge[],
+) {
+  const gapsBySubsystem = new Map(
+    synthesis
+      .filter((subsystem) => subsystem.coverageGaps.length)
+      .map((subsystem) => [subsystem.subsystemKey, subsystem.coverageGaps] as const),
+  );
+  if (!gapsBySubsystem.size) return [];
+  const allGaps = Array.from(new Set(Array.from(gapsBySubsystem.values()).flat()));
+  await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
+    const [run, ledgers] = await Promise.all([
+      tx.knowledgeRefreshRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { coverage: true, warnings: true },
+      }),
+      tx.repositoryCapabilityLedger.findMany({
+        where: {
+          refreshRunId: runId,
+          capabilityKey: { in: Array.from(gapsBySubsystem.keys()) },
+        },
+        select: { id: true, capabilityKey: true, gaps: true },
+      }),
+    ]);
+    for (const ledger of ledgers) {
+      const subsystemGaps = gapsBySubsystem.get(ledger.capabilityKey) ?? [];
+      await tx.repositoryCapabilityLedger.update({
+        where: { id: ledger.id },
+        data: {
+          status: "partial",
+          gaps: toInputJson(Array.from(new Set([
+            ...stringArray(ledger.gaps),
+            ...subsystemGaps,
+          ]))),
+        },
+      });
+    }
+    const state = applySynthesisCoverageGapsToRefreshState({
+      coverage: run.coverage,
+      warnings: run.warnings,
+      coverageGaps: allGaps,
+    });
+    await tx.knowledgeRefreshRun.update({
+      where: { id: runId },
+      data: {
+        qualityStatus: "degraded",
+        coverage: toInputJson(state.coverage),
+        warnings: toInputJson(state.warnings),
+      },
+    });
+  });
+  return allGaps;
 }
 
 function hash(value: string) {
@@ -96,10 +352,6 @@ export function knowledgeSimilarity(left: string, right: string) {
   return intersection / new Set([...leftTokens, ...rightTokens]).size;
 }
 
-function referenceKey(entry: SynthesisNotebookEntry) {
-  return `${entry.sourceId}:${entry.blobSha}:${entry.lineStart}:${entry.lineEnd}`;
-}
-
 function evidenceIdsForIndexes(input: {
   subsystem: SynthesizedKnowledge;
   citationIndexes: number[];
@@ -108,7 +360,7 @@ function evidenceIdsForIndexes(input: {
   return Array.from(new Set(input.citationIndexes.flatMap((index) => {
     const notebook = input.subsystem.notebook[index - 1];
     if (!notebook) return [];
-    const evidenceId = input.promotedIdByReference.get(referenceKey(notebook));
+    const evidenceId = input.promotedIdByReference.get(synthesisNotebookReferenceKey(notebook));
     return evidenceId ? [evidenceId] : [];
   })));
 }
@@ -121,7 +373,7 @@ function citationsForIndexes(input: {
   return input.citationIndexes.flatMap((index) => {
     const notebook = input.subsystem.notebook[index - 1];
     if (!notebook) return [];
-    const citation = input.materialized.get(referenceKey(notebook));
+    const citation = input.materialized.get(synthesisNotebookReferenceKey(notebook));
     return citation ? [citation] : [];
   });
 }
@@ -173,53 +425,41 @@ async function preparePromotedEvidence(input: {
   synthesis: SynthesizedKnowledge[];
   userId: string;
 }) {
-  const materialized = await materializeSynthesisCitations({
-    userId: input.userId,
-    workItemId: input.workItemId,
-    targets: input.targets,
-    synthesis: input.synthesis,
-  });
+  const [materialized, snapshots] = await Promise.all([
+    materializeSynthesisCitations({
+      userId: input.userId,
+      workItemId: input.workItemId,
+      targets: input.targets,
+      synthesis: input.synthesis,
+    }),
+    prisma.repositorySnapshot.findMany({
+      where: { refreshRunId: input.runId },
+      select: { id: true, sourceId: true, commitSha: true },
+    }),
+  ]);
   const entries = Array.from(materialized.entries());
+  const snapshotByHead = new Map(
+    snapshots.map((snapshot) => [`${snapshot.sourceId}:${snapshot.commitSha}`, snapshot.id] as const),
+  );
   const promoted = await promoteRepositoryCitations({
     workItemId: input.workItemId,
     citations: entries.map(([, citation]) => citation),
     reviewScope: `knowledge-refresh:${input.runId}`,
     refreshRunId: input.runId,
+    repositorySnapshotIdByHead: snapshotByHead,
+    mutationFence: (operation) =>
+      withKnowledgeRefreshGenerationFence(input.runId, operation, {
+        // The bounded phase can promote several dozen exact excerpts on a cold
+        // multi-repository refresh. It performs no network or model work while
+        // holding the lock, but Neon may need more than the ordinary 15s CAS
+        // window for all Evidence, tag, and review-card writes.
+        timeoutMs: 45_000,
+      }),
   });
   const promotedIdByReference = new Map<string, string>();
   for (const [index, [key]] of entries.entries()) {
     const evidenceId = promoted.evidenceIdByCitationIndex.get(index);
     if (evidenceId) promotedIdByReference.set(key, evidenceId);
-  }
-  const snapshots = await prisma.repositorySnapshot.findMany({
-    where: { refreshRunId: input.runId },
-    select: { id: true, sourceId: true, commitSha: true },
-  });
-  const notebookByReference = new Map(
-    input.synthesis.flatMap((subsystem) => subsystem.notebook)
-      .map((entry) => [referenceKey(entry), entry] as const),
-  );
-  const snapshotByHead = new Map(
-    snapshots.map((snapshot) => [`${snapshot.sourceId}:${snapshot.commitSha}`, snapshot.id] as const),
-  );
-  const updates = Array.from(promotedIdByReference, ([reference, evidenceId]) => {
-    const notebook = notebookByReference.get(reference);
-    const repositorySnapshotId = notebook
-      ? snapshotByHead.get(`${notebook.sourceId}:${notebook.commitSha}`)
-      : undefined;
-    // Promotion already applies lifecycle/review/validation fields. This pass
-    // only attaches refresh-specific identity, avoiding a second timestamp and
-    // lifecycle rewrite for every excerpt.
-    return prisma.evidenceItem.update({
-      where: { id: evidenceId },
-      data: {
-        logicalKey: notebook ? `github_file:${notebook.path}:${notebook.lineStart}:${notebook.lineEnd}` : undefined,
-        repositorySnapshotId,
-      },
-    });
-  });
-  for (let offset = 0; offset < updates.length; offset += 8) {
-    await Promise.all(updates.slice(offset, offset + 8));
   }
   return { materialized, promotedIdByReference };
 }
@@ -262,7 +502,7 @@ async function applyFact(input: {
   );
 
   if ((exact || validatesUserEdit) && !unsafe && closest) {
-    await prisma.$transaction(async (tx) => {
+    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       await tx.projectFactEvidence.deleteMany({ where: { projectFactId: closest.fact.id } });
       await tx.projectFact.update({
         where: { id: closest.fact.id },
@@ -284,6 +524,7 @@ async function applyFact(input: {
       });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
     });
+    await assertKnowledgeRefreshGenerationCurrent(input.runId);
     await recordChange({
       workItemId: input.workItemId,
       refreshRunId: input.runId,
@@ -333,7 +574,7 @@ async function applyFact(input: {
   const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.fact
     : null;
-  const fact = await prisma.$transaction(async (tx) => {
+  const fact = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
     const created = await tx.projectFact.create({
       data: {
         workItemId: input.workItemId,
@@ -371,11 +612,13 @@ async function applyFact(input: {
   // for an embedding that cannot be used; the review service creates one if a
   // user later edits and activates the candidate.
   if (!unsafe) {
+    await assertKnowledgeRefreshGenerationCurrent(input.runId);
     await upsertProjectFactEmbedding({
       projectFactId: fact.id,
       inputText: buildProjectFactEmbeddingText(fact),
     });
   }
+  await assertKnowledgeRefreshGenerationCurrent(input.runId);
   await recordChange({
     workItemId: input.workItemId,
     refreshRunId: input.runId,
@@ -445,7 +688,7 @@ async function applyHighlight(input: {
     }, input.sourceEntries),
   );
   if ((exact || validatesUserEdit) && !unsafe && closest) {
-    await prisma.$transaction(async (tx) => {
+    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       await tx.highlightEvidence.deleteMany({ where: { highlightId: closest.highlight.id } });
       await tx.highlight.update({
         where: { id: closest.highlight.id },
@@ -463,6 +706,7 @@ async function applyHighlight(input: {
       });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
     });
+    await assertKnowledgeRefreshGenerationCurrent(input.runId);
     await recordChange({
       workItemId: input.workItemId,
       refreshRunId: input.runId,
@@ -516,7 +760,7 @@ async function applyHighlight(input: {
     summary: input.candidate.summary,
     verificationNotes: publicVerification.reasons.join(" ") || "Verified from complete repository coverage.",
   });
-  const highlight = await prisma.$transaction(async (tx) => {
+  const highlight = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
     const created = await tx.highlight.create({
       data: {
         workItemId: input.workItemId,
@@ -562,6 +806,7 @@ async function applyHighlight(input: {
   // Quarantined Highlights likewise cannot enter retrieval until review, so
   // defer their embedding instead of creating an immediately unused vector.
   if (!unsafe) {
+    await assertKnowledgeRefreshGenerationCurrent(input.runId);
     await upsertHighlightEmbedding({
       highlightId: highlight.id,
       inputText: buildHighlightEmbeddingText({
@@ -573,6 +818,7 @@ async function applyHighlight(input: {
       }),
     });
   }
+  await assertKnowledgeRefreshGenerationCurrent(input.runId);
   await recordChange({
     workItemId: input.workItemId,
     refreshRunId: input.runId,
@@ -589,15 +835,20 @@ async function applyHighlight(input: {
 }
 
 export async function reconcileRepositoryKnowledge(runId: string) {
+  await assertKnowledgeRefreshGenerationCurrent(runId);
   const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
     include: { workItem: { select: { userId: true } } },
   });
   if (run.status !== "reconciling") throw new Error("Repository coverage must complete before reconciliation.");
   const targets = run.targetHeads as unknown as RepositoryTargetHead[];
-  const allowCanonicalReplacement = allowsCanonicalKnowledgeReplacement(run.qualityStatus);
   const partialChanges = await prisma.knowledgeChange.count({ where: { refreshRunId: runId } });
   const synthesis = await synthesizeRepositoryKnowledge(runId, { fallbackOnly: partialChanges > 0 });
+  const synthesisCoverageGaps = await persistSynthesisCoverageGaps(runId, synthesis);
+  const allowCanonicalReplacement =
+    allowsCanonicalKnowledgeReplacement(run.qualityStatus) &&
+    synthesisCoverageGaps.length === 0;
+  await assertKnowledgeRefreshGenerationCurrent(runId);
   const { materialized, promotedIdByReference } = await preparePromotedEvidence({
     runId,
     workItemId: run.workItemId,
@@ -605,6 +856,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     synthesis,
     userId: run.workItem.userId,
   });
+  await assertKnowledgeRefreshGenerationCurrent(runId);
   const processSubsystem = async (subsystem: SynthesizedKnowledge) => {
     const produced = { projectFactIds: [] as string[], highlightIds: [] as string[] };
     for (const candidate of subsystem.facts) {
@@ -658,10 +910,12 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     results.push(...await Promise.all(synthesis.slice(start, start + 4).map(processSubsystem)));
   }
   for (const { subsystemKey, produced } of results) {
-    await prisma.repositoryCapabilityLedger.updateMany({
-      where: { refreshRunId: runId, capabilityKey: subsystemKey },
-      data: { producedEntityRefs: toInputJson(produced) },
-    });
+    await withKnowledgeRefreshGenerationFence(runId, (tx) =>
+      tx.repositoryCapabilityLedger.updateMany({
+        where: { refreshRunId: runId, capabilityKey: subsystemKey },
+        data: { producedEntityRefs: toInputJson(produced) },
+      })
+    );
   }
   const appliedFactIds = results.flatMap((entry) => entry.produced.projectFactIds);
   const appliedHighlightIds = results.flatMap((entry) => entry.produced.highlightIds);
@@ -670,6 +924,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     appliedFactIds: Array.from(new Set(appliedFactIds)),
     appliedHighlightIds: Array.from(new Set(appliedHighlightIds)),
     promotedEvidenceIds: Array.from(new Set(promotedIdByReference.values())),
+    coverageGaps: synthesisCoverageGaps,
   };
 }
 

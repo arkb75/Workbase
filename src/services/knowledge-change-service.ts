@@ -34,6 +34,36 @@ function relationFor(kind: EntityKind, entityId: string) {
         : { artifactId: entityId };
 }
 
+async function runSerializableTransaction<T>(
+  task: (client: Prisma.TransactionClient) => Promise<T>,
+) {
+  const maximumAttempts = 8;
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(task, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 10_000,
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : null;
+      if (code === "P2034" && attempt < maximumAttempts - 1) {
+        // Immediate retries from several repository excerpts can repeatedly
+        // collide on Neon/PostgreSQL's serializable review indexes. A short
+        // capped exponential backoff preserves the transaction's correctness
+        // while letting a competing transition commit before the next retry.
+        const baseDelayMs = Math.min(250, 10 * (2 ** attempt));
+        const delayMs = baseDelayMs + Math.floor(Math.random() * Math.max(1, baseDelayMs / 2));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Serializable transaction retry budget exhausted.");
+}
+
 /**
  * Persists one review card per lifecycle transition and retires older pending
  * cards for the same entity. An already persisted idempotency key is returned
@@ -54,8 +84,17 @@ export async function upsertReviewableKnowledgeChange(input: {
   modelId?: string | null;
   idempotencyKey: string;
 }) {
+  return runSerializableTransaction((client) =>
+    upsertReviewableKnowledgeChangeOnce(input, client)
+  );
+}
+
+async function upsertReviewableKnowledgeChangeOnce(
+  input: Parameters<typeof upsertReviewableKnowledgeChange>[0],
+  client: Prisma.TransactionClient,
+) {
   const relation = relationFor(input.entityKind, input.entityId);
-  const existing = await prisma.knowledgeChange.findUnique({
+  const existing = await client.knowledgeChange.findUnique({
     where: {
       workItemId_idempotencyKey: {
         workItemId: input.workItemId,
@@ -65,7 +104,7 @@ export async function upsertReviewableKnowledgeChange(input: {
   });
   if (existing) return existing;
 
-  const change = await prisma.knowledgeChange.upsert({
+  const change = await client.knowledgeChange.upsert({
     where: {
       workItemId_idempotencyKey: {
         workItemId: input.workItemId,
@@ -95,7 +134,8 @@ export async function upsertReviewableKnowledgeChange(input: {
       ? input.beforeSnapshot as Record<string, unknown>
       : null;
     const predecessorId = typeof before?.id === "string" && before.id !== input.entityId ? before.id : null;
-    await prisma.knowledgeChange.updateMany({
+    const reviewedAt = new Date();
+    await client.knowledgeChange.updateMany({
       where: {
         workItemId: input.workItemId,
         decision: "pending",
@@ -104,12 +144,12 @@ export async function upsertReviewableKnowledgeChange(input: {
       },
       data: {
         decision: "retired",
-        reviewedAt: new Date(),
+        reviewedAt,
         feedback: "This review card was superseded by a newer lifecycle transition for the same item.",
       },
     });
     if (predecessorId) {
-      await prisma.knowledgeChange.updateMany({
+      await client.knowledgeChange.updateMany({
         where: {
           workItemId: input.workItemId,
           decision: "pending",
@@ -117,13 +157,20 @@ export async function upsertReviewableKnowledgeChange(input: {
         },
         data: {
           decision: "retired",
-          reviewedAt: new Date(),
+          reviewedAt,
           feedback: "This review card was superseded by a newer immutable successor.",
         },
       });
     }
   }
   return change;
+}
+
+export function upsertReviewableKnowledgeChangeInTransaction(
+  input: Parameters<typeof upsertReviewableKnowledgeChange>[0],
+  client: Prisma.TransactionClient,
+) {
+  return upsertReviewableKnowledgeChangeOnce(input, client);
 }
 
 /**
@@ -140,9 +187,78 @@ export async function recordAutoResolvedKnowledgeChanges(
   inputs: readonly AutoResolvedKnowledgeChangeInput[],
 ) {
   if (!inputs.length) return { count: 0 };
+  return runSerializableTransaction((client) =>
+    recordAutoResolvedKnowledgeChangesOnce(inputs, client)
+  );
+}
+
+async function recordAutoResolvedKnowledgeChangesOnce(
+  inputs: readonly AutoResolvedKnowledgeChangeInput[],
+  client: Prisma.TransactionClient,
+) {
   const reviewedAt = new Date();
-  return prisma.knowledgeChange.createMany({
-    data: inputs.map((input) => ({
+  const idsByKind = new Map<EntityKind, Set<string>>();
+  for (const input of inputs) {
+    const ids = idsByKind.get(input.entityKind) ?? new Set<string>();
+    ids.add(input.entityId);
+    idsByKind.set(input.entityKind, ids);
+  }
+  const workItemIds = Array.from(new Set(inputs.map((input) => input.workItemId)));
+  const [evidenceItems, highlights, projectFacts, artifacts] = await Promise.all([
+    idsByKind.get("evidence")?.size
+      ? client.evidenceItem.findMany({
+          where: { id: { in: Array.from(idsByKind.get("evidence")!) } },
+          select: { id: true, lifecycleStatus: true, validatedThroughSha: true, content: true },
+        })
+      : Promise.resolve([]),
+    idsByKind.get("highlight")?.size
+      ? client.highlight.findMany({
+          where: { id: { in: Array.from(idsByKind.get("highlight")!) } },
+          select: { id: true, lifecycleStatus: true, validatedThroughSha: true, text: true },
+        })
+      : Promise.resolve([]),
+    idsByKind.get("project_fact")?.size
+      ? client.projectFact.findMany({
+          where: { id: { in: Array.from(idsByKind.get("project_fact")!) } },
+          select: {
+            id: true,
+            lifecycleStatus: true,
+            validatedThroughSha: true,
+            status: true,
+            statement: true,
+          },
+        })
+      : Promise.resolve([]),
+    idsByKind.get("artifact")?.size
+      ? client.artifact.findMany({
+          where: { id: { in: Array.from(idsByKind.get("artifact")!) } },
+          select: { id: true, lifecycleStatus: true, validatedThroughSha: true, content: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const currentByEntity = new Map<string, Record<string, unknown>>([
+    ...evidenceItems.map((entity) => [`evidence:${entity.id}`, entity] as const),
+    ...highlights.map((entity) => [`highlight:${entity.id}`, entity] as const),
+    ...projectFacts.map((entity) => [`project_fact:${entity.id}`, entity] as const),
+    ...artifacts.map((entity) => [`artifact:${entity.id}`, entity] as const),
+  ]);
+  const safeInputs = inputs.filter((input) =>
+    reviewSnapshotMatchesEntity({
+      entityId: input.entityId,
+      afterSnapshot: input.afterSnapshot,
+      entity: currentByEntity.get(`${input.entityKind}:${input.entityId}`) ?? null,
+    })
+  );
+  if (!safeInputs.length) return { count: 0 };
+  const safelyResolvedEntities = new Set(safeInputs.map((input) =>
+    `${input.workItemId}:${input.entityKind}:${input.entityId}`
+  ));
+  const safeInputByEntity = new Map(safeInputs.map((input) => [
+    `${input.workItemId}:${input.entityKind}:${input.entityId}`,
+    input,
+  ]));
+  const created = await client.knowledgeChange.createMany({
+    data: safeInputs.map((input) => ({
       workItemId: input.workItemId,
       refreshRunId: input.refreshRunId ?? null,
       entityKind: input.entityKind,
@@ -170,6 +286,96 @@ export async function recordAutoResolvedKnowledgeChanges(
     })),
     skipDuplicates: true,
   });
+  const pending = await client.knowledgeChange.findMany({
+    where: {
+      workItemId: { in: workItemIds },
+      decision: "pending",
+      OR: Array.from(idsByKind, ([kind, ids]) =>
+        kind === "evidence"
+          ? { evidenceItemId: { in: Array.from(ids) } }
+          : kind === "highlight"
+            ? { highlightId: { in: Array.from(ids) } }
+            : kind === "project_fact"
+              ? { projectFactId: { in: Array.from(ids) } }
+              : { artifactId: { in: Array.from(ids) } }
+      ),
+    },
+    select: {
+      id: true,
+      workItemId: true,
+      action: true,
+      afterSnapshot: true,
+      evidenceItemId: true,
+      highlightId: true,
+      projectFactId: true,
+      artifactId: true,
+    },
+  });
+  const obsoleteIds = pending.flatMap((change) => {
+    const after = change.afterSnapshot && typeof change.afterSnapshot === "object" && !Array.isArray(change.afterSnapshot)
+      ? change.afterSnapshot as Record<string, unknown>
+      : null;
+    const lifecycleStatus = typeof after?.lifecycleStatus === "string"
+      ? after.lifecycleStatus
+      : null;
+    const entityKind: EntityKind = change.evidenceItemId
+      ? "evidence"
+      : change.highlightId
+        ? "highlight"
+        : change.projectFactId
+          ? "project_fact"
+          : "artifact";
+    const entityId = change.evidenceItemId ??
+      change.highlightId ??
+      change.projectFactId ??
+      change.artifactId;
+    if (
+      !entityId ||
+      !safelyResolvedEntities.has(`${change.workItemId}:${entityKind}:${entityId}`)
+    ) return [];
+    const safeInput = safeInputByEntity.get(`${change.workItemId}:${entityKind}:${entityId}`);
+    const priorEntity = safeInput?.beforeSnapshot &&
+      typeof safeInput.beforeSnapshot === "object" &&
+      !Array.isArray(safeInput.beforeSnapshot)
+      ? safeInput.beforeSnapshot as Record<string, unknown>
+      : null;
+    // Only close the exact warning that represented the state this automatic
+    // transition just repaired. A newer lifecycle warning for the same entity
+    // must remain visible even if it appears between the entity write and this
+    // batched audit pass.
+    if (
+      !priorEntity ||
+      !reviewSnapshotMatchesEntity({
+        entityId,
+        afterSnapshot: change.afterSnapshot,
+        entity: priorEntity,
+      })
+    ) return [];
+    return (
+      lifecycleStatus === "needs_validation" ||
+      lifecycleStatus === "stale" ||
+      lifecycleStatus === "quarantined" ||
+      change.action === "retired"
+    ) ? [change.id] : [];
+  });
+  if (obsoleteIds.length) {
+    await client.knowledgeChange.updateMany({
+      where: { id: { in: obsoleteIds }, decision: "pending" },
+      data: {
+        decision: "retired",
+        reviewedAt,
+        feedback: "This lifecycle-warning card was resolved automatically because immutable repository content was unchanged.",
+      },
+    });
+  }
+  return created;
+}
+
+export function recordAutoResolvedKnowledgeChangesInTransaction(
+  inputs: readonly AutoResolvedKnowledgeChangeInput[],
+  client: Prisma.TransactionClient,
+) {
+  return recordAutoResolvedKnowledgeChangesOnce(inputs, client);
 }
 
 export function entityRelationId(change: {

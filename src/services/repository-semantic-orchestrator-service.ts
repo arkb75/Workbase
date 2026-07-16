@@ -29,12 +29,13 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v9";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v10";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
 const MAX_MANDATORY_SEMANTIC_FILES = REPOSITORY_ORCHESTRATION_MAX_WORKERS * SEMANTIC_MICRO_BATCH_SIZE;
+const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 32_000;
 
 const SEMANTIC_FACET_SUPPLEMENTS = [
   {
@@ -81,6 +82,66 @@ const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
     "For ingestion_integrations, how does durable repository import complement the separate budgeted code-exploration path?",
   ],
 };
+
+const SEMANTIC_SIGNAL_RULES = [
+  ["product_surface.product_loop", "product_surface", /^README\.md$/i],
+  ["product_surface.safe_auto_apply", "product_surface", /^README\.md$/i],
+  ["product_surface.unsafe_quarantine", "product_surface", /^README\.md$/i],
+  ["product_surface.approved_artifacts", "product_surface", /^README\.md$/i],
+  ["domain_data.typed_provenance", "domain_data", /prisma\/schema\.prisma$/i],
+  ["domain_data.repository_snapshots", "domain_data", /prisma\/schema\.prisma$/i],
+  ["domain_data.vector_embeddings", "domain_data", /prisma\/schema\.prisma$/i],
+  ["ai_runtime.converse_metadata", "ai_runtime", /bedrock-converse-agent/i],
+  ["ai_runtime.execution_budgets", "ai_runtime", /bedrock-converse-agent/i],
+  ["ai_runtime.credential_redaction", "ai_runtime", /bedrock-converse-agent/i],
+  ["ingestion_integrations.bounded_import", "ingestion_integrations", /github-repo-import-service/i],
+  ["ingestion_integrations.project_evidence_persistence", "ingestion_integrations", /github-repo-import-service/i],
+  ["ingestion_integrations.exploration_budgets", "ingestion_integrations", /github-repository-exploration-service/i],
+  ["ingestion_integrations.typed_exploration_failures", "ingestion_integrations", /github-repository-exploration-service/i],
+  ["retrieval_provenance.hybrid_top_k", "retrieval_provenance", /project-knowledge-retrieval-service/i],
+  ["retrieval_provenance.artifact_regrounding", "retrieval_provenance", /project-knowledge-retrieval-service/i],
+  ["retrieval_provenance.nested_repository_provenance", "retrieval_provenance", /project-knowledge-retrieval-service/i],
+  ["workflow_orchestration.chat_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.repository_refresh_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.artifact_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.approval_pause_resume", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["repository_knowledge_lifecycle.refresh_analysis", "repository_knowledge_lifecycle", /knowledge-refresh-service/i],
+  ["repository_knowledge_lifecycle.synthesis", "repository_knowledge_lifecycle", /repository-knowledge-synthesis-service/i],
+  ["repository_knowledge_lifecycle.reconciliation", "repository_knowledge_lifecycle", /knowledge-reconciliation-service/i],
+  ["repository_knowledge_lifecycle.staleness", "repository_knowledge_lifecycle", /knowledge-staleness-service/i],
+  ["repository_knowledge_lifecycle.work_packages", "repository_knowledge_lifecycle", /repository-semantic-orchestrator-service/i],
+  ["repository_knowledge_lifecycle.coverage_audit", "repository_knowledge_lifecycle", /repository-semantic-orchestrator-service/i],
+  ["project_chat_grounding.multi_turn_history", "project_chat_grounding", /project-chat-agent-service/i],
+  ["project_chat_grounding.latest_commit_context", "project_chat_grounding", /project-chat-agent-service/i],
+  ["project_chat_grounding.fail_closed_answering", "project_chat_grounding", /project-chat-agent-service/i],
+  ["project_chat_grounding.high_authority_memory", "project_chat_grounding", /project-agent-harness/i],
+  ["project_chat_grounding.deterministic_routing", "project_chat_grounding", /project-execution-router-service/i],
+  ["project_chat_grounding.safety_budget_routing", "project_chat_grounding", /project-execution-router-service/i],
+  ["artifact_generation.metric_brief_detection", "artifact_generation", /artifact-workflow-service/i],
+  ["artifact_generation.authority_backed_metrics", "artifact_generation", /artifact-workflow-service/i],
+  ["artifact_generation.unsupported_metric_hard_stop", "artifact_generation", /artifact-workflow-service/i],
+  ["knowledge_review_lifecycle.immutable_successors", "knowledge_review_lifecycle", /knowledge-review-service/i],
+  ["knowledge_review_lifecycle.dependent_invalidation", "knowledge_review_lifecycle", /knowledge-review-service/i],
+  ["knowledge_review_lifecycle.restore_retire_modes", "knowledge_review_lifecycle", /knowledge-review-service/i],
+  ["review_ui.url_addressable_views", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
+  ["review_ui.highlight_lifecycle", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
+  ["review_ui.artifact_highlight_traceability", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
+  ["review_ui.candidate_metadata", "review_ui", /project-chat-workspace/i],
+  ["review_ui.citation_navigation", "review_ui", /project-chat-workspace/i],
+  ["tests_operations.scenario_breadth", "tests_operations", /project-chat-application-runner\.test/i],
+  ["tests_operations.zero_call_cache", "tests_operations", /project-chat-application-runner\.test/i],
+  ["tests_operations.prerequisite_history", "tests_operations", /project-chat-application-runner\.test/i],
+] as const;
+
+export function semanticSignalKeysForFile(input: {
+  path: string;
+  capabilityKeys: string[];
+}) {
+  const capabilities = new Set(input.capabilityKeys);
+  return SEMANTIC_SIGNAL_RULES.flatMap(([signalKey, capabilityKey, pathPattern]) =>
+    capabilities.has(capabilityKey) && pathPattern.test(input.path) ? [signalKey] : []
+  );
+}
 
 const workPackageSchema = z.object({
   packages: z.array(z.object({
@@ -198,6 +259,96 @@ export function allocateSemanticWorkerTokenBudgets(input: {
     remainder -= 1;
   }
   return allocations;
+}
+
+export function semanticPlannerTokenReserve(usage: {
+  totalTokens: number;
+  unknownUsageCalls: number;
+}) {
+  return usage.unknownUsageCalls > 0
+    ? SEMANTIC_PLANNER_MAX_TOTAL_TOKENS
+    : Math.min(SEMANTIC_PLANNER_MAX_TOTAL_TOKENS, Math.max(0, usage.totalTokens));
+}
+
+export function packSemanticBundleIndexes(input: {
+  bundles: Array<{
+    size: number;
+    capabilityKeys: string[];
+    orderKey: string;
+  }>;
+  plannerClaims: string[][];
+  maxWorkers?: number;
+  maxFilesPerWorker?: number;
+  microBatchSize?: number;
+}) {
+  const maxWorkers = input.maxWorkers ?? REPOSITORY_ORCHESTRATION_MAX_WORKERS;
+  const maxFilesPerWorker = input.maxFilesPerWorker ?? MAX_FILES_PER_WORKER;
+  const microBatchSize = input.microBatchSize ?? SEMANTIC_MICRO_BATCH_SIZE;
+  type State = {
+    loads: number[];
+    assignments: number[][];
+    plannerOverlap: number;
+    signature: string;
+  };
+  let states = new Map<string, State>([[
+    Array.from({ length: maxWorkers }, () => 0).join(","),
+    {
+      loads: Array.from({ length: maxWorkers }, () => 0),
+      assignments: Array.from({ length: maxWorkers }, () => [] as number[]),
+      plannerOverlap: 0,
+      signature: "",
+    },
+  ]]);
+  for (const [bundleIndex, bundle] of input.bundles.entries()) {
+    if (bundle.size < 1 || bundle.size > maxFilesPerWorker) return null;
+    const next = new Map<string, State>();
+    for (const state of states.values()) {
+      for (let workerIndex = 0; workerIndex < maxWorkers; workerIndex += 1) {
+        if (state.loads[workerIndex]! + bundle.size > maxFilesPerWorker) continue;
+        const loads = [...state.loads];
+        loads[workerIndex]! += bundle.size;
+        const assignments = state.assignments.map((entries) => [...entries]);
+        assignments[workerIndex]!.push(bundleIndex);
+        const plannerClaimSet = new Set(input.plannerClaims[workerIndex] ?? []);
+        const plannerOverlap = state.plannerOverlap +
+          bundle.capabilityKeys.filter((key) => plannerClaimSet.has(key)).length;
+        const signature = assignments
+          .map((entries) => entries.map((index) => input.bundles[index]!.orderKey).join("+"))
+          .join("|");
+        const key = loads.join(",");
+        const prior = next.get(key);
+        if (
+          !prior ||
+          plannerOverlap > prior.plannerOverlap ||
+          (plannerOverlap === prior.plannerOverlap && signature < prior.signature)
+        ) {
+          next.set(key, { loads, assignments, plannerOverlap, signature });
+        }
+      }
+    }
+    states = next;
+    if (!states.size) return null;
+  }
+  return Array.from(states.values()).sort((left, right) => {
+    const leftCalls = left.loads.reduce(
+      (total, load) => total + (load ? Math.ceil(load / microBatchSize) : 0),
+      0,
+    );
+    const rightCalls = right.loads.reduce(
+      (total, load) => total + (load ? Math.ceil(load / microBatchSize) : 0),
+      0,
+    );
+    const leftMaxTier = Math.max(...left.loads.map((load) =>
+      load ? Math.ceil(load / microBatchSize) : 0
+    ));
+    const rightMaxTier = Math.max(...right.loads.map((load) =>
+      load ? Math.ceil(load / microBatchSize) : 0
+    ));
+    return leftCalls - rightCalls ||
+      leftMaxTier - rightMaxTier ||
+      right.plannerOverlap - left.plannerOverlap ||
+      left.signature.localeCompare(right.signature);
+  })[0]?.assignments ?? null;
 }
 
 export function semanticFileReportSignals(input: {
@@ -386,20 +537,27 @@ export function fileRelevantCapabilityKeys(input: {
 }
 
 export function buildFileSemanticTask(input: {
+  path: string;
   workPackageCapabilityKeys: string[];
   staticSubsystemKeys: string[];
 }) {
   const capabilityKeys = fileRelevantCapabilityKeys(input);
   if (!capabilityKeys.length) return null;
+  const semanticSignalKeys = semanticSignalKeysForFile({
+    path: input.path,
+    capabilityKeys,
+  });
   return {
     objective: `Establish evidence-backed semantic coverage only for these file-relevant capabilities: ${capabilityKeys.join(", ")}.`,
     capabilityKeys,
+    semanticSignalKeys,
     questions: capabilityKeys.flatMap((key) =>
       CAPABILITY_SEMANTIC_QUESTIONS[key] ?? [`What implemented behavior in this file directly supports ${key}?`]
     ),
     expectedOutputs: [
       "Evidence-backed findings only for the listed file-relevant capabilities.",
       "Exact supporting line ranges for every finding.",
+      "Attach every supplied semantic signal that the cited lines directly establish; omit unsupported signals.",
     ],
   };
 }
@@ -515,6 +673,14 @@ export function enforceMandatoryCoverage(input: {
       left.key.localeCompare(right.key) ||
       (left.scopeKey ?? "").localeCompare(right.scopeKey ?? "")
     );
+  const manifestOrder = new Map(orderedManifest.map((entry, index) => [entry, index]));
+  const primaryIdByManifestEntry = new Map<CapabilityManifestArea, string>();
+  const bundlesByPrimaryId = new Map<string, {
+    primaryId: string;
+    fileSnapshotIds: string[];
+    capabilityKeys: Set<string>;
+    manifestOrder: number;
+  }>();
   // A capability can occur in several attached repositories. Treat each
   // snapshot-scoped manifest row as an independent coverage obligation. The
   // manifest already contains every applicable base capability plus only the
@@ -542,6 +708,16 @@ export function enforceMandatoryCoverage(input: {
     if (packageIndex == null) continue;
     packages[packageIndex]!.capabilityKeys.push(targetKey);
     if (!mandatoryLoads[packageIndex]!.includes(representative.id)) mandatoryLoads[packageIndex]!.push(representative.id);
+    primaryIdByManifestEntry.set(manifestEntry, representative.id);
+    const bundle = bundlesByPrimaryId.get(representative.id) ?? {
+      primaryId: representative.id,
+      fileSnapshotIds: [representative.id],
+      capabilityKeys: new Set<string>(),
+      manifestOrder: manifestOrder.get(manifestEntry) ?? Number.MAX_SAFE_INTEGER,
+    };
+    bundle.capabilityKeys.add(targetKey);
+    bundle.manifestOrder = Math.min(bundle.manifestOrder, manifestOrder.get(manifestEntry) ?? Number.MAX_SAFE_INTEGER);
+    bundlesByPrimaryId.set(representative.id, bundle);
   }
 
   // One representative per broad capability is enough for a coverage check,
@@ -549,49 +725,110 @@ export function enforceMandatoryCoverage(input: {
   // supplement for the execution router, semantic worker/auditor, auto-apply
   // lifecycle, and complete workspace. Immutable-blob caching keeps these
   // extra reads free on unchanged commits.
+  const selectedFileIds = new Set(mandatoryLoads.flat());
+  const repositoryScopeCount = Math.max(
+    1,
+    new Set(input.manifest.flatMap((entry) => entry.scopeKey ? [entry.scopeKey] : [])).size,
+  );
+  // Preserve four decisive cross-file facets per attached repository. One
+  // repository stays within the normal four-call/16-file plan. Additional
+  // repositories may use otherwise-idle worker capacity, but never exceed the
+  // existing four-worker/eight-file hard bound.
+  const selectedFileLimit = Math.min(
+    REPOSITORY_ORCHESTRATION_MAX_WORKERS * MAX_FILES_PER_WORKER,
+    Math.max(
+      MAX_MANDATORY_SEMANTIC_FILES,
+      selectedFileIds.size + (repositoryScopeCount * 4),
+    ),
+  );
   for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {
     for (const manifestEntry of input.manifest.filter((entry) => entry.key === facet.capabilityKey)) {
-      // Keep the complete cold-start plan within four four-file provider
-      // calls. Real repositories often share one representative across
-      // capabilities; supplements consume only that remaining capacity.
-      if (new Set(mandatoryLoads.flat()).size >= MAX_MANDATORY_SEMANTIC_FILES) continue;
+      const primaryId = primaryIdByManifestEntry.get(manifestEntry);
+      const bundle = primaryId ? bundlesByPrimaryId.get(primaryId) : null;
+      if (!bundle) continue;
       const representative = manifestEntry.files
-        .filter((file) =>
-          facet.pathPattern.test(file.path) &&
-          !mandatoryLoads.some((files) => files.includes(file.id))
-        )
+        .filter((file) => facet.pathPattern.test(file.path))
         .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))[0];
       if (!representative) continue;
-      const packageIndex = packages
-        .map((entry, index) => ({
-          index,
-          ownsCapability: entry.capabilityKeys.includes(facet.capabilityKey),
-          load: mandatoryLoads[index]!.length,
-          incrementalCalls:
-            Math.ceil((mandatoryLoads[index]!.length + 1) / SEMANTIC_MICRO_BATCH_SIZE) -
-            Math.ceil(mandatoryLoads[index]!.length / SEMANTIC_MICRO_BATCH_SIZE),
-        }))
-        .filter((entry) => entry.load < MAX_FILES_PER_WORKER)
-        .sort((left, right) =>
-          left.incrementalCalls - right.incrementalCalls ||
-          Number(right.ownsCapability) - Number(left.ownsCapability) ||
-          right.load - left.load ||
-          left.index - right.index,
-        )[0]?.index;
-      if (packageIndex == null) continue;
-      packages[packageIndex]!.capabilityKeys.push(facet.capabilityKey);
-      mandatoryLoads[packageIndex]!.push(representative.id);
+
+      if (selectedFileIds.has(representative.id)) {
+        const owningBundle = Array.from(bundlesByPrimaryId.values())
+          .find((candidate) => candidate.fileSnapshotIds.includes(representative.id));
+        if (!owningBundle || owningBundle === bundle) {
+          bundle.capabilityKeys.add(facet.capabilityKey);
+          continue;
+        }
+        const mergedFileIds = Array.from(new Set([
+          ...bundle.fileSnapshotIds,
+          ...owningBundle.fileSnapshotIds,
+        ]));
+        if (mergedFileIds.length <= MAX_FILES_PER_WORKER) {
+          bundle.fileSnapshotIds = mergedFileIds;
+          for (const key of owningBundle.capabilityKeys) bundle.capabilityKeys.add(key);
+          bundle.capabilityKeys.add(facet.capabilityKey);
+          bundle.manifestOrder = Math.min(bundle.manifestOrder, owningBundle.manifestOrder);
+          bundlesByPrimaryId.delete(owningBundle.primaryId);
+          for (const [entry, mappedPrimaryId] of primaryIdByManifestEntry) {
+            if (mappedPrimaryId === owningBundle.primaryId) {
+              primaryIdByManifestEntry.set(entry, bundle.primaryId);
+            }
+          }
+        } else {
+          // Preserve semantic ownership even if an unusually large shared
+          // bundle cannot be co-located within the worker's hard file cap.
+          owningBundle.capabilityKeys.add(facet.capabilityKey);
+        }
+        continue;
+      }
+
+      if (selectedFileIds.size >= selectedFileLimit) continue;
+      bundle.fileSnapshotIds.push(representative.id);
+      bundle.capabilityKeys.add(facet.capabilityKey);
+      selectedFileIds.add(representative.id);
+    }
+  }
+
+  // Repack primary+supplement bundles after selection. Keeping related files
+  // in one worker lets two changed facets share one structured request while
+  // preserving the same selected-file set, four-worker ceiling, and scoped
+  // capability obligations.
+  const packedLoads = packages.map(() => [] as string[]);
+  const packedCapabilityKeys = packages.map(() => new Set<string>());
+  const bundles = Array.from(bundlesByPrimaryId.values()).sort((left, right) =>
+    right.fileSnapshotIds.length - left.fileSnapshotIds.length ||
+    left.manifestOrder - right.manifestOrder ||
+    left.primaryId.localeCompare(right.primaryId)
+  );
+  const assignments = packSemanticBundleIndexes({
+    bundles: bundles.map((bundle) => ({
+      size: bundle.fileSnapshotIds.length,
+      capabilityKeys: Array.from(bundle.capabilityKeys),
+      orderKey: `${String(bundle.manifestOrder).padStart(6, "0")}:${bundle.primaryId}`,
+    })),
+    plannerClaims: plannerClaims.map((claims) => Array.from(claims)),
+    maxWorkers: packages.length,
+    maxFilesPerWorker: MAX_FILES_PER_WORKER,
+    microBatchSize: SEMANTIC_MICRO_BATCH_SIZE,
+  });
+  if (!assignments) {
+    throw new Error("Mandatory semantic capability bundle exceeded the bounded worker capacity.");
+  }
+  for (const [packageIndex, bundleIndexes] of assignments.entries()) {
+    for (const bundleIndex of bundleIndexes) {
+      const bundle = bundles[bundleIndex]!;
+      packedLoads[packageIndex]!.push(...bundle.fileSnapshotIds);
+      for (const key of bundle.capabilityKeys) packedCapabilityKeys[packageIndex]!.add(key);
     }
   }
 
   return packages.map((entry, index) => ({
     ...entry,
-    capabilityKeys: Array.from(new Set(entry.capabilityKeys)),
+    capabilityKeys: Array.from(packedCapabilityKeys[index]!),
     // The mandatory pass already selects the highest-affinity representative
     // for every required capability and its decisive supplements. Re-appending
     // planner representatives here duplicated files across packages, created
     // uneven 6/3-file workers, and forced avoidable sequential model calls.
-    fileSnapshotIds: Array.from(new Set(mandatoryLoads[index]!)).slice(0, MAX_FILES_PER_WORKER),
+    fileSnapshotIds: Array.from(new Set(packedLoads[index]!)).slice(0, MAX_FILES_PER_WORKER),
   })).filter((entry) => entry.fileSnapshotIds.length);
 }
 
@@ -679,7 +916,7 @@ async function planWorkPackages(input: {
     maxModelCalls: 4,
     maxRepairPasses: 1,
     maxOutputTokens: 4_000,
-    maxTotalTokens: 32_000,
+    maxTotalTokens: SEMANTIC_PLANNER_MAX_TOTAL_TOKENS,
   });
   try {
     const result = await runAuditedStructuredGeneration({
@@ -811,6 +1048,7 @@ async function runWorkPackage(input: {
         continue;
       }
       const fileTask = buildFileSemanticTask({
+        path: file.path,
         workPackageCapabilityKeys: input.workPackage.capabilityKeys,
         staticSubsystemKeys: staticAnalysis.subsystemKeys,
       });
@@ -1090,7 +1328,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   });
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = enforceMandatoryCoverage({ packages: planned.packages, manifest });
-  const plannerTokenReserve = planned.generationRunId ? 16_000 : 0;
+  const plannerTokenReserve = semanticPlannerTokenReserve(planned.usage);
   const normalizedPlan = guardedPlan.map((entry) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),

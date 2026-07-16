@@ -7,12 +7,15 @@ import {
   immutableSemanticCacheWhere,
   missingAssignedFileCandidateGaps,
   missingCapabilityCandidateGaps,
+  packSemanticBundleIndexes,
   partitionCapabilityReports,
   preserveSettledCapabilityReports,
   reusableCurrentSnapshotSemanticAnalysis,
   reusableSemanticAnalysis,
   semanticCoverageAssignmentGaps,
   semanticFileReportSignals,
+  semanticPlannerTokenReserve,
+  semanticSignalKeysForFile,
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
@@ -68,6 +71,66 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([20_000, 20_000, 20_000, 20_000]);
   });
 
+  it("reserves actual planner usage and fails conservatively when provider usage is unknown", () => {
+    expect(semanticPlannerTokenReserve({
+      totalTokens: 7_500,
+      unknownUsageCalls: 0,
+    })).toBe(7_500);
+    expect(semanticPlannerTokenReserve({
+      totalTokens: 12_000,
+      unknownUsageCalls: 1,
+    })).toBe(32_000);
+    expect(semanticPlannerTokenReserve({
+      totalTokens: 40_000,
+      unknownUsageCalls: 0,
+    })).toBe(32_000);
+  });
+
+  it("finds a feasible bounded packing when greedy placement can strand capacity", () => {
+    const sizes = [7, 7, 4, 4, 3, 3, 2];
+    const assignments = packSemanticBundleIndexes({
+      bundles: sizes.map((size, index) => ({
+        size,
+        capabilityKeys: [`capability-${index}`],
+        orderKey: String(index).padStart(2, "0"),
+      })),
+      plannerClaims: [[], [], [], []],
+      maxWorkers: 4,
+      maxFilesPerWorker: 8,
+      microBatchSize: 4,
+    });
+
+    expect(assignments).not.toBeNull();
+    const assignedIndexes = assignments!.flat();
+    expect(new Set(assignedIndexes)).toEqual(new Set(sizes.map((_size, index) => index)));
+    const loads = assignments!.map((bundleIndexes) =>
+      bundleIndexes.reduce((total, bundleIndex) => total + sizes[bundleIndex]!, 0)
+    );
+    expect(loads.every((load) => load <= 8)).toBe(true);
+    expect(loads.reduce((total, load) => total + Math.ceil(load / 4), 0)).toBe(8);
+  });
+
+  it("minimizes provider calls among feasible bundle assignments", () => {
+    const sizes = [5, 5, 3, 3];
+    const assignments = packSemanticBundleIndexes({
+      bundles: sizes.map((size, index) => ({
+        size,
+        capabilityKeys: [`capability-${index}`],
+        orderKey: String(index).padStart(2, "0"),
+      })),
+      plannerClaims: [[], [], [], []],
+      maxWorkers: 4,
+      maxFilesPerWorker: 8,
+      microBatchSize: 4,
+    });
+
+    expect(assignments).not.toBeNull();
+    const loads = assignments!.map((bundleIndexes) =>
+      bundleIndexes.reduce((total, bundleIndex) => total + sizes[bundleIndex]!, 0)
+    );
+    expect(loads.reduce((total, load) => total + (load ? Math.ceil(load / 4) : 0), 0)).toBe(4);
+  });
+
   it("covers every mandatory capability with a target-specific representative file", () => {
     const packages = enforceMandatoryCoverage({
       packages: Array.from({ length: 4 }, (_, index) => ({
@@ -88,6 +151,17 @@ describe("repository semantic orchestration guardrails", () => {
       (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
       0,
     )).toBeLessThanOrEqual(4);
+    for (const [primaryId, supplementId] of [
+      ["project_chat_grounding-specific", "project-chat-harness-facet"],
+      ["repository_knowledge_lifecycle-specific", "semantic-orchestrator-facet"],
+      ["knowledge_review_lifecycle-specific", "knowledge-staleness-facet"],
+      ["review_ui-specific", "project-workspace-facet"],
+    ]) {
+      expect(packages.some((entry) =>
+        entry.fileSnapshotIds.includes(primaryId) &&
+        entry.fileSnapshotIds.includes(supplementId)
+      )).toBe(true);
+    }
     expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
     for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
     for (const supplementalId of [
@@ -127,6 +201,154 @@ describe("repository semantic orchestration guardrails", () => {
     expect(new Set(packages.flatMap((entry) => entry.capabilityKeys))).toEqual(
       new Set(["project_domain:payments", "project_domain:search"]),
     );
+  });
+
+  it("keeps each repository-scoped review workspace supplement with its primary", () => {
+    const scopedManifest = ["owner/repo-a", "owner/repo-b"].map((scopeKey, index) => ({
+      key: "review_ui",
+      label: "Review and UI",
+      scopeKey,
+      files: [
+        {
+          id: `repo-${index + 1}-chat`,
+          path: "components/chat/project-chat-workspace.tsx",
+          score: 10,
+        },
+        {
+          id: `repo-${index + 1}-workspace`,
+          path: "app/work-items/[id]/page.tsx",
+          score: 9,
+        },
+      ],
+    }));
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect repository-scoped review workspaces.",
+        capabilityKeys: ["review_ui"],
+        fileSnapshotIds: [],
+        questions: ["What review workspace behavior is implemented?"],
+        expectedOutputs: ["Supported review UI facts"],
+      }],
+      manifest: scopedManifest,
+    });
+
+    for (const index of [1, 2]) {
+      expect(packages.some((entry) =>
+        entry.fileSnapshotIds.includes(`repo-${index}-chat`) &&
+        entry.fileSnapshotIds.includes(`repo-${index}-workspace`)
+      )).toBe(true);
+    }
+    expect(semanticCoverageAssignmentGaps({
+      manifest: scopedManifest,
+      packages,
+      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
+    })).toEqual([]);
+  });
+
+  it("reserves decisive cross-file facets for every full attached repository", () => {
+    const scopedManifest = ["owner/repo-a", "owner/repo-b"].flatMap((scopeKey, repositoryIndex) =>
+      manifest().map((area) => ({
+        ...area,
+        scopeKey,
+        files: area.files.map((file) => ({
+          ...file,
+          id: `repo-${repositoryIndex + 1}:${file.id}`,
+        })),
+      }))
+    );
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect complete capability coverage in both attached repositories.",
+        capabilityKeys: Object.keys(paths),
+        fileSnapshotIds: [],
+        questions: ["What decisive cross-file behavior does each repository implement?"],
+        expectedOutputs: ["Supported repository-scoped capability facts"],
+      }],
+      manifest: scopedManifest,
+    });
+
+    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+    expect(selectedIds.size).toBe(32);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(packages.reduce(
+      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
+      0,
+    )).toBe(8);
+    for (const repositoryIndex of [1, 2]) {
+      for (const supplementalId of [
+        "project-chat-harness-facet",
+        "semantic-orchestrator-facet",
+        "knowledge-staleness-facet",
+        "project-workspace-facet",
+      ]) {
+        expect(selectedIds.has(`repo-${repositoryIndex}:${supplementalId}`)).toBe(true);
+      }
+    }
+    expect(semanticCoverageAssignmentGaps({
+      manifest: scopedManifest,
+      packages,
+      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
+    })).toEqual([]);
+  });
+
+  it("co-locates a review workspace supplement even when it is another capability's primary", () => {
+    const packages = enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect the product surface and its review workspace.",
+        capabilityKeys: ["product_surface", "review_ui"],
+        fileSnapshotIds: [],
+        questions: ["How does the complete workspace support project review?"],
+        expectedOutputs: ["Supported review UI facts"],
+      }],
+      manifest: [
+        {
+          key: "product_surface",
+          label: "Product surface",
+          files: [{
+            id: "project-workspace",
+            path: "app/work-items/[id]/page.tsx",
+            score: 20,
+          }],
+        },
+        {
+          key: "review_ui",
+          label: "Review and UI",
+          files: [
+            {
+              id: "chat-workspace",
+              path: "components/chat/project-chat-workspace.tsx",
+              score: 20,
+            },
+            {
+              id: "project-workspace",
+              path: "app/work-items/[id]/page.tsx",
+              score: 19,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(packages.some((entry) =>
+      entry.capabilityKeys.includes("review_ui") &&
+      entry.fileSnapshotIds.includes("chat-workspace") &&
+      entry.fileSnapshotIds.includes("project-workspace")
+    )).toBe(true);
+    expect(semanticCoverageAssignmentGaps({
+      manifest: [
+        {
+          key: "product_surface",
+          label: "Product surface",
+          files: [{ id: "project-workspace", path: "app/work-items/[id]/page.tsx", score: 20 }],
+        },
+        {
+          key: "review_ui",
+          label: "Review and UI",
+          files: [{ id: "chat-workspace", path: "components/chat/project-chat-workspace.tsx", score: 20 }],
+        },
+      ],
+      packages,
+    })).toEqual([]);
   });
 
   it("rebalances mandatory capabilities when the model clusters every key into one package", () => {
@@ -522,6 +744,7 @@ describe("repository semantic orchestration guardrails", () => {
 
   it("scopes a highlight embedding file to retrieval instead of unrelated package capabilities", () => {
     const task = buildFileSemanticTask({
+      path: "src/services/highlight-embedding-service.ts",
       workPackageCapabilityKeys: ["ingestion_integrations", "retrieval_provenance"],
       staticSubsystemKeys: ["retrieval_provenance"],
     });
@@ -553,6 +776,24 @@ describe("repository semantic orchestration guardrails", () => {
     });
 
     expect(candidates.map((candidate) => candidate.key)).toEqual(["retrieval_provenance"]);
+  });
+
+  it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {
+    expect(semanticSignalKeysForFile({
+      path: "app/work-items/[id]/page.tsx",
+      capabilityKeys: ["review_ui", "product_surface"],
+    })).toEqual([
+      "review_ui.url_addressable_views",
+      "review_ui.highlight_lifecycle",
+      "review_ui.artifact_highlight_traceability",
+    ]);
+    expect(semanticSignalKeysForFile({
+      path: "components/chat/project-chat-workspace.tsx",
+      capabilityKeys: ["review_ui"],
+    })).toEqual([
+      "review_ui.candidate_metadata",
+      "review_ui.citation_navigation",
+    ]);
   });
 
   it("emits a deliberate candidate for every relevant capability supported by a multi-key fact", () => {

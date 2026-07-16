@@ -7,8 +7,12 @@ import {
   fallbackSubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
   modelEligibleSynthesisNotebook,
+  reusableSynthesisEvidenceFilters,
+  selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
+  synthesisNotebookSourceCoverageGaps,
+  synthesisNotebookReferenceKey,
 } from "@/src/services/repository-knowledge-synthesis-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
@@ -288,10 +292,10 @@ describe("repository synthesis limit fallback", () => {
     [
       "review_ui",
       [
-        entry("app/work-items/[id]/page.tsx", "The page imports actions covering the complete knowledge-review lifecycle."),
-        entry("app/work-items/[id]/page.tsx", "The Project Facts panel groups facts by status with nested provenance."),
-        entry("app/work-items/[id]/page.tsx", "ArtifactHistoryEntry builds artifact provenance trees."),
-        entry("components/chat/project-chat-workspace.tsx", "The candidate contract renders candidate review cards."),
+        entry("app/work-items/[id]/page.tsx", "URL search params drive tab selection and context within the project workspace."),
+        entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
+        entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
+        entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models kind, status, and candidate-review metadata."),
         entry("components/chat/project-chat-workspace.tsx", "citationHref maps citations to a work-item tab URL for review evidence."),
       ],
       "review UI",
@@ -340,6 +344,315 @@ describe("repository synthesis limit fallback", () => {
     expect(modelEligibleSynthesisNotebook(notebook)).toEqual([]);
     expect(result.facts[0]?.statement).toContain("defines durable workflow entrypoints");
     expect(result.highlights).toEqual([]);
+  });
+
+  it("rebuilds the broad review workspace from current semantic concepts instead of promoting one narrow source action", () => {
+    const notebook = [
+      {
+        ...entry(
+          "app/work-items/[id]/page.tsx",
+          "GitHub repository sources can be attached or re-imported through a source-row action.",
+        ),
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+      },
+      entry(
+        "app/work-items/[id]/page.tsx",
+        "Highlights are mapped with a multi-field lifecycle model supporting per-highlight review decisions in the UI.",
+      ),
+      entry(
+        "app/work-items/[id]/page.tsx",
+        "URL search params fully drive tab selection and context within the workspace.",
+      ),
+      entry(
+        "app/work-items/[id]/page.tsx",
+        "Artifact results track usedHighlightIds, linking generated artifacts back to their contributing Highlights.",
+      ),
+      entry(
+        "components/chat/project-chat-workspace.tsx",
+        "ChatWorkspaceCandidate models knowledge-update candidate kind, status, visibility, sensitivity, and confidence metadata.",
+      ),
+      entry(
+        "components/chat/project-chat-workspace.tsx",
+        "citationHref routes each citation kind to a specific work-item tab, exposing durable memory as navigable review targets.",
+      ),
+    ];
+
+    const result = fallbackSubsystemSynthesis("review_ui", notebook);
+
+    expect(result.facts[0]).toMatchObject({
+      statement: expect.stringContaining("project workspace review UI"),
+      productImportance: 5,
+      implementationBreadth: 5,
+    });
+    expect(new Set(result.facts[0]?.citationIndexes)).toEqual(new Set([2, 3, 4, 5, 6]));
+    expect(result.facts[0]?.statement).not.toContain("attached or re-imported");
+    expect(result.highlights[0]).toMatchObject({
+      summary: expect.stringContaining("artifact-to-Highlight traceability"),
+    });
+    expect(new Set(result.highlights[0]?.citationIndexes)).toEqual(new Set([2, 3, 4, 5, 6]));
+    expect(result.highlights[0]?.text.length).toBeLessThanOrEqual(240);
+  });
+
+  it("rebuilds broad capabilities from stable semantic signals despite model paraphrasing", () => {
+    const notebook = [
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Query parameters preserve the selected project view across navigation."),
+        semanticSignals: ["review_ui.url_addressable_views"],
+      },
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Each accomplishment carries independent review and lifecycle attributes."),
+        semanticSignals: ["review_ui.highlight_lifecycle"],
+      },
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Generated outputs retain links to the accomplishments that supplied them."),
+        semanticSignals: ["review_ui.artifact_highlight_traceability"],
+      },
+      {
+        ...entry("components/chat/project-chat-workspace.tsx", "Review rows expose typed state and policy fields for proposed knowledge."),
+        semanticSignals: ["review_ui.candidate_metadata"],
+      },
+      {
+        ...entry("components/chat/project-chat-workspace.tsx", "Source badges navigate into the relevant project evidence view."),
+        semanticSignals: ["review_ui.citation_navigation"],
+      },
+    ];
+
+    const result = fallbackSubsystemSynthesis("review_ui", notebook);
+
+    expect(result.facts[0]).toMatchObject({
+      statement: expect.stringContaining("project workspace review UI"),
+      citationIndexes: [1, 2, 3, 4, 5],
+    });
+    expect(result.highlights[0]?.summary).toContain("inline citation navigation");
+  });
+
+  it("completes a partially signaled broad capability with per-facet regex fallback", () => {
+    const notebook = [
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Query parameters preserve the selected project view across navigation."),
+        semanticSignals: ["review_ui.url_addressable_views"],
+      },
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Each accomplishment carries independent review and lifecycle attributes."),
+        semanticSignals: ["review_ui.highlight_lifecycle"],
+      },
+      {
+        ...entry("app/work-items/[id]/page.tsx", "Generated outputs retain links to the accomplishments that supplied them."),
+        semanticSignals: ["review_ui.artifact_highlight_traceability"],
+      },
+      {
+        ...entry("components/chat/project-chat-workspace.tsx", "Review rows expose typed state and policy fields for proposed knowledge."),
+        semanticSignals: ["review_ui.candidate_metadata"],
+      },
+      entry(
+        "components/chat/project-chat-workspace.tsx",
+        "citationHref routes each citation to a work-item tab with review evidence.",
+      ),
+    ];
+
+    const selected = selectSubsystemSynthesisNotebook("review_ui", notebook);
+    const result = fallbackSubsystemSynthesis("review_ui", selected);
+
+    expect(selected).toHaveLength(5);
+    expect(result.facts[0]).toMatchObject({
+      statement: expect.stringContaining("project workspace review UI"),
+      citationIndexes: [1, 2, 3, 4, 5],
+    });
+  });
+
+  it("reserves every broad review-UI facet before high-scoring notebook distractors", () => {
+    const required = [
+      entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
+      entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
+      entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
+      entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
+      entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
+    ];
+    const distractors = Array.from({ length: 20 }, (_, index) => ({
+      ...entry(`components/unrelated-${index}.tsx`, `A high-scoring unrelated UI observation ${index}.`),
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+    }));
+
+    const selected = selectSubsystemSynthesisNotebook("review_ui", [...distractors, ...required]);
+
+    expect(selected).toHaveLength(20);
+    for (const facet of required) {
+      expect(selected.some((entry) => entry.statement === facet.statement)).toBe(true);
+    }
+    expect(fallbackSubsystemSynthesis("review_ui", selected).facts[0]?.statement)
+      .toContain("project workspace review UI");
+  });
+
+  it("reserves secondary system facets before high-scoring notebook distractors", () => {
+    const required = [
+      entry("src/services/project-chat-agent-service.ts", "selectHistory retains the latest 12 messages within a bounded history budget."),
+      entry("src/services/project-agent-harness.ts", "highAuthorityMemory admits verified_highlight and verified_project_fact sources."),
+      entry("src/services/project-chat-agent-service.ts", "The latest-commit refresh target SHAs ground current answers."),
+      entry("src/services/project-chat-agent-service.ts", "A retry request without supporting evidence fails closed, preventing hallucinated behavior."),
+      entry("src/services/project-execution-router-service.ts", "The project execution router uses deterministic rules for high-confidence intent."),
+      entry("src/services/project-execution-router-service.ts", "The project execution router selects routes within safety, budget, and attached-repository constraints."),
+    ];
+    const distractors = Array.from({ length: 24 }, (_, index) => ({
+      ...entry(`src/services/unrelated-${index}.ts`, `A high-scoring unrelated chat observation ${index}.`),
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+    }));
+
+    const selected = selectSubsystemSynthesisNotebook("project_chat_grounding", [...distractors, ...required]);
+    const synthesis = fallbackSubsystemSynthesis("project_chat_grounding", selected);
+
+    for (const facet of required) {
+      expect(selected.some((candidate) => candidate.statement === facet.statement)).toBe(true);
+    }
+    expect(synthesis.facts.some((fact) =>
+      fact.statement.includes("deterministic intent and safety constraints")
+    )).toBe(true);
+  });
+
+  it("reserves semantic evidence before deterministic anchors across many repositories", () => {
+    const semantic = Array.from({ length: 10 }, (_, index) => ({
+      ...entry(
+        `src/services/semantic-${index}.ts`,
+        `Current-head behavior observation ${index}.`,
+      ),
+      sourceId: `semantic-source-${index}`,
+      semanticSignals: index < 4
+        ? [[
+            "repository_knowledge_lifecycle.refresh_analysis",
+            "repository_knowledge_lifecycle.synthesis",
+            "repository_knowledge_lifecycle.reconciliation",
+            "repository_knowledge_lifecycle.staleness",
+          ][index]!]
+        : [],
+    }));
+    const anchors = Array.from({ length: 20 }, (_, index) => ({
+      ...entry(
+        `src/services/anchor-${index}.ts`,
+        `src/services/anchor-${index}.ts defines the symbol anchor${index}.`,
+      ),
+      sourceId: `anchor-source-${index}`,
+      evidenceMode: "deterministic_anchor" as const,
+    }));
+
+    const selected = selectSubsystemSynthesisNotebook(
+      "repository_knowledge_lifecycle",
+      [...anchors, ...semantic],
+    );
+
+    expect(selected).toHaveLength(20);
+    expect(selected.filter((candidate) => candidate.evidenceMode !== "deterministic_anchor"))
+      .toHaveLength(10);
+    expect(selected.filter((candidate) => candidate.evidenceMode === "deterministic_anchor"))
+      .toHaveLength(10);
+  });
+
+  it("keeps required facets ahead of per-source representatives and reports overflow", () => {
+    const required = [
+      entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
+      entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
+      entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
+      entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
+      entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
+    ];
+    const repositories = Array.from({ length: 24 }, (_, index) => ({
+      ...entry(`src/repository-${index}.ts`, `Repository ${index} contributes a current-head semantic observation.`),
+      sourceId: `source-${index.toString().padStart(2, "0")}`,
+      repository: `owner/repository-${index}`,
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+    }));
+
+    const selected = selectSubsystemSynthesisNotebook("review_ui", [...repositories, ...required]);
+    const gaps = synthesisNotebookSourceCoverageGaps([...repositories, ...required], selected);
+
+    expect(selected).toHaveLength(20);
+    for (const facet of required) {
+      expect(selected.some((candidate) => candidate.statement === facet.statement)).toBe(true);
+    }
+    expect(fallbackSubsystemSynthesis("review_ui", selected).facts[0]?.statement)
+      .toContain("project workspace review UI");
+    expect(gaps).toHaveLength(9);
+    expect(gaps.every((gap) => gap.includes("could not fit"))).toBe(true);
+  });
+
+  it("keeps immutable provenance distinct and deterministically ordered across repositories", () => {
+    const statement = "The workspace exposes reviewed project knowledge.";
+    const repoB = {
+      ...entry("app/work-items/[id]/page.tsx", statement),
+      sourceId: "source-b",
+      repository: "owner/repo-b",
+      commitSha: "b".repeat(40),
+      blobSha: "blob-shared",
+    };
+    const repoA = {
+      ...entry("app/work-items/[id]/page.tsx", statement),
+      sourceId: "source-a",
+      repository: "owner/repo-a",
+      commitSha: "a".repeat(40),
+      blobSha: "blob-shared",
+    };
+
+    const selected = selectSubsystemSynthesisNotebook("review_ui", [repoB, repoA]);
+
+    expect(selected).toHaveLength(2);
+    expect(selected.map((candidate) => candidate.repository)).toEqual([
+      "owner/repo-a",
+      "owner/repo-b",
+    ]);
+    expect(synthesisNotebookReferenceKey(repoA)).not.toBe(
+      synthesisNotebookReferenceKey({ ...repoA, path: "components/chat/project-chat-workspace.tsx" }),
+    );
+  });
+
+  it("limits reusable citation lookup to requested immutable ranges and legacy blobs", () => {
+    const first = entry("src/runtime.ts");
+    const sameBlobSecondRange = {
+      ...first,
+      lineStart: 20,
+      lineEnd: 25,
+    };
+    const secondRepository = {
+      ...entry("src/runtime.ts"),
+      sourceId: "source-2",
+      repository: "other/repo",
+      blobSha: first.blobSha,
+    };
+
+    const filters = reusableSynthesisEvidenceFilters([
+      first,
+      sameBlobSecondRange,
+      secondRepository,
+      first,
+    ]);
+
+    expect(filters).toHaveLength(5);
+    expect(filters).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceId: "source-1",
+        logicalKey: "github_file:src/runtime.ts:1:1",
+        metadata: { path: ["blobSha"], equals: first.blobSha },
+      }),
+      expect.objectContaining({
+        sourceId: "source-1",
+        logicalKey: "github_file:src/runtime.ts:20:25",
+      }),
+      expect.objectContaining({
+        sourceId: "source-1",
+        logicalKey: null,
+        metadata: { path: ["blobSha"], equals: first.blobSha },
+      }),
+      expect.objectContaining({
+        sourceId: "source-2",
+        logicalKey: null,
+        metadata: { path: ["blobSha"], equals: first.blobSha },
+      }),
+    ]));
   });
 
   it("does not turn one matching filename into a broad multi-component capability", () => {
