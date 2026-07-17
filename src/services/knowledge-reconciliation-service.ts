@@ -906,8 +906,15 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     return { subsystemKey: subsystem.subsystemKey, produced };
   };
   const results: Array<Awaited<ReturnType<typeof processSubsystem>>> = [];
-  for (let start = 0; start < synthesis.length; start += 4) {
-    results.push(...await Promise.all(synthesis.slice(start, start + 4).map(processSubsystem)));
+  // Semantic analysis is parallelized before this phase. Reconciliation writes
+  // are deliberately serialized by the per-Work-Item generation fence, so
+  // starting several serializable transactions concurrently only gives each
+  // waiter a stale snapshot after it acquires the lock. On Neon/Postgres that
+  // repeatedly surfaces as P2034 write conflicts. Apply the already-produced
+  // synthesis sequentially; this keeps the expensive model work parallel while
+  // making the short mutation phase deterministic and retry-safe.
+  for (const subsystem of synthesis) {
+    results.push(await processSubsystem(subsystem));
   }
   for (const { subsystemKey, produced } of results) {
     await withKnowledgeRefreshGenerationFence(runId, (tx) =>
