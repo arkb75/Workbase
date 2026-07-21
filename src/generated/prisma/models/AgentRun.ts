@@ -28,10 +28,12 @@ export type AggregateAgentRun = {
 
 export type AgentRunAvgAggregateOutputType = {
   attemptNumber: number | null
+  workflowRecoveryCount: number | null
 }
 
 export type AgentRunSumAggregateOutputType = {
   attemptNumber: number | null
+  workflowRecoveryCount: number | null
 }
 
 export type AgentRunMinAggregateOutputType = {
@@ -46,6 +48,7 @@ export type AgentRunMinAggregateOutputType = {
   kind: $Enums.AgentRunKind | null
   status: $Enums.AgentRunStatus | null
   attemptNumber: number | null
+  workflowRecoveryCount: number | null
   harnessVersion: string | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -65,6 +68,7 @@ export type AgentRunMaxAggregateOutputType = {
   kind: $Enums.AgentRunKind | null
   status: $Enums.AgentRunStatus | null
   attemptNumber: number | null
+  workflowRecoveryCount: number | null
   harnessVersion: string | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -85,6 +89,7 @@ export type AgentRunCountAggregateOutputType = {
   status: number
   request: number
   attemptNumber: number
+  workflowRecoveryCount: number
   result: number
   error: number
   harnessVersion: number
@@ -101,10 +106,12 @@ export type AgentRunCountAggregateOutputType = {
 
 export type AgentRunAvgAggregateInputType = {
   attemptNumber?: true
+  workflowRecoveryCount?: true
 }
 
 export type AgentRunSumAggregateInputType = {
   attemptNumber?: true
+  workflowRecoveryCount?: true
 }
 
 export type AgentRunMinAggregateInputType = {
@@ -119,6 +126,7 @@ export type AgentRunMinAggregateInputType = {
   kind?: true
   status?: true
   attemptNumber?: true
+  workflowRecoveryCount?: true
   harnessVersion?: true
   startedAt?: true
   finishedAt?: true
@@ -138,6 +146,7 @@ export type AgentRunMaxAggregateInputType = {
   kind?: true
   status?: true
   attemptNumber?: true
+  workflowRecoveryCount?: true
   harnessVersion?: true
   startedAt?: true
   finishedAt?: true
@@ -158,6 +167,7 @@ export type AgentRunCountAggregateInputType = {
   status?: true
   request?: true
   attemptNumber?: true
+  workflowRecoveryCount?: true
   result?: true
   error?: true
   harnessVersion?: true
@@ -270,6 +280,7 @@ export type AgentRunGroupByOutputType = {
   status: $Enums.AgentRunStatus
   request: runtime.JsonValue
   attemptNumber: number
+  workflowRecoveryCount: number
   result: runtime.JsonValue | null
   error: runtime.JsonValue | null
   harnessVersion: string
@@ -318,6 +329,7 @@ export type AgentRunWhereInput = {
   status?: Prisma.EnumAgentRunStatusFilter<"AgentRun"> | $Enums.AgentRunStatus
   request?: Prisma.JsonFilter<"AgentRun">
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
+  workflowRecoveryCount?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
   harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
@@ -353,6 +365,7 @@ export type AgentRunOrderByWithRelationInput = {
   status?: Prisma.SortOrder
   request?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
   harnessVersion?: Prisma.SortOrder
@@ -392,6 +405,7 @@ export type AgentRunWhereUniqueInput = Prisma.AtLeast<{
   status?: Prisma.EnumAgentRunStatusFilter<"AgentRun"> | $Enums.AgentRunStatus
   request?: Prisma.JsonFilter<"AgentRun">
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
+  workflowRecoveryCount?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
   harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
@@ -427,6 +441,7 @@ export type AgentRunOrderByWithAggregationInput = {
   status?: Prisma.SortOrder
   request?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
   harnessVersion?: Prisma.SortOrder
@@ -460,6 +475,7 @@ export type AgentRunScalarWhereWithAggregatesInput = {
   status?: Prisma.EnumAgentRunStatusWithAggregatesFilter<"AgentRun"> | $Enums.AgentRunStatus
   request?: Prisma.JsonWithAggregatesFilter<"AgentRun">
   attemptNumber?: Prisma.IntWithAggregatesFilter<"AgentRun"> | number
+  workflowRecoveryCount?: Prisma.IntWithAggregatesFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
   error?: Prisma.JsonNullableWithAggregatesFilter<"AgentRun">
   harnessVersion?: Prisma.StringWithAggregatesFilter<"AgentRun"> | string
@@ -480,6 +496,7 @@ export type AgentRunCreateInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -515,6 +532,7 @@ export type AgentRunUncheckedCreateInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -540,6 +558,7 @@ export type AgentRunUpdateInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -575,6 +594,7 @@ export type AgentRunUncheckedUpdateInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -605,6 +625,7 @@ export type AgentRunCreateManyInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -625,6 +646,7 @@ export type AgentRunUpdateManyMutationInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -650,6 +672,7 @@ export type AgentRunUncheckedUpdateManyInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -695,6 +718,7 @@ export type AgentRunCountOrderByAggregateInput = {
   status?: Prisma.SortOrder
   request?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
   result?: Prisma.SortOrder
   error?: Prisma.SortOrder
   harnessVersion?: Prisma.SortOrder
@@ -709,6 +733,7 @@ export type AgentRunCountOrderByAggregateInput = {
 
 export type AgentRunAvgOrderByAggregateInput = {
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
 }
 
 export type AgentRunMaxOrderByAggregateInput = {
@@ -723,6 +748,7 @@ export type AgentRunMaxOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
   harnessVersion?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -742,6 +768,7 @@ export type AgentRunMinOrderByAggregateInput = {
   kind?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
   harnessVersion?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -751,6 +778,7 @@ export type AgentRunMinOrderByAggregateInput = {
 
 export type AgentRunSumOrderByAggregateInput = {
   attemptNumber?: Prisma.SortOrder
+  workflowRecoveryCount?: Prisma.SortOrder
 }
 
 export type AgentRunScalarRelationFilter = {
@@ -1060,6 +1088,7 @@ export type AgentRunCreateWithoutUserInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1093,6 +1122,7 @@ export type AgentRunUncheckedCreateWithoutUserInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1152,6 +1182,7 @@ export type AgentRunScalarWhereInput = {
   status?: Prisma.EnumAgentRunStatusFilter<"AgentRun"> | $Enums.AgentRunStatus
   request?: Prisma.JsonFilter<"AgentRun">
   attemptNumber?: Prisma.IntFilter<"AgentRun"> | number
+  workflowRecoveryCount?: Prisma.IntFilter<"AgentRun"> | number
   result?: Prisma.JsonNullableFilter<"AgentRun">
   error?: Prisma.JsonNullableFilter<"AgentRun">
   harnessVersion?: Prisma.StringFilter<"AgentRun"> | string
@@ -1172,6 +1203,7 @@ export type AgentRunCreateWithoutWorkItemInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1205,6 +1237,7 @@ export type AgentRunUncheckedCreateWithoutWorkItemInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1256,6 +1289,7 @@ export type AgentRunCreateWithoutKnowledgeRefreshRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1289,6 +1323,7 @@ export type AgentRunUncheckedCreateWithoutKnowledgeRefreshRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1340,6 +1375,7 @@ export type AgentRunCreateWithoutArtifactInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1374,6 +1410,7 @@ export type AgentRunUncheckedCreateWithoutArtifactInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1414,6 +1451,7 @@ export type AgentRunUpdateWithoutArtifactInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1448,6 +1486,7 @@ export type AgentRunUncheckedUpdateWithoutArtifactInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1472,6 +1511,7 @@ export type AgentRunCreateWithoutThreadInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1505,6 +1545,7 @@ export type AgentRunUncheckedCreateWithoutThreadInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1556,6 +1597,7 @@ export type AgentRunCreateWithoutMessagesInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1590,6 +1632,7 @@ export type AgentRunUncheckedCreateWithoutMessagesInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1630,6 +1673,7 @@ export type AgentRunUpdateWithoutMessagesInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1664,6 +1708,7 @@ export type AgentRunUncheckedUpdateWithoutMessagesInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1688,6 +1733,7 @@ export type AgentRunCreateWithoutChildRunsInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1722,6 +1768,7 @@ export type AgentRunUncheckedCreateWithoutChildRunsInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1751,6 +1798,7 @@ export type AgentRunCreateWithoutParentRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1784,6 +1832,7 @@ export type AgentRunUncheckedCreateWithoutParentRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1830,6 +1879,7 @@ export type AgentRunUpdateWithoutChildRunsInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1864,6 +1914,7 @@ export type AgentRunUncheckedUpdateWithoutChildRunsInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1904,6 +1955,7 @@ export type AgentRunCreateWithoutEventsInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1938,6 +1990,7 @@ export type AgentRunUncheckedCreateWithoutEventsInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -1978,6 +2031,7 @@ export type AgentRunUpdateWithoutEventsInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2012,6 +2066,7 @@ export type AgentRunUncheckedUpdateWithoutEventsInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2036,6 +2091,7 @@ export type AgentRunCreateWithoutCandidatesInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2070,6 +2126,7 @@ export type AgentRunUncheckedCreateWithoutCandidatesInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2110,6 +2167,7 @@ export type AgentRunUpdateWithoutCandidatesInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2144,6 +2202,7 @@ export type AgentRunUncheckedUpdateWithoutCandidatesInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2172,6 +2231,7 @@ export type AgentRunCreateManyUserInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2192,6 +2252,7 @@ export type AgentRunUpdateWithoutUserInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2225,6 +2286,7 @@ export type AgentRunUncheckedUpdateWithoutUserInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2254,6 +2316,7 @@ export type AgentRunUncheckedUpdateManyWithoutUserInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2278,6 +2341,7 @@ export type AgentRunCreateManyWorkItemInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2298,6 +2362,7 @@ export type AgentRunUpdateWithoutWorkItemInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2331,6 +2396,7 @@ export type AgentRunUncheckedUpdateWithoutWorkItemInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2360,6 +2426,7 @@ export type AgentRunUncheckedUpdateManyWithoutWorkItemInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2384,6 +2451,7 @@ export type AgentRunCreateManyKnowledgeRefreshRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2404,6 +2472,7 @@ export type AgentRunUpdateWithoutKnowledgeRefreshRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2437,6 +2506,7 @@ export type AgentRunUncheckedUpdateWithoutKnowledgeRefreshRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2466,6 +2536,7 @@ export type AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2490,6 +2561,7 @@ export type AgentRunCreateManyThreadInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2510,6 +2582,7 @@ export type AgentRunUpdateWithoutThreadInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2543,6 +2616,7 @@ export type AgentRunUncheckedUpdateWithoutThreadInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2572,6 +2646,7 @@ export type AgentRunUncheckedUpdateManyWithoutThreadInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2596,6 +2671,7 @@ export type AgentRunCreateManyParentRunInput = {
   status?: $Enums.AgentRunStatus
   request: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: number
+  workflowRecoveryCount?: number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: string
@@ -2616,6 +2692,7 @@ export type AgentRunUpdateWithoutParentRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2649,6 +2726,7 @@ export type AgentRunUncheckedUpdateWithoutParentRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2678,6 +2756,7 @@ export type AgentRunUncheckedUpdateManyWithoutParentRunInput = {
   status?: Prisma.EnumAgentRunStatusFieldUpdateOperationsInput | $Enums.AgentRunStatus
   request?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   attemptNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  workflowRecoveryCount?: Prisma.IntFieldUpdateOperationsInput | number
   result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   harnessVersion?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2761,6 +2840,7 @@ export type AgentRunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   status?: boolean
   request?: boolean
   attemptNumber?: boolean
+  workflowRecoveryCount?: boolean
   result?: boolean
   error?: boolean
   harnessVersion?: boolean
@@ -2797,6 +2877,7 @@ export type AgentRunSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   status?: boolean
   request?: boolean
   attemptNumber?: boolean
+  workflowRecoveryCount?: boolean
   result?: boolean
   error?: boolean
   harnessVersion?: boolean
@@ -2827,6 +2908,7 @@ export type AgentRunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   status?: boolean
   request?: boolean
   attemptNumber?: boolean
+  workflowRecoveryCount?: boolean
   result?: boolean
   error?: boolean
   harnessVersion?: boolean
@@ -2857,6 +2939,7 @@ export type AgentRunSelectScalar = {
   status?: boolean
   request?: boolean
   attemptNumber?: boolean
+  workflowRecoveryCount?: boolean
   result?: boolean
   error?: boolean
   harnessVersion?: boolean
@@ -2869,7 +2952,7 @@ export type AgentRunSelectScalar = {
   updatedAt?: boolean
 }
 
-export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "knowledgeRefreshRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "result" | "error" | "harnessVersion" | "environmentSnapshot" | "researchState" | "provisionalResult" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
+export type AgentRunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "workItemId" | "threadId" | "parentRunId" | "knowledgeRefreshRunId" | "workflowId" | "idempotencyKey" | "kind" | "status" | "request" | "attemptNumber" | "workflowRecoveryCount" | "result" | "error" | "harnessVersion" | "environmentSnapshot" | "researchState" | "provisionalResult" | "startedAt" | "finishedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["agentRun"]>
 export type AgentRunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
@@ -2925,6 +3008,7 @@ export type $AgentRunPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     status: $Enums.AgentRunStatus
     request: runtime.JsonValue
     attemptNumber: number
+    workflowRecoveryCount: number
     result: runtime.JsonValue | null
     error: runtime.JsonValue | null
     harnessVersion: string
@@ -3380,6 +3464,7 @@ export interface AgentRunFieldRefs {
   readonly status: Prisma.FieldRef<"AgentRun", 'AgentRunStatus'>
   readonly request: Prisma.FieldRef<"AgentRun", 'Json'>
   readonly attemptNumber: Prisma.FieldRef<"AgentRun", 'Int'>
+  readonly workflowRecoveryCount: Prisma.FieldRef<"AgentRun", 'Int'>
   readonly result: Prisma.FieldRef<"AgentRun", 'Json'>
   readonly error: Prisma.FieldRef<"AgentRun", 'Json'>
   readonly harnessVersion: Prisma.FieldRef<"AgentRun", 'String'>

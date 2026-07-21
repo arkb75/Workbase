@@ -52,8 +52,8 @@ describe("complete repository coverage", () => {
         content: [
           "const claimed = await claimRequiredKnowledgeRefresh(runId, refreshRunId);",
           'const message = "resuming its checkpointed repository work";',
-          "// replaying the entire synthesis and reconciliation pass is unsafe",
-          "reconcileRequiredKnowledge.maxRetries = 0;",
+          "if (checkpoint.status === 'completed') return checkpoint;",
+          "reconcileRequiredKnowledge.maxRetries = 2;",
         ].join("\n"),
       },
       {
@@ -96,7 +96,7 @@ describe("complete repository coverage", () => {
 
     expect(workflow?.facts).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        statement: expect.stringContaining("disables automatic retries"),
+        statement: expect.stringContaining("replays completed repository reconciliation"),
         lineStart: 3,
         lineEnd: 4,
       }),

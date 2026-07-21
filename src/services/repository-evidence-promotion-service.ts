@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import { Prisma } from "@/src/generated/prisma/client";
 import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-tags";
@@ -280,6 +280,193 @@ export async function promoteRepositoryCitations(input: {
     }
   }
   const uniquePrepared = Array.from(uniqueByIdentity.values());
+
+  // A cold knowledge refresh commonly promotes dozens of brand-new excerpts.
+  // The generic path below intentionally handles every legacy/successor edge
+  // case one citation at a time, but paying an Evidence upsert, review-card
+  // upsert, and tag write for each unquestionably new external ID dominated
+  // reconciliation latency on Neon. While the Work-Item generation fence is
+  // held, these rows cannot race another repository refresh. Create the simple
+  // new rows in three bounded bulk writes, then leave ambiguous identities on
+  // the conservative per-entry path.
+  const batchedNewResults = new Map<string, {
+    identity: string;
+    citationIndex: number;
+    evidenceId: string;
+    isNew: boolean;
+    previous: null;
+    citation: ProjectKnowledgeCitation;
+  }>();
+  if (fenced) {
+    const newEntries = uniquePrepared.filter((entry) =>
+      authorizedSourceIds.has(entry.citation.sourceId!) &&
+      !existingByIdentity.has(entry.identity) &&
+      !existingBySourceAndExternalId.has(`${entry.citation.sourceId}:${entry.externalId}`)
+    );
+    if (newEntries.length) {
+      const now = new Date();
+      const planned = newEntries.map((entry) => {
+        const reviewScope = input.reviewScope ??
+          `citation:${entry.citation.commitSha}:${entry.citation.blobSha}`;
+        const reviewKey = `${reviewScope}:promoted-evidence:${createHash("sha256").update(entry.identity).digest("hex").slice(0, 16)}`;
+        const id = randomUUID();
+        const repositorySnapshotId = input.repositorySnapshotIdByHead?.get(
+          `${entry.citation.sourceId}:${entry.citation.commitSha}`,
+        );
+        const creationMayValidate = Boolean(
+          !input.refreshRunId ||
+          authorizedRefreshHeads.has(`${entry.citation.sourceId}:${entry.citation.commitSha}`),
+        );
+        const metadata = {
+          managedBy: "project_research",
+          repository: entry.citation.repository,
+          commitSha: entry.citation.commitSha,
+          blobSha: entry.citation.blobSha,
+          path: entry.citation.path,
+          startLine: entry.citation.startLine,
+          endLine: entry.citation.endLine,
+          excerptHash: entry.excerptHash,
+          url: entry.citation.url ?? null,
+          fetchedAt: now.toISOString(),
+          contentSafety: "untrusted_repository_content",
+          redacted: entry.citation.redacted ?? false,
+          redactionCategories: entry.citation.redactionCategories ?? [],
+          promotionReviewKey: reviewKey,
+        };
+        return {
+          entry,
+          id,
+          reviewKey,
+          repositorySnapshotId,
+          creationMayValidate,
+          metadata,
+        };
+      });
+      await db.evidenceItem.createMany({
+        data: planned.map(({ entry, id, repositorySnapshotId, creationMayValidate, metadata }) => ({
+          id,
+          workItemId: input.workItemId,
+          sourceId: entry.citation.sourceId!,
+          externalId: entry.externalId,
+          type: "github_file_excerpt" as const,
+          title: `${entry.citation.path}:${entry.citation.startLine}-${entry.citation.endLine}`,
+          content: entry.citation.excerpt,
+          searchText: buildEvidenceSearchText({
+            title: entry.citation.path!,
+            content: entry.citation.excerpt,
+            metadata,
+          }),
+          parentKind: "github_file",
+          parentKey: `${entry.citation.commitSha}:${entry.citation.path}`,
+          logicalKey: entry.logicalKey,
+          included: false,
+          metadata,
+          lifecycleStatus: creationMayValidate ? "active" as const : "needs_validation" as const,
+          reviewState: "pending_review" as const,
+          approvalSource: "automation" as const,
+          validatedThroughSha: creationMayValidate ? entry.citation.commitSha : null,
+          lastValidatedAt: creationMayValidate ? now : null,
+          autoAppliedAt: now,
+          purgeEligibleAt: null,
+          repositorySnapshotId,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        skipDuplicates: true,
+      });
+      const inserted = await db.evidenceItem.findMany({
+        where: {
+          workItemId: input.workItemId,
+          OR: planned.map(({ entry }) => ({
+            sourceId: entry.citation.sourceId!,
+            externalId: entry.externalId,
+          })),
+        },
+        select: {
+          id: true,
+          sourceId: true,
+          externalId: true,
+          lifecycleStatus: true,
+          reviewState: true,
+        },
+      });
+      const insertedByExternalId = new Map(
+        inserted.map((evidence) => [`${evidence.sourceId}:${evidence.externalId}`, evidence]),
+      );
+      const accepted = planned.flatMap((entry) => {
+        const evidence = insertedByExternalId.get(
+          `${entry.entry.citation.sourceId}:${entry.entry.externalId}`,
+        );
+        return evidence && isAutomaticallyReusableEvidence(evidence)
+          ? [{ ...entry, evidenceId: evidence.id, isNew: evidence.id === entry.id }]
+          : [];
+      });
+      await db.knowledgeChange.createMany({
+        data: accepted.map(({ entry, evidenceId, reviewKey, creationMayValidate }) => ({
+          id: randomUUID(),
+          workItemId: input.workItemId,
+          refreshRunId: input.refreshRunId ?? null,
+          entityKind: "evidence" as const,
+          action: "created" as const,
+          decision: "pending" as const,
+          evidenceItemId: evidenceId,
+          afterSnapshot: {
+            id: evidenceId,
+            title: `${entry.citation.path}:${entry.citation.startLine}-${entry.citation.endLine}`,
+            content: entry.citation.excerpt,
+            included: false,
+            lifecycleStatus: creationMayValidate ? "active" : "needs_validation",
+            reviewState: "pending_review",
+            approvalSource: "automation",
+            validatedThroughSha: creationMayValidate ? entry.citation.commitSha : null,
+          },
+          reason: "A repository workflow promoted this immutable excerpt for later review.",
+          provenance: {
+            sourceId: entry.citation.sourceId,
+            repository: entry.citation.repository,
+            commitSha: entry.citation.commitSha,
+            blobSha: entry.citation.blobSha,
+            path: entry.citation.path,
+            startLine: entry.citation.startLine,
+            endLine: entry.citation.endLine,
+          },
+          policyVersion: "knowledge-lifecycle-v2",
+          idempotencyKey: reviewKey,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        skipDuplicates: true,
+      });
+      const tagRows = accepted.flatMap(({ entry, evidenceId }) =>
+        inferEvidenceTags({
+          title: `${entry.citation.path}:${entry.citation.startLine}-${entry.citation.endLine}`,
+          content: entry.citation.excerpt,
+          sourceType: "github_repo",
+          evidenceType: "github_file_excerpt",
+        }).map((tag) => ({
+          id: randomUUID(),
+          evidenceItemId: evidenceId,
+          dimension: tag.dimension,
+          tag: tag.tag,
+          score: tag.score ?? null,
+          createdAt: now,
+        }))
+      );
+      if (tagRows.length) {
+        await db.evidenceTag.createMany({ data: tagRows, skipDuplicates: true });
+      }
+      for (const { entry, evidenceId, isNew } of accepted) {
+        batchedNewResults.set(entry.identity, {
+          identity: entry.identity,
+          citationIndex: entry.citationIndex,
+          evidenceId,
+          isNew,
+          previous: null,
+          citation: entry.citation,
+        });
+      }
+    }
+  }
   async function ensureReviewablePromotion(inputEvidence: {
     id: string;
     title: string;
@@ -464,8 +651,10 @@ export async function promoteRepositoryCitations(input: {
     }
     return true;
   }
-  const results = await mapBounded(
-    uniquePrepared,
+  const results = [
+    ...batchedNewResults.values(),
+    ...await mapBounded(
+    uniquePrepared.filter((entry) => !batchedNewResults.has(entry.identity)),
     fenced ? 1 : PROMOTION_CONCURRENCY,
     async (entry) => {
     const { citation, citationIndex, excerptHash, logicalKey, externalId, identity } = entry;
@@ -650,7 +839,8 @@ export async function promoteRepositoryCitations(input: {
       citation,
     };
     },
-  );
+  ),
+  ];
 
   const resultByIdentity = new Map(
     results.flatMap((result) => result ? [[result.identity, result] as const] : []),

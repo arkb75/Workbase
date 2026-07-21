@@ -149,7 +149,7 @@ describe("repository semantic orchestration guardrails", () => {
     });
 
     const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(packages).toHaveLength(3);
+    expect(packages).toHaveLength(5);
     expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
     expect(selectedIds.size).toBe(18);
     expect(packages.reduce(
@@ -372,9 +372,9 @@ describe("repository semantic orchestration guardrails", () => {
       manifest: manifest(),
     });
 
-    expect(packages).toHaveLength(3);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 4 && entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([7, 7, 4]);
+    expect(packages).toHaveLength(5);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 3 && entry.fileSnapshotIds.length <= 4)).toBe(true);
+    expect(packages.map((entry) => entry.fileSnapshotIds.length).sort()).toEqual([3, 3, 4, 4, 4]);
     expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
       new Set([
         ...Object.keys(paths).map((key) => `${key}-specific`),
@@ -787,6 +787,35 @@ describe("repository semantic orchestration guardrails", () => {
     });
 
     expect(candidates.map((candidate) => candidate.key)).toEqual(["retrieval_provenance"]);
+  });
+
+  it("does not require a backend review service to prove review UI behavior", () => {
+    const task = buildFileSemanticTask({
+      path: "src/services/knowledge-review-service.ts",
+      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
+      staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
+    });
+
+    expect(task).toMatchObject({
+      capabilityKeys: ["knowledge_review_lifecycle"],
+      semanticSignalKeys: expect.arrayContaining([
+        "knowledge_review_lifecycle.immutable_successors",
+        "knowledge_review_lifecycle.dependent_invalidation",
+        "knowledge_review_lifecycle.restore_retire_modes",
+      ]),
+    });
+    expect(missingAssignedFileCandidateGaps({
+      files: [{
+        id: "knowledge-review-service",
+        path: "src/services/knowledge-review-service.ts",
+        staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
+      }],
+      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
+      candidates: [{
+        key: "knowledge_review_lifecycle",
+        evidence: [{ fileSnapshotId: "knowledge-review-service", lineStart: 1, lineEnd: 2 }],
+      }],
+    })).toEqual([]);
   });
 
   it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {

@@ -974,6 +974,7 @@ model AgentRun {
   status              AgentRunStatus      @default(queued)
   request             Json
   attemptNumber       Int                 @default(0)
+  workflowRecoveryCount Int               @default(0)
   result              Json?
   error               Json?
   harnessVersion      String              @default("v4")

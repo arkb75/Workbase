@@ -259,22 +259,25 @@ vi.mock("@/src/lib/prisma", () => ({
           workflowId: mocks.state.workflowRunId,
           status: "queued",
         }),
-      findUniqueOrThrow: vi.fn(async () => ({
-        id: "refresh-h2",
-        status: "completed",
-        targetHeads: [{
-          sourceId: "source-1",
-          repository: "arkb75/Workbase",
-          commitSha: "2".repeat(40),
-        }],
-        coverage: {
-          qualityStatus: "verified",
-          inspectedFiles: 1,
-          eligibleFiles: 1,
-        },
-        error: null,
-        finishedAt: new Date("2026-07-19T12:00:00.000Z"),
-      })),
+      findUniqueOrThrow: vi.fn(async (input: { select?: { changes?: unknown } }) =>
+        input?.select?.changes
+          ? { status: "reconciling", warnings: null, changes: [] }
+          : {
+              id: "refresh-h2",
+              status: "completed",
+              targetHeads: [{
+                sourceId: "source-1",
+                repository: "arkb75/Workbase",
+                commitSha: "2".repeat(40),
+              }],
+              coverage: {
+                qualityStatus: "verified",
+                inspectedFiles: 1,
+                eligibleFiles: 1,
+              },
+              error: null,
+              finishedAt: new Date("2026-07-19T12:00:00.000Z"),
+            }),
       updateMany: mocks.knowledgeRefreshUpdateMany,
     },
   },
@@ -345,10 +348,25 @@ vi.mock("@/src/services/runtime-readiness-service", () => ({
 import {
   artifactGenerationWorkflow,
   projectChatTurnWorkflow,
+  replayedAppliedKnowledgeIds,
   repositoryKnowledgeRefreshWorkflow,
 } from "@/workflows/project-chat";
 
 describe("project chat latest-commit freshness orchestration", () => {
+  it("does not reconstruct retired or quarantined knowledge as applied on replay", () => {
+    expect(replayedAppliedKnowledgeIds([
+      { entityKind: "project_fact", action: "revalidated", projectFactId: "fact-current", highlightId: null, evidenceItemId: null },
+      { entityKind: "project_fact", action: "retired", projectFactId: "fact-retired", highlightId: null, evidenceItemId: null },
+      { entityKind: "highlight", action: "updated", projectFactId: null, highlightId: "highlight-current", evidenceItemId: null },
+      { entityKind: "highlight", action: "quarantined", projectFactId: null, highlightId: "highlight-quarantined", evidenceItemId: null },
+      { entityKind: "evidence", action: "created", projectFactId: null, highlightId: null, evidenceItemId: "evidence-current" },
+    ])).toEqual({
+      appliedFactIds: ["fact-current"],
+      appliedHighlightIds: ["highlight-current"],
+      promotedEvidenceIds: ["evidence-current"],
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.timeline.length = 0;
@@ -507,7 +525,7 @@ describe("project chat latest-commit freshness orchestration", () => {
     // The workflow no longer performs redundant status-only steps before the
     // refresh. This value is consumed by the authoritative pre-inventory
     // cancellation fence inside runRequiredKnowledgeRefresh.
-    mocks.state.terminalStatusQueue = ["cancelled"];
+    mocks.state.terminalStatusQueue = ["running", "cancelled"];
 
     await expect(projectChatTurnWorkflow("run-h2")).resolves.toEqual({
       status: "cancelled",
@@ -1100,7 +1118,7 @@ describe("project chat latest-commit freshness orchestration", () => {
     });
 
     expect(mocks.runAgent).not.toHaveBeenCalled();
-    expect(mocks.markRunning).not.toHaveBeenCalled();
+    expect(mocks.markRunning).toHaveBeenCalledOnce();
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       message: "Project chat was cancelled.",
     }));

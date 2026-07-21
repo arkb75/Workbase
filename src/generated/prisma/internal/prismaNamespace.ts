@@ -3231,6 +3231,7 @@ export const AgentRunScalarFieldEnum = {
   status: 'status',
   request: 'request',
   attemptNumber: 'attemptNumber',
+  workflowRecoveryCount: 'workflowRecoveryCount',
   result: 'result',
   error: 'error',
   harnessVersion: 'harnessVersion',

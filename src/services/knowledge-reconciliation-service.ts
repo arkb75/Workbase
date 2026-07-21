@@ -7,6 +7,7 @@ import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
   recordAutoResolvedKnowledgeChanges,
+  recordAutoResolvedKnowledgeChangesInTransaction,
   upsertReviewableKnowledgeChange,
   upsertReviewableKnowledgeChangeInTransaction,
   type AutoResolvedKnowledgeChangeInput,
@@ -612,6 +613,53 @@ type HighlightReconciliationSnapshot = {
   updatedAt?: Date;
 };
 
+type ExistingProjectFactForReconciliation = Prisma.ProjectFactGetPayload<{
+  include: { evidence: { include: { evidenceItem: true } } };
+}>;
+
+type ExistingHighlightForReconciliation = Prisma.HighlightGetPayload<{
+  include: { evidence: { include: { evidenceItem: true } } };
+}>;
+
+export function hasPromotedReconciliationEvidence(evidenceIds: string[]) {
+  return evidenceIds.length > 0;
+}
+
+function closestProjectFact(input: {
+  candidate: SynthesizedKnowledge["facts"][number];
+  subsystemKey: string;
+  existing: ExistingProjectFactForReconciliation[];
+}) {
+  return input.existing
+    .map((fact) => ({
+      fact,
+      score: knowledgeSimilarity(input.candidate.statement, fact.statement),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .find((entry) => entry.fact.subsystemKey === input.subsystemKey) ?? null;
+}
+
+function closestHighlight(input: {
+  text: string;
+  subsystemKey: string;
+  existing: ExistingHighlightForReconciliation[];
+}) {
+  return input.existing
+    .filter((highlight) => {
+      const metadata = highlight.metadata &&
+        typeof highlight.metadata === "object" &&
+        !Array.isArray(highlight.metadata)
+        ? highlight.metadata as Record<string, unknown>
+        : null;
+      return metadata?.subsystemKey === input.subsystemKey;
+    })
+    .map((highlight) => ({
+      highlight,
+      score: knowledgeSimilarity(input.text, highlight.text),
+    }))
+    .sort((left, right) => right.score - left.score)[0] ?? null;
+}
+
 /**
  * A synthesis candidate is selected before the short mutation transaction.
  * These compare-and-swap predicates make that selection expire as soon as a
@@ -663,7 +711,7 @@ async function applyFact(input: {
   allowCanonicalReplacement: boolean;
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
-  if (!input.evidenceIds.length) return null;
+  if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
   const existing = await prisma.projectFact.findMany({
     where: {
       workItemId: input.workItemId,
@@ -671,10 +719,11 @@ async function applyFact(input: {
     },
     include: { evidence: { include: { evidenceItem: true } } },
   });
-  const ranked = existing
-    .map((fact) => ({ fact, score: knowledgeSimilarity(input.candidate.statement, fact.statement) }))
-    .sort((left, right) => right.score - left.score);
-  const closest = ranked.find((entry) => entry.fact.subsystemKey === input.subsystem.subsystemKey) ?? null;
+  const closest = closestProjectFact({
+    candidate: input.candidate,
+    subsystemKey: input.subsystem.subsystemKey,
+    existing,
+  });
   const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
   const validatesUserEdit = Boolean(
@@ -865,7 +914,7 @@ async function applyHighlight(input: {
   allowCanonicalReplacement: boolean;
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
-  if (!input.evidenceIds.length) return null;
+  if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
   const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
   // Repository contents can verify implementation but cannot establish who
   // personally performed the work. Running a public-claim verifier for every
@@ -880,15 +929,11 @@ async function applyHighlight(input: {
     where: { workItemId: input.workItemId, lifecycleStatus: { in: ["active", "needs_validation"] } },
     include: { evidence: { include: { evidenceItem: true } } },
   });
-  const closest = existing
-    .filter((highlight) => {
-      const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
-        ? highlight.metadata as Record<string, unknown>
-        : null;
-      return metadata?.subsystemKey === input.subsystem.subsystemKey;
-    })
-    .map((highlight) => ({ highlight, score: knowledgeSimilarity(text, highlight.text) }))
-    .sort((left, right) => right.score - left.score)[0] ?? null;
+  const closest = closestHighlight({
+    text,
+    subsystemKey: input.subsystem.subsystemKey,
+    existing,
+  });
   const exact = Boolean(
     closest &&
     closest.score >= 0.9 &&
@@ -1085,7 +1130,301 @@ async function applyHighlight(input: {
   return unsafe ? null : highlight.id;
 }
 
+type PreparedFactReconciliation = {
+  key: string;
+  subsystem: SynthesizedKnowledge;
+  candidate: SynthesizedKnowledge["facts"][number];
+  evidenceIds: string[];
+  commitSha: string;
+  validationHeads: Record<string, string>;
+  sourceEntries: SynthesisNotebookEntry[];
+};
+
+type PreparedHighlightReconciliation = {
+  key: string;
+  subsystem: SynthesizedKnowledge;
+  candidate: SynthesizedKnowledge["highlights"][number];
+  evidenceIds: string[];
+  evidence: Array<{ title: string; excerpt: string; commitSha?: string }>;
+  commitSha: string;
+  validationHeads: Record<string, string>;
+  sourceEntries: SynthesisNotebookEntry[];
+};
+
+/**
+ * Revalidating unchanged knowledge is lifecycle maintenance, not a new review
+ * decision. Apply all exact/user-edit-preserving matches under one generation
+ * fence and record their audit rows already resolved. This replaces one
+ * serializable transaction per Fact/Highlight with one transaction per cold
+ * refresh while keeping every row-level CAS and immutable provenance link.
+ */
+async function revalidateExistingKnowledge(input: {
+  runId: string;
+  workItemId: string;
+  facts: PreparedFactReconciliation[];
+  highlights: PreparedHighlightReconciliation[];
+  existingFacts: ExistingProjectFactForReconciliation[];
+  existingHighlights: ExistingHighlightForReconciliation[];
+}) {
+  const claimedFactIds = new Set<string>();
+  const claimedHighlightIds = new Set<string>();
+  const factMatches = input.facts.flatMap((entry) => {
+    if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
+    const closest = closestProjectFact({
+      candidate: entry.candidate,
+      subsystemKey: entry.subsystem.subsystemKey,
+      existing: input.existingFacts,
+    });
+    const unsafe = !entry.subsystem.approvalEligible ||
+      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const exact = Boolean(
+      closest &&
+      closest.score >= 0.9 &&
+      normalizeWhitespace(closest.fact.statement).toLowerCase() ===
+        normalizeWhitespace(entry.candidate.statement).toLowerCase(),
+    );
+    const validatesUserEdit = Boolean(
+      closest &&
+      closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
+      closest.fact.approvalSource === "user" &&
+      closest.fact.lifecycleStatus === "needs_validation" &&
+      !shouldQuarantineSynthesizedCandidate({
+        confidence: closest.fact.confidence,
+        sensitivityFlag: closest.fact.sensitivityFlag,
+        statement: closest.fact.statement,
+      }, entry.sourceEntries),
+    );
+    if (
+      unsafe ||
+      !closest ||
+      (!exact && !validatesUserEdit) ||
+      claimedFactIds.has(closest.fact.id)
+    ) return [];
+    claimedFactIds.add(closest.fact.id);
+    return [{ entry, closest, validatesUserEdit }];
+  });
+  const highlightMatches = input.highlights.flatMap((entry) => {
+    if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
+    const unsafe = !entry.subsystem.approvalEligible ||
+      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const publicVerification = repositoryHighlightPublicDisposition(unsafe);
+    const text = publicVerification.eligible && publicVerification.correctedText
+      ? publicVerification.correctedText
+      : entry.candidate.text;
+    const closest = closestHighlight({
+      text,
+      subsystemKey: entry.subsystem.subsystemKey,
+      existing: input.existingHighlights,
+    });
+    const exact = Boolean(
+      closest &&
+      closest.score >= 0.9 &&
+      normalizeWhitespace(closest.highlight.text).toLowerCase() ===
+        normalizeWhitespace(text).toLowerCase(),
+    );
+    const validatesUserEdit = Boolean(
+      closest &&
+      closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD &&
+      closest.highlight.approvalSource === "user" &&
+      closest.highlight.lifecycleStatus === "needs_validation" &&
+      !shouldQuarantineSynthesizedCandidate({
+        confidence: closest.highlight.confidence,
+        sensitivityFlag: closest.highlight.sensitivityFlag,
+        text: closest.highlight.text,
+        summary: closest.highlight.summary,
+      }, entry.sourceEntries),
+    );
+    if (
+      unsafe ||
+      !closest ||
+      (!exact && !validatesUserEdit) ||
+      claimedHighlightIds.has(closest.highlight.id)
+    ) return [];
+    claimedHighlightIds.add(closest.highlight.id);
+    return [{ entry, closest, validatesUserEdit }];
+  });
+  const matchedKeys = new Set([
+    ...factMatches.map(({ entry }) => entry.key),
+    ...highlightMatches.map(({ entry }) => entry.key),
+  ]);
+  if (!matchedKeys.size) {
+    return {
+      matchedKeys,
+      appliedFactIdsByKey: new Map<string, string>(),
+      appliedHighlightIdsByKey: new Map<string, string>(),
+    };
+  }
+
+  const appliedFactIdsByKey = new Map<string, string>();
+  const appliedHighlightIdsByKey = new Map<string, string>();
+  await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    const validatedAt = new Date();
+    const changeInputs: AutoResolvedKnowledgeChangeInput[] = [];
+    const evidenceIds = new Set<string>();
+    const factEvidenceRows: Array<{ projectFactId: string; evidenceItemId: string }> = [];
+    const highlightEvidenceRows: Array<{ highlightId: string; evidenceItemId: string }> = [];
+
+    for (const { entry, closest, validatesUserEdit } of factMatches) {
+      const claimed = await tx.projectFact.updateMany({
+        where: projectFactReconciliationCasWhere(closest.fact),
+        data: {
+          status: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          validatedThroughSha: entry.commitSha,
+          lastValidatedAt: validatedAt,
+          validationHeads: toInputJson(entry.validationHeads),
+          autoAppliedAt: validatedAt,
+          rejectionReason: null,
+          productImportance: entry.candidate.productImportance,
+          implementationBreadth: entry.candidate.implementationBreadth,
+          technicalDifficulty: entry.candidate.technicalDifficulty,
+          distinctiveness: entry.candidate.distinctiveness,
+        },
+      });
+      if (claimed.count !== 1) continue;
+      appliedFactIdsByKey.set(entry.key, closest.fact.id);
+      for (const evidenceItemId of entry.evidenceIds) {
+        evidenceIds.add(evidenceItemId);
+        factEvidenceRows.push({ projectFactId: closest.fact.id, evidenceItemId });
+      }
+      changeInputs.push({
+        workItemId: input.workItemId,
+        refreshRunId: input.runId,
+        entityKind: "project_fact",
+        action: "revalidated",
+        entityId: closest.fact.id,
+        beforeSnapshot: {
+          id: closest.fact.id,
+          statement: closest.fact.statement,
+          status: closest.fact.status,
+          lifecycleStatus: closest.fact.lifecycleStatus,
+          validatedThroughSha: closest.fact.validatedThroughSha,
+        },
+        afterSnapshot: {
+          id: closest.fact.id,
+          statement: closest.fact.statement,
+          status: "approved",
+          lifecycleStatus: "active",
+          validatedThroughSha: entry.commitSha,
+        },
+        reason: validatesUserEdit
+          ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
+          : "Current repository evidence revalidated this Project Fact.",
+        provenance: {
+          evidenceIds: entry.evidenceIds,
+          commitSha: entry.commitSha,
+          preservedUserEdit: validatesUserEdit,
+        },
+        policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+        modelId: resolveBedrockConfig().modelId,
+        idempotencyKey: `project_fact:content-addressed:${closest.fact.id}:${hash([
+          closest.fact.statement,
+          entry.commitSha,
+          ...entry.evidenceIds.slice().sort(),
+        ].join("|")).slice(0, 24)}`,
+      });
+    }
+
+    for (const { entry, closest, validatesUserEdit } of highlightMatches) {
+      const claimed = await tx.highlight.updateMany({
+        where: highlightReconciliationCasWhere(closest.highlight),
+        data: {
+          verificationStatus: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          validatedThroughSha: entry.commitSha,
+          lastValidatedAt: validatedAt,
+          validationHeads: toInputJson(entry.validationHeads),
+          autoAppliedAt: validatedAt,
+          rejectionReason: null,
+        },
+      });
+      if (claimed.count !== 1) continue;
+      appliedHighlightIdsByKey.set(entry.key, closest.highlight.id);
+      for (const evidenceItemId of entry.evidenceIds) {
+        evidenceIds.add(evidenceItemId);
+        highlightEvidenceRows.push({ highlightId: closest.highlight.id, evidenceItemId });
+      }
+      changeInputs.push({
+        workItemId: input.workItemId,
+        refreshRunId: input.runId,
+        entityKind: "highlight",
+        action: "revalidated",
+        entityId: closest.highlight.id,
+        beforeSnapshot: {
+          id: closest.highlight.id,
+          text: closest.highlight.text,
+          verificationStatus: closest.highlight.verificationStatus,
+          lifecycleStatus: closest.highlight.lifecycleStatus,
+          validatedThroughSha: closest.highlight.validatedThroughSha,
+        },
+        afterSnapshot: {
+          id: closest.highlight.id,
+          text: closest.highlight.text,
+          verificationStatus: "approved",
+          lifecycleStatus: "active",
+          validatedThroughSha: entry.commitSha,
+        },
+        reason: validatesUserEdit
+          ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
+          : "Current repository evidence revalidated this Highlight.",
+        provenance: {
+          evidenceIds: entry.evidenceIds,
+          commitSha: entry.commitSha,
+          preservedUserEdit: validatesUserEdit,
+        },
+        policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+        modelId: resolveBedrockConfig().modelId,
+        idempotencyKey: `highlight:content-addressed:${closest.highlight.id}:${hash([
+          closest.highlight.text,
+          entry.commitSha,
+          ...entry.evidenceIds.slice().sort(),
+        ].join("|")).slice(0, 24)}`,
+      });
+    }
+
+    const appliedFactIds = Array.from(appliedFactIdsByKey.values());
+    const appliedHighlightIds = Array.from(appliedHighlightIdsByKey.values());
+    await Promise.all([
+      appliedFactIds.length
+        ? tx.projectFactEvidence.deleteMany({ where: { projectFactId: { in: appliedFactIds } } })
+        : Promise.resolve(),
+      appliedHighlightIds.length
+        ? tx.highlightEvidence.deleteMany({ where: { highlightId: { in: appliedHighlightIds } } })
+        : Promise.resolve(),
+    ]);
+    await Promise.all([
+      factEvidenceRows.length
+        ? tx.projectFactEvidence.createMany({ data: factEvidenceRows, skipDuplicates: true })
+        : Promise.resolve(),
+      highlightEvidenceRows.length
+        ? tx.highlightEvidence.createMany({ data: highlightEvidenceRows, skipDuplicates: true })
+        : Promise.resolve(),
+      evidenceIds.size
+        ? tx.evidenceItem.updateMany({
+            where: { id: { in: Array.from(evidenceIds) } },
+            data: { included: true },
+          })
+        : Promise.resolve(),
+    ]);
+    if (changeInputs.length) {
+      await recordAutoResolvedKnowledgeChangesInTransaction(changeInputs, tx);
+    }
+  }, { timeoutMs: 45_000 });
+
+  return { matchedKeys, appliedFactIdsByKey, appliedHighlightIdsByKey };
+}
+
 export async function reconcileRepositoryKnowledge(runId: string) {
+  const reconciliationStartedAt = Date.now();
+  const stageTimingsMs: Record<string, number> = {};
+  let stageStartedAt = reconciliationStartedAt;
+  const finishStage = (stage: string) => {
+    const now = Date.now();
+    stageTimingsMs[stage] = now - stageStartedAt;
+    stageStartedAt = now;
+  };
   await assertKnowledgeRefreshGenerationCurrent(runId);
   const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
@@ -1096,6 +1435,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
   const partialChanges = await prisma.knowledgeChange.count({ where: { refreshRunId: runId } });
   const synthesis = await synthesizeRepositoryKnowledge(runId, { fallbackOnly: partialChanges > 0 });
   const synthesisCoverageGaps = await persistSynthesisCoverageGaps(runId, synthesis);
+  finishStage("synthesis");
   const allowCanonicalReplacement =
     allowsCanonicalKnowledgeReplacement(run.qualityStatus) &&
     synthesisCoverageGaps.length === 0;
@@ -1107,34 +1447,30 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     synthesis,
     userId: run.workItem.userId,
   });
+  finishStage("evidencePromotion");
   await assertKnowledgeRefreshGenerationCurrent(runId);
   const embeddingTasks: KnowledgeEmbeddingTask[] = [];
   const enqueueEmbedding = (task: KnowledgeEmbeddingTask) => {
     embeddingTasks.push(task);
   };
-  const processSubsystem = async (subsystem: SynthesizedKnowledge) => {
-    const produced = { projectFactIds: [] as string[], highlightIds: [] as string[] };
-    for (const candidate of subsystem.facts) {
+  const preparedFacts: PreparedFactReconciliation[] = synthesis.flatMap((subsystem) =>
+    subsystem.facts.map((candidate, index) => {
       const evidenceIds = evidenceIdsForIndexes({ subsystem, citationIndexes: candidate.citationIndexes, promotedIdByReference });
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
       const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
-      const factId = await applyFact({
-        runId,
-        workItemId: run.workItemId,
+      return {
+        key: `fact:${subsystem.subsystemKey}:${index}`,
         subsystem,
         candidate,
         evidenceIds,
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
         sourceEntries: citedEntries,
-        allowCanonicalReplacement,
-        enqueueEmbedding,
-      });
-      if (factId) {
-        produced.projectFactIds.push(factId);
-      }
-    }
-    for (const candidate of subsystem.highlights) {
+      };
+    })
+  );
+  const preparedHighlights: PreparedHighlightReconciliation[] = synthesis.flatMap((subsystem) =>
+    subsystem.highlights.map((candidate, index) => {
       const evidenceIds = evidenceIdsForIndexes({ subsystem, citationIndexes: candidate.citationIndexes, promotedIdByReference });
       const evidence = citationsForIndexes({ subsystem, citationIndexes: candidate.citationIndexes, materialized }).map((entry) => ({
         title: entry.label,
@@ -1143,9 +1479,8 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       }));
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
       const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
-      const highlightId = await applyHighlight({
-        runId,
-        workItemId: run.workItemId,
+      return {
+        key: `highlight:${subsystem.subsystemKey}:${index}`,
         subsystem,
         candidate,
         evidenceIds,
@@ -1153,44 +1488,105 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
         sourceEntries: citedEntries,
-        allowCanonicalReplacement,
-        enqueueEmbedding,
-      });
-      if (highlightId) {
-        produced.highlightIds.push(highlightId);
-      }
+      };
+    })
+  );
+  const [existingFacts, existingHighlights] = await Promise.all([
+    prisma.projectFact.findMany({
+      where: {
+        workItemId: run.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+      },
+      include: { evidence: { include: { evidenceItem: true } } },
+    }),
+    prisma.highlight.findMany({
+      where: {
+        workItemId: run.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+      },
+      include: { evidence: { include: { evidenceItem: true } } },
+    }),
+  ]);
+  const batchedRevalidations = await revalidateExistingKnowledge({
+    runId,
+    workItemId: run.workItemId,
+    facts: preparedFacts,
+    highlights: preparedHighlights,
+    existingFacts,
+    existingHighlights,
+  });
+  finishStage("batchedRevalidation");
+  const producedBySubsystem = new Map(synthesis.map((subsystem) => [
+    subsystem.subsystemKey,
+    { projectFactIds: [] as string[], highlightIds: [] as string[] },
+  ]));
+  for (const entry of preparedFacts) {
+    const batchedId = batchedRevalidations.appliedFactIdsByKey.get(entry.key);
+    if (batchedId) {
+      producedBySubsystem.get(entry.subsystem.subsystemKey)?.projectFactIds.push(batchedId);
+      continue;
     }
-    return { subsystemKey: subsystem.subsystemKey, produced };
-  };
-  const results: Array<Awaited<ReturnType<typeof processSubsystem>>> = [];
-  // Semantic analysis is parallelized before this phase. Reconciliation writes
-  // are deliberately serialized by the per-Work-Item generation fence, so
-  // starting several serializable transactions concurrently only gives each
-  // waiter a stale snapshot after it acquires the lock. On Neon/Postgres that
-  // repeatedly surfaces as P2034 write conflicts. Apply the already-produced
-  // synthesis sequentially; this keeps the expensive model work parallel while
-  // making the short mutation phase deterministic and retry-safe.
-  for (const subsystem of synthesis) {
-    results.push(await processSubsystem(subsystem));
+    // A lost row-level CAS means a user or newer writer changed the matched
+    // entity after planning. Do not reinterpret that race as permission to
+    // manufacture a successor from stale state.
+    if (batchedRevalidations.matchedKeys.has(entry.key)) continue;
+    const factId = await applyFact({
+      runId,
+      workItemId: run.workItemId,
+      ...entry,
+      allowCanonicalReplacement,
+      enqueueEmbedding,
+    });
+    if (factId) {
+      producedBySubsystem.get(entry.subsystem.subsystemKey)?.projectFactIds.push(factId);
+    }
   }
-  for (const { subsystemKey, produced } of results) {
-    await withKnowledgeRefreshGenerationFence(runId, (tx) =>
-      tx.repositoryCapabilityLedger.updateMany({
+  for (const entry of preparedHighlights) {
+    const batchedId = batchedRevalidations.appliedHighlightIdsByKey.get(entry.key);
+    if (batchedId) {
+      producedBySubsystem.get(entry.subsystem.subsystemKey)?.highlightIds.push(batchedId);
+      continue;
+    }
+    if (batchedRevalidations.matchedKeys.has(entry.key)) continue;
+    const highlightId = await applyHighlight({
+      runId,
+      workItemId: run.workItemId,
+      ...entry,
+      allowCanonicalReplacement,
+      enqueueEmbedding,
+    });
+    if (highlightId) {
+      producedBySubsystem.get(entry.subsystem.subsystemKey)?.highlightIds.push(highlightId);
+    }
+  }
+  finishStage("knowledgeApplication");
+  const results = synthesis.map((subsystem) => ({
+    subsystemKey: subsystem.subsystemKey,
+    produced: producedBySubsystem.get(subsystem.subsystemKey) ?? {
+      projectFactIds: [],
+      highlightIds: [],
+    },
+  }));
+  await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
+    for (const { subsystemKey, produced } of results) {
+      await tx.repositoryCapabilityLedger.updateMany({
         where: { refreshRunId: runId, capabilityKey: subsystemKey },
         data: { producedEntityRefs: toInputJson(produced) },
-      })
-    );
-  }
+      });
+    }
+  });
+  finishStage("ledgerPersistence");
   const embeddingTelemetry = await runBoundedKnowledgeEmbeddingTasks(
     embeddingTasks,
   );
+  finishStage("embeddings");
   await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
     // Synthesis-gap reconciliation may have degraded the run and extended its
     // warnings after the initial snapshot was loaded. Merge into the current
     // fenced row so embedding telemetry cannot erase those newer diagnostics.
     const current = await tx.knowledgeRefreshRun.findUniqueOrThrow({
       where: { id: runId },
-      select: { warnings: true, qualityStatus: true },
+      select: { warnings: true, qualityStatus: true, budgetUsage: true },
     });
     const embeddingRefreshState = knowledgeRefreshStateForEmbeddingTelemetry({
       warnings: current.warnings,
@@ -1202,6 +1598,18 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       data: {
         qualityStatus: embeddingRefreshState.qualityStatus,
         warnings: toInputJson(embeddingRefreshState.warnings),
+        budgetUsage: toInputJson({
+          ...objectRecord(current.budgetUsage),
+          reconciliation: {
+            stageTimingsMs,
+            totalMs: Date.now() - reconciliationStartedAt,
+            promotedEvidenceCount: promotedIdByReference.size,
+            preparedFactCount: preparedFacts.length,
+            preparedHighlightCount: preparedHighlights.length,
+            batchedFactRevalidationCount: batchedRevalidations.appliedFactIdsByKey.size,
+            batchedHighlightRevalidationCount: batchedRevalidations.appliedHighlightIdsByKey.size,
+          },
+        }),
       },
     });
   });
@@ -1214,6 +1622,10 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     promotedEvidenceIds: Array.from(new Set(promotedIdByReference.values())),
     coverageGaps: synthesisCoverageGaps,
     embeddingTelemetry,
+    reconciliationTelemetry: {
+      stageTimingsMs,
+      totalMs: Date.now() - reconciliationStartedAt,
+    },
   };
 }
 

@@ -770,7 +770,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     },
     include: { snapshot: true },
     orderBy: [{ snapshotId: "asc" }, { path: "asc" }],
-    take: Math.max(1, Math.min(input.batchSize ?? 4, 8)),
+    take: Math.max(1, Math.min(input.batchSize ?? 8, 16)),
   });
 
   const prepared = await Promise.all(batch.map(async (file) => {
@@ -827,10 +827,8 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
       path: entry.file.path,
       content: entry.read.content,
     })));
-    const analysisByPath = new Map(analyses.map((analysis) => [analysis.path, analysis]));
-    await Promise.all(pending.map(async (entry) => {
-      const analysis = analysisByPath.get(entry.file.path);
-      if (!analysis) throw new Error(`Repository analysis omitted ${entry.file.path}.`);
+    const paired = pairRepositoryAnalysesByInputOrder({ pending, analyses });
+    await Promise.all(paired.map(async ({ entry, analysis }) => {
       await prisma.repositoryFileSnapshot.update({
         where: { id: entry.file.id },
         data: {
@@ -864,12 +862,31 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
   return { remaining, analyzed };
 }
 
+export function pairRepositoryAnalysesByInputOrder<T extends {
+  file: { path: string };
+  target: { repository: string };
+}>(input: {
+  pending: T[];
+  analyses: RepositoryFileAnalysis[];
+}) {
+  if (input.pending.length !== input.analyses.length) {
+    throw new Error("Repository analysis returned a different number of files than requested.");
+  }
+  return input.pending.map((entry, index) => {
+    const analysis = input.analyses[index];
+    if (!analysis || analysis.path !== entry.file.path) {
+      throw new Error(`Repository analysis omitted or reordered ${entry.target.repository}:${entry.file.path}.`);
+    }
+    return { entry, analysis };
+  });
+}
+
 export async function analyzeKnowledgeRefreshChunk(input: {
   runId: string;
   batchSize?: number;
   maxBatches?: number;
 }) {
-  const batchSize = Math.max(1, Math.min(input.batchSize ?? 8, 8));
+  const batchSize = Math.max(1, Math.min(input.batchSize ?? 16, 16));
   const maxBatches = Math.max(1, Math.min(input.maxBatches ?? 8, 16));
   let remaining = 1;
   let analyzed = 0;
