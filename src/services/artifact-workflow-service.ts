@@ -3,6 +3,7 @@ import type {
   ClaimSnapshot,
   EvidenceItemSnapshot,
   JsonValue,
+  NormalizedEvidenceItem,
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
@@ -42,6 +43,33 @@ import {
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+async function lockArtifactResearchEvidence(
+  tx: Prisma.TransactionClient,
+  workItemId: string,
+  evidenceIds: readonly string[],
+) {
+  const ids = Array.from(new Set(evidenceIds));
+  if (!ids.length) return [];
+  return tx.$queryRaw<Array<{
+    id: string;
+    included: boolean;
+    lifecycleStatus: string;
+    reviewState: string;
+    approvalSource: string;
+  }>>(Prisma.sql`
+    SELECT
+      "id",
+      "included",
+      "lifecycleStatus"::text AS "lifecycleStatus",
+      "reviewState"::text AS "reviewState",
+      "approvalSource"::text AS "approvalSource"
+    FROM "EvidenceItem"
+    WHERE "workItemId" = ${workItemId}
+      AND "id" IN (${Prisma.join(ids)})
+    FOR UPDATE
+  `);
 }
 
 export function artifactBriefRequiresMeasuredImpact(brief: string) {
@@ -281,76 +309,89 @@ async function persistArtifact(input: {
   const persistedContent = publicVerification.eligible && publicVerification.correctedContent
     ? publicVerification.correctedContent
     : input.draft.content;
-  const artifact = await prisma.artifact.upsert({
-    where: { originatingAgentRunId: input.runId },
-    create: {
-      userId: input.userId,
-      workItemId: input.workItemId,
-      originatingAgentRunId: input.runId,
-      type: input.normalized.type,
-      targetAngle: input.normalized.targetAngle,
-      tone: input.normalized.tone,
-      requestBrief: input.normalized.brief,
-      content: persistedContent,
-      searchText: normalizeWhitespace(
-        [input.normalized.brief, persistedContent].join(" "),
-      ),
-      lifecycleStatus: publicVerification.eligible ? "active" : "quarantined",
-      reviewState: "pending_review",
-      approvalSource: "automation",
-      publicSafetyStatus: publicVerification.eligible ? "verified" : "failed",
-      staleReason: publicVerification.eligible ? null : publicVerification.reasons.join(" ").slice(0, 1_000),
-      supersedesArtifactId: input.supersedesArtifactId ?? null,
-      highlightProvenance: {
-        create: highlights.map((highlight, index) => ({
-          highlightId: highlight.id,
-          rank: index + 1,
-          highlightSnapshot: toInputJson({
-            id: highlight.id,
-            text: highlight.text,
-            summary: highlight.summary,
-            confidence: highlight.confidence,
-            ownershipClarity: highlight.ownershipClarity,
-            sensitivityFlag: highlight.sensitivityFlag,
-            visibility: highlight.visibility,
-            verificationStatus: highlight.verificationStatus,
-            risksSummary: highlight.risksSummary,
-            missingInfo: highlight.missingInfo,
-            evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
-          }),
-        })),
+  const artifact = await prisma.$transaction(async (tx) => {
+    const activeRuns = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "AgentRun"
+      WHERE "id" = ${input.runId}
+        AND "userId" = ${input.userId}
+        AND "workItemId" = ${input.workItemId}
+        AND "status" = 'running'
+      FOR UPDATE
+    `;
+    if (!activeRuns[0]) {
+      throw new Error("The artifact run is no longer active.");
+    }
+    return tx.artifact.upsert({
+      where: { originatingAgentRunId: input.runId },
+      create: {
+        userId: input.userId,
+        workItemId: input.workItemId,
+        originatingAgentRunId: input.runId,
+        type: input.normalized.type,
+        targetAngle: input.normalized.targetAngle,
+        tone: input.normalized.tone,
+        requestBrief: input.normalized.brief,
+        content: persistedContent,
+        searchText: normalizeWhitespace(
+          [input.normalized.brief, persistedContent].join(" "),
+        ),
+        // A verified Artifact remains non-active until completeAgentRun
+        // atomically activates it and terminalizes the owning run. This makes
+        // cancellation during public verification or embedding fail closed.
+        lifecycleStatus: "quarantined",
+        reviewState: "pending_review",
+        approvalSource: "automation",
+        publicSafetyStatus: publicVerification.eligible ? "verified" : "failed",
+        staleReason: publicVerification.eligible
+          ? "Awaiting durable run finalization."
+          : publicVerification.reasons.join(" ").slice(0, 1_000),
+        supersedesArtifactId: input.supersedesArtifactId ?? null,
+        highlightProvenance: {
+          create: highlights.map((highlight, index) => ({
+            highlightId: highlight.id,
+            rank: index + 1,
+            highlightSnapshot: toInputJson({
+              id: highlight.id,
+              text: highlight.text,
+              summary: highlight.summary,
+              confidence: highlight.confidence,
+              ownershipClarity: highlight.ownershipClarity,
+              sensitivityFlag: highlight.sensitivityFlag,
+              visibility: highlight.visibility,
+              verificationStatus: highlight.verificationStatus,
+              risksSummary: highlight.risksSummary,
+              missingInfo: highlight.missingInfo,
+              evidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
+            }),
+          })),
+        },
+        evidenceProvenance: {
+          create: evidence.map((item, index) => ({
+            evidenceItemId: item.id,
+            rank: index + 1,
+            evidenceSnapshot: toInputJson({
+              id: item.id,
+              title: item.title,
+              content: item.content,
+              type: item.type,
+              sourceId: item.sourceId,
+              metadata: item.metadata,
+            }),
+          })),
+        },
       },
-      evidenceProvenance: {
-        create: evidence.map((item, index) => ({
-          evidenceItemId: item.id,
-          rank: index + 1,
-          evidenceSnapshot: toInputJson({
-            id: item.id,
-            title: item.title,
-            content: item.content,
-            type: item.type,
-            sourceId: item.sourceId,
-            metadata: item.metadata,
-          }),
-        })),
-      },
-    },
-    update: {},
-  });
-  if (input.supersedesArtifactId && publicVerification.eligible) {
-    await prisma.artifact.updateMany({
-      where: { id: input.supersedesArtifactId, workItemId: input.workItemId },
-      data: { lifecycleStatus: "superseded" },
+      update: {},
     });
-  }
+  });
   await upsertArtifactEmbedding({
     artifactId: artifact.id,
     inputText: buildArtifactEmbeddingText(artifact),
   });
-  await recordChange({
+  if (!publicVerification.eligible) await recordChange({
     workItemId: input.workItemId,
     entityKind: "artifact",
-    action: publicVerification.eligible ? "created" : "quarantined",
+    action: "quarantined",
     entityId: artifact.id,
     afterSnapshot: {
       id: artifact.id,
@@ -358,9 +399,7 @@ async function persistArtifact(input: {
       lifecycleStatus: artifact.lifecycleStatus,
       publicSafetyStatus: artifact.publicSafetyStatus,
     },
-    reason: publicVerification.eligible
-      ? "The generated Artifact passed final claim-level public verification."
-      : publicVerification.reasons.join(" ") || "The generated Artifact failed final public verification.",
+    reason: publicVerification.reasons.join(" ") || "The generated Artifact failed final public verification.",
     provenance: { highlightIds: highlights.map((highlight) => highlight.id), evidenceIds: evidence.map((item) => item.id) },
     suffix: `${artifact.id}:public-verification`,
   }).catch(() => null);
@@ -389,10 +428,48 @@ async function generateCandidateBatch(input: {
     hints: input.feedback,
     onAgentEvent: (event) => persistResearchAgentEvent(input.runId, event),
   });
-  const promoted = await promoteRepositoryCitations({
-    workItemId: input.workItemId,
-    citations: research.citations,
-    reviewScope: `artifact-research:${input.runId}:batch:${input.batchNumber}`,
+  const transientResearchEvidence = research.citations.flatMap((citation, index) => {
+    if (
+      citation.kind !== "github_file" ||
+      !citation.sourceId ||
+      !citation.repository ||
+      !citation.commitSha ||
+      !citation.blobSha ||
+      !citation.path
+    ) return [];
+    const temporaryId = [
+      "artifact-research",
+      input.runId,
+      input.batchNumber,
+      index,
+    ].join(":");
+    const excerpt = normalizeWhitespace(citation.excerpt);
+    const normalized: NormalizedEvidenceItem = {
+      id: temporaryId,
+      sourceId: citation.sourceId,
+      label: `${citation.path}:${citation.startLine ?? 1}-${citation.endLine ?? 1}`,
+      type: "github_repo",
+      evidenceType: "github_file_excerpt",
+      searchText: normalizeWhitespace([citation.path, excerpt].join(" ")),
+      parentKind: "github_file",
+      parentKey: `${citation.commitSha}:${citation.path}`,
+      body: excerpt,
+      excerpts: [excerpt],
+      metadata: {
+        repository: citation.repository,
+        commitSha: citation.commitSha,
+        blobSha: citation.blobSha,
+        path: citation.path,
+        startLine: citation.startLine ?? null,
+        endLine: citation.endLine ?? null,
+        url: citation.url ?? null,
+        contentSafety: "untrusted_repository_content",
+        redacted: citation.redacted ?? false,
+        redactionCategories: citation.redactionCategories ?? [],
+      },
+      tags: [],
+    };
+    return [{ temporaryId, citation, normalized }];
   });
   const knowledge = await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,
@@ -401,7 +478,15 @@ async function generateCandidateBatch(input: {
     purpose: "project_research",
     limits: { evidence: 12, highlights: 8, artifacts: 3 },
   });
-  if (artifactBriefRequiresMeasuredImpact(input.brief) && !hasMeasuredImpactEvidence(knowledge.hits)) {
+  const researchEstablishedMeasuredImpact = transientResearchEvidence.some(({ normalized }) =>
+    /\b\d+(?:\.\d+)?\s*(?:%|x|ms|s|sec(?:onds?)?|minutes?|hours?|users?|requests?|records?)\b/i.test(normalized.body) &&
+    /\b(?:reduc|improv|increas|decreas|faster|slower|latency|throughput|saved|grew)\w*/i.test(normalized.body)
+  );
+  if (
+    artifactBriefRequiresMeasuredImpact(input.brief) &&
+    !hasMeasuredImpactEvidence(knowledge.hits) &&
+    !researchEstablishedMeasuredImpact
+  ) {
     await appendAgentRunEvent({
       runId: input.runId,
       type: "warning",
@@ -424,64 +509,49 @@ async function generateCandidateBatch(input: {
   const pendingHighlights = context.highlights.filter((highlight) =>
     pendingHighlightIds.has(highlight.id),
   );
-  const surfaced = await prisma.$transaction(async (tx) => {
-    const entries: Array<{ id: string; highlightId: string }> = [];
-    for (const [index, highlight] of pendingHighlights.entries()) {
-      const candidate = await tx.agentRunCandidate.create({
-        data: {
-          agentRunId: input.runId,
-          highlightId: highlight.id,
-          kind: "new_highlight",
-          batchNumber: input.batchNumber,
-          ordinal: index + 1,
-          snapshot: toInputJson(mapHighlight(highlight)),
-        },
-      });
-      entries.push({ id: candidate.id, highlightId: highlight.id });
-    }
-    return entries;
-  });
-  const selectedEvidenceIds = new Set([
-    ...promoted.promotedIds,
-    ...knowledge.selectedEvidenceItemIds,
-  ]);
-  const evidenceItems = context.evidenceItems
+  const selectedEvidenceIds = new Set(knowledge.selectedEvidenceItemIds);
+  const durableEvidenceItems = context.evidenceItems
     .filter(
       (item) =>
         selectedEvidenceIds.has(item.id) &&
-        (item.included || promoted.promotedIds.includes(item.id)),
+        item.included,
     )
-    .slice(0, 16)
+    .slice(0, Math.max(0, 16 - transientResearchEvidence.length))
     .map(mapEvidence);
 
-  if (!evidenceItems.length) {
-    return surfaced;
-  }
-
   const normalizedBrief = normalizeArtifactBrief(input.brief);
-  if (normalizedBrief.status !== "ok") return surfaced;
   const workItem = mapWorkItem(context);
   const existingHighlights = context.highlights.map(mapHighlight);
-  const normalizedEvidence = await sourceIngestionService.normalize({
-    workItem,
-    sources: context.sources.map(mapSource),
-    evidenceItems,
-  });
-  const generated = await claimResearchService.generate({
-    workItem,
-    evidenceItems: normalizedEvidence,
-    existingHighlights,
-    artifactRequest: {
-      userId: input.userId,
-      workItemId: input.workItemId,
-      ...normalizedBrief.request,
-    },
-  });
-  const verified = await claimVerificationService.verify({
-    workItem,
-    evidenceItems: normalizedEvidence,
-    highlights: generated.highlights,
-  });
+  const normalizedDurableEvidence = durableEvidenceItems.length
+    ? await sourceIngestionService.normalize({
+        workItem,
+        sources: context.sources.map(mapSource),
+        evidenceItems: durableEvidenceItems,
+      })
+    : [];
+  const normalizedEvidence = [
+    ...transientResearchEvidence.slice(0, 16).map((entry) => entry.normalized),
+    ...normalizedDurableEvidence,
+  ].slice(0, 16);
+  const generated = normalizedEvidence.length && normalizedBrief.status === "ok"
+    ? await claimResearchService.generate({
+        workItem,
+        evidenceItems: normalizedEvidence,
+        existingHighlights,
+        artifactRequest: {
+          userId: input.userId,
+          workItemId: input.workItemId,
+          ...normalizedBrief.request,
+        },
+      })
+    : { highlights: [], generationRunIds: { generation: [], verification: null } };
+  const verified = generated.highlights.length
+    ? await claimVerificationService.verify({
+        workItem,
+        evidenceItems: normalizedEvidence,
+        highlights: generated.highlights,
+      })
+    : [];
   const drafts = [] as Array<(typeof verified)[number] & { autoSafe: boolean; publicVerified: boolean }>;
   for (const draft of filterDuplicateClaimDrafts(verified, existingHighlights).slice(0, 4)) {
     const autoSafe = draft.verificationStatus === "approved" && !draft.sensitivityFlag && draft.confidence !== "low";
@@ -514,19 +584,200 @@ async function generateCandidateBatch(input: {
     });
   }
 
-  if (!drafts.length && promoted.newIds.length) {
-    await prisma.evidenceItem.deleteMany({
-      where: { id: { in: promoted.newIds }, type: "github_file_excerpt", included: false },
+  const transientEvidenceById = new Map(
+    transientResearchEvidence.map((entry) => [entry.temporaryId, entry]),
+  );
+  const usedTransientEvidence = transientResearchEvidence.filter((entry) =>
+    drafts.some((draft) => draft.evidence.sourceRefs.some(
+      (reference) => reference.evidenceItemId === entry.temporaryId,
+    ))
+  );
+  const materialized = await prisma.$transaction(async (tx) => {
+    const activeRuns = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "AgentRun"
+      WHERE "id" = ${input.runId}
+        AND "userId" = ${input.userId}
+        AND "workItemId" = ${input.workItemId}
+        AND "status" = 'running'
+      FOR UPDATE
+    `;
+    if (!activeRuns[0]) {
+      throw new Error("The artifact run is no longer active.");
+    }
+    const existingBatch = await tx.agentRunCandidate.findMany({
+      where: {
+        agentRunId: input.runId,
+        batchNumber: input.batchNumber,
+        kind: { in: ["new_highlight", "highlight_revision"] },
+      },
+      select: { id: true, highlightId: true },
+      orderBy: { ordinal: "asc" },
     });
-  }
-  const created = await prisma.$transaction(async (tx) => {
+    if (existingBatch.length) {
+      return {
+        surfaced: existingBatch.flatMap((candidate) =>
+          candidate.highlightId
+            ? [{ id: candidate.id, highlightId: candidate.highlightId }]
+            : []
+        ),
+        created: [] as Array<{
+          id: string;
+          highlightId: string;
+          draft: (typeof drafts)[number];
+        }>,
+      };
+    }
+
+    const promoted = usedTransientEvidence.length
+      ? await promoteRepositoryCitations({
+          workItemId: input.workItemId,
+          citations: usedTransientEvidence.map((entry) => entry.citation),
+          reviewScope: `artifact-research:${input.runId}:batch:${input.batchNumber}`,
+          mutationFence: (operation) => operation(tx),
+        })
+      : {
+          promotedIds: [] as string[],
+          newIds: [] as string[],
+          evidenceIdByCitationIndex: new Map<number, string>(),
+        };
+    const promotedIdByTemporaryId = new Map(
+      usedTransientEvidence.flatMap((entry, index) => {
+        const evidenceId = promoted.evidenceIdByCitationIndex.get(index);
+        return evidenceId ? [[entry.temporaryId, evidenceId] as const] : [];
+      }),
+    );
+    const lockedPromotedEvidence = await lockArtifactResearchEvidence(
+      tx,
+      input.workItemId,
+      promoted.promotedIds,
+    );
+    const automationPendingExcludedIds = lockedPromotedEvidence.flatMap((evidence) =>
+      !evidence.included &&
+      evidence.lifecycleStatus === "active" &&
+      evidence.reviewState === "pending_review" &&
+      evidence.approvalSource === "automation"
+        ? [evidence.id]
+        : []
+    );
+    const automationPendingExcludedIdSet = new Set(automationPendingExcludedIds);
+    const usablePromotedIds = new Set(
+      lockedPromotedEvidence.flatMap((evidence) =>
+        evidence.lifecycleStatus === "active" &&
+        evidence.reviewState !== "reverted" &&
+        (
+          evidence.included ||
+          automationPendingExcludedIdSet.has(evidence.id)
+        )
+          ? [evidence.id]
+          : []
+      ),
+    );
+    for (const [temporaryId, evidenceId] of promotedIdByTemporaryId) {
+      if (!usablePromotedIds.has(evidenceId)) promotedIdByTemporaryId.delete(temporaryId);
+    }
+
+    const remappedDrafts = drafts.flatMap((draft) => {
+      const referencedTemporaryIds = draft.evidence.sourceRefs.flatMap((reference) =>
+        reference.evidenceItemId && transientEvidenceById.has(reference.evidenceItemId)
+          ? [reference.evidenceItemId]
+          : []
+      );
+      // Repository-backed verification applies to the complete cited set.
+      // Dropping a failed promotion and keeping the remaining refs would turn
+      // that verification into a stronger claim than the persisted evidence
+      // supports. Fail this draft closed unless every temporary ref maps.
+      if (referencedTemporaryIds.some((id) => !promotedIdByTemporaryId.has(id))) {
+        return [];
+      }
+      const sourceRefs = draft.evidence.sourceRefs.flatMap((reference) => {
+        if (!reference.evidenceItemId) return [];
+        if (!transientEvidenceById.has(reference.evidenceItemId)) return [reference];
+        const evidenceItemId = promotedIdByTemporaryId.get(reference.evidenceItemId);
+        return evidenceItemId ? [{ ...reference, evidenceItemId }] : [];
+      });
+      return sourceRefs.length
+        ? [{
+            ...draft,
+            evidence: {
+              ...draft.evidence,
+              sourceRefs,
+            },
+          }]
+        : [];
+    });
+    const remappedEvidenceIds = Array.from(new Set(remappedDrafts.flatMap((draft) =>
+      draft.evidence.sourceRefs.flatMap((reference) =>
+        reference.evidenceItemId ? [reference.evidenceItemId] : []
+      )
+    )));
+    const automationEvidenceToInclude = remappedEvidenceIds.filter((evidenceId) =>
+      automationPendingExcludedIdSet.has(evidenceId)
+    );
+    if (automationEvidenceToInclude.length) {
+      const included = await tx.evidenceItem.updateMany({
+        where: {
+          id: { in: automationEvidenceToInclude },
+          workItemId: input.workItemId,
+          included: false,
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+        },
+        data: { included: true },
+      });
+      if (included.count !== automationEvidenceToInclude.length) {
+        throw new Error(
+          "Artifact research Evidence changed while its inclusion state was being finalized.",
+        );
+      }
+    }
+    const lockedRemappedEvidence = await lockArtifactResearchEvidence(
+      tx,
+      input.workItemId,
+      remappedEvidenceIds,
+    );
+    const finalUsableEvidenceIds = new Set(
+      lockedRemappedEvidence.flatMap((evidence) =>
+        evidence.included &&
+        evidence.lifecycleStatus === "active" &&
+        evidence.reviewState !== "reverted"
+          ? [evidence.id]
+          : []
+      ),
+    );
+    // A draft is atomic with respect to its cited support. If any durable or
+    // newly promoted Evidence is missing, inactive, excluded, or reverted,
+    // omit only that draft while preserving independently grounded drafts.
+    const materializedDrafts = remappedDrafts.filter((draft) =>
+      draft.evidence.sourceRefs.every((reference) =>
+        Boolean(reference.evidenceItemId) &&
+        finalUsableEvidenceIds.has(reference.evidenceItemId!)
+      )
+    );
+
+    const surfaced: Array<{ id: string; highlightId: string }> = [];
+    for (const [index, highlight] of pendingHighlights.entries()) {
+      const candidate = await tx.agentRunCandidate.create({
+        data: {
+          agentRunId: input.runId,
+          highlightId: highlight.id,
+          kind: "new_highlight",
+          batchNumber: input.batchNumber,
+          ordinal: index + 1,
+          snapshot: toInputJson(mapHighlight(highlight)),
+        },
+      });
+      surfaced.push({ id: candidate.id, highlightId: highlight.id });
+    }
+
     const entries: Array<{
       id: string;
       highlightId: string;
-      draft: (typeof drafts)[number];
+      draft: (typeof materializedDrafts)[number];
     }> = [];
 
-    for (const [index, draft] of drafts.entries()) {
+    for (const [index, draft] of materializedDrafts.entries()) {
       const highlight = await createHighlightWithRelations({
         tx,
         workItemId: input.workItemId,
@@ -557,8 +808,12 @@ async function generateCandidateBatch(input: {
       entries.push({ id: candidate.id, highlightId: highlight.id, draft });
     }
 
-    return entries;
+    return { surfaced, created: entries };
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    timeout: 30_000,
   });
+  const { surfaced, created } = materialized;
   await Promise.all(
     created.map((entry) =>
       upsertHighlightEmbedding({
@@ -584,12 +839,6 @@ async function generateCandidateBatch(input: {
     provenance: { agentRunId: input.runId, batchNumber: input.batchNumber },
     suffix: `${input.runId}:${entry.highlightId}`,
   })));
-  if (created.length && promoted.newIds.length) {
-    await prisma.evidenceItem.updateMany({
-      where: { id: { in: promoted.newIds } },
-      data: { included: true },
-    });
-  }
   const verificationRun = readGenerationRunMetadata(verified);
   await Promise.allSettled(
     [
@@ -610,10 +859,77 @@ async function generateCandidateBatch(input: {
 }
 
 export type ArtifactAttemptResult =
-  | { status: "completed"; artifactId: string }
+  | { status: "completed"; artifactId?: string; replayed?: true }
   | { status: "awaiting_review"; candidateIds: string[]; batchNumber: number }
   | { status: "retry_research"; batchNumber: number }
-  | { status: "clarification_required" | "insufficient_context"; message: string };
+  | { status: "clarification_required"; message: string }
+  | { status: "insufficient_context"; message: string; replayed?: true }
+  | { status: "failed" | "cancelled"; message: string; replayed: true };
+
+type AgentRunCompletion = Awaited<ReturnType<typeof completeAgentRun>>;
+
+export function artifactAttemptResultAfterCompletion(
+  completion: AgentRunCompletion,
+  intended:
+    | { status: "completed"; artifactId?: string }
+    | { status: "clarification_required"; message: string },
+): ArtifactAttemptResult {
+  if (completion.persisted && completion.status === "completed") return intended;
+  if (completion.status === "insufficient_context") {
+    return {
+      status: "insufficient_context",
+      message: "message" in completion && typeof completion.message === "string"
+        ? completion.message
+        : "The artifact run finished without sufficient current source context.",
+      ...(!completion.persisted ? { replayed: true as const } : {}),
+    };
+  }
+  if (completion.persisted) {
+    throw new Error("The artifact result finalized with an unexpected persisted status.");
+  }
+  if (completion.status === "completed") {
+    return { status: "completed", artifactId: intended.status === "completed" ? intended.artifactId : undefined, replayed: true };
+  }
+  if (completion.status === "cancelled") {
+    return { status: "cancelled", message: "The artifact run was cancelled.", replayed: true };
+  }
+  if (completion.status === "failed") {
+    return { status: "failed", message: "The artifact run already failed.", replayed: true };
+  }
+  throw new Error("The artifact result could not be persisted to an active run.");
+}
+
+async function recordFinalizedArtifact(input: {
+  runId: string;
+  workItemId: string;
+  artifact: {
+    id: string;
+    content: string;
+    publicSafetyStatus: string;
+  };
+  highlightIds: string[];
+  evidenceIds: string[];
+}) {
+  await recordChange({
+    workItemId: input.workItemId,
+    entityKind: "artifact",
+    action: "created",
+    entityId: input.artifact.id,
+    afterSnapshot: {
+      id: input.artifact.id,
+      content: input.artifact.content,
+      lifecycleStatus: "active",
+      publicSafetyStatus: input.artifact.publicSafetyStatus,
+    },
+    reason: "The generated Artifact passed final claim-level public verification and its owning run completed.",
+    provenance: {
+      agentRunId: input.runId,
+      highlightIds: input.highlightIds,
+      evidenceIds: input.evidenceIds,
+    },
+    suffix: `${input.artifact.id}:public-verification`,
+  }).catch(() => null);
+}
 
 export async function executeArtifactAttempt(input: {
   runId: string;
@@ -630,17 +946,38 @@ export async function executeArtifactAttempt(input: {
     throw new Error("The artifact run was cancelled.");
   }
   if (run.artifact) {
-    if (run.artifact.lifecycleStatus === "quarantined") {
+    if (
+      run.artifact.lifecycleStatus === "quarantined" &&
+      run.artifact.publicSafetyStatus !== "verified"
+    ) {
       const message = run.artifact.staleReason ?? "The generated Artifact did not pass public verification.";
+      await failAgentRun({ runId: run.id, message, insufficient: true });
       return { status: "insufficient_context", message };
     }
-    await completeAgentRun({
+    const completion = await completeAgentRun({
       runId: run.id,
       content: run.artifact.content,
       result: { status: "completed", artifactId: run.artifact.id, replayed: true },
       citationPolicy: "none",
+      artifactFinalization: {
+        artifactId: run.artifact.id,
+        supersedesArtifactId: run.artifact.supersedesArtifactId,
+      },
     });
-    return { status: "completed", artifactId: run.artifact.id };
+    const result = artifactAttemptResultAfterCompletion(completion, {
+      status: "completed",
+      artifactId: run.artifact.id,
+    });
+    if (result.status === "completed") {
+      await recordFinalizedArtifact({
+        runId: run.id,
+        workItemId: run.workItemId,
+        artifact: run.artifact,
+        highlightIds: [],
+        evidenceIds: [],
+      });
+    }
+    return result;
   }
   if (run.status === "insufficient_context" || run.status === "failed") {
     const storedError = run.error as { message?: unknown } | null;
@@ -661,13 +998,16 @@ export async function executeArtifactAttempt(input: {
   const normalized = normalizeArtifactBrief(brief);
 
   if (normalized.status !== "ok") {
-    await completeAgentRun({
+    const completion = await completeAgentRun({
       runId: run.id,
       content: normalized.message,
       result: { status: "clarification_required" },
       citationPolicy: "none",
     });
-    return { status: "clarification_required", message: normalized.message };
+    return artifactAttemptResultAfterCompletion(completion, {
+      status: "clarification_required",
+      message: normalized.message,
+    });
   }
 
   const context = await loadArtifactContext(run.userId, run.workItemId);
@@ -733,14 +1073,34 @@ export async function executeArtifactAttempt(input: {
         usedEvidenceIds.has(item.id),
       ),
     });
-    await completeAgentRun({
+    const completion = await completeAgentRun({
       runId: run.id,
       content: artifact.content,
       result: { status: "completed", artifactId: artifact.id },
       citations,
       citationPolicy: "attached",
+      artifactFinalization: {
+        artifactId: artifact.id,
+        supersedesArtifactId:
+          typeof request.supersedesArtifactId === "string"
+            ? request.supersedesArtifactId
+            : null,
+      },
     });
-    return { status: "completed", artifactId: artifact.id };
+    const result = artifactAttemptResultAfterCompletion(completion, {
+      status: "completed",
+      artifactId: artifact.id,
+    });
+    if (result.status === "completed") {
+      await recordFinalizedArtifact({
+        runId: run.id,
+        workItemId: run.workItemId,
+        artifact,
+        highlightIds: [...usedHighlightIds],
+        evidenceIds: [...usedEvidenceIds],
+      });
+    }
+    return result;
   }
 
   if (input.batchNumber > 2) {

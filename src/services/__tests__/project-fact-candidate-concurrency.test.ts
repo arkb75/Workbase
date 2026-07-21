@@ -79,6 +79,7 @@ let transactionFailures: Array<() => Error>;
 let nextFactId: number;
 let nextCandidateId: number;
 let lockTail: Promise<void>;
+let agentRunStatuses: Map<string, string>;
 
 function candidateStateForRun(runId: string) {
   return candidateRows
@@ -138,7 +139,15 @@ function installTransactionalStore() {
 
     const lockLease: { release?: () => void } = {};
     const tx = {
-      $queryRaw: vi.fn(async () => {
+      $queryRaw: vi.fn(async (
+        strings: TemplateStringsArray,
+        ...values: unknown[]
+      ) => {
+        const query = Array.from(strings).join("?");
+        if (query.includes('FROM "AgentRun"')) {
+          const runId = String(values[0]);
+          return [{ status: agentRunStatuses.get(runId) ?? "running" }];
+        }
         advisoryLockObservedMock();
         const previous = lockTail;
         lockTail = new Promise<void>((resolve) => {
@@ -301,18 +310,30 @@ describe("Project Fact candidate concurrency", () => {
     nextFactId = 1;
     nextCandidateId = 1;
     lockTail = Promise.resolve();
+    agentRunStatuses = new Map();
     prismaMock.workItem.findFirstOrThrow.mockResolvedValue({ title: "Workbase" });
-    prismaMock.agentRun.findFirstOrThrow.mockResolvedValue({ id: "run-authorized" });
+    prismaMock.agentRun.findFirstOrThrow.mockImplementation(async (args: {
+      where: { id: string };
+    }) => ({
+      id: args.where.id,
+      status: agentRunStatuses.get(args.where.id) ?? "running",
+    }));
     prismaMock.evidenceItem.deleteMany.mockResolvedValue({ count: 0 });
     promoteRepositoryCitationsMock.mockImplementation(async (input: {
       citations: unknown[];
-    }) => ({
-      promotedIds: input.citations.map((_citation, index) => `evidence-${index + 1}`),
-      newIds: input.citations.map((_citation, index) => `evidence-${index + 1}`),
-      evidenceIdByCitationIndex: new Map(
-        input.citations.map((_citation, index) => [index, `evidence-${index + 1}`]),
-      ),
-    }));
+      mutationFence?: <T>(operation: (tx: unknown) => Promise<T>) => Promise<T>;
+    }) => {
+      const result = {
+        promotedIds: input.citations.map((_citation, index) => `evidence-${index + 1}`),
+        newIds: input.citations.map((_citation, index) => `evidence-${index + 1}`),
+        evidenceIdByCitationIndex: new Map(
+          input.citations.map((_citation, index) => [index, `evidence-${index + 1}`]),
+        ),
+      };
+      return input.mutationFence
+        ? input.mutationFence(async () => result)
+        : result;
+    });
     generateStructuredMock.mockResolvedValue({
       data: {
         facts: [{
@@ -419,7 +440,7 @@ describe("Project Fact candidate concurrency", () => {
     const result = await createProjectFactCandidates(researchInput("run-retry"));
 
     expect(generateStructuredMock).toHaveBeenCalledTimes(1);
-    expect(promoteRepositoryCitationsMock).toHaveBeenCalledTimes(2);
+    expect(promoteRepositoryCitationsMock).toHaveBeenCalledTimes(1);
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
     expect(result.candidateIds).toHaveLength(1);
     expect(factRows).toHaveLength(1);
@@ -490,7 +511,7 @@ describe("Project Fact candidate concurrency", () => {
     });
     expect(prismaMock.agentRun.findFirstOrThrow).toHaveBeenCalledWith({
       where: { id: "run-replay", userId: "user-1", workItemId: "work-1" },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     expect(generateStructuredMock).not.toHaveBeenCalled();
     expect(promoteRepositoryCitationsMock).not.toHaveBeenCalled();
@@ -551,6 +572,32 @@ describe("Project Fact candidate concurrency", () => {
       entityId: "fact-quarantined",
       action: "quarantined",
     }));
+  });
+
+  it("returns stored candidates without repair side effects after the run was cancelled", async () => {
+    const fact = makeFact({
+      id: "fact-cancelled-replay",
+      statement: "This fact was materialized before cancellation.",
+    });
+    candidateRows.push(makeCandidate({
+      id: "candidate-cancelled-replay",
+      runId: "run-cancelled-replay",
+      fact,
+    }));
+    agentRunStatuses.set("run-cancelled-replay", "cancelled");
+
+    const result = await createProjectFactCandidates(
+      researchInput("run-cancelled-replay"),
+    );
+
+    expect(result).toMatchObject({
+      candidateIds: ["candidate-cancelled-replay"],
+      activeProjectFactIds: ["fact-cancelled-replay"],
+    });
+    expect(generateStructuredMock).not.toHaveBeenCalled();
+    expect(promoteRepositoryCitationsMock).not.toHaveBeenCalled();
+    expect(upsertProjectFactEmbeddingMock).not.toHaveBeenCalled();
+    expect(recordChangeMock).not.toHaveBeenCalled();
   });
 
   it("repairs a review-card write after the fact transaction has committed", async () => {
@@ -625,5 +672,80 @@ describe("Project Fact candidate concurrency", () => {
       reviewState: "reviewed",
       approvalSource: "user",
     });
+  });
+
+  it("does not promote evidence or materialize facts after cancellation during extraction", async () => {
+    const existing = makeFact({
+      id: "fact-existing",
+      statement: "The repository uses an earlier project architecture.",
+    });
+    factRows.push(existing);
+    agentRunStatuses.set("run-cancelled-during-extraction", "running");
+
+    let releaseExtraction!: (value: {
+      data: {
+        facts: Array<{
+          statement: string;
+          category: "architecture";
+          confidence: "high";
+          sensitivityFlag: false;
+          reviewNotes: null;
+          citationIndexes: number[];
+        }>;
+        coverageGaps: string[];
+      };
+      tokenUsage: { inputTokens: number; outputTokens: number };
+    }) => void;
+    let extractionStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      extractionStarted = resolve;
+    });
+    generateStructuredMock.mockImplementationOnce(async () => {
+      extractionStarted();
+      return new Promise((resolve) => {
+        releaseExtraction = resolve;
+      });
+    });
+
+    const materialization = createProjectFactCandidates(
+      researchInput("run-cancelled-during-extraction"),
+    );
+    await started;
+    agentRunStatuses.set("run-cancelled-during-extraction", "cancelled");
+    releaseExtraction({
+      data: {
+        facts: [{
+          statement: "The repository now uses a replacement project architecture.",
+          category: "architecture",
+          confidence: "high",
+          sensitivityFlag: false,
+          reviewNotes: null,
+          citationIndexes: [1],
+        }],
+        coverageGaps: [],
+      },
+      tokenUsage: { inputTokens: 100, outputTokens: 20 },
+    });
+
+    await expect(materialization).rejects.toMatchObject({
+      name: "InactiveProjectFactRunError",
+      message: "Project Fact materialization stopped because the AgentRun is cancelled.",
+    });
+    expect(promoteRepositoryCitationsMock).not.toHaveBeenCalled();
+    expect(candidateRows).toHaveLength(0);
+    expect(factRows).toEqual([existing]);
+    expect(existing).toMatchObject({
+      status: "approved",
+      lifecycleStatus: "active",
+    });
+    expect(evidenceRows).toEqual([{
+      id: "evidence-1",
+      included: false,
+      lifecycleStatus: "active",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+    }]);
+    expect(upsertProjectFactEmbeddingMock).not.toHaveBeenCalled();
+    expect(recordChangeMock).not.toHaveBeenCalled();
   });
 });

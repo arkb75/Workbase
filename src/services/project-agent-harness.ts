@@ -95,7 +95,8 @@ const repositoryPattern = /\b(?:repo|repository|github|source code|codebase)\b/i
 const inspectPattern = /\b(?:inspect|search|read|check|look at|access|pull|refresh|scan|explore)\b/i;
 const comprehensivePattern = /\b(?:comprehensive|everything|entire|whole|thorough|all (?:the )?files|across (?:the )?repo)\b/i;
 const broadSynthesisPattern = /\b(?:summarize|summary|overview|strongest|accomplishments?|achievements?|whole project|project-wide|across the project)\b/i;
-const provenancePattern = /\b(?:did you (?:use|inspect|search|read|call|access)|what (?:sources?|tools?|information) did you|which sources?|what sources?|use anything new|inspect(?:ed)? the repo|repository tools?|tool calls?|fallback|partial (?:answer|run|result))\b/i;
+const provenancePattern =
+  /\b(?:did you (?:use|inspect|search|read|call|access)|what (?:sources?|tools?|information) did you|were (?:any )?(?:repository )?tools? (?:used|called)|was (?:a )?fallback used)\b|(?:\b(?:previous|prior|last)\s+(?:answer|turn|run)\b.{0,100}\b(?:sources?|tools?|information|repository|repo|fallback|partial)\b)|(?:\b(?:sources?|tools?|information|repository|repo|fallback|partial)\b.{0,100}\b(?:previous|prior|last)\s+(?:answer|turn|run)\b)/i;
 const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug|retry|backoff|loop|timeout|cache|queue|workflow|validation|error handling)\b/i;
 const reviewPattern = /\b(?:approve|deny|reject)\b/i;
 

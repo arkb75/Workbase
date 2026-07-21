@@ -5,6 +5,7 @@ import type {
   ProjectFactDraft,
   ProjectKnowledgeCitation,
 } from "@/src/domain/project-chat";
+import { inferProjectSubsystemKey } from "@/src/domain/project-subsystems";
 import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import {
   createStructuredGenerationBudget,
@@ -105,9 +106,10 @@ function similarity(left: string, right: string) {
 }
 
 const deterministicFactStopWords = new Set([
-  "about", "and", "are", "attached", "code", "does", "enforced", "file", "from",
-  "how", "implementation", "inspect", "into", "its", "project", "repository", "that",
-  "the", "this", "what", "where", "which", "with", "work", "works",
+  "about", "and", "answer", "are", "assistant", "attached", "code", "current", "does",
+  "enforced", "file", "follow-up", "from", "how", "implementation", "inspect", "into",
+  "its", "objective", "prior", "project", "repository", "request", "research", "specific",
+  "that", "the", "this", "what", "where", "which", "with", "work", "works",
 ]);
 
 const controlFlowQuestionPattern = /\b(?:retry|retries|backoff|attempts?|loops?|iterations?|terminat(?:e|es|ed|ing|ion)?|break|exit|stop reason|timeout|limits?|budget)\b/i;
@@ -178,20 +180,35 @@ export function deterministicFactRecoveryFromCitations(input: {
   const asksAboutControlFlow = controlFlowQuestionPattern.test(input.question);
   const asksAboutBounds = boundQuestionPattern.test(input.question);
   const asksAboutExit = exitQuestionPattern.test(input.question);
-  const asksAboutRetry = /\b(?:retry|retries|backoff)\b/i.test(input.question);
+  const asksAboutRetry = /\bretr(?:y|ied|ies)\b/i.test(input.question);
+  const asksAboutBackoff = /\bbackoff\b/i.test(input.question);
   const facts: ProjectFactDraft[] = [];
   let foundExplicitBound = false;
   let foundExplicitExit = false;
   let foundExplicitRetry = false;
+  let foundExplicitBackoff = false;
 
   const addFact = (fact: ProjectFactDraft) => {
     if (facts.length >= input.maxFacts || facts.some((existing) => existing.statement === fact.statement)) return;
-    facts.push(fact);
+    facts.push({
+      ...fact,
+      subsystemKey: fact.subsystemKey ?? inferProjectSubsystemKey({
+        text: fact.statement,
+        paths: fact.citationIndexes.flatMap((oneBasedIndex) => {
+          const path = input.citations[oneBasedIndex - 1]?.path;
+          return path ? [path] : [];
+        }),
+      }),
+    });
   };
 
   for (const [index, citation] of input.citations.entries()) {
     if (facts.length >= input.maxFacts || citation.kind !== "github_file" || !citation.path) continue;
     const excerpt = citation.excerpt ?? "";
+    const hasRetryNamedDeclaration =
+      /\b(?:function|class|const|let|var)\s+(?=[A-Za-z_$])(?=[\w$]*retry)[A-Za-z_$][\w$]*\b/i.test(excerpt);
+    const hasBackoffNamedDeclaration =
+      /\b(?:function|class|const|let|var)\s+(?=[A-Za-z_$])(?=[\w$]*backoff)[A-Za-z_$][\w$]*\b/i.test(excerpt);
     const lineLabel = citation.startLine && citation.endLine
       ? `lines ${citation.startLine}-${citation.endLine}`
       : "the cited excerpt";
@@ -212,7 +229,8 @@ export function deterministicFactRecoveryFromCitations(input: {
       for (const { match, condition, kind } of loopMatches) {
         const identifiers = relevantControlBounds(condition, input.question);
         if (!identifiers.length) continue;
-        if (/\b(?:retry|retries|backoff)\b/i.test(condition)) foundExplicitRetry = true;
+        if (/\bretr(?:y|ied|ies)\b/i.test(condition)) foundExplicitRetry = true;
+        if (/\bbackoff\b/i.test(condition)) foundExplicitBackoff = true;
         foundExplicitBound = true;
         const line = citationLine(citation, excerpt, match.index ?? 0);
         addFact({
@@ -235,7 +253,8 @@ export function deterministicFactRecoveryFromCitations(input: {
         const conditionSupportsRequestedControlFlow = boundIdentifiers.length > 0 ||
           /\b(?:stopReason|retry|retries|attempts?|iterations?|timeout|backoff|budget)\b/i.test(condition);
         if (!conditionSupportsRequestedControlFlow) continue;
-        if (/\b(?:retry|retries|backoff)\b/i.test(condition)) foundExplicitRetry = true;
+        if (/\bretr(?:y|ied|ies)\b/i.test(condition)) foundExplicitRetry = true;
+        if (/\bbackoff\b/i.test(condition)) foundExplicitBackoff = true;
         if (boundIdentifiers.length) foundExplicitBound = true;
         foundExplicitExit = true;
         const line = citationLine(citation, excerpt, match.index ?? 0);
@@ -250,16 +269,35 @@ export function deterministicFactRecoveryFromCitations(input: {
       }
     }
 
+    // A retry-named function plus an exact guard in the same immutable excerpt
+    // is useful bounded evidence about where retry control lives. A declaration
+    // in some other file is not enough to establish the policy.
+    if (facts.some((fact) =>
+      fact.category === "behavior" && fact.citationIndexes.includes(index + 1)
+    )) {
+      if (hasRetryNamedDeclaration) foundExplicitRetry = true;
+      if (hasBackoffNamedDeclaration) foundExplicitBackoff = true;
+    }
+
+    // Once an exact guard or exit was recovered, generic declarations only
+    // dilute the answer (for example, `iterationUsage`). Keep declarations as
+    // a last-resort code-location result when no behavioral fact was visible.
+    if (asksAboutControlFlow && facts.some((fact) => fact.category === "behavior")) {
+      continue;
+    }
     const declarations = Array.from(excerpt.matchAll(/\b(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/g));
     const pathLower = citation.path.toLowerCase();
     for (const declaration of declarations) {
       const symbol = declaration[1]!;
       const symbolLower = symbol.toLowerCase();
-      const relevant = questionTerms.some((term) =>
-        symbolLower.includes(term) || pathLower.includes(term)
-      );
+      const controlRelevantSymbol =
+        /(?:retry|backoff|attempt|iteration|limit|budget|stop|timeout|abort|tool.?call)/i.test(symbol);
+      const relevant = asksAboutControlFlow
+        ? controlRelevantSymbol
+        : questionTerms.some((term) =>
+            symbolLower.includes(term) || pathLower.includes(term)
+          );
       if (!relevant) continue;
-      if (/\b(?:retry|retries|backoff)\b/i.test(symbol)) foundExplicitRetry = true;
       const line = citationLine(citation, excerpt, declaration.index ?? 0);
       addFact({
         statement: `${citation.path} defines \`${symbol}\`${line ? ` at line ${line}` : ` in ${lineLabel}`} in the inspected repository revision.`,
@@ -281,6 +319,9 @@ export function deterministicFactRecoveryFromCitations(input: {
   }
   if (asksAboutRetry && !foundExplicitRetry) {
     coverageGaps.push("The inspected excerpts did not establish a retry or backoff policy; an iteration guard must not be reported as a retry count.");
+  }
+  if (asksAboutBackoff && !foundExplicitBackoff) {
+    coverageGaps.push("The inspected excerpts did not establish a backoff or delay policy; retry control must not be reported as backoff.");
   }
   return { facts, coverageGaps };
 }
@@ -352,11 +393,21 @@ async function extractFacts(input: {
       maxTotalTokens: 32_000,
     }),
   });
-  const facts = controlFlowQuestionPattern.test(input.question)
+  const extractedFacts = controlFlowQuestionPattern.test(input.question)
     ? [...exactRecovery.facts, ...result.data.facts]
         .filter((fact, index, all) => all.findIndex((candidate) => candidate.statement === fact.statement) === index)
         .slice(0, input.maxFacts)
     : result.data.facts;
+  const facts = extractedFacts.map((fact) => ({
+    ...fact,
+    subsystemKey: inferProjectSubsystemKey({
+      text: fact.statement,
+      paths: fact.citationIndexes.flatMap((oneBasedIndex) => {
+        const path = input.citations[oneBasedIndex - 1]?.path;
+        return path ? [path] : [];
+      }),
+    }),
+  }));
   return {
     ...result.data,
     facts,
@@ -459,6 +510,18 @@ export async function extractFactsWithRecovery(input: Parameters<typeof extractF
 }
 
 const PROJECT_FACT_PERSISTENCE_ATTEMPTS = 5;
+const ACTIVE_PROJECT_FACT_RUN_STATUSES = new Set([
+  "queued",
+  "running",
+  "awaiting_review",
+]);
+
+class InactiveProjectFactRunError extends Error {
+  constructor(status: string) {
+    super(`Project Fact materialization stopped because the AgentRun is ${status}.`);
+    this.name = "InactiveProjectFactRunError";
+  }
+}
 
 type StoredProjectFactCandidate = {
   id: string;
@@ -625,20 +688,45 @@ async function acquireProjectFactMaterializationLock(
   `;
 }
 
+async function lockActiveProjectFactRun(
+  tx: Prisma.TransactionClient,
+  input: {
+    runId: string;
+    userId: string;
+    workItemId: string;
+  },
+) {
+  const runs = await tx.$queryRaw<Array<{ status: string }>>`
+    SELECT "status"::text AS "status"
+    FROM "AgentRun"
+    WHERE "id" = ${input.runId}
+      AND "userId" = ${input.userId}
+      AND "workItemId" = ${input.workItemId}
+    FOR UPDATE
+  `;
+  const status = runs[0]?.status ?? "missing";
+  if (!ACTIVE_PROJECT_FACT_RUN_STATUSES.has(status)) {
+    throw new InactiveProjectFactRunError(status);
+  }
+}
+
 async function repairAndReturnStoredCandidates(input: {
   runId: string;
   userId: string;
   workItemId: string;
   coverageGaps: string[];
   tokenUsage: unknown;
+  repairSideEffects?: boolean;
 }) {
   const stored = await loadStoredProjectFactCandidates(input);
   if (!stored.hadCandidates) return null;
-  await ensureProjectFactCandidateSideEffects({
-    runId: input.runId,
-    workItemId: input.workItemId,
-    candidates: stored.candidates,
-  });
+  if (input.repairSideEffects !== false) {
+    await ensureProjectFactCandidateSideEffects({
+      runId: input.runId,
+      workItemId: input.workItemId,
+      candidates: stored.candidates,
+    });
+  }
   return {
     candidateIds: stored.candidateIds,
     activeProjectFactIds: stored.activeProjectFactIds,
@@ -657,7 +745,7 @@ export async function createProjectFactCandidates(input: {
   batchNumber?: number;
   maxFacts?: number;
 }) {
-  const [workItem] = await Promise.all([
+  const [workItem, agentRun] = await Promise.all([
     prisma.workItem.findFirstOrThrow({
       where: { id: input.workItemId, userId: input.userId },
       select: { title: true },
@@ -668,7 +756,7 @@ export async function createProjectFactCandidates(input: {
         userId: input.userId,
         workItemId: input.workItemId,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     }),
   ]);
   const replayed = await repairAndReturnStoredCandidates({
@@ -677,8 +765,12 @@ export async function createProjectFactCandidates(input: {
     workItemId: input.workItemId,
     coverageGaps: [],
     tokenUsage: null,
+    repairSideEffects: ACTIVE_PROJECT_FACT_RUN_STATUSES.has(agentRun.status),
   });
   if (replayed) return replayed;
+  if (!ACTIVE_PROJECT_FACT_RUN_STATUSES.has(agentRun.status)) {
+    throw new InactiveProjectFactRunError(agentRun.status);
+  }
 
   const repositoryCitations = input.citations.filter((citation) => citation.kind === "github_file");
   if (!repositoryCitations.length) return { candidateIds: [], activeProjectFactIds: [], coverageGaps: [], tokenUsage: null };
@@ -717,13 +809,13 @@ export async function createProjectFactCandidates(input: {
       });
       if (winner) return winner;
 
-      const promoted = await promoteRepositoryCitations({
-        workItemId: input.workItemId,
-        citations: selectedCitations,
-        reviewScope: `project-fact-research:${input.runId}`,
-      });
       const reusedProjectFactIds = await prisma.$transaction(async (tx) => {
+        // Acquire the Work Item lock before the run row. If another run is
+        // materializing this Work Item, cancellation can still take its own
+        // run-row lock while we wait; this transaction will then observe the
+        // terminal status rather than committing stale research afterward.
         await acquireProjectFactMaterializationLock(tx, input.workItemId);
+        await lockActiveProjectFactRun(tx, input);
         const sameRunCandidates = await tx.agentRunCandidate.findMany({
           where: {
             agentRunId: input.runId,
@@ -732,6 +824,17 @@ export async function createProjectFactCandidates(input: {
           select: { id: true },
         });
         if (sameRunCandidates.length) return [] as string[];
+
+        // Promotion shares this transaction with fact/candidate materialization.
+        // Cancellation therefore wins before every write or waits until the
+        // complete materialization commits; a rollback cannot leave orphan
+        // github_file_excerpt evidence behind.
+        const promoted = await promoteRepositoryCitations({
+          workItemId: input.workItemId,
+          citations: selectedCitations,
+          reviewScope: `project-fact-research:${input.runId}`,
+          mutationFence: (operation) => operation(tx),
+        });
 
         // This read deliberately happens after the database lock is acquired.
         // A second process therefore observes facts committed by the winner and
@@ -763,6 +866,14 @@ export async function createProjectFactCandidates(input: {
             const evidenceId = promoted.evidenceIdByCitationIndex.get(localIndex);
             return evidenceId ? [evidenceId] : [];
           });
+          const declaredSubsystemKey = "subsystemKey" in fact ? fact.subsystemKey : null;
+          const subsystemKey = declaredSubsystemKey ?? inferProjectSubsystemKey({
+            text: fact.statement,
+            paths: fact.citationIndexes.flatMap((oneBasedIndex) => {
+              const path = repositoryCitations[oneBasedIndex - 1]?.path;
+              return path ? [path] : [];
+            }),
+          });
           const closestEvidenceIds = new Set(
             closest?.existing.evidence.map((entry) => entry.evidenceItemId) ?? [],
           );
@@ -771,6 +882,12 @@ export async function createProjectFactCandidates(input: {
             evidenceIds.length > 0 &&
             evidenceIds.every((evidenceId) => closestEvidenceIds.has(evidenceId));
           if (alreadyGroundedByImmutableContent) {
+            if (!closest!.existing.subsystemKey && subsystemKey) {
+              await tx.projectFact.update({
+                where: { id: closest!.existing.id },
+                data: { subsystemKey },
+              });
+            }
             reused.push(closest!.existing.id);
             continue;
           }
@@ -790,7 +907,13 @@ export async function createProjectFactCandidates(input: {
               status: autoSafe ? "approved" : "draft",
               sensitivityFlag: fact.sensitivityFlag,
               reviewNotes: fact.reviewNotes,
-              searchText: normalizeWhitespace([fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ")),
+              subsystemKey,
+              searchText: normalizeWhitespace([
+                fact.statement,
+                fact.category,
+                subsystemKey ?? "",
+                fact.reviewNotes ?? "",
+              ].join(" ")),
               supersedesProjectFactId: supersedes?.id ?? null,
               lifecycleStatus: autoSafe ? "active" : "quarantined",
               reviewState: "pending_review",
@@ -818,6 +941,7 @@ export async function createProjectFactCandidates(input: {
                 confidence: fact.confidence,
                 sensitivityFlag: fact.sensitivityFlag,
                 reviewNotes: fact.reviewNotes,
+                subsystemKey,
                 evidenceIds,
                 evidenceLabels: evidenceIds.map((id) => id),
                 partial: input.partial,

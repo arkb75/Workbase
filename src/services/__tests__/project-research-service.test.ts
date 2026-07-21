@@ -67,6 +67,13 @@ vi.mock("@/src/services/github-repository-exploration-service", () => ({
   GitHubRepositoryExplorationError: class GitHubRepositoryExplorationError extends Error {
     constructor(readonly code: string, message: string) { super(message); }
   },
+  redactRepositorySecrets: (content: string) => {
+    const redacted = content.replace(/\bghp_[A-Za-z0-9]{36}\b/g, "[REDACTED]");
+    return {
+      content: redacted,
+      categories: redacted === content ? [] : ["github_token"],
+    };
+  },
   githubRepositoryExplorationService: {
     createBudget: () => ({ expiresAt: "2026-07-10T20:00:00.000Z", getUsage: () => ({ ...usage }) }),
     start: startMock,
@@ -193,6 +200,10 @@ describe("deterministic project research controller", () => {
     expect(readFileMock).toHaveBeenCalledTimes(8);
     expect(result.status).toBe("answered");
     expect(result.citations.map((citation) => citation.kind)).toEqual(["project_fact", "project_fact"]);
+    expect(result.citations.every((citation) =>
+      citation.label.startsWith("Project Fact ·") &&
+      !citation.label.includes("Draft")
+    )).toBe(true);
     expect(result.exploredEvidence.every((citation) => citation.kind === "github_file")).toBe(true);
     expect(result.answer).toContain("auto-applied");
     expect(result.answer).toContain("[citation:1]");
@@ -253,7 +264,7 @@ describe("deterministic project research controller", () => {
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ maxFacts: 8 }));
   });
 
-  it("preserves the five-file strategy for a targeted query", async () => {
+  it("uses three decisive files for an ordinary targeted query", async () => {
     expect(classifyRepositoryResearchScope(
       "How does the artifact workflow decide whether context is adequate?",
     )).toBe("targeted");
@@ -266,7 +277,7 @@ describe("deterministic project research controller", () => {
       purpose: "answer_question",
     });
 
-    expect(readFileMock).toHaveBeenCalledTimes(5);
+    expect(readFileMock).toHaveBeenCalledTimes(3);
     expect(result.status).toBe("answered");
     expect(result.coverage?.planned).toEqual([
       "primary architecture",
@@ -324,6 +335,9 @@ describe("deterministic project research controller", () => {
     expect(deterministicResearchQueries(question)).toEqual(["maxIterations", "stopReason"]);
     expect(repositoryPathScore("src/services/retry-runtime.ts", question, "search")).toBeGreaterThan(
       repositoryPathScore("src/services/__tests__/retry-runtime.test.ts", question, "search"),
+    );
+    expect(repositoryPathScore("src/lib/bedrock-converse-agent.ts", question, "search")).toBeGreaterThan(
+      repositoryPathScore("src/services/github-repository-exploration-service.ts", question, "search"),
     );
     expect(repositoryExcerptFocusTerms(question)).toEqual(expect.arrayContaining([
       "maxIterations",
@@ -417,5 +431,147 @@ describe("deterministic project research controller", () => {
     );
     expect(result.coverageGaps.some((gap) => gap.includes("review and user experience"))).toBe(true);
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ partial: true }));
+  });
+
+  it("resumes fact extraction from a saved immutable notebook with zero new repository work", async () => {
+    const question = "Where are retry limits enforced, and what terminates the loop?";
+    const commitSha = "a".repeat(40);
+    const blobSha = "b".repeat(40);
+    const secret = `ghp_${"x".repeat(36)}`;
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      environmentSnapshot: null,
+      researchState: {
+        version: 1,
+        objective: question,
+        phase: "finalizing",
+        allowedActions: ["retry_fact_extraction_from_saved_notebook"],
+        updatedAt: "2026-07-10T20:30:00.000Z",
+        partial: true,
+        repositories: [{
+          sourceId: "source-1",
+          name: "workbase/demo",
+          importedAt: "2026-07-10T18:00:00.000Z",
+          pinnedSha: commitSha,
+          committedAt: "2026-07-10T17:00:00.000Z",
+          resolvedAt: "2026-07-10T20:30:00.000Z",
+        }],
+        coverage: {
+          planned: ["retry limits", "loop termination"],
+          achieved: ["src/lib/bedrock-converse-agent.ts"],
+          uninspected: ["Backoff behavior was not established."],
+          omittedRepositories: [],
+        },
+        coverageGaps: ["Backoff behavior was not established."],
+        warnings: [],
+        notebook: {
+          paths: [{
+            handle: "path_1",
+            sourceId: "source-1",
+            repository: "workbase/demo",
+            path: "src/lib/bedrock-converse-agent.ts",
+            origin: "search",
+            score: 100,
+          }],
+          citations: [{
+            type: "github_file",
+            title: "src/lib/bedrock-converse-agent.ts",
+            excerpt: [
+              `const token = "${secret}";`,
+              "if (iterations >= limits.maxIterations) throw new Error('stop');",
+            ].join("\n"),
+            sourceId: "source-1",
+            repository: "workbase/demo",
+            commitSha,
+            blobSha,
+            path: "src/lib/bedrock-converse-agent.ts",
+            startLine: 730,
+            endLine: 731,
+            url: `https://github.com/workbase/demo/blob/${commitSha}/src/lib/bedrock-converse-agent.ts#L730-L731`,
+            redacted: false,
+            redactionCategories: [],
+          }],
+        },
+      },
+    });
+
+    const result = await researchProject({
+      runId: "run-resume",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question,
+      purpose: "answer_question",
+    });
+
+    expect(result.status).toBe("answered");
+    expect(result.partial).toBe(true);
+    expect(result.coverageGaps).toContain("Backoff behavior was not established.");
+    expect(startMock).not.toHaveBeenCalled();
+    expect(listPathsMock).not.toHaveBeenCalled();
+    expect(searchMock).not.toHaveBeenCalled();
+    expect(readFileMock).not.toHaveBeenCalled();
+    expect(retrievalMock).not.toHaveBeenCalled();
+    expect(factCandidateMock).toHaveBeenCalledTimes(1);
+    const resumedCitation = factCandidateMock.mock.calls[0]?.[0]?.citations?.[0];
+    expect(resumedCitation).toEqual(expect.objectContaining({
+      kind: "github_file",
+      commitSha,
+      blobSha,
+      redacted: true,
+      redactionCategories: expect.arrayContaining(["github_token"]),
+    }));
+    expect(resumedCitation.excerpt).not.toContain(secret);
+    expect(resumedCitation.excerpt).toContain("[REDACTED]");
+  });
+
+  it("does not reuse a notebook citation whose URL does not match its pinned revision", async () => {
+    const question = "Where are retry limits enforced?";
+    const commitSha = "a".repeat(40);
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      environmentSnapshot: null,
+      researchState: {
+        objective: question,
+        phase: "finalizing",
+        allowedActions: ["retry_fact_extraction_from_saved_notebook"],
+        updatedAt: "2026-07-10T20:30:00.000Z",
+        repositories: [{
+          sourceId: "source-1",
+          name: "workbase/demo",
+          importedAt: "2026-07-10T18:00:00.000Z",
+          pinnedSha: commitSha,
+        }],
+        notebook: {
+          paths: [],
+          citations: [{
+            type: "github_file",
+            title: "src/lib/bedrock-converse-agent.ts",
+            excerpt: "if (iterations >= limits.maxIterations) return;",
+            sourceId: "source-1",
+            repository: "workbase/demo",
+            commitSha,
+            blobSha: "b".repeat(40),
+            path: "src/lib/bedrock-converse-agent.ts",
+            startLine: 730,
+            endLine: 730,
+            url: `https://github.com/workbase/demo/blob/${"c".repeat(40)}/src/lib/bedrock-converse-agent.ts#L730`,
+          }],
+        },
+      },
+    });
+
+    await researchProject({
+      runId: "run-invalid-resume",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question,
+      purpose: "answer_question",
+    });
+
+    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(listPathsMock).toHaveBeenCalledTimes(1);
+    expect(readFileMock).toHaveBeenCalled();
   });
 });

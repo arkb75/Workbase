@@ -1,4 +1,10 @@
-import { createHook, FatalError, getWritable, sleep } from "workflow";
+import {
+  createHook,
+  FatalError,
+  getWorkflowMetadata,
+  getWritable,
+  sleep,
+} from "workflow";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
 import type { BedrockConverseAgentEvent } from "@/src/lib/bedrock-converse-agent";
 import { classifyWorkflowFailure } from "@/src/lib/error-message";
@@ -40,6 +46,221 @@ async function assertApplicationRuntimeReady() {
   throw new Error(message);
 }
 
+type TerminalAgentRunStatus =
+  | "completed"
+  | "insufficient_context"
+  | "failed"
+  | "cancelled";
+
+type AgentRunWorkflowOwnership =
+  | { status: "owned" }
+  | { status: "superseded"; attachedWorkflowId: string | null }
+  | { status: "terminal"; runStatus: TerminalAgentRunStatus };
+
+type TerminalKnowledgeRefreshStatus = "completed" | "failed" | "cancelled";
+
+type KnowledgeRefreshWorkflowOwnership =
+  | { status: "owned" }
+  | { status: "superseded"; attachedWorkflowId: string | null }
+  | { status: "terminal"; runStatus: TerminalKnowledgeRefreshStatus };
+
+const ACTIVE_KNOWLEDGE_REFRESH_WORKFLOW_STATUSES = [
+  "queued",
+  "inventorying",
+  "analyzing",
+  "routing",
+  "semantic_analysis",
+  "auditing",
+  "reconciling",
+] as const;
+
+function terminalAgentRunResult(status: string) {
+  return ["completed", "insufficient_context", "failed", "cancelled"].includes(status)
+    ? {
+        status: status as TerminalAgentRunStatus,
+        replayed: true as const,
+      }
+    : {
+        status: "failed" as const,
+        replayed: true as const,
+      };
+}
+
+async function terminalAgentRunStatus(
+  runId: string,
+): Promise<TerminalAgentRunStatus | null> {
+  "use step";
+
+  const run = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: { status: true },
+  });
+  if (
+    run &&
+    ["completed", "insufficient_context", "failed", "cancelled"].includes(
+      run.status,
+    )
+  ) {
+    return run.status as TerminalAgentRunStatus;
+  }
+  return null;
+}
+
+function classifyAgentRunWorkflowOwnership(
+  run: { workflowId: string | null; status: string } | null,
+  workflowRunId: string,
+): AgentRunWorkflowOwnership | { status: "starting"; reservation: string } {
+  if (!run) return { status: "superseded", attachedWorkflowId: null };
+  if (
+    ["completed", "insufficient_context", "failed", "cancelled"].includes(
+      run.status,
+    )
+  ) {
+    return {
+      status: "terminal",
+      runStatus: run.status as TerminalAgentRunStatus,
+    };
+  }
+  if (run.workflowId === workflowRunId) return { status: "owned" };
+  if (run.workflowId?.startsWith("starting:")) {
+    return { status: "starting", reservation: run.workflowId };
+  }
+  return {
+    status: "superseded",
+    attachedWorkflowId: run.workflowId,
+  };
+}
+
+async function claimAgentRunWorkflowOwnership(
+  runId: string,
+  workflowRunId: string,
+): Promise<AgentRunWorkflowOwnership> {
+  "use step";
+
+  const current = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: { workflowId: true, status: true },
+  });
+  const ownership = classifyAgentRunWorkflowOwnership(current, workflowRunId);
+  if (ownership.status !== "starting") return ownership;
+
+  const claimed = await prisma.agentRun.updateMany({
+    where: {
+      id: runId,
+      workflowId: ownership.reservation,
+      status: { in: ["queued", "running", "awaiting_review"] },
+    },
+    data: { workflowId: workflowRunId },
+  });
+  if (claimed.count) return { status: "owned" };
+
+  // Another workflow or a terminal transition won the compare-and-swap.
+  // Re-read once and exit unless this workflow is now the attached owner.
+  const winner = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: { workflowId: true, status: true },
+  });
+  const resolved = classifyAgentRunWorkflowOwnership(winner, workflowRunId);
+  if (resolved.status === "starting") {
+    return {
+      status: "superseded",
+      attachedWorkflowId: resolved.reservation,
+    };
+  }
+  return resolved;
+}
+
+function classifyKnowledgeRefreshWorkflowOwnership(
+  run: { workflowId: string | null; status: string } | null,
+  workflowRunId: string,
+): KnowledgeRefreshWorkflowOwnership | { status: "starting"; reservation: string } {
+  if (!run) return { status: "superseded", attachedWorkflowId: null };
+  if (["completed", "failed", "cancelled"].includes(run.status)) {
+    return {
+      status: "terminal",
+      runStatus: run.status as TerminalKnowledgeRefreshStatus,
+    };
+  }
+  if (run.workflowId === workflowRunId) return { status: "owned" };
+  if (run.workflowId?.startsWith("starting:")) {
+    return { status: "starting", reservation: run.workflowId };
+  }
+  return {
+    status: "superseded",
+    attachedWorkflowId: run.workflowId,
+  };
+}
+
+async function claimKnowledgeRefreshWorkflowOwnership(
+  refreshRunId: string,
+  workflowRunId: string,
+): Promise<KnowledgeRefreshWorkflowOwnership> {
+  "use step";
+
+  const current = await prisma.knowledgeRefreshRun.findUnique({
+    where: { id: refreshRunId },
+    select: { workflowId: true, status: true },
+  });
+  const ownership = classifyKnowledgeRefreshWorkflowOwnership(
+    current,
+    workflowRunId,
+  );
+  if (ownership.status !== "starting") return ownership;
+
+  const claimed = await prisma.knowledgeRefreshRun.updateMany({
+    where: {
+      id: refreshRunId,
+      workflowId: ownership.reservation,
+      status: { in: [...ACTIVE_KNOWLEDGE_REFRESH_WORKFLOW_STATUSES] },
+    },
+    data: { workflowId: workflowRunId },
+  });
+  if (claimed.count) return { status: "owned" };
+
+  const winner = await prisma.knowledgeRefreshRun.findUnique({
+    where: { id: refreshRunId },
+    select: { workflowId: true, status: true },
+  });
+  const resolved = classifyKnowledgeRefreshWorkflowOwnership(
+    winner,
+    workflowRunId,
+  );
+  if (resolved.status === "starting") {
+    return {
+      status: "superseded",
+      attachedWorkflowId: resolved.reservation,
+    };
+  }
+  return resolved;
+}
+
+async function terminalKnowledgeRefreshStatus(
+  refreshRunId: string,
+): Promise<TerminalKnowledgeRefreshStatus | null> {
+  "use step";
+
+  const refresh = await prisma.knowledgeRefreshRun.findUnique({
+    where: { id: refreshRunId },
+    select: { status: true },
+  });
+  return refresh && ["completed", "failed", "cancelled"].includes(refresh.status)
+    ? refresh.status as TerminalKnowledgeRefreshStatus
+    : null;
+}
+
+function inactiveWorkflowResult(ownership: Exclude<
+  AgentRunWorkflowOwnership,
+  { status: "owned" }
+>) {
+  return ownership.status === "terminal"
+    ? { status: ownership.runStatus, replayed: true as const }
+    : {
+        status: "superseded" as const,
+        replayed: true as const,
+        attachedWorkflowId: ownership.attachedWorkflowId,
+      };
+}
+
 async function emitProgress(
   runId: string,
   message: string,
@@ -51,24 +272,112 @@ async function emitProgress(
     runId,
     type: type === "error" ? "error" : "progress",
     message,
-  });
-  const writable = getWritable<ChatProgressEvent>();
-  const writer = writable.getWriter();
+  }).catch(() => null);
   try {
-    await writer.write({
-      type,
-      message,
-      createdAt: new Date().toISOString(),
-      refs: { runId },
-    });
-  } finally {
-    writer.releaseLock();
+    const writable = getWritable<ChatProgressEvent>();
+    const writer = writable.getWriter();
+    try {
+      await writer.write({
+        type,
+        message,
+        createdAt: new Date().toISOString(),
+        refs: { runId },
+      }).catch(() => undefined);
+    } finally {
+      writer.releaseLock();
+    }
+  } catch {
+    // The durable event above is the audit trail. Streaming is best effort.
   }
 }
 
 async function closeProgressStream() {
   "use step";
-  await getWritable<ChatProgressEvent>().close();
+  // Progress delivery is UX telemetry. A disconnected client must never turn
+  // a successfully persisted run into a failed workflow.
+  try {
+    await getWritable<ChatProgressEvent>().close().catch(() => undefined);
+  } catch {
+    // The client may already be disconnected or the stream may be closed.
+  }
+}
+
+async function attachAndClaimRequiredKnowledgeRefresh(input: {
+  runId: string;
+  refreshRunId: string;
+  alreadyComplete: boolean;
+}) {
+  const ownerToken = `inline-agent:${input.runId}`;
+  return prisma.$transaction(async (tx) => {
+    // Cancellation uses the same AgentRun row lock. Whichever transition wins
+    // is therefore authoritative: a cancelled turn can neither receive the
+    // refresh link nor acquire an inline repository-work owner afterward.
+    const locked = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT "status"::text AS "status"
+      FROM "AgentRun"
+      WHERE "id" = ${input.runId}
+      FOR UPDATE
+    `;
+    const status = locked[0]?.status;
+    if (!status) throw new Error("The agent run no longer exists.");
+    if (["completed", "insufficient_context", "failed", "cancelled"].includes(status)) {
+      return {
+        active: false as const,
+        terminalStatus: status as TerminalAgentRunStatus,
+        owner: false,
+      };
+    }
+
+    const attached = await tx.agentRun.updateMany({
+      where: {
+        id: input.runId,
+        status: { in: ["queued", "running", "awaiting_review"] },
+      },
+      data: { knowledgeRefreshRunId: input.refreshRunId },
+    });
+    if (!attached.count) {
+      const current = await tx.agentRun.findUnique({
+        where: { id: input.runId },
+        select: { status: true },
+      });
+      if (
+        current &&
+        ["completed", "insufficient_context", "failed", "cancelled"].includes(
+          current.status,
+        )
+      ) {
+        return {
+          active: false as const,
+          terminalStatus: current.status as TerminalAgentRunStatus,
+          owner: false,
+        };
+      }
+      throw new Error("The agent run lost its repository-refresh attachment fence.");
+    }
+
+    const owner = input.alreadyComplete
+      ? false
+      : await knowledgeRefreshService.claimInline({
+          runId: input.refreshRunId,
+          ownerToken,
+        }, tx);
+    return {
+      active: true as const,
+      terminalStatus: null,
+      owner,
+    };
+  });
+}
+
+async function releaseRequiredKnowledgeRefreshOwner(
+  runId: string,
+  refreshRunId: string,
+) {
+  "use step";
+  return knowledgeRefreshService.releaseInline({
+    runId: refreshRunId,
+    ownerToken: `inline-agent:${runId}`,
+  });
 }
 
 async function startRequiredKnowledgeRefresh(runId: string) {
@@ -77,6 +386,18 @@ async function startRequiredKnowledgeRefresh(runId: string) {
     where: { id: runId },
     include: { messages: { where: { role: "user" }, orderBy: { sequence: "desc" }, take: 1 } },
   });
+  if (
+    ["completed", "insufficient_context", "failed", "cancelled"].includes(
+      run.status,
+    )
+  ) {
+    return {
+      required: false as const,
+      refreshRunId: null,
+      alreadyComplete: false,
+      terminalStatus: run.status as TerminalAgentRunStatus,
+    };
+  }
   const question = run.messages[0]?.content ?? "";
   // Artifact adequacy is evaluated by ArtifactWorkflow itself, which starts
   // from approved Highlights and performs bounded targeted research only when
@@ -85,7 +406,12 @@ async function startRequiredKnowledgeRefresh(runId: string) {
   // path pay the full repository cost. Explicit freshness/repository language
   // still enters the refresh barrier here.
   if (!requiresLiveRepositoryResearch(question)) {
-    return { required: false as const, refreshRunId: null, alreadyComplete: false };
+    return {
+      required: false as const,
+      refreshRunId: null,
+      alreadyComplete: false,
+      terminalStatus: null,
+    };
   }
   const refresh = await startKnowledgeRefresh({
     userId: run.userId,
@@ -93,25 +419,27 @@ async function startRequiredKnowledgeRefresh(runId: string) {
     trigger: "chat_freshness",
     idempotencyKey: `agent-run:${run.id}:freshness`,
   });
-  // Persist the shared-refresh link before ownership is claimed. Cancellation
-  // can then release the exact inline owner even while repository work is still
-  // inventorying or analyzing.
-  await prisma.agentRun.update({
-    where: { id: run.id },
-    data: { knowledgeRefreshRunId: refresh.runId },
-  });
   const alreadyComplete = refresh.status === "completed";
-  const owner = alreadyComplete
-    ? false
-    : await knowledgeRefreshService.claimInline({
-        runId: refresh.runId,
-        ownerToken: `inline-agent:${run.id}`,
-      });
+  const attachment = await attachAndClaimRequiredKnowledgeRefresh({
+    runId: run.id,
+    refreshRunId: refresh.runId,
+    alreadyComplete,
+  });
+  if (!attachment.active) {
+    return {
+      required: false as const,
+      refreshRunId: null,
+      alreadyComplete: false,
+      owner: false,
+      terminalStatus: attachment.terminalStatus,
+    };
+  }
   return {
     required: true as const,
     refreshRunId: refresh.runId,
     alreadyComplete,
-    owner,
+    owner: attachment.owner,
+    terminalStatus: null,
   };
 }
 
@@ -135,6 +463,11 @@ async function repairRequiredCoverage(refreshRunId: string) {
   return knowledgeRefreshService.repairCoverage(refreshRunId);
 }
 
+async function retryRequiredKnowledgeEmbeddingBackfill(refreshRunId: string) {
+  "use step";
+  return knowledgeReconciliationService.retryEmbeddingBackfill(refreshRunId);
+}
+
 async function reconcileRequiredKnowledge(refreshRunId: string) {
   "use step";
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
@@ -151,6 +484,7 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
     appliedFactIds: reconciled.appliedFactIds,
     appliedHighlightIds: reconciled.appliedHighlightIds,
     promotedEvidenceIds: reconciled.promotedEvidenceIds,
+    embeddingTelemetry: reconciled.embeddingTelemetry,
     staleness,
   };
 }
@@ -168,8 +502,11 @@ async function failRequiredKnowledgeRefresh(refreshRunId: string, errorMessage: 
 async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
   "use step";
   const refresh = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: refreshRunId } });
-  await prisma.agentRun.update({
-    where: { id: runId },
+  const updated = await prisma.agentRun.updateMany({
+    where: {
+      id: runId,
+      status: { in: ["queued", "running", "awaiting_review"] },
+    },
     data: {
       knowledgeRefreshRunId: refreshRunId,
       researchState: {
@@ -183,6 +520,7 @@ async function attachRefreshToAgentRun(runId: string, refreshRunId: string) {
       },
     },
   });
+  return updated.count > 0;
 }
 
 async function inspectRequiredKnowledgeRefresh(refreshRunId: string) {
@@ -223,6 +561,8 @@ async function waitForRequiredKnowledgeRefresh(runId: string, refreshRunId: stri
   const maxWaitSeconds = 15 * 60;
   let elapsedSeconds = 0;
   for (let attempt = 0; elapsedSeconds <= maxWaitSeconds; attempt += 1) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) return { refreshRunId, terminalStatus };
     const refresh = await inspectRequiredKnowledgeRefresh(refreshRunId);
     if (refresh.status === "completed") {
       await attachRefreshToAgentRun(runId, refreshRunId);
@@ -256,21 +596,62 @@ async function waitForRequiredKnowledgeRefresh(runId: string, refreshRunId: stri
 
 async function runRequiredKnowledgeRefresh(runId: string) {
   const requirement = await startRequiredKnowledgeRefresh(runId);
+  if (requirement.terminalStatus) {
+    return { terminalStatus: requirement.terminalStatus };
+  }
   if (!requirement.required || !requirement.refreshRunId) return null;
   if (requirement.alreadyComplete) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) return { terminalStatus };
+    const embeddingBackfill = await retryRequiredKnowledgeEmbeddingBackfill(
+      requirement.refreshRunId,
+    );
     await attachRefreshToAgentRun(runId, requirement.refreshRunId);
-    await emitProgress(runId, "Repository knowledge is already complete at the latest resolved commit.", "research");
-    return { refreshRunId: requirement.refreshRunId };
+    await emitProgress(
+      runId,
+      embeddingBackfill.attempted > 0
+        ? embeddingBackfill.failed > 0
+          ? `Repository knowledge is current; ${embeddingBackfill.failed} semantic index entries remain queued for a later retry.`
+          : `Repository knowledge is current and ${embeddingBackfill.attempted} semantic index entries were repaired.`
+        : "Repository knowledge is already complete at the latest resolved commit.",
+      "research",
+    );
+    return { refreshRunId: requirement.refreshRunId, embeddingBackfill };
   }
+  let ownsRefresh = Boolean(requirement.owner);
   if (!requirement.owner) {
     const waited = await waitForRequiredKnowledgeRefresh(runId, requirement.refreshRunId);
-    if (!waited.claimed) return waited;
+    if (waited.terminalStatus) return { terminalStatus: waited.terminalStatus };
+    if (!waited.claimed) {
+      const terminalStatus = await terminalAgentRunStatus(runId);
+      if (terminalStatus) return { terminalStatus };
+      const embeddingBackfill = await retryRequiredKnowledgeEmbeddingBackfill(
+        requirement.refreshRunId,
+      );
+      await attachRefreshToAgentRun(runId, requirement.refreshRunId);
+      return { ...waited, embeddingBackfill };
+    }
+    ownsRefresh = true;
   }
   await emitProgress(runId, "Resolving the latest repository commit and inventorying every safe file.", "research");
   try {
+    const beforeInventory = await terminalAgentRunStatus(runId);
+    if (beforeInventory) {
+      if (ownsRefresh) {
+        await releaseRequiredKnowledgeRefreshOwner(runId, requirement.refreshRunId);
+      }
+      return { terminalStatus: beforeInventory };
+    }
     await inventoryRequiredKnowledge(requirement.refreshRunId);
     let remaining = 1;
     while (remaining > 0) {
+      const beforeAnalysis = await terminalAgentRunStatus(runId);
+      if (beforeAnalysis) {
+        if (ownsRefresh) {
+          await releaseRequiredKnowledgeRefreshOwner(runId, requirement.refreshRunId);
+        }
+        return { terminalStatus: beforeAnalysis };
+      }
       const chunk = await analyzeRequiredKnowledgeChunk(requirement.refreshRunId);
       remaining = chunk.remaining;
       await emitProgress(
@@ -281,16 +662,37 @@ async function runRequiredKnowledgeRefresh(runId: string) {
         "research",
       );
     }
+    const beforeFinalization = await terminalAgentRunStatus(runId);
+    if (beforeFinalization) {
+      if (ownsRefresh) {
+        await releaseRequiredKnowledgeRefreshOwner(runId, requirement.refreshRunId);
+      }
+      return { terminalStatus: beforeFinalization };
+    }
     const repair = await repairRequiredCoverage(requirement.refreshRunId);
     if (repair.repaired > 0) {
       await emitProgress(runId, `Deepening ${repair.repaired} files to resolve semantic coverage gaps.`, "research");
     }
     await finalizeRequiredCoverage(requirement.refreshRunId);
+    const beforeReconciliation = await terminalAgentRunStatus(runId);
+    if (beforeReconciliation) {
+      if (ownsRefresh) {
+        await releaseRequiredKnowledgeRefreshOwner(runId, requirement.refreshRunId);
+      }
+      return { terminalStatus: beforeReconciliation };
+    }
     await emitProgress(runId, "Reconciling current Facts, Highlights, Evidence, and Artifacts.", "candidate");
     const reconciliation = await reconcileRequiredKnowledge(requirement.refreshRunId);
     await attachRefreshToAgentRun(runId, requirement.refreshRunId);
     return { refreshRunId: requirement.refreshRunId, ...reconciliation };
   } catch (error) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) {
+      if (ownsRefresh) {
+        await releaseRequiredKnowledgeRefreshOwner(runId, requirement.refreshRunId);
+      }
+      return { terminalStatus };
+    }
     const failure = classifyWorkflowFailure(error);
     await failRequiredKnowledgeRefresh(
       requirement.refreshRunId,
@@ -300,10 +702,298 @@ async function runRequiredKnowledgeRefresh(runId: string) {
   }
 }
 
+type StoredHistoryCitation = {
+  ordinal: number;
+  kind: string;
+  label: string;
+};
+
+type StoredHistoryMessage = {
+  id: string;
+  agentRunId: string | null;
+  sequence: number;
+  role: "user" | "assistant";
+  status: string;
+  content: string;
+  metadata: unknown;
+  citations: StoredHistoryCitation[];
+  agentRun: { error: unknown } | null;
+};
+
+type NormalizedHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: StoredHistoryCitation[];
+};
+
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function sanitizedTranscriptText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function sanitizedFailureCode(value: unknown) {
+  const code = sanitizedTranscriptText(value, 80);
+  return code && /^[a-z0-9][a-z0-9_.:-]*$/i.test(code) ? code : null;
+}
+
+/**
+ * Failed assistant content can contain provider diagnostics, request payloads,
+ * or other implementation detail that is inappropriate to replay to the
+ * model. Reconstruct the turn exclusively from the persisted, user-safe
+ * failure envelope. A legacy failure without that envelope is omitted along
+ * with its paired user message by normalizeProjectChatHistory below.
+ */
+function sanitizedTerminalAssistantMessage(
+  message: StoredHistoryMessage,
+): NormalizedHistoryMessage | null {
+  if (message.status === "cancelled") {
+    return {
+      id: message.id,
+      role: "assistant",
+      content: "The previous assistant turn was cancelled before completion.",
+      citations: [],
+    };
+  }
+  if (message.status !== "failed") return null;
+
+  const metadata = jsonRecord(message.metadata);
+  const runError = jsonRecord(message.agentRun?.error);
+  const code = sanitizedFailureCode(metadata?.failureCode) ??
+    sanitizedFailureCode(runError?.code);
+  const stage = sanitizedTranscriptText(runError?.stage, 120);
+  const recovery = sanitizedTranscriptText(metadata?.recovery, 400);
+  if (!code && !stage && !recovery) return null;
+
+  return {
+    id: message.id,
+    role: "assistant",
+    content: [
+      "The previous assistant turn failed.",
+      code ? `Failure code: ${code}.` : null,
+      stage ? `Stage: ${stage}.` : null,
+      recovery ? `Recovery: ${recovery}` : null,
+    ].filter(Boolean).join(" "),
+    citations: [],
+  };
+}
+
+/**
+ * Bedrock conversation history must describe complete turns. Normalize the
+ * persisted transcript into chronological user/assistant pairs so a failed,
+ * cancelled, interrupted, or legacy turn can never leave two adjacent user
+ * messages. The final slice stays pair-aligned while retaining the existing
+ * twelve-message history ceiling.
+ */
+function normalizeProjectChatHistory(
+  messages: StoredHistoryMessage[],
+  currentUserMessageId: string,
+): NormalizedHistoryMessage[] {
+  const normalized: NormalizedHistoryMessage[] = [];
+  let pendingUser: StoredHistoryMessage | null = null;
+
+  for (const message of messages
+    .filter((candidate) => candidate.id !== currentUserMessageId)
+    .sort((left, right) => left.sequence - right.sequence)) {
+    if (message.role === "user") {
+      pendingUser = message.status === "completed" ? message : null;
+      continue;
+    }
+    if (!pendingUser) continue;
+
+    const sameRun = !pendingUser.agentRunId ||
+      !message.agentRunId ||
+      pendingUser.agentRunId === message.agentRunId;
+    if (!sameRun) {
+      pendingUser = null;
+      continue;
+    }
+
+    const assistant = message.status === "completed"
+      ? {
+          id: message.id,
+          role: "assistant" as const,
+          content: message.content,
+          citations: message.citations.map((citation) => ({
+            ordinal: citation.ordinal,
+            kind: citation.kind,
+            label: citation.label,
+          })),
+        }
+      : sanitizedTerminalAssistantMessage(message);
+    if (assistant) {
+      normalized.push(
+        {
+          id: pendingUser.id,
+          role: "user",
+          content: pendingUser.content,
+          citations: [],
+        },
+        assistant,
+      );
+    }
+    pendingUser = null;
+  }
+
+  return normalized.slice(-12);
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+/**
+ * A `use step` invocation can be retried after its database writes committed
+ * but before Workflow persisted the step result. Treat the review checkpoint
+ * as the durable output only when its run result, provisional assistant
+ * snapshot, persisted citations, and scoped Project Fact candidate batch all
+ * agree. A malformed/partial checkpoint falls through to the normal recovery
+ * path instead of silently skipping work.
+ */
+async function hasValidAwaitingReviewCheckpoint(runId: string) {
+  const checkpoint = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: {
+      status: true,
+      result: true,
+      provisionalResult: true,
+      candidates: {
+        where: {
+          kind: { in: ["new_project_fact", "project_fact_revision"] },
+        },
+        select: {
+          id: true,
+          kind: true,
+          batchNumber: true,
+          projectFactId: true,
+        },
+      },
+      messages: {
+        where: { role: "assistant" },
+        orderBy: { sequence: "desc" },
+        take: 1,
+        select: {
+          status: true,
+          content: true,
+          citations: {
+            orderBy: { ordinal: "asc" },
+            select: {
+              ordinal: true,
+              kind: true,
+              label: true,
+              projectFactId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (checkpoint?.status !== "awaiting_review") return false;
+
+  const result = jsonRecord(checkpoint.result);
+  const provisional = jsonRecord(checkpoint.provisionalResult);
+  if (result?.status !== "awaiting_review" || !provisional) return false;
+
+  const rawCandidateIds = result.candidateIds;
+  const candidateIds = Array.from(new Set(stringList(rawCandidateIds)));
+  if (
+    !Array.isArray(rawCandidateIds) ||
+    !candidateIds.length ||
+    candidateIds.length !== rawCandidateIds.length
+  ) {
+    return false;
+  }
+  const candidateById = new Map(
+    checkpoint.candidates.map((candidate) => [candidate.id, candidate]),
+  );
+  if (
+    candidateIds.some((candidateId) => {
+      const candidate = candidateById.get(candidateId);
+      return (
+        !candidate ||
+        candidate.batchNumber !== 1 ||
+        !candidate.projectFactId ||
+        (
+          candidate.kind !== "new_project_fact" &&
+          candidate.kind !== "project_fact_revision"
+        )
+      );
+    })
+  ) {
+    return false;
+  }
+
+  const content =
+    typeof provisional.content === "string" ? provisional.content.trim() : "";
+  const citationManifest = Array.isArray(provisional.citations)
+    ? provisional.citations.map(jsonRecord)
+    : [];
+  if (!content || citationManifest.some((citation) => !citation)) return false;
+
+  const assistant = checkpoint.messages[0];
+  if (
+    !assistant ||
+    assistant.status !== "awaiting_review" ||
+    assistant.content.trim() !== content ||
+    assistant.citations.length !== citationManifest.length
+  ) {
+    return false;
+  }
+  return citationManifest.every((citation, index) => {
+    const persistedCitation = assistant.citations[index];
+    return (
+      citation?.ordinal === index + 1 &&
+      typeof citation.kind === "string" &&
+      typeof citation.label === "string" &&
+      persistedCitation?.ordinal === citation.ordinal &&
+      persistedCitation.kind === citation.kind &&
+      persistedCitation.label === citation.label.slice(0, 300) &&
+      persistedCitation.projectFactId ===
+        (typeof citation.projectFactId === "string"
+          ? citation.projectFactId
+          : null)
+    );
+  });
+}
+
 async function answerProjectQuestion(runId: string, afterFactReview = false) {
   "use step";
 
-  await markAgentRunRunning(runId);
+  const persisted = await prisma.agentRun.findUniqueOrThrow({
+    where: { id: runId },
+    select: { status: true },
+  });
+  if (persisted.status === "completed") {
+    return { status: "completed" as const, replayed: true as const };
+  }
+  if (persisted.status === "insufficient_context") {
+    return { status: "insufficient_context" as const, replayed: true as const };
+  }
+  if (persisted.status === "failed") {
+    return { status: "failed" as const, replayed: true as const };
+  }
+  if (persisted.status === "cancelled") {
+    return { status: "cancelled" as const, replayed: true as const };
+  }
+  if (
+    !afterFactReview &&
+    persisted.status === "awaiting_review" &&
+    await hasValidAwaitingReviewCheckpoint(runId)
+  ) {
+    return { status: "awaiting_review" as const, replayed: true as const };
+  }
+
+  const running = await markAgentRunRunning(runId);
+  if (!running.active) return terminalAgentRunResult(running.status);
   const run = await prisma.agentRun.findUniqueOrThrow({
     where: { id: runId },
     include: {
@@ -313,19 +1003,32 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       thread: {
         include: {
           messages: {
-            where: { status: "completed" },
+            where: { status: { in: ["completed", "failed", "cancelled"] } },
             orderBy: { sequence: "desc" },
-            take: 13,
-            include: { citations: { orderBy: { ordinal: "asc" } } },
+            // Scan enough persisted messages to recover twelve complete,
+            // pair-aligned transcript entries after excluding the current user
+            // and any unusable legacy failure.
+            take: 25,
+            include: {
+              citations: { orderBy: { ordinal: "asc" } },
+              agentRun: { select: { error: true } },
+            },
           },
         },
       },
     },
   });
+  if (
+    ["completed", "insufficient_context", "failed", "cancelled"].includes(
+      run.status,
+    )
+  ) {
+    return terminalAgentRunResult(run.status);
+  }
   const userMessage = run.messages.find((message) => message.role === "user");
   const question = userMessage?.content ?? "";
 
-  if (!question) {
+  if (!userMessage || !question) {
     await failAgentRun({ runId, message: "The chat request did not contain a question." });
     return { status: "failed" as const };
   }
@@ -335,6 +1038,18 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
   });
 
   if (!existingCandidate && run.threadId && userMessage) {
+    const beforeCandidate = await prisma.agentRun.findUnique({
+      where: { id: run.id },
+      select: { status: true },
+    });
+    if (
+      !beforeCandidate ||
+      !["queued", "running", "awaiting_review"].includes(
+        beforeCandidate.status,
+      )
+    ) {
+      return terminalAgentRunResult(beforeCandidate?.status ?? "missing");
+    }
     try {
       const candidate = await proposeHighlightFromChatContext({
         userId: run.userId,
@@ -363,20 +1078,10 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
     }
   }
 
-  const history = run.thread?.messages
-    .slice()
-    .reverse()
-    .filter((message) => message.id !== userMessage?.id)
-    .map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      citations: message.citations.map((citation) => ({
-        ordinal: citation.ordinal,
-        kind: citation.kind,
-        label: citation.label,
-      })),
-    }));
+  const history = normalizeProjectChatHistory(
+    run.thread?.messages ?? [],
+    userMessage.id,
+  );
   const agentInput = {
     runId: run.id,
     userId: run.userId,
@@ -387,8 +1092,22 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
     history,
     rollingSummary: run.thread?.rollingSummary,
     allowResearch: !afterFactReview,
-    onAgentEvent: (event: BedrockConverseAgentEvent) => persistResearchAgentEvent(run.id, event),
+    // Agent telemetry must never be in the model/tool critical path. The
+    // persisted answer and citations are authoritative; progress events are a
+    // best-effort audit/UX stream.
+    onAgentEvent: (event: BedrockConverseAgentEvent) =>
+      persistResearchAgentEvent(run.id, event).catch(() => undefined),
   };
+  const beforeAgent = await prisma.agentRun.findUnique({
+    where: { id: run.id },
+    select: { status: true },
+  });
+  if (
+    !beforeAgent ||
+    !["queued", "running", "awaiting_review"].includes(beforeAgent.status)
+  ) {
+    return terminalAgentRunResult(beforeAgent?.status ?? "missing");
+  }
   const result = afterFactReview
     ? await finalizeProjectChatAfterFactReview(agentInput)
     : await runProjectChatAgent(agentInput);
@@ -414,7 +1133,7 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
   }
 
   if (result.status === "awaiting_review") {
-    await markAgentRunAwaitingReview({
+    const reviewTransition = await markAgentRunAwaitingReview({
       runId: run.id,
       content: result.answer,
       citations: result.citations,
@@ -430,10 +1149,13 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
         exploredEvidenceCount: result.research.exploredEvidence.length,
       },
     });
+    if (!reviewTransition.persisted) {
+      return terminalAgentRunResult(reviewTransition.status);
+    }
     return { status: "awaiting_review" as const };
   }
 
-  await completeAgentRun({
+  const completion = await completeAgentRun({
     runId,
     content: result.answer,
     result: {
@@ -446,7 +1168,7 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       partial: result.research.partial,
       exploredEvidenceCount: result.research.exploredEvidence.length,
       groundedClaims: result.research.groundedClaims ?? [],
-      fallbackUsed: false,
+      fallbackUsed: result.fallbackUsed ?? false,
     },
     citations: result.citations,
     citationPolicy: result.citationPolicy,
@@ -456,6 +1178,17 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       usedProjectFactIds: result.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
     },
   });
+  if (!completion.persisted) {
+    if (
+      completion.status === "completed" ||
+      completion.status === "insufficient_context" ||
+      completion.status === "failed" ||
+      completion.status === "cancelled"
+    ) {
+      return { status: completion.status, replayed: true as const };
+    }
+    throw new Error("The agent answer could not be persisted to an active run.");
+  }
   return { status: "completed" as const };
 }
 
@@ -490,11 +1223,40 @@ async function finishDeniedProjectFactReview(runId: string) {
 
 async function setArtifactRunRunning(runId: string) {
   "use step";
-  await markAgentRunRunning(runId);
+  return markAgentRunRunning(runId);
 }
 
 async function runArtifactAttempt(runId: string, batchNumber: number) {
   "use step";
+  const run = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: { status: true },
+  });
+  if (!run || !["queued", "running", "awaiting_review"].includes(run.status)) {
+    const terminal = terminalAgentRunResult(run?.status ?? "missing");
+    if (terminal.status === "completed") {
+      return { status: "completed" as const, replayed: true as const };
+    }
+    if (terminal.status === "insufficient_context") {
+      return {
+        status: "insufficient_context" as const,
+        message: "The artifact run already finished without sufficient context.",
+        replayed: true as const,
+      };
+    }
+    if (terminal.status === "cancelled") {
+      return {
+        status: "cancelled" as const,
+        message: "The artifact run was cancelled.",
+        replayed: true as const,
+      };
+    }
+    return {
+      status: "failed" as const,
+      message: "The artifact run already failed.",
+      replayed: true as const,
+    };
+  }
   return executeArtifactAttempt({ runId, batchNumber });
 }
 
@@ -505,6 +1267,12 @@ async function hasPendingReviewCandidates(runId: string, batchNumber: number) {
       where: { agentRunId: runId, batchNumber, status: "pending" },
     })) > 0
   );
+}
+
+async function finishArtifactInsufficientContext(runId: string, message: string) {
+  "use step";
+  await failAgentRun({ runId, message, insufficient: true });
+  return { status: "insufficient_context" as const, message };
 }
 
 async function failWorkflowRun(
@@ -527,26 +1295,48 @@ async function failWorkflowRun(
   return message;
 }
 
+function failureStage(
+  failure: ReturnType<typeof classifyWorkflowFailure>,
+  operationStage: string,
+) {
+  return failure.code === "runtime_schema_mismatch" ||
+      failure.code === "database_schema_out_of_date"
+    ? "Checking application readiness"
+    : operationStage;
+}
+
 async function runArtifactLifecycle(runId: string) {
-  await setArtifactRunRunning(runId);
+  const initialTransition = await setArtifactRunRunning(runId);
+  if (!initialTransition.active) {
+    return terminalAgentRunResult(initialTransition.status);
+  }
   await emitProgress(runId, "Selecting approved highlights for the artifact.", "retrieval");
 
   // The third attempt never researches. It only re-evaluates the context approved
   // after the second and final review batch before declaring an evidence gap.
   for (let batchNumber = 1; batchNumber <= 3; batchNumber += 1) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) return terminalAgentRunResult(terminalStatus);
     const result = await runArtifactAttempt(runId, batchNumber);
 
     if (
       result.status === "completed" ||
       result.status === "clarification_required" ||
-      result.status === "insufficient_context"
+      result.status === "insufficient_context" ||
+      result.status === "failed" ||
+      result.status === "cancelled"
     ) {
+      const message = result.status === "completed"
+        ? "Artifact generated from approved highlights."
+        : result.message;
       await emitProgress(
         runId,
+        message,
         result.status === "completed"
-          ? "Artifact generated from approved highlights."
-          : result.message,
-        result.status === "completed" ? "complete" : "error",
+          ? "complete"
+          : result.status === "cancelled"
+            ? "status"
+            : "error",
       );
       return result;
     }
@@ -567,21 +1357,37 @@ async function runArtifactLifecycle(runId: string) {
     if (await hasPendingReviewCandidates(runId, batchNumber)) {
       await review;
     }
-    await setArtifactRunRunning(runId);
+    const resumed = await setArtifactRunRunning(runId);
+    if (!resumed.active) return terminalAgentRunResult(resumed.status);
     await emitProgress(runId, "Safety review complete. Rechecking auto-applied context.", "retrieval");
   }
 
   const message = "The artifact workflow finished without enough approved context.";
+  const result = await finishArtifactInsufficientContext(runId, message);
   await emitProgress(runId, message, "error");
-  return { status: "insufficient_context" as const, message };
+  return result;
 }
 
 export async function projectChatTurnWorkflow(runId: string) {
   "use workflow";
 
   try {
+    const ownership = await claimAgentRunWorkflowOwnership(
+      runId,
+      getWorkflowMetadata().workflowRunId,
+    );
+    if (ownership.status !== "owned") {
+      return inactiveWorkflowResult(ownership);
+    }
     await assertApplicationRuntimeReady();
-    await runRequiredKnowledgeRefresh(runId);
+    // startRequiredKnowledgeRefresh and answerProjectQuestion both perform
+    // their own terminal-state fences. Separate status-only Workflow steps
+    // here added three remote round trips to every turn without closing a race
+    // that those authoritative transitions did not already close.
+    const refresh = await runRequiredKnowledgeRefresh(runId);
+    if (refresh?.terminalStatus) {
+      return terminalAgentRunResult(refresh.terminalStatus);
+    }
     await emitProgress(runId, "Searching verified project memory.", "retrieval");
     let result = await answerProjectQuestion(runId);
     if (result.status === "artifact_requested") {
@@ -604,20 +1410,25 @@ export async function projectChatTurnWorkflow(runId: string) {
       await emitProgress(runId, "Fact review complete. Resuming the saved research and finalizing from approved facts.", "retrieval");
       result = await answerProjectQuestion(runId, true);
     }
-    await emitProgress(
-      runId,
-      result.status === "completed"
-        ? "Answer grounded and citations attached."
-        : "Project context was not sufficient for a grounded answer.",
-      result.status === "completed" ? "complete" : "error",
-    );
+    const progress = result.status === "completed"
+      ? { message: "Answer grounded and citations attached.", type: "complete" as const }
+      : result.status === "cancelled"
+        ? { message: "Project chat was cancelled.", type: "status" as const }
+        : result.status === "failed"
+          ? { message: "Project chat failed.", type: "error" as const }
+          : { message: "Project context was not sufficient for a grounded answer.", type: "error" as const };
+    await emitProgress(runId, progress.message, progress.type);
     return result;
   } catch (error) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) {
+      return { status: terminalStatus, replayed: true as const };
+    }
     const failure = classifyWorkflowFailure(error);
     const message = await failWorkflowRun(
       runId,
       failure,
-      failure.code === "runtime_schema_mismatch" ? "Checking application readiness" : "Running project chat",
+      failureStage(failure, "Running project chat"),
     );
     return { status: "failed" as const, message };
   } finally {
@@ -629,15 +1440,29 @@ export async function artifactGenerationWorkflow(runId: string) {
   "use workflow";
 
   try {
+    const ownership = await claimAgentRunWorkflowOwnership(
+      runId,
+      getWorkflowMetadata().workflowRunId,
+    );
+    if (ownership.status !== "owned") {
+      return inactiveWorkflowResult(ownership);
+    }
     await assertApplicationRuntimeReady();
-    await runRequiredKnowledgeRefresh(runId);
+    const refresh = await runRequiredKnowledgeRefresh(runId);
+    if (refresh?.terminalStatus) {
+      return terminalAgentRunResult(refresh.terminalStatus);
+    }
     return await runArtifactLifecycle(runId);
   } catch (error) {
+    const terminalStatus = await terminalAgentRunStatus(runId);
+    if (terminalStatus) {
+      return { status: terminalStatus, replayed: true as const };
+    }
     const failure = classifyWorkflowFailure(error);
     const message = await failWorkflowRun(
       runId,
       failure,
-      failure.code === "runtime_schema_mismatch" ? "Checking application readiness" : "Generating artifact",
+      failureStage(failure, "Generating artifact"),
     );
     return { status: "failed" as const, message };
   } finally {
@@ -649,7 +1474,29 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
   "use workflow";
 
   try {
+    const ownership = await claimKnowledgeRefreshWorkflowOwnership(
+      refreshRunId,
+      getWorkflowMetadata().workflowRunId,
+    );
+    if (ownership.status === "terminal") {
+      return { status: ownership.runStatus, replayed: true as const };
+    }
+    if (ownership.status === "superseded") {
+      return {
+        status: "superseded" as const,
+        replayed: true as const,
+        attachedWorkflowId: ownership.attachedWorkflowId,
+      };
+    }
+    const beforeReadiness = await terminalKnowledgeRefreshStatus(refreshRunId);
+    if (beforeReadiness) {
+      return { status: beforeReadiness, replayed: true as const };
+    }
     await assertApplicationRuntimeReady();
+    const beforeInventory = await terminalKnowledgeRefreshStatus(refreshRunId);
+    if (beforeInventory) {
+      return { status: beforeInventory, replayed: true as const };
+    }
     await inventoryRequiredKnowledge(refreshRunId);
     let remaining = 1;
     while (remaining > 0) {
@@ -660,6 +1507,10 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
     await finalizeRequiredCoverage(refreshRunId);
     return await reconcileRequiredKnowledge(refreshRunId);
   } catch (error) {
+    const terminalStatus = await terminalKnowledgeRefreshStatus(refreshRunId);
+    if (terminalStatus) {
+      return { status: terminalStatus, replayed: true as const };
+    }
     const failure = classifyWorkflowFailure(error);
     await failRequiredKnowledgeRefresh(
       refreshRunId,

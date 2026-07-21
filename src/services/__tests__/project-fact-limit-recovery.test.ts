@@ -61,6 +61,42 @@ describe("Project Fact extraction limit recovery", () => {
     );
   });
 
+  it("does not treat an unreported retry-named declaration in another excerpt as a retry policy", () => {
+    const recovered = deterministicFactRecoveryFromCitations({
+      question: "Where are retry limits enforced, and what terminates the loop?",
+      citations: [
+        {
+          kind: "github_file",
+          label: "src/agent.ts",
+          excerpt: "if (iterations >= limits.maxIterations) {\n  throw new Error('stop');\n}",
+          repository: "workbase/demo",
+          commitSha: "a".repeat(40),
+          path: "src/agent.ts",
+          startLine: 20,
+          endLine: 22,
+        },
+        {
+          kind: "github_file",
+          label: "src/provider.ts",
+          excerpt: "export function retryProviderRequest() {\n  return request();\n}",
+          repository: "workbase/demo",
+          commitSha: "a".repeat(40),
+          path: "src/provider.ts",
+          startLine: 1,
+          endLine: 3,
+        },
+      ],
+      maxFacts: 4,
+    });
+
+    expect(recovered.facts).toEqual([
+      expect.objectContaining({ statement: expect.stringContaining("limits.maxIterations") }),
+    ]);
+    expect(recovered.coverageGaps).toContain(
+      "The inspected excerpts did not establish a retry or backoff policy; an iteration guard must not be reported as a retry count.",
+    );
+  });
+
   it("salvages supported facts from smaller batches after a full structured output fails", async () => {
     process.env.WORKBASE_PROJECT_FACT_RECOVERY_MODE = "batched_model_retry";
     generateStructuredMock
@@ -163,6 +199,9 @@ describe("Project Fact extraction limit recovery", () => {
       citationIndexes: [1],
     })]);
     expect(result.coverageGaps[0]).toContain("Semantic Project Fact extraction did not complete");
+    expect(result.coverageGaps).toContain(
+      "The inspected excerpts did not establish a retry or backoff policy; an iteration guard must not be reported as a retry count.",
+    );
   });
 
   it("marks a provider failure with missing usage as an unknown charged attempt", async () => {
@@ -205,6 +244,64 @@ describe("Project Fact extraction limit recovery", () => {
       }],
       maxFacts: 2,
     })).toEqual([]);
+  });
+
+  it("does not treat retryable-error classification as an executed retry policy", () => {
+    const recovered = deterministicFactRecoveryFromCitations({
+      question: "Where is retry behavior enforced?",
+      citations: [{
+        kind: "github_file",
+        label: "src/errors.ts",
+        excerpt: "export function isRetryableError(error: unknown) {\n  return error instanceof Error;\n}",
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "src/errors.ts",
+        startLine: 1,
+        endLine: 3,
+      }],
+      maxFacts: 2,
+    });
+
+    expect(recovered.facts).toEqual([
+      expect.objectContaining({
+        category: "code_location",
+        statement: expect.stringContaining("defines `isRetryableError`"),
+      }),
+    ]);
+    expect(recovered.coverageGaps).toContain(
+      "The inspected excerpts did not establish a retry or backoff policy; an iteration guard must not be reported as a retry count.",
+    );
+  });
+
+  it("keeps backoff as a separate evidence boundary from a bounded retry loop", () => {
+    const recovered = deterministicFactRecoveryFromCitations({
+      question: "Where are retry limits and backoff enforced?",
+      citations: [{
+        kind: "github_file",
+        label: "src/retry.ts",
+        excerpt: [
+          "export async function retryRequest() {",
+          "  for (let attempt = 0; attempt < maxRetries; attempt += 1) {",
+          "    await request();",
+          "  }",
+          "}",
+        ].join("\n"),
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "src/retry.ts",
+        startLine: 1,
+        endLine: 5,
+      }],
+      maxFacts: 2,
+    });
+
+    expect(recovered.facts[0]?.statement).toContain("attempt < maxRetries");
+    expect(recovered.coverageGaps).not.toContain(
+      "The inspected excerpts did not establish a retry or backoff policy; an iteration guard must not be reported as a retry count.",
+    );
+    expect(recovered.coverageGaps).toContain(
+      "The inspected excerpts did not establish a backoff or delay policy; retry control must not be reported as backoff.",
+    );
   });
 
   it("does not turn a limit-shaped identifier into an unsupported bounded-loop claim", () => {
@@ -260,6 +357,7 @@ describe("Project Fact extraction limit recovery", () => {
       expect.objectContaining({
         category: "behavior",
         confidence: "high",
+        subsystemKey: "ai_runtime",
         statement: expect.stringContaining("`iteration < maxIterations` at line 41"),
       }),
       expect.objectContaining({
@@ -269,6 +367,29 @@ describe("Project Fact extraction limit recovery", () => {
       }),
     ]));
     expect(recovered.coverageGaps).toEqual([]);
+  });
+
+  it("does not turn controller wrapper labels into unrelated declaration facts", () => {
+    const recovered = deterministicFactRecoveryFromCitations({
+      question: "Current follow-up: Where are retry limits enforced, and what terminates the loop?",
+      citations: [{
+        kind: "github_file",
+        label: "src/services/project-research-service.ts",
+        excerpt: "const current = dossier.current;\nexport const repositoryResearch = current;",
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "src/services/project-research-service.ts",
+        startLine: 1,
+        endLine: 2,
+      }],
+      maxFacts: 4,
+    });
+
+    expect(recovered.facts).toEqual([]);
+    expect(recovered.coverageGaps).toEqual(expect.arrayContaining([
+      expect.stringContaining("no retry or iteration-bound claim"),
+      expect.stringContaining("no loop-termination path"),
+    ]));
   });
 
   it("keeps retry-loop guards while rejecting unrelated file-size limits", () => {

@@ -33,7 +33,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v25";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v26";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -510,8 +510,8 @@ export async function startKnowledgeRefresh(input: {
 export async function claimInlineKnowledgeRefreshExecution(input: {
   runId: string;
   ownerToken: string;
-}) {
-  const freshClaim = await prisma.knowledgeRefreshRun.updateMany({
+}, client: Pick<Prisma.TransactionClient, "knowledgeRefreshRun"> = prisma) {
+  const freshClaim = await client.knowledgeRefreshRun.updateMany({
     where: {
       id: input.runId,
       status: "queued",
@@ -526,7 +526,7 @@ export async function claimInlineKnowledgeRefreshExecution(input: {
     },
   });
   if (freshClaim.count) return true;
-  const resumedClaim = await prisma.knowledgeRefreshRun.updateMany({
+  const resumedClaim = await client.knowledgeRefreshRun.updateMany({
     where: {
       id: input.runId,
       status: "queued",
@@ -540,7 +540,7 @@ export async function claimInlineKnowledgeRefreshExecution(input: {
     },
   });
   if (resumedClaim.count) return true;
-  const orphanedActiveClaim = await prisma.knowledgeRefreshRun.updateMany({
+  const orphanedActiveClaim = await client.knowledgeRefreshRun.updateMany({
     where: {
       id: input.runId,
       status: {
@@ -554,7 +554,7 @@ export async function claimInlineKnowledgeRefreshExecution(input: {
     },
   });
   if (orphanedActiveClaim.count) return true;
-  const current = await prisma.knowledgeRefreshRun.findUnique({
+  const current = await client.knowledgeRefreshRun.findUnique({
     where: { id: input.runId },
     select: { status: true, workflowId: true, startedAt: true },
   });

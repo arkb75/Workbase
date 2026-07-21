@@ -9,6 +9,7 @@ const prismaMock = vi.hoisted(() => ({
 
 const githubClientMocks = vi.hoisted(() => ({
   fetchGitHubBlob: vi.fn(),
+  fetchGitHubFileAtRevision: vi.fn(),
   fetchGitHubTree: vi.fn(),
   getGitHubAccessTokenForUser: vi.fn(),
   resolveGitHubCommit: vi.fn(),
@@ -33,7 +34,7 @@ const docsBlobSha = "d".repeat(40);
 const unknownSizeBlobSha = "e".repeat(40);
 const dataBlobSha = "f".repeat(40);
 const secretAuthContent = [
-  "export const token = 'ghp_123456789012345678901234567890123456';",
+  `export const token = '${["ghp", "123456789012345678901234567890123456"].join("_")}';`,
   "const password = \"correct horse battery staple\";",
   "export function authenticate() { return token; }",
 ].join("\n");
@@ -351,6 +352,46 @@ describe("githubRepositoryExplorationService", () => {
       lineEnd: 2,
       url: `https://github.com/workbase/demo/blob/${commitSha}/src/auth.ts#L1-L2`,
     });
+  });
+
+  it("falls back to commit-pinned contents without consuming another logical read", async () => {
+    githubClientMocks.fetchGitHubBlob.mockRejectedValueOnce(
+      new Error("GitHub API request failed (503) for the git blob"),
+    );
+    githubClientMocks.fetchGitHubFileAtRevision.mockResolvedValueOnce({
+      sha: authBlobSha,
+      size: Buffer.byteLength(secretAuthContent),
+      content: Buffer.from(secretAuthContent).toString("base64"),
+      encoding: "base64",
+    });
+
+    const session = await startSession();
+    const result = await session.readFile({ path: "src/auth.ts", lineStart: 1, lineEnd: 1 });
+
+    expect(githubClientMocks.fetchGitHubFileAtRevision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "src/auth.ts",
+        commitSha,
+      }),
+    );
+    expect(result.citation.blobSha).toBe(authBlobSha);
+    expect(session.getUsage().fileReads).toBe(1);
+  });
+
+  it("rejects a commit-pinned fallback whose SHA does not match the pinned tree", async () => {
+    githubClientMocks.fetchGitHubBlob.mockRejectedValueOnce(
+      new Error("GitHub API request failed (503) for the git blob"),
+    );
+    githubClientMocks.fetchGitHubFileAtRevision.mockResolvedValueOnce({
+      sha: "9".repeat(40),
+      size: Buffer.byteLength(secretAuthContent),
+      content: Buffer.from(secretAuthContent).toString("base64"),
+      encoding: "base64",
+    });
+
+    await expect(
+      (await startSession()).readFile({ path: "src/auth.ts" }),
+    ).rejects.toMatchObject({ code: "invalid_revision" });
   });
 
   it("selects a bounded excerpt around relevant terms instead of always reading the file head", async () => {

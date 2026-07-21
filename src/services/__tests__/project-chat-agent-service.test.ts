@@ -1,14 +1,94 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyProjectAnswerEditorialPresentation,
+  buildBedrockProjectChatHistory,
   buildContextualRetrievalQuery,
   buildMemoryCatalog,
   buildStandaloneResearchQuestion,
+  explicitPriorEvidenceGapExplanation,
   explicitPriorRetryExplanation,
+  isContextOnlyProjectStatement,
   isRetryFollowUp,
+  projectAnswerGroundingModeForQuestion,
   requiresLiveRepositoryResearch,
+  selectProjectChatHistory,
+  usesDeterministicEditorialSynthesis,
 } from "@/src/services/project-chat-agent-service";
+import { classifyProjectAnswerEditorialProfile } from "@/src/services/project-answer-editorial-service";
 
 describe("project chat repository intent", () => {
+  it.each([
+    {
+      question: "Give me exactly two concise bullets.",
+      expected: "- **Product:** Delivers value [citation:1]\n- **Runtime:** Controls execution [citation:2]",
+    },
+    {
+      question: "Explain this in two paragraphs.",
+      expected: "**Product.** Delivers value [citation:1]\n\n**Runtime.** Controls execution [citation:2]",
+    },
+    {
+      question: "Compare these systems in a table.",
+      expected: [
+        "| Theme | Assessment |",
+        "| --- | --- |",
+        "| Product | Delivers value [citation:1] |",
+        "| Runtime | Controls execution [citation:2] |",
+      ].join("\n"),
+    },
+  ])("presents a canonical grounded answer in the requested format: $question", ({ question, expected }) => {
+    const markdown = [
+      "### Product",
+      "Delivers value [citation:1]",
+      "",
+      "### Runtime",
+      "Controls execution [citation:2]",
+    ].join("\n");
+    expect(applyProjectAnswerEditorialPresentation(
+      markdown,
+      classifyProjectAnswerEditorialProfile(question),
+    )).toBe(expected);
+  });
+
+  it.each([
+    {
+      question: "Give me exactly four concise bullets.",
+      expected: "- **Product:** Delivers value [citation:1]\n- **Runtime:** Controls execution [citation:2]",
+    },
+    {
+      question: "Explain this in exactly four paragraphs.",
+      expected: "**Product.** Delivers value [citation:1]\n\n**Runtime.** Controls execution [citation:2]",
+    },
+    {
+      question: "Give me a table with exactly four accomplishments.",
+      expected: [
+        "| Theme | Assessment |",
+        "| --- | --- |",
+        "| Product | Delivers value [citation:1] |",
+        "| Runtime | Controls execution [citation:2] |",
+      ].join("\n"),
+    },
+  ])("keeps the exact-count coverage limit outside $question presentation", ({
+    question,
+    expected,
+  }) => {
+    const coverageLimit =
+      "> **Coverage limit:** Current approved project memory supports 2 of the requested 4 independently cited items. I kept the supported subset instead of inventing the remainder.";
+    const markdown = [
+      "### Product",
+      "Delivers value [citation:1]",
+      "",
+      "### Runtime",
+      "Controls execution [citation:2]",
+      "",
+      coverageLimit,
+    ].join("\n");
+
+    expect(applyProjectAnswerEditorialPresentation(
+      markdown,
+      classifyProjectAnswerEditorialProfile(question),
+    )).toBe(`${expected}\n\n${coverageLimit}`);
+  });
+
   it.each([
     "Pull more recent information from the repo.",
     "Inspect the GitHub repository before answering.",
@@ -21,6 +101,85 @@ describe("project chat repository intent", () => {
 
   it("does not force repository access for an ordinary memory-backed question", () => {
     expect(requiresLiveRepositoryResearch("Summarize my strongest accomplishments.")).toBe(false);
+  });
+
+  it.each([
+    "Summarize my strongest accomplishments and make sure your information is up to date.",
+    "How does the repository refresh work?",
+    "Give me exactly four implementation highlights.",
+  ])("uses deterministic citation verification for factual synthesis: %s", (question) => {
+    expect(projectAnswerGroundingModeForQuestion(question)).toBe("deterministic");
+  });
+
+  it.each([
+    "Assess the architecture and its trade-offs.",
+    "Compare repository refresh with targeted research.",
+    "What should we change, and what risks matter most?",
+  ])("retains semantic verification for analytical judgment: %s", (question) => {
+    expect(projectAnswerGroundingModeForQuestion(question)).toBe("hybrid");
+  });
+
+  it("uses zero-model synthesis for factual and bounded source-backed assessment, but not open-ended recommendations", () => {
+    expect(usesDeterministicEditorialSynthesis(
+      "Summarize my strongest accomplishments and make sure your information is up to date.",
+    )).toBe(true);
+    expect(usesDeterministicEditorialSynthesis(
+      "Assess the architecture and explain its trade-offs.",
+    )).toBe(true);
+    expect(usesDeterministicEditorialSynthesis(
+      "What should we change to improve the architecture?",
+    )).toBe(false);
+  });
+
+  it("does not mistake a prior-turn repository provenance question for new research intent", () => {
+    expect(requiresLiveRepositoryResearch(
+      "Did you inspect the repository for your previous answer?",
+    )).toBe(false);
+  });
+
+  it.each([
+    "Compare this with my recent answer.",
+    "What are the current review statuses?",
+    "Show the latest message in this thread.",
+  ])("does not refresh repositories for conversational freshness in %s", (question) => {
+    expect(requiresLiveRepositoryResearch(question)).toBe(false);
+  });
+
+  it.each([
+    "Explain the current Workbase architecture.",
+    "What changed in the latest project implementation?",
+  ])("refreshes repository-backed project state in %s", (question) => {
+    expect(requiresLiveRepositoryResearch(question)).toBe(true);
+  });
+
+  it.each([
+    "I measured a 37% reduction in import latency after adding batching.",
+    "I owned the GitHub ingestion implementation and rollout.",
+    "The pilot supported 120 repository imports.",
+  ])("recognizes reusable self-reported context without treating it as a question: %s", (statement) => {
+    expect(isContextOnlyProjectStatement(statement)).toBe(true);
+  });
+
+  it.each([
+    "Did I measure a 37% reduction in import latency?",
+    "How does the import batching work?",
+    "Summarize my strongest accomplishments.",
+    "Write a resume bullet about the 37% improvement.",
+    "Turn my 37% latency reduction into a resume bullet.",
+    "Use the 37% result in a LinkedIn summary.",
+    "Please review the import pipeline.",
+    "I reduced latency by 37%. Check the repository to verify that.",
+    "Approve the claim that I reduced latency by 37%.",
+    "Delete the claim that I reduced latency by 37%.",
+    "Does this mean I reduced latency by 37%.",
+    "Sources for the claim that I reduced latency by 37%.",
+    "I reduced latency by 37% — cite the sources.",
+    "We plan to support 100 users.",
+    "Our target is 99.9% uptime.",
+    "I think the batching change reduced latency by 37%.",
+    'The prior assistant said "I reduced import latency by 37%."',
+  ])("does not intercept questions, summaries, or artifact commands as context: %s", (request) => {
+    expect(isContextOnlyProjectStatement(request)).toBe(false);
   });
 
   it("resolves a follow-up into a standalone research objective", () => {
@@ -51,6 +210,27 @@ describe("project chat repository intent", () => {
         "Specific research request: Find what changed recently.",
       ].join("\n"),
     );
+  });
+
+  it("passes an already standalone research question through without controller labels", () => {
+    expect(
+      buildStandaloneResearchQuestion({
+        currentQuestion: "Inspect the repository and explain the exact iteration guard.",
+        history: [],
+      }),
+    ).toBe("Inspect the repository and explain the exact iteration guard.");
+  });
+
+  it("explains a prior insufficient-context turn directly from conversation history", () => {
+    expect(explicitPriorEvidenceGapExplanation({
+      question: "Why couldn't you answer that?",
+      history: [{
+        id: "assistant-gap",
+        role: "assistant",
+        content: "The active approved project memory does not establish the production deployment topology.",
+        citations: [],
+      }],
+    })).toContain("does not establish the production deployment topology");
   });
 
   it("rewrites an elliptical follow-up with bounded prior context and citation manifests", () => {
@@ -84,6 +264,40 @@ describe("project chat repository intent", () => {
       currentQuestion: "Explain the database schema.",
       history: [{ id: "assistant-1", role: "assistant", content: "Unrelated prior answer.", citations: [] }],
     })).toBe("Explain the database schema.");
+  });
+
+  it("preserves only the latest bounded real messages and their compact citation manifests", () => {
+    const history = Array.from({ length: 18 }, (_, index) => ({
+      id: `message-${index + 1}`,
+      role: index % 2 === 0 ? "user" as const : "assistant" as const,
+      content: `${index % 2 === 0 ? "Question" : "Answer"} ${index + 1}: ${"x".repeat(5_200)}`,
+      citations: index % 2 === 0
+        ? []
+        : [{ ordinal: 1, kind: "project_fact", label: `Used fact ${index + 1}` }],
+    }));
+
+    const selected = selectProjectChatHistory(history);
+    const selectedCharacters = selected.reduce((total, message) =>
+      total + message.content.length + message.citations.reduce(
+        (citationTotal, citation) => citationTotal + citation.label.length + citation.kind.length + 12,
+        0,
+      ), 0);
+    expect(selected.length).toBeLessThanOrEqual(12);
+    expect(selectedCharacters).toBeLessThanOrEqual(60_000);
+    expect(selected.at(-1)?.id).toBe("message-18");
+
+    const bedrockHistory = buildBedrockProjectChatHistory(history);
+    expect(bedrockHistory[0]?.role).toBe("user");
+    expect(bedrockHistory.at(-1)?.role).toBe("assistant");
+    const assistantText = bedrockHistory
+      .filter((message) => message.role === "assistant")
+      .flatMap((message) => message.content)
+      .flatMap((block) => block && "text" in block && typeof block.text === "string" ? [block.text] : [])
+      .join("\n");
+    expect(assistantText).toContain("<used_citations>");
+    expect(assistantText).toContain('"kind":"project_fact"');
+    expect(assistantText).toContain('"title":"Used fact 18"');
+    expect(assistantText).not.toContain("citation excerpt");
   });
 
   it("recognizes retry questions only as real conversational follow-ups", () => {

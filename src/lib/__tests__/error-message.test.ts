@@ -14,4 +14,47 @@ describe("workflow error normalization", () => {
       retryable: false,
     });
   });
+
+  it("classifies model-provider failures without exposing provider payloads or stack traces", () => {
+    const failure = classifyWorkflowFailure(new Error(
+      "ThrottlingException: request abc-123 failed\n    at BedrockRuntimeClient.send (/secret/runtime.ts:41:9)",
+    ));
+
+    expect(failure).toEqual({
+      code: "model_provider_unavailable",
+      message: "The model provider did not complete this request.",
+      recovery: "Your project data is intact. Retry the message; Workbase will reuse completed retrieval and repository work where possible.",
+      retryable: true,
+    });
+    expect(JSON.stringify(failure)).not.toMatch(/abc-123|secret\/runtime|ThrottlingException/);
+  });
+
+  it("preserves typed schema and shared-refresh failures across safe durable messages", () => {
+    expect(classifyWorkflowFailure("database_schema_out_of_date: migrations are out of date")).toMatchObject({
+      code: "database_schema_out_of_date",
+      retryable: false,
+    });
+    expect(classifyWorkflowFailure(
+      "The shared repository refresh did not complete within the durable wait window.",
+    )).toMatchObject({
+      code: "shared_refresh_timeout",
+      retryable: true,
+    });
+    expect(classifyWorkflowFailure(
+      "The model provider did not complete this request.",
+    )).toMatchObject({
+      code: "model_provider_unavailable",
+      retryable: true,
+    });
+  });
+
+  it("never reflects an unknown internal error into the user-visible failure", () => {
+    const failure = classifyWorkflowFailure({
+      message: "Validation blew up with token ghp_supersecret and /private/app.ts:77",
+    });
+
+    expect(failure.code).toBe("workflow_failed");
+    expect(failure.message).toBe("Workbase could not complete this request before the run ended.");
+    expect(JSON.stringify(failure)).not.toMatch(/ghp_|private\/app|Validation blew up/);
+  });
 });

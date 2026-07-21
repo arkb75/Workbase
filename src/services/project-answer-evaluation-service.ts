@@ -154,8 +154,8 @@ export function evaluateAccomplishmentAnswerStructure(input: {
   return {
     blocks,
     accomplishmentCount: blocks.length,
-    countInRange: blocks.length >= (input.countRange?.minimum ?? 7) && blocks.length <= (input.countRange?.maximum ?? 10),
-    countRange: input.countRange ?? { minimum: 7, maximum: 10 },
+    countInRange: blocks.length >= (input.countRange?.minimum ?? 4) && blocks.length <= (input.countRange?.maximum ?? 6),
+    countRange: input.countRange ?? { minimum: 4, maximum: 6 },
     nonredundant: redundantPairs.length === 0,
     redundantPairs,
     allBlocksCited: uncitedBlocks.length === 0,

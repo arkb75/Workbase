@@ -162,6 +162,7 @@ export type BedrockConverseAgentEvent =
       iteration: number;
       stopReason: string;
       requestId: string | null;
+      durationMs: number;
       usage: BedrockConverseAgentTokenUsage;
       aggregateUsage: BedrockConverseAgentTokenUsage;
     }
@@ -749,6 +750,7 @@ export class BedrockConverseAgent {
       });
 
       let response: BedrockConverseTransportResponse;
+      const providerStartedAt = Date.now();
 
       try {
         const cachePoint = { cachePoint: { type: "default" as const } };
@@ -826,6 +828,7 @@ export class BedrockConverseAgent {
         iteration: iterations,
         stopReason: stopReason ?? "missing",
         requestId: response.requestId,
+        durationMs: Math.max(0, Date.now() - providerStartedAt),
         usage: iterationUsage,
         aggregateUsage,
       });

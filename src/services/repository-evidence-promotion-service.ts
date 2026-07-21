@@ -227,6 +227,12 @@ export async function promoteRepositoryCitations(input: {
     return result;
   };
   const existingByIdentity = new Map<string, (typeof existingEvidence)[number]>();
+  const existingBySourceAndExternalId = new Map(
+    existingEvidence.map((evidence) => [
+      `${evidence.sourceId}:${evidence.externalId}`,
+      evidence,
+    ]),
+  );
   for (const evidence of existingEvidence) {
     if (!isAutomaticallyReusableEvidence(evidence)) continue;
     const existingMetadata = record(evidence.metadata);
@@ -529,33 +535,12 @@ export async function promoteRepositoryCitations(input: {
       redactionCategories: citation.redactionCategories ?? [],
       promotionReviewKey: reviewKey,
     };
-    const existing = await db.evidenceItem.findUnique({
-      where: { sourceId_externalId: { sourceId: citation.sourceId!, externalId } },
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        included: true,
-        lifecycleStatus: true,
-        reviewState: true,
-        approvalSource: true,
-        publicSafetyStatus: true,
-        validatedThroughSha: true,
-        lastValidatedAt: true,
-        autoAppliedAt: true,
-        purgeEligibleAt: true,
-        logicalKey: true,
-        repositorySnapshotId: true,
-        metadata: true,
-        tags: {
-          select: {
-            dimension: true,
-            tag: true,
-            score: true,
-          },
-        },
-      },
-    });
+    // The initial bounded query already covered every candidate external ID.
+    // Re-querying the same unique key once per promoted excerpt made a fenced
+    // 25-excerpt reconciliation perform 25 avoidable sequential round trips.
+    const existing = existingBySourceAndExternalId.get(
+      `${citation.sourceId}:${externalId}`,
+    );
     if (existing && isAutomaticallyReusableEvidence(existing)) {
       const repositorySnapshotId = input.repositorySnapshotIdByHead?.get(
         `${citation.sourceId}:${citation.commitSha}`,

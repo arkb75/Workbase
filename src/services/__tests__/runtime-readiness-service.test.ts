@@ -36,7 +36,9 @@ describe("application runtime readiness", () => {
       retryable: false,
       recovery: expect.stringContaining("restart"),
     });
-    expect(database.$queryRaw).not.toHaveBeenCalled();
+    // Both independent readiness probes start together on the healthy path;
+    // the runtime-contract failure remains the classified result.
+    expect(database.$queryRaw).toHaveBeenCalledOnce();
   });
 
   it("detects pending repository migrations", async () => {

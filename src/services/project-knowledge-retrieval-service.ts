@@ -26,7 +26,27 @@ const defaultLimits = {
   artifacts: 3,
 } as const;
 const broadProjectQueryPattern =
-  /\b(summarize|overview|strongest|accomplishments?|achievements?|tell me about|what did (?:i|we)|project context|(?:main|overall|system|project|high[- ]level) architecture)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
+  /\b(summarize|overview|strongest|accomplishments?|achievements?|tell me about|(?:explain|describe) (?:workbase|this|the project)|what (?:is|does) (?:workbase|this|the project)|why (?:workbase|this(?: project)?|the project) (?:would )?matter|whole project|what did (?:i|we)|project context|(?:main|overall|system|project|high[- ]level) architecture)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b|\b(?:limitations?|risks?|strengths?(?: and weaknesses?)?|weaknesses?|trade[- ]?offs?)\b.{0,120}\b(?:workbase|whole project|overall project|system as a whole)\b|\b(?:hardest|most difficult|most valuable)\b.{0,120}\b(?:parts?|problems?|challenges?|systems?)\b.{0,160}\b(?:workbase|project|build|built|user value|product value)\b/i;
+const explicitMultiItemRequestPattern =
+  /\b(?:exactly\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+(?:[a-z][\w-]*\s+){0,4}(?:bullets?|points?|items?|themes?|capabilities?|accomplishments?|achievements?|strengths?|findings?)\b/i;
+const multiFacetPriorityPattern =
+  /\b(?:prioritize|cover|focus on)\b[^.\n]{0,220},[^.\n]{0,120}(?:,|\band\b)[^.\n]{0,120}/i;
+
+/**
+ * Broad synthesis is an answer-shape requirement, not merely a lexical
+ * similarity query. Explicit multi-facet prompts need a diverse durable-memory
+ * pool; otherwise top-k retrieval can return several near-neighbor facts from
+ * one subsystem and make the requested count impossible to satisfy without
+ * padding. Audience alone is not a breadth signal: "three OAuth findings for a
+ * hiring manager" is still a focused query and must retain hybrid retrieval.
+ */
+export function isBroadProjectKnowledgeQuery(query: string) {
+  return broadProjectQueryPattern.test(query) ||
+    (
+      explicitMultiItemRequestPattern.test(query) &&
+      multiFacetPriorityPattern.test(query)
+    );
+}
 const currentProjectQueryPattern =
   /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|as of)\b/i;
 
@@ -101,42 +121,107 @@ function hasDirectArtifactProvenance(artifact: {
 
 function requiresRegroundedArtifactSources(query: string, purpose: ProjectKnowledgePurpose) {
   return purpose === "public_artifact" ||
-    broadProjectQueryPattern.test(query) ||
+    isBroadProjectKnowledgeQuery(query) ||
     currentProjectQueryPattern.test(query);
 }
+
+const postgresLexicalStopWords = new Set([
+  "and", "answer", "assistant", "be", "current", "does", "explain", "for", "how",
+  "information", "listing", "make", "objective", "prior", "project", "question",
+  "source", "sources", "specific", "subsystems", "technically", "tell", "that",
+  "the", "this", "type", "unrelated", "use", "used", "uses", "user", "what",
+  "which", "why", "with", "without", "work", "works", "workbase",
+]);
 
 function tokenize(value: string) {
   return Array.from(
     new Set(
       normalizeWhitespace(value.toLowerCase())
         .split(/[^a-z0-9_./-]+/)
-        .filter((term) => term.length > 2),
+        .filter((term) => term.length > 2 && !postgresLexicalStopWords.has(term)),
     ),
   ).slice(0, 32);
 }
 
-const postgresLexicalStopWords = new Set([
-  "and", "answer", "assistant", "current", "does", "how", "objective", "prior",
-  "question", "source", "sources", "that", "the", "this", "title", "type", "used",
-  "user", "what", "which", "why", "with",
-]);
+function queryConceptAliases(value: string) {
+  const aliases: string[] = [];
+  if (/\b(?:security|secure|secrets?|credentials?|threat|posture)\b/i.test(value)) {
+    aliases.push(
+      "credential", "credentials", "redact", "redaction", "secret", "secrets",
+      "oauth", "authorization", "permission", "permissions",
+    );
+  }
+  if (/\b(?:authentication|authorization|permissions?|access control|oauth)\b/i.test(value)) {
+    aliases.push(
+      "oauth", "authentication", "authorization", "attached", "repository",
+      "permission", "permissions",
+    );
+  }
+  if (/\b(?:resilien\w*|recovery|recover\w*|fault tolerance|interruption)\b/i.test(value)) {
+    aliases.push(
+      "durable", "workflow", "resume", "retry",
+      "progress", "idempotent", "partial",
+    );
+  }
+  if (
+    /\b(?:data model|stored?|storage|persist\w*|version\w*|supersed\w*|retir\w*|correct\w*|stale facts?|knowledge lifecycle)\b/i
+      .test(value)
+  ) {
+    aliases.push(
+      "prisma", "data", "model", "persist", "lifecycle", "version",
+      "supersede", "stale", "retire", "embedding", "provenance",
+    );
+  }
+  if (/\b(?:test(?:ing)? strategy|automated tests?|test coverage|regression|evaluation suite)\b/i.test(value)) {
+    aliases.push(
+      "test", "tests", "vitest", "evaluation", "scenario", "regression",
+      "workflow", "security", "artifact", "research",
+    );
+  }
+  if (/\b(?:github|oauth|repository ingestion|repo ingestion|code exploration)\b/i.test(value)) {
+    aliases.push(
+      "github", "oauth", "ingestion", "import", "repository", "exploration",
+      "bounded", "source", "evidence",
+    );
+  }
+  if (/\b(?:workspace|review experience|review ui|user-facing|frontend)\b/i.test(value)) {
+    aliases.push(
+      "workspace", "review", "highlight", "project", "fact", "citation",
+      "artifact", "lifecycle",
+    );
+  }
+  return Array.from(new Set(aliases));
+}
+
+function expandedQueryTerms(value: string) {
+  return Array.from(new Set([...tokenize(value), ...queryConceptAliases(value)])).slice(0, 40);
+}
 
 function postgresLexicalQuery(value: string) {
-  const terms = Array.from(new Set(
+  const terms = Array.from(new Set([
+    ...queryConceptAliases(value),
+    ...(
     normalizeWhitespace(value.toLowerCase())
       .split(/[^a-z0-9_]+/)
-      .filter((term) => term.length > 2 && !postgresLexicalStopWords.has(term)),
-  )).slice(0, 24);
+      .filter((term) => term.length > 2 && !postgresLexicalStopWords.has(term))
+    ),
+  ])).slice(0, 32);
   return terms.join(" OR ");
 }
 
 function lexicalScore(query: string, content: string) {
   const normalizedQuery = normalizeWhitespace(query.toLowerCase());
   const normalizedContent = normalizeWhitespace(content.toLowerCase());
-  const terms = tokenize(query);
+  const terms = expandedQueryTerms(query);
+  const contentTerms = new Set(
+    normalizedContent.split(/[^a-z0-9_]+/).filter(Boolean),
+  );
   let score = terms.reduce((total, term) => {
     const exactIdentifier = /[._/-]/.test(term);
-    return total + (normalizedContent.includes(term) ? (exactIdentifier ? 1.8 : 1) : 0);
+    const matches = exactIdentifier
+      ? normalizedContent.includes(term)
+      : contentTerms.has(term);
+    return total + (matches ? (exactIdentifier ? 1.8 : 1) : 0);
   }, 0);
 
   if (normalizedQuery.length > 4 && normalizedContent.includes(normalizedQuery)) {
@@ -154,6 +239,41 @@ function lexicalScore(query: string, content: string) {
   }
 
   return score;
+}
+
+function normalizedRetrievalRelevance(input: {
+  query: string;
+  content: string;
+  postgresLexicalRank?: number;
+  vectorSimilarity?: number;
+}) {
+  const directLexical = lexicalScore(input.query, input.content);
+  const directLexicalSignal = directLexical > 0
+    ? Math.min(1, directLexical / 4)
+    : 0;
+  const postgresRank = Math.max(0, input.postgresLexicalRank ?? 0);
+  const rawSemanticSimilarity = Math.max(
+    0,
+    Math.min(1, input.vectorSimilarity ?? 0),
+  );
+  // PostgreSQL stemming is valuable for candidate recall, but a lone stem can
+  // conflate concepts such as "product" and "production". It may strengthen
+  // adequacy only when at least two literal query concepts agree, or when a
+  // high-confidence semantic match independently corroborates it.
+  const postgresSignal =
+    directLexical >= 2 || rawSemanticSimilarity >= 0.65
+      ? Math.min(1, directLexicalSignal + postgresRank)
+      : 0;
+  // Embedding neighborhoods commonly contain broadly project-related records
+  // around the middle of the cosine range. Only a decisive semantic match may
+  // bypass focused lexical overlap; weaker vectors still help ranking but do
+  // not prove that memory is adequate to answer the question.
+  const semanticSignal = rawSemanticSimilarity >= 0.65
+    ? rawSemanticSimilarity
+    : 0;
+  return Number(
+    Math.max(directLexicalSignal, postgresSignal, semanticSignal).toFixed(4),
+  );
 }
 
 function highlightAuthority(status: string): ProjectKnowledgeAuthority {
@@ -342,12 +462,17 @@ function isHighlightEligible(
   if (highlight.lifecycleStatus && highlight.lifecycleStatus !== "active") {
     return false;
   }
+  // Draft, flagged, and rejected Highlights are review/control-plane context,
+  // never positive factual authority. Private chat may label them elsewhere,
+  // but it must not cite them as support for an answer.
+  if (highlight.verificationStatus !== "approved") {
+    return false;
+  }
   if (purpose !== "public_artifact") {
     return true;
   }
 
   return (
-    highlight.verificationStatus === "approved" &&
     highlight.publicSafetyStatus === "verified" &&
     !highlight.sensitivityFlag &&
     highlight.visibility !== "private"
@@ -356,8 +481,10 @@ function isHighlightEligible(
 
 export const projectKnowledgeScoring = {
   lexicalScore,
+  normalizedRetrievalRelevance,
   authorityWeight,
   isHighlightEligible,
+  isBroadProjectKnowledgeQuery,
 };
 
 export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService = {
@@ -369,7 +496,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       select: { id: true },
     });
     await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
-    const broadQuery = broadProjectQueryPattern.test(query);
+    const broadQuery = isBroadProjectKnowledgeQuery(query);
     const selectedLimits = {
       highlights: limits?.highlights ?? (broadQuery ? 100 : defaultLimits.highlights),
       projectFacts: limits?.projectFacts ?? (broadQuery ? 100 : defaultLimits.projectFacts),
@@ -608,6 +735,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           highlight.verificationNotes ?? "",
           highlight.tags.map((tag) => `${tag.dimension}:${tag.tag}`).join(" "),
         ].join(" ");
+        const directLexicalScore = lexicalScore(query, content);
+        const postgresLexicalRank = lexicalRanks.highlights.get(highlight.id) ?? 0;
+        const vectorSimilarity = vectorRanks.highlights.get(highlight.id) ?? 0;
         const citations: ProjectKnowledgeCitation[] = [
           {
             kind: "highlight",
@@ -637,11 +767,17 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           subsystemKey,
           validatedThroughSha: highlight.validatedThroughSha,
           accomplishmentRanking,
+          retrievalRelevance: normalizedRetrievalRelevance({
+            query,
+            content,
+            postgresLexicalRank,
+            vectorSimilarity,
+          }),
           score:
             authorityWeight(authority) +
-            lexicalScore(query, content) +
-            (lexicalRanks.highlights.get(highlight.id) ?? 0) * 10 +
-            (vectorRanks.highlights.get(highlight.id) ?? 0) * 8 +
+            directLexicalScore +
+            postgresLexicalRank * 10 +
+            vectorSimilarity * 8 +
             (highlight.confidence === "high" ? 1.5 : highlight.confidence === "medium" ? 0.75 : 0) +
             (highlight.ownershipClarity === "clear" ? 1 : 0) +
             recencyScore(highlight.updatedAt),
@@ -650,7 +786,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       })
       .filter(
         (hit) =>
-          broadProjectQueryPattern.test(query) ||
+          broadQuery ||
           lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
           (lexicalRanks.highlights.get(hit.id) ?? 0) > 0 ||
           (vectorRanks.highlights.get(hit.id) ?? 0) >= 0.16,
@@ -663,6 +799,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       : workItem.projectFacts
           .map((fact): ProjectKnowledgeHit => {
             const content = [fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ");
+            const directLexicalScore = lexicalScore(query, content);
+            const postgresLexicalRank = lexicalRanks.projectFacts.get(fact.id) ?? 0;
+            const vectorSimilarity = vectorRanks.projectFacts.get(fact.id) ?? 0;
 
             return {
               id: fact.id,
@@ -675,12 +814,18 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
               subsystemKey: fact.subsystemKey,
               validatedThroughSha: fact.validatedThroughSha,
               accomplishmentRanking: factRanking(fact),
+              retrievalRelevance: normalizedRetrievalRelevance({
+                query,
+                content,
+                postgresLexicalRank,
+                vectorSimilarity,
+              }),
               score:
                 (preferredFactIds.has(fact.id) ? 100 : 0) +
                 authorityWeight("verified_project_fact") +
-                lexicalScore(query, content) +
-                (lexicalRanks.projectFacts.get(fact.id) ?? 0) * 10 +
-                (vectorRanks.projectFacts.get(fact.id) ?? 0) * 8 +
+                directLexicalScore +
+                postgresLexicalRank * 10 +
+                vectorSimilarity * 8 +
                 (fact.confidence === "high" ? 1.5 : fact.confidence === "medium" ? 0.75 : 0) +
                 recencyScore(fact.updatedAt),
               citations: [
@@ -697,7 +842,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           .filter(
             (hit) =>
               preferredFactIds.has(hit.id) ||
-              broadProjectQueryPattern.test(query) ||
+              broadQuery ||
               lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
               (lexicalRanks.projectFacts.get(hit.id) ?? 0) > 0 ||
               (vectorRanks.projectFacts.get(hit.id) ?? 0) >= 0.16,
@@ -719,6 +864,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         const tagText = item.tags.map((tag) => `${tag.dimension}:${tag.tag}`).join(" ");
         const content = [item.title, item.content, item.searchText, tagText].join(" ");
         const linkedBonus = linkedEvidenceIds.has(item.id) ? 5 : 0;
+        const directLexicalScore = lexicalScore(query, content);
+        const postgresLexicalRank = lexicalRanks.evidence.get(item.id) ?? 0;
+        const vectorSimilarity = vectorRanks.evidence.get(item.id) ?? 0;
 
         return {
           id: item.id,
@@ -730,12 +878,18 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             purpose === "private_chat"
               ? explicitSelfReportedOwnershipAuthority(item)
               : 0,
+          retrievalRelevance: normalizedRetrievalRelevance({
+            query,
+            content,
+            postgresLexicalRank,
+            vectorSimilarity,
+          }),
           score:
             authorityWeight("included_evidence") +
             linkedBonus +
-            lexicalScore(query, content) +
-            (lexicalRanks.evidence.get(item.id) ?? 0) * 10 +
-            (vectorRanks.evidence.get(item.id) ?? 0) * 7 +
+            directLexicalScore +
+            postgresLexicalRank * 10 +
+            vectorSimilarity * 7 +
             recencyScore(item.updatedAt),
           citations: [
             {
@@ -776,7 +930,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       })
       .filter(
         (hit) =>
-          broadProjectQueryPattern.test(query) ||
+          broadQuery ||
           lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
           (lexicalRanks.evidence.get(hit.id) ?? 0) > 0 ||
           (vectorRanks.evidence.get(hit.id) ?? 0) >= 0.16,
@@ -806,6 +960,9 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           artifact.tone,
           artifact.content,
         ].join(" ");
+        const directLexicalScore = lexicalScore(query, content);
+        const postgresLexicalRank = lexicalRanks.artifacts.get(artifact.id) ?? 0;
+        const vectorSimilarity = vectorRanks.artifacts.get(artifact.id) ?? 0;
         const directCitations: ProjectKnowledgeCitation[] = [
           ...artifact.highlightProvenance.flatMap((entry) => {
             if (!entry.highlightId) return [];
@@ -839,11 +996,17 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           authority: "prior_artifact",
           title: `${artifact.type.replace(/_/g, " ")} · ${artifact.targetAngle.replace(/_/g, " ")}`,
           content: artifact.content,
+          retrievalRelevance: normalizedRetrievalRelevance({
+            query,
+            content,
+            postgresLexicalRank,
+            vectorSimilarity,
+          }),
           score:
             authorityWeight("prior_artifact") +
-            lexicalScore(query, content) +
-            (lexicalRanks.artifacts.get(artifact.id) ?? 0) * 10 +
-            (vectorRanks.artifacts.get(artifact.id) ?? 0) * 6 +
+            directLexicalScore +
+            postgresLexicalRank * 10 +
+            vectorSimilarity * 6 +
             recencyScore(artifact.updatedAt),
           citations: regroundArtifactSources
             ? directCitations
@@ -860,7 +1023,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       })
       .filter(
         (hit) =>
-          broadProjectQueryPattern.test(query) ||
+          broadQuery ||
           lexicalScore(query, `${hit.title} ${hit.content}`) > 0 ||
           (lexicalRanks.artifacts.get(hit.id) ?? 0) > 0 ||
           (vectorRanks.artifacts.get(hit.id) ?? 0) >= 0.16,

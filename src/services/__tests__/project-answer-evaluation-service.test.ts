@@ -7,25 +7,23 @@ import {
 } from "@/src/services/project-answer-evaluation-service";
 
 describe("project answer evaluation", () => {
-  it("requires 7–10 distinct cited accomplishments without artifact-only grounding", () => {
+  it("requires 4–6 prioritized cited accomplishments without artifact-only grounding", () => {
     const capabilities = [
       ["Career product", "Turned project evidence into career content."],
       ["Repository lifecycle", "Reconciled current repository knowledge."],
       ["AI runtime", "Implemented structured Bedrock generation."],
       ["Durable workflows", "Orchestrated retry-aware background runs."],
       ["Grounded retrieval", "Combined retrieval with citation provenance."],
-      ["GitHub integration", "Connected OAuth-backed repository ingestion."],
-      ["Review workspace", "Built human review and editing surfaces."],
     ];
     const content = capabilities.map(([heading, body], index) =>
       `### ${heading}\n${body} [citation:${index + 1}]`,
     ).join("\n\n");
     const evaluation = evaluateAccomplishmentAnswerStructure({
       content,
-      citations: Array.from({ length: 7 }, (_, index) => ({ ordinal: index + 1, kind: "project_fact" })),
+      citations: Array.from({ length: 5 }, (_, index) => ({ ordinal: index + 1, kind: "project_fact" })),
     });
     expect(evaluation).toMatchObject({
-      accomplishmentCount: 7,
+      accomplishmentCount: 5,
       countInRange: true,
       nonredundant: true,
       allBlocksCited: true,

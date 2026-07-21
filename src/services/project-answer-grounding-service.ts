@@ -4,7 +4,6 @@ import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-l
 import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
-import { CitationIntegrityError } from "@/src/services/chat-citation-service";
 import { repositoryFreshnessFromDossier } from "@/src/services/project-research-dossier-service";
 
 const groundingSchema = z.object({
@@ -12,7 +11,7 @@ const groundingSchema = z.object({
     heading: z.string().trim().min(1).max(200).nullable(),
     bodyMarkdown: z.string().trim().min(1).max(2_000),
     citationIndexes: z.array(z.number().int().min(1)).min(1).max(6),
-  })).min(1).max(40),
+  })).max(40),
   issues: z.array(z.object({
     claim: z.string().trim().min(1).max(500),
     verdict: z.enum(["partially_entailed", "unsupported", "conflicted", "freshness_mismatch", "scope_overclaim"]),
@@ -27,7 +26,7 @@ const groundingJsonSchema: JsonSchemaObject = {
   properties: {
     blocks: {
       type: "array",
-      minItems: 1,
+      minItems: 0,
       maxItems: 40,
       items: {
         type: "object",
@@ -72,6 +71,8 @@ export interface ProjectAnswerGroundingEntry {
   content: string;
   currentRun: boolean;
   citationIndexes: number[];
+  /** Normalized 0–1 relevance from hybrid retrieval for this exact query. */
+  retrievalRelevance?: number;
   ownershipAuthority?: number;
   supportingSources: Array<{
     type: string;
@@ -92,6 +93,11 @@ export interface ProjectAnswerGroundingEntry {
     uncertainty: string | null;
   } | null;
 }
+
+export type ProjectAnswerGroundingMode =
+  | "hybrid"
+  | "deterministic"
+  | "model";
 
 const personalOwnershipPattern = /(?:\b(?:i|we|you)\s+(?:(?:personally|independently|solely|single-handedly)\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)|(?:\b(?:solo[- ]built|single-handedly built|solely (?:built|implemented|designed|created|developed|architected|shipped|owned))\b)|(?:^(?:#{1,6}\s+)?(?:\d+[.)]\s+|[-*]\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)/i;
 
@@ -140,6 +146,20 @@ function dateLabels(value: string | null) {
   ];
 }
 
+function usesStaleSourceImportDate(
+  value: string,
+  dossier?: ProjectResearchDossier | null,
+) {
+  const freshness = repositoryFreshnessFromDossier(dossier ?? null);
+  if (!freshness.latestRepositoryInspectedAt) return false;
+  const normalized = value.toLowerCase();
+  return dateLabels(freshness.latestSourceImportedAt).some((label) =>
+    normalized.includes(`as of ${label.toLowerCase()}`)
+  );
+}
+
+const permissiveCitationMarkerPattern = /\[citation:([^\]]*)\]/gi;
+
 export function detectGroundingContractIssues(input: {
   answer: string;
   citationCount: number;
@@ -147,22 +167,16 @@ export function detectGroundingContractIssues(input: {
   entries?: readonly ProjectAnswerGroundingEntry[];
 }) {
   const issues: string[] = [];
-  const markers = Array.from(input.answer.matchAll(/\[citation:(\d+)\]/g));
+  const markers = Array.from(input.answer.matchAll(permissiveCitationMarkerPattern));
   for (const marker of markers) {
-    const ordinal = Number(marker[1]);
+    const ordinal = Number(marker[1]?.trim());
     if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > input.citationCount) {
       issues.push(`The answer references unavailable citation ${marker[0]}.`);
     }
   }
 
-  const freshness = repositoryFreshnessFromDossier(input.dossier ?? null);
-  if (freshness.latestRepositoryInspectedAt) {
-    for (const importedLabel of dateLabels(freshness.latestSourceImportedAt)) {
-      if (input.answer.toLowerCase().includes(`as of ${importedLabel.toLowerCase()}`)) {
-        issues.push("The answer labels the source import date as current even though a newer repository inspection exists.");
-        break;
-      }
-    }
+  if (usesStaleSourceImportDate(input.answer, input.dossier)) {
+    issues.push("The answer labels the source import date as current even though a newer repository inspection exists.");
   }
   if (input.entries?.length) {
     for (const claim of findUnsupportedOwnershipClaims({ answer: input.answer, entries: input.entries })) {
@@ -212,10 +226,14 @@ export function parseCitedAnswerBlocks(answer: string, citationCount: number): G
   return answer
     .split(/\n{2,}/)
     .flatMap((segment) => {
-      const citationIndexes = Array.from(segment.matchAll(/\[citation:(\d+)\]/gi))
-        .map((match) => Number(match[1]))
-        .filter((index) => Number.isInteger(index) && index > 0 && index <= citationCount);
-      const withoutMarkers = segment.replace(/\[citation:\d+\]/gi, "").trim();
+      const citationIndexes = Array.from(segment.matchAll(permissiveCitationMarkerPattern))
+        .map((match) => Number(match[1]?.trim()));
+      if (citationIndexes.some((index) =>
+        !Number.isInteger(index) || index < 1 || index > citationCount
+      )) {
+        return [];
+      }
+      const withoutMarkers = segment.replace(permissiveCitationMarkerPattern, "").trim();
       if (!withoutMarkers || !citationIndexes.length) return [];
       const lines = withoutMarkers.split("\n");
       const first = lines[0]?.match(/^#{1,6}\s+(.+)$/);
@@ -231,6 +249,7 @@ export function parseCitedAnswerBlocks(answer: string, citationCount: number): G
 const groundingStopWords = new Set([
   "about", "after", "also", "and", "are", "built", "for", "from", "into",
   "project", "that", "the", "their", "this", "through", "using", "with", "workbase",
+  "you", "your", "we", "our",
 ]);
 
 function groundingTerms(value: string) {
@@ -290,12 +309,29 @@ export function evaluateDeterministicAnswerGrounding(input: {
   );
   const unsupportedBlocks = blocks.filter((block) =>
     !blockHasLexicalSupport(block, input.entries) ||
-    unsupportedHighRiskQualifier(block, input.entries)
+    unsupportedHighRiskQualifier(block, input.entries) ||
+    usesStaleSourceImportDate(
+      [block.heading, block.bodyMarkdown].filter(Boolean).join("\n"),
+      input.dossier,
+    )
+  );
+  const unsupportedBlockSet = new Set(unsupportedBlocks);
+  const safeBlocks = blocks.filter((block) => !unsupportedBlockSet.has(block));
+  const safeCountInvalid = Boolean(
+    input.requiredBlockCount &&
+    (safeBlocks.length < input.requiredBlockCount.minimum ||
+      safeBlocks.length > input.requiredBlockCount.maximum)
   );
   return {
     blocks,
+    safeBlocks,
     issues: contractIssues,
-    requiresModel: !blocks.length || countInvalid || contractIssues.length > 0 || unsupportedBlocks.length > 0,
+    requiresModel:
+      !safeBlocks.length ||
+      countInvalid ||
+      safeCountInvalid ||
+      contractIssues.length > 0 ||
+      unsupportedBlocks.length > 0,
     unsupportedBlockCount: unsupportedBlocks.length,
   };
 }
@@ -307,35 +343,40 @@ export async function groundProjectAnswer(input: {
   dossier?: ProjectResearchDossier | null;
   requiredBlockCount?: { minimum: number; maximum: number };
   singleAttempt?: boolean;
+  verificationMode?: ProjectAnswerGroundingMode;
 }) {
   const deterministic = evaluateDeterministicAnswerGrounding(input);
   const contractIssues = deterministic.issues;
   if (resolveWorkbaseLlmProvider() === "mock") {
-    const blocks = deterministic.blocks;
-    if (!blocks.length) throw new CitationIntegrityError("The mock grounding verifier found no supported cited blocks.");
-    if (input.requiredBlockCount && blocks.length < input.requiredBlockCount.minimum) {
-      throw new CitationIntegrityError(`The mock grounding verifier returned fewer than ${input.requiredBlockCount.minimum} required blocks.`);
-    }
-    if (input.requiredBlockCount && blocks.length > input.requiredBlockCount.maximum) {
-      throw new CitationIntegrityError(`The mock grounding verifier returned more than ${input.requiredBlockCount.maximum} allowed blocks.`);
-    }
     return {
-      blocks,
+      blocks: deterministic.safeBlocks,
       issues: contractIssues,
       tokenUsage: null,
     };
   }
 
-  const verifierMode = process.env.WORKBASE_ANSWER_GROUNDING_MODE ?? "hybrid";
+  const configuredMode = process.env.WORKBASE_ANSWER_GROUNDING_MODE;
+  const verifierMode = input.verificationMode ??
+    (
+      configuredMode === "deterministic" ||
+      configuredMode === "model" ||
+      configuredMode === "hybrid"
+        ? configuredMode
+        : "hybrid"
+    );
   if (!deterministic.requiresModel && verifierMode !== "model") {
     return {
-      blocks: deterministic.blocks,
+      blocks: deterministic.safeBlocks,
       issues: deterministic.issues,
       tokenUsage: null,
     };
   }
   if (verifierMode === "deterministic") {
-    throw new CitationIntegrityError("The deterministic grounding verifier found a claim that requires semantic review.");
+    return {
+      blocks: deterministic.safeBlocks,
+      issues: deterministic.issues,
+      tokenUsage: null,
+    };
   }
 
   const freshness = repositoryFreshnessFromDossier(input.dossier ?? null);
@@ -345,21 +386,42 @@ export async function groundProjectAnswer(input: {
   // repair behavior while the production default stays bounded.
   const executionOptions = projectAnswerGroundingExecutionOptions(input.singleAttempt ?? true);
   const referencedCitationIndexes = new Set(
-    Array.from(input.answer.matchAll(/\[citation:(\d+)\]/gi))
-      .map((match) => Number(match[1]))
+    Array.from(input.answer.matchAll(permissiveCitationMarkerPattern))
+      .map((match) => Number(match[1]?.trim()))
       .filter((index) => Number.isInteger(index) && index > 0 && index <= input.citationCount),
   );
-  const verifierEntries = referencedCitationIndexes.size
-    ? input.entries.filter((entry) => entry.citationIndexes.some((index) => referencedCitationIndexes.has(index)))
-    : input.entries;
+  const verifierEntries = input.entries.filter((entry) =>
+    entry.citationIndexes.some((index) => referencedCitationIndexes.has(index))
+  );
+  const verifierBlockContractErrors = (block: GroundedAnswerBlock, index: number) => {
+    const errors: string[] = [];
+    if (/\[citation:\d+\]/i.test(block.bodyMarkdown) || /\[\d+\](?:\s*\[\d+\])*/.test(block.bodyMarkdown)) {
+      errors.push(`Block ${index + 1} must use citationIndexes instead of citation marker text.`);
+    }
+    if (block.heading && (/\[citation:\d+\]/i.test(block.heading) || /\[\d+\]/.test(block.heading))) {
+      errors.push(`Heading ${index + 1} must not contain citation marker text.`);
+    }
+    if (block.citationIndexes.some((citationIndex) => !referencedCitationIndexes.has(citationIndex))) {
+      errors.push(`Block ${index + 1} references a citation that was not used by the draft.`);
+    }
+    if (
+      hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) &&
+      !citationSupportsOwnership(block.citationIndexes, verifierEntries)
+    ) {
+      errors.push(`Block ${index + 1} assigns personal ownership using repository-only sources.`);
+    }
+    return errors;
+  };
   const result = await getBedrockStructuredLlmClient().generateStructured({
       systemPrompt: [
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
         "Check each factual project claim against only the source entry referenced by a [citation:N] marker in that claim or paragraph.",
         "Topical similarity is not entailment. Narrow configurable defaults, conditional behavior, and inferred intent instead of turning them into universal guarantees.",
+        "For an assessment or comparison, retain an explicitly qualified analytical conclusion only when it follows directly from the cited implementation premises. Keep language such as “this suggests,” “this creates a trade-off,” or “this may limit”; do not rewrite the analysis as an observed project fact.",
         "Repository-only Project Facts establish implementation, not who personally built it. Remove or neutralize first-person, second-person, solo-built, sole-owner, and subjectless accomplishment language unless at least one cited verified Highlight or explicit included self-reported evidence item has ownershipAuthority of 3 or greater. A work-item description or chat user statement may provide that private-chat ownership authority; included repository evidence may not.",
         "Return supported factual units as structured blocks. Do not include [citation:N], [N], footnotes, or any other citation syntax in heading or bodyMarkdown; use citationIndexes only.",
         "Do not introduce new facts or citation indexes. Remove claims that cannot be supported.",
+        "If none of the claims are supported, return an empty blocks array and explain the evidence gap under issues.",
         "Keep useful Markdown such as emphasis, inline code, lists, and short paragraphs inside bodyMarkdown, but each block must remain one independently supported factual unit.",
         "For repository freshness, current-through means the pinned commit or inspection time. Never present an older source-import time as the current-through date.",
         "If research is partial, do not describe representative coverage as exhaustive and retain a concise coverage limitation when material.",
@@ -385,45 +447,28 @@ export async function groundProjectAnswer(input: {
       effort: "medium",
       transportPreference: executionOptions.transportPreference,
       budget: executionOptions.budget,
-      extraValidation: (value) => value.blocks.flatMap((block, index) => {
-        const errors: string[] = [];
-        if (/\[citation:\d+\]/i.test(block.bodyMarkdown) || /\[\d+\](?:\s*\[\d+\])*/.test(block.bodyMarkdown)) {
-          errors.push(`Block ${index + 1} must use citationIndexes instead of citation marker text.`);
-        }
-        if (block.heading && (/\[citation:\d+\]/i.test(block.heading) || /\[\d+\]/.test(block.heading))) {
-          errors.push(`Heading ${index + 1} must not contain citation marker text.`);
-        }
-        if (block.citationIndexes.some((citationIndex) => citationIndex > input.citationCount)) {
-          errors.push(`Block ${index + 1} references an unavailable citation index.`);
-        }
-        if (
-          hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) &&
-          !citationSupportsOwnership(block.citationIndexes, verifierEntries)
-        ) {
-          errors.push(`Block ${index + 1} assigns personal ownership using repository-only sources.`);
-        }
-        return errors;
-      }).concat(
-        input.requiredBlockCount && value.blocks.length < input.requiredBlockCount.minimum
-          ? [`At least ${input.requiredBlockCount.minimum} grounded blocks are required.`]
-          : [],
+      extraValidation: (value) => value.blocks
+        .flatMap(verifierBlockContractErrors)
+        .concat(
         input.requiredBlockCount && value.blocks.length > input.requiredBlockCount.maximum
           ? [`No more than ${input.requiredBlockCount.maximum} grounded blocks are allowed.`]
           : [],
       ),
     });
-  if (!result.data.blocks.length) throw new CitationIntegrityError("The grounding verifier returned no supported blocks.");
-  if (result.data.blocks.some((block) =>
-    hasPersonalOwnershipLanguage([block.heading, block.bodyMarkdown].filter(Boolean).join("\n")) &&
-    !citationSupportsOwnership(block.citationIndexes, input.entries)
-  )) {
-    throw new CitationIntegrityError("The grounding verifier assigned personal ownership using repository-only sources.");
-  }
+  // The structured client applies the same validation before returning. Keep
+  // this final filter as defense in depth for alternate runtimes and test
+  // doubles: an invalid model block is simply omitted instead of turning an
+  // otherwise recoverable answer into a terminal integrity error.
+  const postValidationErrors = result.data.blocks.flatMap(verifierBlockContractErrors);
+  const blocks = result.data.blocks.filter((block, index) =>
+    verifierBlockContractErrors(block, index).length === 0
+  );
   return {
-    blocks: result.data.blocks,
+    blocks,
     issues: [
       ...contractIssues,
       ...result.data.issues.map((issue) => `${issue.verdict}: ${issue.claim} — ${issue.correction}`),
+      ...postValidationErrors.map((issue) => `verifier_contract: ${issue}`),
     ],
     tokenUsage: result.tokenUsage,
   };

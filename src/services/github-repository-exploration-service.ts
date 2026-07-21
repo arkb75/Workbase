@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/src/lib/prisma";
 import {
   fetchGitHubBlob,
+  fetchGitHubFileAtRevision,
   fetchGitHubTree,
   getGitHubAccessTokenForUser,
   resolveGitHubCommit,
@@ -995,12 +996,26 @@ function createSession(input: {
           );
         }
 
+        const signal = remainingSignal();
         const blob = await fetchGitHubBlob({
           token: input.token,
           owner: input.owner,
           repo: input.repo,
           blobSha: entry.blobSha,
-          signal: remainingSignal(),
+          signal,
+        }).catch(async (error) => {
+          if (signal.aborted) throw error;
+          // The commit-pinned contents endpoint is an independently served,
+          // immutable recovery path for transient git-blob failures. The SHA
+          // and size checks below remain mandatory before any content is used.
+          return fetchGitHubFileAtRevision({
+            token: input.token,
+            owner: input.owner,
+            repo: input.repo,
+            path,
+            commitSha: input.snapshot.revision.commitSha,
+            signal,
+          });
         });
 
         if (blob.sha.toLowerCase() !== entry.blobSha.toLowerCase()) {

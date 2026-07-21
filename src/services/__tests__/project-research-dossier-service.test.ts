@@ -3,7 +3,10 @@ import {
   completeProjectResearchDossier,
   mergeProjectResearchDossier,
   parseProjectResearchDossier,
+  PROJECT_RESEARCH_NOTEBOOK_MAX_EXCERPT_BYTES,
+  PROJECT_RESEARCH_NOTEBOOK_MAX_TOTAL_EXCERPT_BYTES,
   repositoryFreshnessFromDossier,
+  truncateUtf8ToByteLength,
 } from "@/src/services/project-research-dossier-service";
 import { mergeCompletedRunResult } from "@/src/services/project-chat-store";
 
@@ -26,6 +29,51 @@ const environmentSnapshot = {
 };
 
 describe("project research dossier", () => {
+  it("truncates notebook excerpts at exact UTF-8 byte boundaries", () => {
+    const threeByteCodePoint = "€";
+    const truncated = truncateUtf8ToByteLength(
+      threeByteCodePoint.repeat(4_000),
+      PROJECT_RESEARCH_NOTEBOOK_MAX_EXCERPT_BYTES,
+    );
+
+    expect(Buffer.byteLength(truncated, "utf8")).toBe(8_190);
+    expect(truncated).not.toContain("\uFFFD");
+    expect(truncated.endsWith(threeByteCodePoint)).toBe(true);
+  });
+
+  it("enforces the 8KB per-excerpt and 64KB total notebook limits while parsing", () => {
+    const oversizedMultibyteExcerpt = "€".repeat(4_000);
+    const dossier = parseProjectResearchDossier({
+      objective: "Inspect the current repository.",
+      phase: "finalizing",
+      updatedAt: "2026-07-10T20:30:00.000Z",
+      notebook: {
+        paths: [],
+        citations: Array.from({ length: 10 }, (_, index) => ({
+          type: "github_file",
+          title: `src/file-${index}.ts`,
+          excerpt: oversizedMultibyteExcerpt,
+        })),
+      },
+    });
+    const excerpts = dossier?.notebook?.citations.map((citation) => citation.excerpt ?? "") ?? [];
+
+    expect(excerpts).toHaveLength(10);
+    expect(excerpts.every((excerpt) =>
+      Buffer.byteLength(excerpt, "utf8") <= PROJECT_RESEARCH_NOTEBOOK_MAX_EXCERPT_BYTES
+    )).toBe(true);
+    expect(excerpts.reduce(
+      (total, excerpt) => total + Buffer.byteLength(excerpt, "utf8"),
+      0,
+    )).toBeLessThanOrEqual(PROJECT_RESEARCH_NOTEBOOK_MAX_TOTAL_EXCERPT_BYTES);
+    expect(excerpts.join("")).not.toContain("\uFFFD");
+    expect(excerpts.slice(0, 8).every((excerpt) =>
+      Buffer.byteLength(excerpt, "utf8") === 8_190
+    )).toBe(true);
+    expect(Buffer.byteLength(excerpts[8]!, "utf8")).toBe(15);
+    expect(excerpts[9]).toBe("");
+  });
+
   it("reports repository freshness from the July snapshot instead of the April import", () => {
     const dossier = parseProjectResearchDossier({
       phase: "awaiting_review",

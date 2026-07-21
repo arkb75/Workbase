@@ -29,7 +29,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v10";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v11";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 4;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -58,6 +58,14 @@ const SEMANTIC_FACET_SUPPLEMENTS = [
     pathPattern: /^app\/work-items\/\[id\]\/page\.tsx$/i,
   },
   {
+    capabilityKey: "workflow_orchestration",
+    pathPattern: /^src\/services\/agent-run-workflow-start-service\.ts$/i,
+  },
+  {
+    capabilityKey: "workflow_orchestration",
+    pathPattern: /^src\/services\/project-chat-store\.ts$/i,
+  },
+  {
     capabilityKey: "ingestion_integrations",
     // Pair the bounded exploration representative with the durable import
     // path so coverage includes what becomes project memory, not only how
@@ -80,6 +88,10 @@ const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
   ingestion_integrations: [
     "For ingestion_integrations, which bounded repository records are fetched and how are they persisted as project-scoped Sources and Evidence?",
     "For ingestion_integrations, how does durable repository import complement the separate budgeted code-exploration path?",
+  ],
+  workflow_orchestration: [
+    "For workflow_orchestration, where are automatic retry or replay boundaries made explicit, and how can a released shared-refresh owner be replaced without discarding checkpointed work?",
+    "For workflow_orchestration, how do chat-run creation, durable-workflow attachment, and terminal finalization prevent duplicate or replayed writes?",
   ],
 };
 
@@ -105,6 +117,12 @@ const SEMANTIC_SIGNAL_RULES = [
   ["workflow_orchestration.repository_refresh_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
   ["workflow_orchestration.artifact_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
   ["workflow_orchestration.approval_pause_resume", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.reconciliation_retry_boundary", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.shared_refresh_owner_recovery", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
+  ["workflow_orchestration.workflow_start_reservation", "workflow_orchestration", /^src\/services\/agent-run-workflow-start-service\.ts$/i],
+  ["workflow_orchestration.chat_run_idempotency", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
+  ["workflow_orchestration.event_sequence_guard", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
+  ["workflow_orchestration.terminal_write_guard", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
   ["repository_knowledge_lifecycle.refresh_analysis", "repository_knowledge_lifecycle", /knowledge-refresh-service/i],
   ["repository_knowledge_lifecycle.synthesis", "repository_knowledge_lifecycle", /repository-knowledge-synthesis-service/i],
   ["repository_knowledge_lifecycle.reconciliation", "repository_knowledge_lifecycle", /knowledge-reconciliation-service/i],
@@ -622,7 +640,7 @@ export function enforceMandatoryCoverage(input: {
     ai_runtime: /(?:bedrock|structured-llm|llm-config)/i,
     ingestion_integrations: /(?:github-(?:client|repo|repository)|source-ingestion|api\/github)/i,
     retrieval_provenance: /(?:project-knowledge-retrieval|chat-citation|provenance|embedding-service)/i,
-    workflow_orchestration: /(?:^workflows\/|artifact-workflow|agent-run-workflow)/i,
+    workflow_orchestration: /(?:^workflows\/|artifact-workflow|agent-run-workflow|project-chat-store)/i,
     repository_knowledge_lifecycle: /(?:knowledge-refresh-service|repository-knowledge-synthesis|knowledge-reconciliation|knowledge-staleness)/i,
     project_chat_grounding: /(?:project-chat-agent|project-answer-grounding|chat-citation|prior-turn-provenance)/i,
     artifact_generation: /(?:artifact-workflow|artifact-generation|artifact-persistence|components\/artifacts)/i,
@@ -632,6 +650,7 @@ export function enforceMandatoryCoverage(input: {
   };
   const affinityScore = (key: string, path: string) => {
     if (key === "retrieval_provenance" && /src\/services\/project-knowledge-retrieval-service\.ts$/i.test(path)) return 30_000;
+    if (key === "workflow_orchestration" && /^workflows\/project-chat\.ts$/i.test(path)) return 30_000;
     if (key === "tests_operations" && /src\/evals\/__tests__\/project-chat-application-runner\.test\.ts$/i.test(path)) return 30_000;
     if (key === "tests_operations" && /src\/(?:services|lib)\/__tests__\/(?:project-chat|repository|github|bedrock|knowledge)/i.test(path)) return 20_000;
     if (key === "workflow_orchestration" && /src\/services\/knowledge-refresh-service\.ts$/i.test(path)) return 20_000;
@@ -730,15 +749,16 @@ export function enforceMandatoryCoverage(input: {
     1,
     new Set(input.manifest.flatMap((entry) => entry.scopeKey ? [entry.scopeKey] : [])).size,
   );
-  // Preserve four decisive cross-file facets per attached repository. One
-  // repository stays within the normal four-call/16-file plan. Additional
+  // Preserve six decisive cross-file facets per attached repository. A single
+  // Workbase repository may need one extra micro-batch for the workflow-start
+  // and persisted-run boundaries. Additional
   // repositories may use otherwise-idle worker capacity, but never exceed the
   // existing four-worker/eight-file hard bound.
   const selectedFileLimit = Math.min(
     REPOSITORY_ORCHESTRATION_MAX_WORKERS * MAX_FILES_PER_WORKER,
     Math.max(
       MAX_MANDATORY_SEMANTIC_FILES,
-      selectedFileIds.size + (repositoryScopeCount * 4),
+      selectedFileIds.size + (repositoryScopeCount * 6),
     ),
   );
   for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {

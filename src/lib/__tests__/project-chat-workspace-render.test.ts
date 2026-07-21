@@ -1,8 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { buildChatClipboardPayload } from "@/components/chat/chat-citation-presentation";
 import {
   CitationList,
+  CopyChatAnswerButton,
   MessageContent,
   selectLatestRunFeedback,
   type ChatWorkspaceCitation,
@@ -29,8 +31,12 @@ describe("project chat citation rendering", () => {
     const text = markup.replace(/<[^>]+>/g, "");
 
     expect(markup).toContain('aria-label="Sources 1, 2"');
+    expect(markup).toContain('role="group"');
+    expect(markup).toContain('aria-label="Source 1: Evidence 1"');
+    expect(markup).toContain("focus-visible:outline");
     expect(text).toContain("Grounded claim [1, 2].");
     expect(text).not.toContain("Grounded claim 12");
+    expect(markup).not.toContain("font-semibold leading-none");
   });
 
   it("renders safe GitHub-flavored Markdown instead of literal syntax", () => {
@@ -46,6 +52,20 @@ describe("project chat citation rendering", () => {
     expect(markup).toContain("<table");
     expect(markup).toContain("<pre");
     expect(markup).not.toContain("## Architecture");
+  });
+
+  it("normalizes the first Markdown heading to h2 while preserving relative depth", () => {
+    const markup = renderToStaticMarkup(createElement(MessageContent, {
+      content: "### Architecture\n\n#### Runtime\n\nDetails.",
+      citations: [],
+      workItemId: "work-item-1",
+    }));
+
+    expect(markup).toContain("<h2");
+    expect(markup).toContain(">Architecture</h2>");
+    expect(markup).toContain("<h3");
+    expect(markup).toContain(">Runtime</h3>");
+    expect(markup).not.toContain("<h4");
   });
 
   it("does not turn citation-looking text inside code into a source chip", () => {
@@ -127,6 +147,61 @@ describe("project chat citation rendering", () => {
     expect(markup).toContain('rel="noopener noreferrer"');
     expect(markup).toContain("src/services/knowledge-refresh-service.ts · 12345678");
   });
+
+  it("rejects unsafe persisted citation and provenance URLs", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CitationList, {
+        citations: [{
+          id: "unsafe-citation",
+          kind: "github_file",
+          label: "Unsafe source",
+          excerpt: "Untrusted URL.",
+          url: "javascript:alert(1)",
+          provenance: [{
+            id: "unsafe-provenance",
+            title: "Unsafe provenance",
+            excerpt: "Untrusted nested URL.",
+            url: "data:text/html,unsafe",
+          }],
+        }],
+        workItemId: "work-item-1",
+      }),
+    );
+
+    expect(markup).not.toContain("javascript:");
+    expect(markup).not.toContain("data:text/html");
+    expect(markup).not.toMatch(/<a\b/);
+  });
+
+  it("builds stable Markdown clipboard content without private or rich-HTML citation syntax", () => {
+    const payload = buildChatClipboardPayload({
+      content: "### Architecture\n\n**Grounded** claim [citation:1][citation:2].\n\n```md\n### Keep this code heading\n```",
+      citations,
+      workItemId: "work-item-1",
+    });
+
+    expect(payload.markdown).toContain("## Architecture");
+    expect(payload.markdown).toContain("**Grounded** claim [1, 2].");
+    expect(payload.markdown).toContain("### Keep this code heading");
+    expect(payload.markdown).toContain("## Sources");
+    expect(payload.markdown).toContain("1. [Evidence 1](</work-items/work-item-1?tab=sources>) — Evidence");
+    expect(payload.markdown).not.toContain("[citation:");
+    expect(payload.markdown).not.toContain("**[**");
+    expect(payload.plainText).toBe(payload.markdown);
+  });
+
+  it("renders a keyboard-labelled Copy Markdown action", () => {
+    const markup = renderToStaticMarkup(createElement(CopyChatAnswerButton, {
+      content: "Grounded claim [citation:1].",
+      citations: [citations[0]!],
+      workItemId: "work-item-1",
+    }));
+
+    expect(markup).toContain('type="button"');
+    expect(markup).toContain('aria-label="Copy answer as Markdown"');
+    expect(markup).toContain("Copy Markdown");
+    expect(markup).toContain("focus-visible:outline");
+  });
 });
 
 describe("project chat run feedback", () => {
@@ -142,5 +217,24 @@ describe("project chat run feedback", () => {
     ]);
 
     expect(result).toEqual({ retryableRun: null, latestFailure: null });
+  });
+
+  it("does not offer Retry for a terminal non-retryable failure", () => {
+    const failure = {
+      id: "schema-failure",
+      status: "failed" as const,
+      kind: "chat_turn",
+      failure: {
+        code: "database_schema_out_of_date",
+        stage: "Checking application readiness",
+        message: "Database migrations are out of date.",
+        recovery: "Apply migrations.",
+        retryable: false,
+      },
+    };
+    expect(selectLatestRunFeedback([failure])).toEqual({
+      retryableRun: null,
+      latestFailure: failure.failure,
+    });
   });
 });

@@ -8,6 +8,7 @@ import {
   type ProjectChatEvaluationSourceKind,
   type ProjectChatScenarioId,
 } from "@/src/evals/project-chat-fixtures";
+import { evaluateProjectChatAnswerQuality } from "@/src/evals/project-chat-answer-quality";
 
 export interface ProjectChatScenarioSourceObservation {
   kind: ProjectChatEvaluationSourceKind;
@@ -66,6 +67,7 @@ export type ProjectChatEvaluationCheckCode =
   | "markdown"
   | "required_answer_pattern"
   | "forbidden_answer_pattern"
+  | "answer_quality"
   | "metric"
   | "performance_budget";
 
@@ -169,9 +171,44 @@ export function validateProjectChatScenarioFixtures(
         errors.push(`${fixture.id}: ${maximumKey} must be finite and non-negative`);
       }
     }
+    const quality = fixture.expected.answerQuality;
+    if (quality) {
+      const nonNegativeQualityValues = [
+        ["minCharacters", quality.minCharacters],
+        ["maxCharacters", quality.maxCharacters],
+        ["minReaderThemes", quality.minReaderThemes],
+        ["minPrimaryItems", quality.minPrimaryItems],
+        ["maxPrimaryItems", quality.maxPrimaryItems],
+        ["exactPrimaryItems", quality.exactPrimaryItems],
+        ["minDevelopedItems", quality.minDevelopedItems],
+        ["minMechanismValueItems", quality.minMechanismValueItems],
+        ["minCitedItems", quality.minCitedItems],
+      ] as const;
+      for (const [name, value] of nonNegativeQualityValues) {
+        if (value !== undefined && !isFiniteNonNegative(value)) {
+          errors.push(`${fixture.id}: answerQuality.${name} must be finite and non-negative`);
+        }
+      }
+      if (
+        quality.minCharacters !== undefined &&
+        quality.maxCharacters !== undefined &&
+        quality.minCharacters > quality.maxCharacters
+      ) {
+        errors.push(`${fixture.id}: answerQuality.minCharacters exceeds maxCharacters`);
+      }
+      if (
+        quality.minPrimaryItems !== undefined &&
+        quality.maxPrimaryItems !== undefined &&
+        quality.minPrimaryItems > quality.maxPrimaryItems
+      ) {
+        errors.push(`${fixture.id}: answerQuality.minPrimaryItems exceeds maxPrimaryItems`);
+      }
+    }
     for (const pattern of [
       ...(fixture.expected.requiredAnswerPatterns ?? []),
       ...(fixture.expected.forbiddenAnswerPatterns ?? []),
+      ...(fixture.expected.answerQuality?.requiredPatterns ?? []),
+      ...(fixture.expected.answerQuality?.forbiddenPatterns ?? []),
     ]) {
       try {
         new RegExp(pattern, "iu");
@@ -257,6 +294,19 @@ export function evaluateProjectChatScenario(
   for (const pattern of fixture.expected.forbiddenAnswerPatterns ?? []) {
     check(checks, "forbidden_answer_pattern", !matches(observation.answer, pattern),
       `Answer must not match /${pattern}/iu.`, matches(observation.answer, pattern), false);
+  }
+  for (const qualityCheck of evaluateProjectChatAnswerQuality({
+    answer: observation.answer,
+    contract: fixture.expected.answerQuality ?? {},
+  })) {
+    check(
+      checks,
+      "answer_quality",
+      qualityCheck.passed,
+      qualityCheck.name,
+      qualityCheck.actual,
+      qualityCheck.expected,
+    );
   }
 
   for (const [metricKey, maximumKey] of metricBudgetPairs) {

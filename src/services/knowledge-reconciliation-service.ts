@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
+import type { HighlightTagValue } from "@/src/lib/highlight-taxonomy";
 import { resolveBedrockConfig } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
   recordAutoResolvedKnowledgeChanges,
   upsertReviewableKnowledgeChange,
+  upsertReviewableKnowledgeChangeInTransaction,
   type AutoResolvedKnowledgeChangeInput,
 } from "@/src/services/knowledge-change-service";
+import { lockKnowledgeWorkItemMutation } from "@/src/services/knowledge-mutation-lock-service";
 import {
   buildHighlightEmbeddingText,
   upsertHighlightEmbedding,
@@ -29,6 +32,77 @@ import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-s
 
 export const KNOWLEDGE_LIFECYCLE_POLICY_VERSION = "knowledge-lifecycle-v3";
 export const STRONG_KNOWLEDGE_IDENTITY_THRESHOLD = 0.72;
+const KNOWLEDGE_EMBEDDING_CONCURRENCY = 4;
+
+type KnowledgeEmbeddingTarget = {
+  entityKind: "project_fact" | "highlight";
+  entityId: string;
+};
+
+type KnowledgeEmbeddingTask = KnowledgeEmbeddingTarget & {
+  execute: () => Promise<unknown>;
+};
+
+export type KnowledgeEmbeddingTelemetry = {
+  attempted: number;
+  attempts: number;
+  retried: number;
+  recovered: number;
+  failed: number;
+  failedTargets: KnowledgeEmbeddingTarget[];
+};
+
+/**
+ * Repository reconciliation must serialize versioned knowledge mutations, but
+ * embedding requests are independent and do not participate in that write
+ * fence. Run them in small waves after the durable records exist so a cold
+ * refresh does not pay one network round trip per Fact and Highlight.
+ *
+ * Embeddings are a ranking optimization; lexical retrieval remains available.
+ * A failed vector write therefore stays observable in the returned telemetry
+ * without rolling back already-reconciled, citation-valid project memory.
+ */
+export async function runBoundedKnowledgeEmbeddingTasks(
+  tasks: readonly KnowledgeEmbeddingTask[],
+  concurrency = KNOWLEDGE_EMBEDDING_CONCURRENCY,
+): Promise<KnowledgeEmbeddingTelemetry> {
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error("Knowledge embedding concurrency must be a positive integer.");
+  }
+  const runPass = async (passTasks: readonly KnowledgeEmbeddingTask[]) => {
+    const failedTasks: KnowledgeEmbeddingTask[] = [];
+    for (let offset = 0; offset < passTasks.length; offset += concurrency) {
+      const wave = passTasks.slice(offset, offset + concurrency);
+      const results = await Promise.allSettled(
+        wave.map((task) => task.execute()),
+      );
+      results.forEach((result, index) => {
+        if (result.status === "rejected" && wave[index]) {
+          failedTasks.push(wave[index]!);
+        }
+      });
+    }
+    return failedTasks;
+  };
+  const firstFailures = await runPass(tasks);
+  // One bounded retry absorbs transient provider/network failures without
+  // rolling back citation-valid memory or forcing an entire repository refresh.
+  // Persistent failures remain explicit targets for a later cheap backfill.
+  const finalFailures = firstFailures.length
+    ? await runPass(firstFailures)
+    : [];
+  return {
+    attempted: tasks.length,
+    attempts: tasks.length + firstFailures.length,
+    retried: firstFailures.length,
+    recovered: firstFailures.length - finalFailures.length,
+    failed: finalFailures.length,
+    failedTargets: finalFailures.map(({ entityKind, entityId }) => ({
+      entityKind,
+      entityId,
+    })),
+  };
+}
 
 type KnowledgeRefreshFenceClient = Pick<
   Prisma.TransactionClient,
@@ -43,12 +117,7 @@ export async function lockKnowledgeRefreshWorkItem(
   // lock. Whichever side acquires it first commits before the other can decide
   // whether the refresh is still current, preventing an older generation from
   // legally serializing a write after a newer run has begun.
-  await client.$queryRaw`
-    SELECT 1::int AS locked
-    FROM pg_advisory_xact_lock(
-      hashtextextended(${"workbase:knowledge-refresh:" + workItemId}, 0)
-    )
-  `;
+  await lockKnowledgeWorkItemMutation(client, workItemId);
 }
 
 function targetSignature(targets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha">>) {
@@ -198,6 +267,57 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function knowledgeEmbeddingTargets(value: unknown): KnowledgeEmbeddingTarget[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((entry) => {
+    const record = objectRecord(entry);
+    const entityKind = record.entityKind;
+    const entityId = record.entityId;
+    if (
+      (entityKind !== "project_fact" && entityKind !== "highlight") ||
+      typeof entityId !== "string"
+    ) {
+      return [];
+    }
+    const key = `${entityKind}:${entityId}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ entityKind, entityId }];
+  });
+}
+
+export function knowledgeRefreshStateForEmbeddingTelemetry(input: {
+  warnings: unknown;
+  qualityStatus: "pending" | "verified" | "degraded" | "failed";
+  telemetry: KnowledgeEmbeddingTelemetry;
+  now?: Date;
+}) {
+  const warnings = objectRecord(input.warnings);
+  const recordedBaseQuality = warnings.embeddingBaseQuality;
+  const baseQuality =
+    recordedBaseQuality === "pending" ||
+      recordedBaseQuality === "verified" ||
+      recordedBaseQuality === "degraded" ||
+      recordedBaseQuality === "failed"
+      ? recordedBaseQuality
+      : input.qualityStatus;
+  const hasFailures =
+    input.telemetry.failed > 0 ||
+    input.telemetry.failedTargets.length > 0;
+  return {
+    qualityStatus: hasFailures ? "degraded" as const : baseQuality,
+    warnings: {
+      ...warnings,
+      embeddingBaseQuality: baseQuality,
+      embeddingTelemetry: {
+        ...input.telemetry,
+        updatedAt: (input.now ?? new Date()).toISOString(),
+      },
+    },
+  };
 }
 
 export function applySynthesisCoverageGapsToRefreshState(input: {
@@ -390,15 +510,18 @@ async function recordChange(input: {
   provenance?: unknown;
   downstreamImpact?: unknown;
   suffix: string;
-}) {
+}, client?: Prisma.TransactionClient) {
   const idempotencyKey = `${input.refreshRunId ?? "direct"}:${input.entityKind}:${input.action}:${input.suffix}`;
-  return upsertReviewableKnowledgeChange({
+  const change = {
     ...input,
     refreshRunId: input.refreshRunId ?? null,
     policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
     modelId: resolveBedrockConfig().modelId,
     idempotencyKey,
-  });
+  };
+  return client
+    ? upsertReviewableKnowledgeChangeInTransaction(change, client)
+    : upsertReviewableKnowledgeChange(change);
 }
 
 export function recordContentAddressedRevalidations(
@@ -464,6 +587,70 @@ async function preparePromotedEvidence(input: {
   return { materialized, promotedIdByReference };
 }
 
+type ProjectFactReconciliationSnapshot = {
+  id: string;
+  workItemId: string;
+  statement: string;
+  status: string;
+  lifecycleStatus: string;
+  reviewState: string;
+  approvalSource: string;
+  supersedesProjectFactId?: string | null;
+  updatedAt?: Date;
+};
+
+type HighlightReconciliationSnapshot = {
+  id: string;
+  workItemId: string;
+  text: string;
+  summary: string;
+  verificationStatus: string;
+  lifecycleStatus: string;
+  reviewState: string;
+  approvalSource: string;
+  supersedesHighlightId?: string | null;
+  updatedAt?: Date;
+};
+
+/**
+ * A synthesis candidate is selected before the short mutation transaction.
+ * These compare-and-swap predicates make that selection expire as soon as a
+ * user review (or any other writer) changes the row. In particular, an old
+ * refresh can never reactivate or supersede a user-edited row by ID alone.
+ */
+export function projectFactReconciliationCasWhere(
+  fact: ProjectFactReconciliationSnapshot,
+): Prisma.ProjectFactWhereInput {
+  return {
+    id: fact.id,
+    workItemId: fact.workItemId,
+    statement: fact.statement,
+    status: fact.status as Prisma.EnumProjectFactStatusFilter,
+    lifecycleStatus: fact.lifecycleStatus as Prisma.EnumKnowledgeLifecycleStatusFilter,
+    reviewState: fact.reviewState as Prisma.EnumKnowledgeReviewStateFilter,
+    approvalSource: fact.approvalSource as Prisma.EnumKnowledgeApprovalSourceFilter,
+    supersedesProjectFactId: fact.supersedesProjectFactId ?? null,
+    ...(fact.updatedAt ? { updatedAt: fact.updatedAt } : {}),
+  };
+}
+
+export function highlightReconciliationCasWhere(
+  highlight: HighlightReconciliationSnapshot,
+): Prisma.HighlightWhereInput {
+  return {
+    id: highlight.id,
+    workItemId: highlight.workItemId,
+    text: highlight.text,
+    summary: highlight.summary,
+    verificationStatus: highlight.verificationStatus as Prisma.EnumVerificationStatusFilter,
+    lifecycleStatus: highlight.lifecycleStatus as Prisma.EnumKnowledgeLifecycleStatusFilter,
+    reviewState: highlight.reviewState as Prisma.EnumKnowledgeReviewStateFilter,
+    approvalSource: highlight.approvalSource as Prisma.EnumKnowledgeApprovalSourceFilter,
+    supersedesHighlightId: highlight.supersedesHighlightId ?? null,
+    ...(highlight.updatedAt ? { updatedAt: highlight.updatedAt } : {}),
+  };
+}
+
 async function applyFact(input: {
   runId: string;
   workItemId: string;
@@ -474,6 +661,7 @@ async function applyFact(input: {
   validationHeads: Record<string, string>;
   sourceEntries: SynthesisNotebookEntry[];
   allowCanonicalReplacement: boolean;
+  enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!input.evidenceIds.length) return null;
   const existing = await prisma.projectFact.findMany({
@@ -502,79 +690,103 @@ async function applyFact(input: {
   );
 
   if ((exact || validatesUserEdit) && !unsafe && closest) {
-    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
-      await tx.projectFactEvidence.deleteMany({ where: { projectFactId: closest.fact.id } });
-      await tx.projectFact.update({
-        where: { id: closest.fact.id },
+    const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+      const validatedAt = new Date();
+      const claimed = await tx.projectFact.updateMany({
+        where: projectFactReconciliationCasWhere(closest.fact),
         data: {
           status: "approved",
           lifecycleStatus: "active",
           reviewState: "pending_review",
           validatedThroughSha: input.commitSha,
-          lastValidatedAt: new Date(),
+          lastValidatedAt: validatedAt,
           validationHeads: toInputJson(input.validationHeads),
-          autoAppliedAt: new Date(),
+          autoAppliedAt: validatedAt,
           rejectionReason: null,
           productImportance: input.candidate.productImportance,
           implementationBreadth: input.candidate.implementationBreadth,
           technicalDifficulty: input.candidate.technicalDifficulty,
           distinctiveness: input.candidate.distinctiveness,
-          evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
         },
       });
+      if (claimed.count !== 1) return false;
+      await tx.projectFactEvidence.deleteMany({ where: { projectFactId: closest.fact.id } });
+      await tx.projectFactEvidence.createMany({
+        data: input.evidenceIds.map((evidenceItemId) => ({
+          projectFactId: closest.fact.id,
+          evidenceItemId,
+        })),
+        skipDuplicates: true,
+      });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+      await recordChange({
+        workItemId: input.workItemId,
+        refreshRunId: input.runId,
+        entityKind: "project_fact",
+        action: "revalidated",
+        entityId: closest.fact.id,
+        beforeSnapshot: {
+          id: closest.fact.id,
+          statement: closest.fact.statement,
+          status: closest.fact.status,
+          lifecycleStatus: closest.fact.lifecycleStatus,
+          reviewState: closest.fact.reviewState,
+          approvalSource: closest.fact.approvalSource,
+          publicSafetyStatus: closest.fact.publicSafetyStatus,
+          validatedThroughSha: closest.fact.validatedThroughSha,
+          validationHeads: closest.fact.validationHeads,
+          lastValidatedAt: closest.fact.lastValidatedAt,
+          autoAppliedAt: closest.fact.autoAppliedAt,
+          evidenceItemIds: closest.fact.evidence.map((entry) => entry.evidenceItemId),
+        },
+        afterSnapshot: {
+          id: closest.fact.id,
+          statement: closest.fact.statement,
+          status: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: closest.fact.approvalSource,
+          publicSafetyStatus: closest.fact.publicSafetyStatus,
+          validatedThroughSha: input.commitSha,
+          validationHeads: input.validationHeads,
+          lastValidatedAt: validatedAt,
+          autoAppliedAt: validatedAt,
+          evidenceItemIds: input.evidenceIds,
+        },
+        reason: validatesUserEdit
+          ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
+          : "Current repository evidence revalidated this Project Fact.",
+        provenance: {
+          evidenceIds: input.evidenceIds,
+          commitSha: input.commitSha,
+          preservedUserEdit: validatesUserEdit,
+        },
+        suffix: `${closest.fact.id}:${input.commitSha}`,
+      }, tx);
+      return true;
     });
-    await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    await recordChange({
-      workItemId: input.workItemId,
-      refreshRunId: input.runId,
-      entityKind: "project_fact",
-      action: "revalidated",
-      entityId: closest.fact.id,
-      beforeSnapshot: {
-        id: closest.fact.id,
-        statement: closest.fact.statement,
-        status: closest.fact.status,
-        lifecycleStatus: closest.fact.lifecycleStatus,
-        reviewState: closest.fact.reviewState,
-        approvalSource: closest.fact.approvalSource,
-        publicSafetyStatus: closest.fact.publicSafetyStatus,
-        validatedThroughSha: closest.fact.validatedThroughSha,
-        validationHeads: closest.fact.validationHeads,
-        lastValidatedAt: closest.fact.lastValidatedAt,
-        autoAppliedAt: closest.fact.autoAppliedAt,
-        evidenceItemIds: closest.fact.evidence.map((entry) => entry.evidenceItemId),
-      },
-      afterSnapshot: {
-        id: closest.fact.id,
-        statement: closest.fact.statement,
-        status: "approved",
-        lifecycleStatus: "active",
-        reviewState: "pending_review",
-        approvalSource: closest.fact.approvalSource,
-        publicSafetyStatus: closest.fact.publicSafetyStatus,
-        validatedThroughSha: input.commitSha,
-        validationHeads: input.validationHeads,
-        autoAppliedAt: new Date(),
-        evidenceItemIds: input.evidenceIds,
-      },
-      reason: validatesUserEdit
-        ? "Current repository evidence revalidated the user-edited Project Fact without replacing its wording."
-        : "Current repository evidence revalidated this Project Fact.",
-      provenance: {
-        evidenceIds: input.evidenceIds,
-        commitSha: input.commitSha,
-        preservedUserEdit: validatesUserEdit,
-      },
-      suffix: `${closest.fact.id}:${input.commitSha}`,
-    });
-    return closest.fact.id;
+    return applied ? closest.fact.id : null;
   }
 
   const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.fact
     : null;
   const fact = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    if (closest) {
+      if (supersedes) {
+        const claimed = await tx.projectFact.updateMany({
+          where: projectFactReconciliationCasWhere(closest.fact),
+          data: { status: "superseded", lifecycleStatus: "superseded" },
+        });
+        if (claimed.count !== 1) return null;
+      } else {
+        const current = await tx.projectFact.findFirst({
+          where: projectFactReconciliationCasWhere(closest.fact),
+          select: { id: true },
+        });
+        if (!current) return null;
+      }
+    }
     const created = await tx.projectFact.create({
       data: {
         workItemId: input.workItemId,
@@ -602,35 +814,41 @@ async function applyFact(input: {
         evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
       },
     });
-    if (supersedes) {
-      await tx.projectFact.update({ where: { id: supersedes.id }, data: { status: "superseded", lifecycleStatus: "superseded" } });
-    }
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+    await recordChange({
+      workItemId: input.workItemId,
+      refreshRunId: input.runId,
+      entityKind: "project_fact",
+      action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
+      entityId: created.id,
+      beforeSnapshot: supersedes ? { id: supersedes.id, statement: supersedes.statement } : undefined,
+      afterSnapshot: { id: created.id, statement: created.statement, category: created.category, confidence: created.confidence, lifecycleStatus: created.lifecycleStatus },
+      reason: unsafe ? "The generated Project Fact failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified successor." : "Current repository evidence supported a new Project Fact.",
+      provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
+      suffix: `${hash(created.statement).slice(0, 16)}:${input.commitSha}`,
+    }, tx);
     return created;
   });
+  if (!fact) return null;
   // Quarantined facts are deliberately excluded from retrieval. Avoid paying
   // for an embedding that cannot be used; the review service creates one if a
   // user later edits and activates the candidate.
   if (!unsafe) {
     await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    await upsertProjectFactEmbedding({
-      projectFactId: fact.id,
-      inputText: buildProjectFactEmbeddingText(fact),
-    });
+    const embeddingTask: KnowledgeEmbeddingTask = {
+      entityKind: "project_fact",
+      entityId: fact.id,
+      // This ID was created in the transaction immediately above, so an
+      // embedding freshness read is guaranteed to miss.
+      execute: () => upsertProjectFactEmbedding({
+        projectFactId: fact.id,
+        inputText: buildProjectFactEmbeddingText(fact),
+        skipFreshnessCheck: true,
+      }),
+    };
+    if (input.enqueueEmbedding) input.enqueueEmbedding(embeddingTask);
+    else await embeddingTask.execute();
   }
-  await assertKnowledgeRefreshGenerationCurrent(input.runId);
-  await recordChange({
-    workItemId: input.workItemId,
-    refreshRunId: input.runId,
-    entityKind: "project_fact",
-    action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
-    entityId: fact.id,
-    beforeSnapshot: supersedes ? { id: supersedes.id, statement: supersedes.statement } : undefined,
-    afterSnapshot: { id: fact.id, statement: fact.statement, category: fact.category, confidence: fact.confidence, lifecycleStatus: fact.lifecycleStatus },
-    reason: unsafe ? "The generated Project Fact failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified successor." : "Current repository evidence supported a new Project Fact.",
-    provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
-    suffix: `${hash(fact.statement).slice(0, 16)}:${input.commitSha}`,
-  });
   return unsafe ? null : fact.id;
 }
 
@@ -645,6 +863,7 @@ async function applyHighlight(input: {
   validationHeads: Record<string, string>;
   sourceEntries: SynthesisNotebookEntry[];
   allowCanonicalReplacement: boolean;
+  enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!input.evidenceIds.length) return null;
   const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
@@ -688,69 +907,78 @@ async function applyHighlight(input: {
     }, input.sourceEntries),
   );
   if ((exact || validatesUserEdit) && !unsafe && closest) {
-    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
-      await tx.highlightEvidence.deleteMany({ where: { highlightId: closest.highlight.id } });
-      await tx.highlight.update({
-        where: { id: closest.highlight.id },
+    const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+      const validatedAt = new Date();
+      const claimed = await tx.highlight.updateMany({
+        where: highlightReconciliationCasWhere(closest.highlight),
         data: {
           verificationStatus: "approved",
           lifecycleStatus: "active",
           reviewState: "pending_review",
           validatedThroughSha: input.commitSha,
-          lastValidatedAt: new Date(),
+          lastValidatedAt: validatedAt,
           validationHeads: toInputJson(input.validationHeads),
-          autoAppliedAt: new Date(),
+          autoAppliedAt: validatedAt,
           rejectionReason: null,
-          evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
         },
       });
+      if (claimed.count !== 1) return false;
+      await tx.highlightEvidence.deleteMany({ where: { highlightId: closest.highlight.id } });
+      await tx.highlightEvidence.createMany({
+        data: input.evidenceIds.map((evidenceItemId) => ({
+          highlightId: closest.highlight.id,
+          evidenceItemId,
+        })),
+        skipDuplicates: true,
+      });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+      await recordChange({
+        workItemId: input.workItemId,
+        refreshRunId: input.runId,
+        entityKind: "highlight",
+        action: "revalidated",
+        entityId: closest.highlight.id,
+        beforeSnapshot: {
+          id: closest.highlight.id,
+          text: closest.highlight.text,
+          verificationStatus: closest.highlight.verificationStatus,
+          lifecycleStatus: closest.highlight.lifecycleStatus,
+          reviewState: closest.highlight.reviewState,
+          approvalSource: closest.highlight.approvalSource,
+          publicSafetyStatus: closest.highlight.publicSafetyStatus,
+          validatedThroughSha: closest.highlight.validatedThroughSha,
+          validationHeads: closest.highlight.validationHeads,
+          lastValidatedAt: closest.highlight.lastValidatedAt,
+          autoAppliedAt: closest.highlight.autoAppliedAt,
+          evidenceItemIds: closest.highlight.evidence.map((entry) => entry.evidenceItemId),
+        },
+        afterSnapshot: {
+          id: closest.highlight.id,
+          text: closest.highlight.text,
+          verificationStatus: "approved",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: closest.highlight.approvalSource,
+          publicSafetyStatus: closest.highlight.publicSafetyStatus,
+          validatedThroughSha: input.commitSha,
+          validationHeads: input.validationHeads,
+          lastValidatedAt: validatedAt,
+          autoAppliedAt: validatedAt,
+          evidenceItemIds: input.evidenceIds,
+        },
+        reason: validatesUserEdit
+          ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
+          : "Current repository evidence revalidated this Highlight.",
+        provenance: {
+          evidenceIds: input.evidenceIds,
+          commitSha: input.commitSha,
+          preservedUserEdit: validatesUserEdit,
+        },
+        suffix: `${closest.highlight.id}:${input.commitSha}`,
+      }, tx);
+      return true;
     });
-    await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    await recordChange({
-      workItemId: input.workItemId,
-      refreshRunId: input.runId,
-      entityKind: "highlight",
-      action: "revalidated",
-      entityId: closest.highlight.id,
-      beforeSnapshot: {
-        id: closest.highlight.id,
-        text: closest.highlight.text,
-        verificationStatus: closest.highlight.verificationStatus,
-        lifecycleStatus: closest.highlight.lifecycleStatus,
-        reviewState: closest.highlight.reviewState,
-        approvalSource: closest.highlight.approvalSource,
-        publicSafetyStatus: closest.highlight.publicSafetyStatus,
-        validatedThroughSha: closest.highlight.validatedThroughSha,
-        validationHeads: closest.highlight.validationHeads,
-        lastValidatedAt: closest.highlight.lastValidatedAt,
-        autoAppliedAt: closest.highlight.autoAppliedAt,
-        evidenceItemIds: closest.highlight.evidence.map((entry) => entry.evidenceItemId),
-      },
-      afterSnapshot: {
-        id: closest.highlight.id,
-        text: closest.highlight.text,
-        verificationStatus: "approved",
-        lifecycleStatus: "active",
-        reviewState: "pending_review",
-        approvalSource: closest.highlight.approvalSource,
-        publicSafetyStatus: closest.highlight.publicSafetyStatus,
-        validatedThroughSha: input.commitSha,
-        validationHeads: input.validationHeads,
-        autoAppliedAt: new Date(),
-        evidenceItemIds: input.evidenceIds,
-      },
-      reason: validatesUserEdit
-        ? "Current repository evidence revalidated the user-edited Highlight without replacing its wording."
-        : "Current repository evidence revalidated this Highlight.",
-      provenance: {
-        evidenceIds: input.evidenceIds,
-        commitSha: input.commitSha,
-        preservedUserEdit: validatesUserEdit,
-      },
-      suffix: `${closest.highlight.id}:${input.commitSha}`,
-    });
-    return closest.highlight.id;
+    return applied ? closest.highlight.id : null;
   }
   const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.highlight
@@ -761,6 +989,21 @@ async function applyHighlight(input: {
     verificationNotes: publicVerification.reasons.join(" ") || "Verified from complete repository coverage.",
   });
   const highlight = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    if (closest) {
+      if (supersedes) {
+        const claimed = await tx.highlight.updateMany({
+          where: highlightReconciliationCasWhere(closest.highlight),
+          data: { lifecycleStatus: "superseded" },
+        });
+        if (claimed.count !== 1) return null;
+      } else {
+        const current = await tx.highlight.findFirst({
+          where: highlightReconciliationCasWhere(closest.highlight),
+          select: { id: true },
+        });
+        if (!current) return null;
+      }
+    }
     const created = await tx.highlight.create({
       data: {
         workItemId: input.workItemId,
@@ -799,38 +1042,46 @@ async function applyHighlight(input: {
         tags: { create: tags.map((tag) => ({ dimension: tag.dimension, tag: tag.tag, score: tag.score ?? null })) },
       },
     });
-    if (supersedes) await tx.highlight.update({ where: { id: supersedes.id }, data: { lifecycleStatus: "superseded" } });
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
+    await recordChange({
+      workItemId: input.workItemId,
+      refreshRunId: input.runId,
+      entityKind: "highlight",
+      action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
+      entityId: created.id,
+      beforeSnapshot: supersedes ? { id: supersedes.id, text: supersedes.text } : undefined,
+      afterSnapshot: { id: created.id, text: created.text, summary: created.summary, lifecycleStatus: created.lifecycleStatus, publicSafetyStatus: created.publicSafetyStatus },
+      reason: unsafe ? "The generated Highlight failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified Highlight successor." : "Current repository evidence supported a new Highlight.",
+      provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
+      suffix: `${hash(created.text).slice(0, 16)}:${input.commitSha}`,
+    }, tx);
     return created;
   });
+  if (!highlight) return null;
   // Quarantined Highlights likewise cannot enter retrieval until review, so
   // defer their embedding instead of creating an immediately unused vector.
   if (!unsafe) {
     await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    await upsertHighlightEmbedding({
-      highlightId: highlight.id,
-      inputText: buildHighlightEmbeddingText({
-        text: highlight.text,
-        summary: highlight.summary,
-        verificationNotes: highlight.verificationNotes,
-        tags,
-        evidence: { summary: input.candidate.summary, sourceRefs: input.evidence.map((entry, index) => ({ evidenceItemId: input.evidenceIds[index] ?? "", sourceId: "repository-sync", sourceType: "github_repo" as const, title: entry.title, sourceLabel: "GitHub", excerpt: entry.excerpt })) },
+    const embeddingTask: KnowledgeEmbeddingTask = {
+      entityKind: "highlight",
+      entityId: highlight.id,
+      // This ID was created in the transaction immediately above, so an
+      // embedding freshness read is guaranteed to miss.
+      execute: () => upsertHighlightEmbedding({
+        highlightId: highlight.id,
+        inputText: buildHighlightEmbeddingText({
+          text: highlight.text,
+          summary: highlight.summary,
+          verificationNotes: highlight.verificationNotes,
+          tags,
+          evidence: { summary: input.candidate.summary, sourceRefs: input.evidence.map((entry, index) => ({ evidenceItemId: input.evidenceIds[index] ?? "", sourceId: "repository-sync", sourceType: "github_repo" as const, title: entry.title, sourceLabel: "GitHub", excerpt: entry.excerpt })) },
+        }),
+        skipFreshnessCheck: true,
       }),
-    });
+    };
+    if (input.enqueueEmbedding) input.enqueueEmbedding(embeddingTask);
+    else await embeddingTask.execute();
   }
-  await assertKnowledgeRefreshGenerationCurrent(input.runId);
-  await recordChange({
-    workItemId: input.workItemId,
-    refreshRunId: input.runId,
-    entityKind: "highlight",
-    action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
-    entityId: highlight.id,
-    beforeSnapshot: supersedes ? { id: supersedes.id, text: supersedes.text } : undefined,
-    afterSnapshot: { id: highlight.id, text: highlight.text, summary: highlight.summary, lifecycleStatus: highlight.lifecycleStatus, publicSafetyStatus: highlight.publicSafetyStatus },
-    reason: unsafe ? "The generated Highlight failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified Highlight successor." : "Current repository evidence supported a new Highlight.",
-    provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
-    suffix: `${hash(highlight.text).slice(0, 16)}:${input.commitSha}`,
-  });
   return unsafe ? null : highlight.id;
 }
 
@@ -857,6 +1108,10 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     userId: run.workItem.userId,
   });
   await assertKnowledgeRefreshGenerationCurrent(runId);
+  const embeddingTasks: KnowledgeEmbeddingTask[] = [];
+  const enqueueEmbedding = (task: KnowledgeEmbeddingTask) => {
+    embeddingTasks.push(task);
+  };
   const processSubsystem = async (subsystem: SynthesizedKnowledge) => {
     const produced = { projectFactIds: [] as string[], highlightIds: [] as string[] };
     for (const candidate of subsystem.facts) {
@@ -873,6 +1128,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         validationHeads,
         sourceEntries: citedEntries,
         allowCanonicalReplacement,
+        enqueueEmbedding,
       });
       if (factId) {
         produced.projectFactIds.push(factId);
@@ -898,6 +1154,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         validationHeads,
         sourceEntries: citedEntries,
         allowCanonicalReplacement,
+        enqueueEmbedding,
       });
       if (highlightId) {
         produced.highlightIds.push(highlightId);
@@ -924,6 +1181,30 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       })
     );
   }
+  const embeddingTelemetry = await runBoundedKnowledgeEmbeddingTasks(
+    embeddingTasks,
+  );
+  await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
+    // Synthesis-gap reconciliation may have degraded the run and extended its
+    // warnings after the initial snapshot was loaded. Merge into the current
+    // fenced row so embedding telemetry cannot erase those newer diagnostics.
+    const current = await tx.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { warnings: true, qualityStatus: true },
+    });
+    const embeddingRefreshState = knowledgeRefreshStateForEmbeddingTelemetry({
+      warnings: current.warnings,
+      qualityStatus: current.qualityStatus,
+      telemetry: embeddingTelemetry,
+    });
+    await tx.knowledgeRefreshRun.update({
+      where: { id: runId },
+      data: {
+        qualityStatus: embeddingRefreshState.qualityStatus,
+        warnings: toInputJson(embeddingRefreshState.warnings),
+      },
+    });
+  });
   const appliedFactIds = results.flatMap((entry) => entry.produced.projectFactIds);
   const appliedHighlightIds = results.flatMap((entry) => entry.produced.highlightIds);
   return {
@@ -932,9 +1213,160 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     appliedHighlightIds: Array.from(new Set(appliedHighlightIds)),
     promotedEvidenceIds: Array.from(new Set(promotedIdByReference.values())),
     coverageGaps: synthesisCoverageGaps,
+    embeddingTelemetry,
+  };
+}
+
+export async function retryKnowledgeRefreshEmbeddingBackfill(runId: string) {
+  const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    select: {
+      id: true,
+      workItemId: true,
+      status: true,
+      qualityStatus: true,
+      warnings: true,
+    },
+  });
+  const embeddingTelemetry = objectRecord(objectRecord(run.warnings).embeddingTelemetry);
+  const failedTargets = knowledgeEmbeddingTargets(embeddingTelemetry.failedTargets);
+  if (!failedTargets.length || run.status !== "completed") {
+    return {
+      attempted: 0,
+      attempts: 0,
+      retried: 0,
+      recovered: 0,
+      failed: failedTargets.length,
+      failedTargets,
+      qualityStatus: run.qualityStatus,
+    };
+  }
+
+  const factIds = failedTargets.flatMap((target) =>
+    target.entityKind === "project_fact" ? [target.entityId] : []
+  );
+  const highlightIds = failedTargets.flatMap((target) =>
+    target.entityKind === "highlight" ? [target.entityId] : []
+  );
+  const [facts, highlights] = await Promise.all([
+    factIds.length
+      ? prisma.projectFact.findMany({
+          where: {
+            id: { in: factIds },
+            workItemId: run.workItemId,
+            lifecycleStatus: "active",
+            status: "approved",
+          },
+          select: {
+            id: true,
+            statement: true,
+            category: true,
+            reviewNotes: true,
+          },
+        })
+      : Promise.resolve([]),
+    highlightIds.length
+      ? prisma.highlight.findMany({
+          where: {
+            id: { in: highlightIds },
+            workItemId: run.workItemId,
+            lifecycleStatus: "active",
+            verificationStatus: "approved",
+          },
+          select: {
+            id: true,
+            text: true,
+            summary: true,
+            verificationNotes: true,
+            tags: {
+              select: {
+                dimension: true,
+                tag: true,
+                score: true,
+              },
+            },
+            evidence: {
+              select: {
+                evidenceItemId: true,
+                evidenceItem: {
+                  select: {
+                    sourceId: true,
+                    title: true,
+                    content: true,
+                    source: {
+                      select: {
+                        label: true,
+                        type: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+  const tasks: KnowledgeEmbeddingTask[] = [
+    ...facts.map((fact): KnowledgeEmbeddingTask => ({
+      entityKind: "project_fact",
+      entityId: fact.id,
+      execute: () => upsertProjectFactEmbedding({
+        projectFactId: fact.id,
+        inputText: buildProjectFactEmbeddingText(fact),
+      }),
+    })),
+    ...highlights.map((highlight): KnowledgeEmbeddingTask => ({
+      entityKind: "highlight",
+      entityId: highlight.id,
+      execute: () => upsertHighlightEmbedding({
+        highlightId: highlight.id,
+        inputText: buildHighlightEmbeddingText({
+          text: highlight.text,
+          summary: highlight.summary,
+          verificationNotes: highlight.verificationNotes,
+          tags: highlight.tags.map((tag) => ({
+            ...tag,
+            tag: tag.tag as HighlightTagValue,
+          })),
+          evidence: {
+            summary: highlight.summary,
+            verificationNotes: highlight.verificationNotes,
+            sourceRefs: highlight.evidence.map((entry) => ({
+              evidenceItemId: entry.evidenceItemId,
+              sourceId: entry.evidenceItem.sourceId,
+              sourceLabel: entry.evidenceItem.source.label,
+              sourceType: entry.evidenceItem.source.type,
+              title: entry.evidenceItem.title,
+              excerpt: entry.evidenceItem.content,
+            })),
+          },
+        }),
+      }),
+    })),
+  ];
+  const telemetry = await runBoundedKnowledgeEmbeddingTasks(tasks);
+  const refreshState = knowledgeRefreshStateForEmbeddingTelemetry({
+    warnings: run.warnings,
+    qualityStatus: run.qualityStatus,
+    telemetry,
+  });
+  await prisma.knowledgeRefreshRun.updateMany({
+    where: { id: runId, status: "completed" },
+    data: {
+      qualityStatus: refreshState.qualityStatus,
+      warnings: toInputJson(refreshState.warnings),
+    },
+  });
+  return {
+    ...telemetry,
+    qualityStatus: refreshState.qualityStatus,
   };
 }
 
 export { recordChange };
 
-export const knowledgeReconciliationService = { reconcile: reconcileRepositoryKnowledge };
+export const knowledgeReconciliationService = {
+  reconcile: reconcileRepositoryKnowledge,
+  retryEmbeddingBackfill: retryKnowledgeRefreshEmbeddingBackfill,
+};

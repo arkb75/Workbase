@@ -5,6 +5,7 @@ import type {
   VerificationStatus,
   VisibilityLevel,
 } from "@/src/lib/options";
+import type { ProjectSubsystemKey } from "@/src/domain/project-subsystems";
 
 export type ProjectKnowledgePurpose =
   | "private_chat"
@@ -60,6 +61,13 @@ export interface ProjectKnowledgeHit {
   title: string;
   content: string;
   score: number;
+  /**
+   * Query-specific relevance retained separately from authority, freshness,
+   * and accomplishment importance. Keeping this bounded signal prevents the
+   * answer editor from throwing away a valid semantic retrieval match merely
+   * because the user's wording differs from the stored statement.
+   */
+  retrievalRelevance?: number;
   status?: VerificationStatus;
   visibility?: VisibilityLevel;
   sensitivityFlag?: boolean;
@@ -111,6 +119,7 @@ export interface ProjectFactDraft {
   reviewNotes?: string | null;
   citationIndexes: number[];
   supersedesProjectFactId?: string | null;
+  subsystemKey?: ProjectSubsystemKey | null;
 }
 
 export interface ProjectResearchFinding {
@@ -218,11 +227,18 @@ export interface ProjectResearchDossier {
     citations: Array<{
       type: ProjectKnowledgeCitation["kind"];
       title: string;
+      excerpt?: string;
+      evidenceItemId?: string;
+      sourceId?: string;
       repository?: string;
       commitSha?: string;
+      blobSha?: string;
       path?: string;
       startLine?: number;
       endLine?: number;
+      url?: string;
+      redacted?: boolean;
+      redactionCategories?: string[];
     }>;
   } | null;
   candidateIds: string[];

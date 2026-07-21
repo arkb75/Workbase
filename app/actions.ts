@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getRun, start } from "workflow/api";
+import { start } from "workflow/api";
 import type { Prisma } from "@/src/generated/prisma/client";
 import type { ClaimDraft, ClaimSnapshot, JsonValue } from "@/src/domain/types";
 import { prisma } from "@/src/lib/prisma";
@@ -63,7 +63,10 @@ import {
   createProjectChatThread,
   renameProjectChatThread,
 } from "@/src/services/project-chat-store";
-import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-start-service";
+import {
+  cancelAgentRunWorkflowSafely,
+  startAgentRunWorkflowOnce,
+} from "@/src/services/agent-run-workflow-start-service";
 import { resolveAgentCandidate } from "@/src/services/candidate-review-service";
 import { artifactWorkflowService } from "@/src/services/artifact-workflow-application-service";
 import { repositoryKnowledgeRefreshApplicationService } from "@/src/services/repository-knowledge-refresh-application-service";
@@ -968,43 +971,17 @@ export async function cancelAgentRunAction(formData: FormData) {
   const runId = String(formData.get("runId") ?? "");
 
   if (!workItemId || !runId) return;
-  const run = await prisma.agentRun.findFirst({
-    where: {
-      id: runId,
-      workItemId,
-      userId: user.id,
-      status: { in: ["queued", "running", "awaiting_review"] },
-    },
+  const cancellation = await cancelAgentRunWorkflowSafely({
+    runId,
+    userId: user.id,
+    workItemId,
   });
-
-  if (!run) return;
-  if (run.workflowId) {
-    try {
-      await getRun(run.workflowId).cancel();
-    } catch (error) {
-      throw new Error(
-        `Workflow cancellation could not be confirmed, so the run remains active. ${
-          error instanceof Error ? error.message : "Retry cancellation shortly."
-        }`,
-      );
-    }
-  }
-  if (run.knowledgeRefreshRunId) {
+  if (cancellation.cancelled && cancellation.knowledgeRefreshRunId) {
     await knowledgeRefreshService.releaseInline({
-      runId: run.knowledgeRefreshRunId,
-      ownerToken: `inline-agent:${run.id}`,
-    });
+      runId: cancellation.knowledgeRefreshRunId,
+      ownerToken: `inline-agent:${runId}`,
+    }).catch(() => undefined);
   }
-  await prisma.$transaction([
-    prisma.agentRun.update({
-      where: { id: run.id },
-      data: { status: "cancelled", finishedAt: new Date() },
-    }),
-    prisma.chatMessage.updateMany({
-      where: { agentRunId: run.id, role: "assistant" },
-      data: { status: "cancelled", content: "This run was cancelled." },
-    }),
-  ]);
   revalidatePath(`/work-items/${workItemId}`);
 }
 
