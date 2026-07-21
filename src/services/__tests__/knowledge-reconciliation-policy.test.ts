@@ -3,6 +3,7 @@ import {
   applySynthesisCoverageGapsToRefreshState,
   allowsCanonicalKnowledgeReplacement,
   highlightReconciliationCasWhere,
+  hasPromotedReconciliationEvidence,
   isNewerKnowledgeRefreshGeneration,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
@@ -12,6 +13,11 @@ import {
 } from "@/src/services/knowledge-reconciliation-service";
 
 describe("repository knowledge auto-apply policy", () => {
+  it("never revalidates knowledge when citation promotion produced no evidence", () => {
+    expect(hasPromotedReconciliationEvidence([])).toBe(false);
+    expect(hasPromotedReconciliationEvidence(["evidence-1"])).toBe(true);
+  });
+
   it("only allows canonical supersession after complete verified coverage", () => {
     expect(allowsCanonicalKnowledgeReplacement("verified")).toBe(true);
     expect(allowsCanonicalKnowledgeReplacement("degraded")).toBe(false);

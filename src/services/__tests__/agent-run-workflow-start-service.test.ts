@@ -8,6 +8,7 @@ const prismaMock = vi.hoisted(() => ({
   },
 }));
 const cancel = vi.hoisted(() => vi.fn());
+const workflowStatus = vi.hoisted(() => vi.fn());
 const failAgentRun = vi.hoisted(() => vi.fn());
 const cancelActiveAgentRunPersistence = vi.hoisted(() => vi.fn());
 
@@ -15,6 +16,9 @@ vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 vi.mock("workflow/api", () => ({
   getRun: (runId: string) => ({
     cancel: () => cancel(runId),
+    get status() {
+      return workflowStatus(runId);
+    },
   }),
 }));
 vi.mock("@/src/services/project-chat-store", () => ({
@@ -24,11 +28,15 @@ vi.mock("@/src/services/project-chat-store", () => ({
 
 import {
   cancelAgentRunWorkflowSafely,
+  recoverTerminalWorkflowForActiveAgentRun,
   startAgentRunWorkflowOnce,
 } from "@/src/services/agent-run-workflow-start-service";
 
 describe("startAgentRunWorkflowOnce", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    workflowStatus.mockResolvedValue("running");
+  });
 
   it("returns an attached workflow without starting a duplicate", async () => {
     prismaMock.agentRun.findUniqueOrThrow.mockResolvedValue({ workflowId: "wrun-existing" });
@@ -282,6 +290,106 @@ describe("startAgentRunWorkflowOnce", () => {
 
     expect(cancel).toHaveBeenCalledOnce();
     expect(failAgentRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("recoverTerminalWorkflowForActiveAgentRun", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    workflowStatus.mockResolvedValue("failed");
+  });
+
+  it("replaces one terminal Workflow while keeping the same active product run", async () => {
+    prismaMock.agentRun.findUniqueOrThrow.mockResolvedValue({
+      workflowId: "wrun-failed",
+      status: "running",
+      attemptNumber: 0,
+      workflowRecoveryCount: 0,
+    });
+    prismaMock.agentRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    const startWorkflow = vi.fn().mockResolvedValue({ runId: "wrun-recovered" });
+
+    await expect(recoverTerminalWorkflowForActiveAgentRun({
+      runId: "run-1",
+      startWorkflow,
+    })).resolves.toEqual(expect.objectContaining({
+      recovered: true,
+      workflowId: "wrun-recovered",
+      priorWorkflowId: "wrun-failed",
+    }));
+    expect(prismaMock.agentRun.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workflowId: "wrun-failed",
+          workflowRecoveryCount: 0,
+        }),
+        data: expect.objectContaining({
+          workflowId: expect.stringMatching(/^starting:/),
+          workflowRecoveryCount: { increment: 1 },
+        }),
+      }),
+    );
+    expect(startWorkflow).toHaveBeenCalledOnce();
+  });
+
+  it("recovers an awaiting-review artifact run independently of its batch number", async () => {
+    prismaMock.agentRun.findUniqueOrThrow.mockResolvedValue({
+      workflowId: "wrun-artifact-review",
+      status: "awaiting_review",
+      attemptNumber: 2,
+      workflowRecoveryCount: 0,
+    });
+    prismaMock.agentRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    const startWorkflow = vi.fn().mockResolvedValue({ runId: "wrun-artifact-recovered" });
+
+    await expect(recoverTerminalWorkflowForActiveAgentRun({
+      runId: "artifact-run-1",
+      startWorkflow,
+    })).resolves.toEqual(expect.objectContaining({
+      recovered: true,
+      workflowId: "wrun-artifact-recovered",
+    }));
+    expect(prismaMock.agentRun.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workflowRecoveryCount: 0,
+        }),
+        data: expect.objectContaining({
+          workflowRecoveryCount: { increment: 1 },
+        }),
+      }),
+    );
+  });
+
+  it("fails visibly after the single automatic recovery is exhausted", async () => {
+    prismaMock.agentRun.findUniqueOrThrow.mockResolvedValue({
+      workflowId: "wrun-failed-again",
+      status: "running",
+      attemptNumber: 1,
+      workflowRecoveryCount: 1,
+    });
+    failAgentRun.mockResolvedValue(undefined);
+
+    await expect(recoverTerminalWorkflowForActiveAgentRun({
+      runId: "run-1",
+      startWorkflow: vi.fn(),
+    })).resolves.toEqual({
+      recovered: false,
+      workflowId: "wrun-failed-again",
+    });
+    expect(failAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      failure: expect.objectContaining({
+        code: "workflow_recovery_exhausted",
+        retryable: true,
+      }),
+    }));
   });
 });
 

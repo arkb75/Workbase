@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
 const prismaMock = vi.hoisted(() => ({
   knowledgeRefreshRun: {
@@ -25,6 +26,7 @@ import {
   isReusableKnowledgeRefresh,
   isKnowledgeRefreshPartial,
   knowledgeRefreshBaseIdempotencyKey,
+  pairRepositoryAnalysesByInputOrder,
   policyScopedKnowledgeRefreshIdempotencyKey,
   releaseInlineKnowledgeRefreshExecution,
   repositoryCapabilityPriority,
@@ -35,7 +37,7 @@ function analysis(input: {
   mode: "static" | "semantic";
   status?: "succeeded" | "degraded";
   unresolvedQuestions?: string[];
-}) {
+}): RepositoryFileAnalysis {
   return {
     path: "src/agent.ts",
     summary: "Implements the project agent runtime.",
@@ -77,6 +79,34 @@ describe("latest-commit freshness barrier", () => {
     prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValue({ count: 0 });
   });
 
+  it("keeps same-path analyses attached to their input repository by position", () => {
+    const repositoryAAnalysis = {
+      ...analysis({ mode: "static" }),
+      path: "README.md",
+      summary: "Repository A README",
+    };
+    const repositoryBAnalysis = {
+      ...analysis({ mode: "static" }),
+      path: "README.md",
+      summary: "Repository B README",
+    };
+    const paired = pairRepositoryAnalysesByInputOrder({
+      pending: [
+        { file: { path: "README.md" }, target: { repository: "owner/repository-a" } },
+        { file: { path: "README.md" }, target: { repository: "owner/repository-b" } },
+      ],
+      analyses: [repositoryAAnalysis, repositoryBAnalysis],
+    });
+
+    expect(paired.map(({ entry, analysis: result }) => ({
+      repository: entry.target.repository,
+      summary: result.summary,
+    }))).toEqual([
+      { repository: "owner/repository-a", summary: "Repository A README" },
+      { repository: "owner/repository-b", summary: "Repository B README" },
+    ]);
+  });
+
   it("reserves high-priority ledger status for required product capabilities", () => {
     expect(repositoryCapabilityPriority({ capabilityKey: "repository_knowledge_lifecycle", observationCount: 4 })).toBe(5);
     expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4, requiredForSemanticCoverage: true })).toBe(4);
@@ -97,9 +127,9 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v16",
+      semanticAnalyzerVersion: "repository-coverage-v17",
       coveragePolicyVersion: "repository-coverage-v7",
-      orchestrationPolicyVersion: "repository-orchestration-v11",
+      orchestrationPolicyVersion: "repository-orchestration-v12",
       synthesisPolicyVersion: "repository-synthesis-v26",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -329,9 +359,9 @@ describe("latest-commit freshness barrier", () => {
     };
     const warnings = {
       analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v16",
+      semanticAnalyzerVersion: "repository-coverage-v17",
       coveragePolicyVersion: "repository-coverage-v7",
-      orchestrationPolicyVersion: "repository-orchestration-v11",
+      orchestrationPolicyVersion: "repository-orchestration-v12",
       synthesisPolicyVersion: "repository-synthesis-v26",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -431,7 +461,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v16",
+          semanticAnalyzerVersion: "repository-coverage-v17",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -485,7 +515,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v14",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v16",
+          semanticAnalyzerVersion: "repository-coverage-v17",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -521,9 +551,9 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v14",
-          semanticAnalyzerVersion: "repository-coverage-v16",
+          semanticAnalyzerVersion: "repository-coverage-v17",
           coveragePolicyVersion: "repository-coverage-v7",
-          orchestrationPolicyVersion: "repository-orchestration-v11",
+          orchestrationPolicyVersion: "repository-orchestration-v12",
           synthesisPolicyVersion: "repository-synthesis-v26",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
@@ -548,7 +578,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v14",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v16",
+      semanticAnalyzerVersion: "repository-coverage-v17",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

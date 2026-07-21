@@ -1,0 +1,2 @@
+ALTER TABLE "AgentRun"
+  ADD COLUMN "workflowRecoveryCount" INTEGER NOT NULL DEFAULT 0;

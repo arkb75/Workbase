@@ -1,7 +1,12 @@
-import { getRun } from "workflow/api";
+import { getRun, start } from "workflow/api";
 import type { ChatProgressEvent } from "@/src/domain/project-chat";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { prisma } from "@/src/lib/prisma";
+import { recoverTerminalWorkflowForActiveAgentRun } from "@/src/services/agent-run-workflow-start-service";
+import {
+  artifactGenerationWorkflow,
+  projectChatTurnWorkflow,
+} from "@/workflows/project-chat";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +18,27 @@ export async function GET(
   const user = await getDemoUser();
   const agentRun = await prisma.agentRun.findFirst({
     where: { id, userId: user.id },
-    select: { workflowId: true },
+    select: { workflowId: true, kind: true, status: true },
   });
 
   if (!agentRun?.workflowId) {
     return Response.json({ error: "Agent run not found." }, { status: 404 });
+  }
+
+  let workflowId = agentRun.workflowId;
+  let recoveredWorkflow = false;
+  if (
+    ["chat_turn", "artifact_workflow"].includes(agentRun.kind) &&
+    ["queued", "running", "awaiting_review"].includes(agentRun.status)
+  ) {
+    const recovery = await recoverTerminalWorkflowForActiveAgentRun({
+      runId: id,
+      startWorkflow: () => agentRun.kind === "artifact_workflow"
+        ? start(artifactGenerationWorkflow, [id])
+        : start(projectChatTurnWorkflow, [id]),
+    }).catch(() => null);
+    workflowId = recovery?.workflowId ?? workflowId;
+    recoveredWorkflow = recovery?.recovered === true;
   }
 
   const url = new URL(request.url);
@@ -28,8 +49,10 @@ export async function GET(
     : rawIndex == null
       ? 0
       : Number.parseInt(rawIndex, 10);
-  const startIndex = Number.isFinite(parsedIndex) ? parsedIndex : 0;
-  const source = getRun(agentRun.workflowId).getReadable<ChatProgressEvent>({ startIndex });
+  const startIndex = recoveredWorkflow
+    ? 0
+    : Number.isFinite(parsedIndex) ? parsedIndex : 0;
+  const source = getRun(workflowId).getReadable<ChatProgressEvent>({ startIndex });
   const encoder = new TextEncoder();
   let nextIndex = startIndex;
   const body = source.pipeThrough(

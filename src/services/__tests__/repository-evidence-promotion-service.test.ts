@@ -7,6 +7,7 @@ const prismaMock = vi.hoisted(() => ({
   evidenceItem: {
     findMany: vi.fn(),
     findUnique: vi.fn(),
+    createMany: vi.fn(),
     upsert: vi.fn(),
     update: vi.fn(),
     updateMany: vi.fn(),
@@ -15,7 +16,7 @@ const prismaMock = vi.hoisted(() => ({
     deleteMany: vi.fn(),
     createMany: vi.fn(),
   },
-  knowledgeChange: { findUnique: vi.fn() },
+  knowledgeChange: { findUnique: vi.fn(), createMany: vi.fn() },
 }));
 const upsertReviewableKnowledgeChangeMock = vi.hoisted(() => vi.fn());
 const recordAutoResolvedKnowledgeChangesMock = vi.hoisted(() => vi.fn());
@@ -37,11 +38,17 @@ function mockEvidenceRows(
   finalRows = initialRows,
 ) {
   prismaMock.evidenceItem.findMany.mockImplementation(async (args: {
-    where?: { id?: { in?: string[] } };
+    where?: { id?: { in?: string[] }; OR?: unknown[] };
+    select?: { content?: boolean; externalId?: boolean };
   }) => {
     const finalIds = args.where?.id?.in;
-    return finalIds
-      ? finalRows.filter((row) => typeof row.id === "string" && finalIds.includes(row.id))
+    if (finalIds) {
+      return finalRows.filter((row) =>
+        typeof row.id === "string" && finalIds.includes(row.id)
+      );
+    }
+    return args.select?.externalId && !args.select?.content
+      ? finalRows
       : initialRows;
   });
 }
@@ -55,7 +62,14 @@ describe("repository Evidence promotion lifecycle", () => {
       createdAt: new Date("2026-07-16T00:00:00.000Z"),
       targetHeads: [{ sourceId: "source-1", commitSha: "commit-1" }],
     });
-    mockEvidenceRows([], [{ id: "evidence-1" }]);
+    mockEvidenceRows([], [{
+      id: "evidence-1",
+      sourceId: "source-1",
+      externalId: "file:blob-1:src/runtime.ts:10:14:71807b0a2eda",
+      lifecycleStatus: "active",
+      reviewState: "pending_review",
+    }]);
+    prismaMock.evidenceItem.createMany.mockResolvedValue({ count: 1 });
     prismaMock.evidenceItem.findUnique.mockResolvedValue(null);
     prismaMock.evidenceItem.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.evidenceItem.upsert.mockResolvedValue({
@@ -73,6 +87,7 @@ describe("repository Evidence promotion lifecycle", () => {
       tags: [],
     });
     prismaMock.knowledgeChange.findUnique.mockResolvedValue(null);
+    prismaMock.knowledgeChange.createMany.mockResolvedValue({ count: 1 });
     upsertReviewableKnowledgeChangeMock.mockResolvedValue({ id: "change-1" });
     recordAutoResolvedKnowledgeChangesMock.mockResolvedValue({ count: 0 });
     upsertReviewableKnowledgeChangeInTransactionMock.mockResolvedValue({ id: "change-1" });
@@ -153,16 +168,16 @@ describe("repository Evidence promotion lifecycle", () => {
 
     expect(result.promotedIds).toEqual(["evidence-1"]);
     expect(mutationFence).toHaveBeenCalledOnce();
-    expect(prismaMock.evidenceItem.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
+    expect(prismaMock.evidenceItem.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([expect.objectContaining({
         logicalKey: "github_file:src/runtime.ts:10:14",
         repositorySnapshotId: "snapshot-1",
-      }),
+      })]),
     }));
-    expect(upsertReviewableKnowledgeChangeInTransactionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ entityId: "evidence-1" }),
-      prismaMock,
-    );
+    expect(prismaMock.knowledgeChange.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([expect.objectContaining({ evidenceItemId: "evidence-1" })]),
+    }));
+    expect(upsertReviewableKnowledgeChangeInTransactionMock).not.toHaveBeenCalled();
     expect(upsertReviewableKnowledgeChangeMock).not.toHaveBeenCalled();
   });
 

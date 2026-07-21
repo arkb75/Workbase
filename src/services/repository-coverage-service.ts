@@ -168,13 +168,38 @@ const semanticBatchFileAnalysisJsonSchema: JsonSchemaObject = {
   ...semanticAnalysisJsonSchema,
   properties: {
     ...semanticAnalysisProperties,
+    summary: { type: "string", minLength: 1, maxLength: 500 },
+    subsystemKeys: {
+      type: "array",
+      maxItems: 8,
+      items: { type: "string", minLength: 2, maxLength: 100 },
+    },
     findings: {
       ...semanticAnalysisProperties.findings,
-      maxItems: 4,
+      maxItems: 3,
+      items: {
+        ...(semanticAnalysisProperties.findings.items as JsonSchemaObject),
+        properties: {
+          ...((semanticAnalysisProperties.findings.items as JsonSchemaObject).properties as Record<string, JsonSchemaObject>),
+          statement: { type: "string", minLength: 10, maxLength: 360 },
+          capabilityKeys: {
+            type: "array",
+            minItems: 1,
+            maxItems: 6,
+            items: { type: "string", minLength: 2, maxLength: 100 },
+          },
+          signalKeys: {
+            type: "array",
+            maxItems: 8,
+            items: { type: "string", minLength: 2, maxLength: 120 },
+          },
+        },
+      },
     },
     unresolvedQuestions: {
       ...semanticAnalysisProperties.unresolvedQuestions,
       maxItems: 2,
+      items: { type: "string", minLength: 2, maxLength: 200 },
     },
   },
 };
@@ -696,14 +721,14 @@ function isMeaningfulDeterministicFallbackFact(fact: RepositoryFileAnalysis["fac
   if (/\bis present in the (?:current|complete) (?:repository )?snapshot\b/i.test(fact.statement)) return false;
   if (isDeterministicFallbackAnchor(fact)) return true;
   if (fact.category !== "code_location") {
-    return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|disables automatic retries for repository reconciliation|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
+    return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|replays completed repository reconciliation from a persisted checkpoint|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
   }
   return /(?:persisted model|defines (?:the )?symbol (?:[A-Za-z_$][\w$]*(?:Workflow|Service|Workspace|Review|Artifact|Chat|Knowledge|GitHub|OAuth|Citation|Highlight|Agent)[A-Za-z_$\d]*|(?:fetch|resolve|get|list|search|read|persist|create|update|delete|generate|synthesize|reconcile|refresh|review|approve|verify|retrieve|ingest|import|upsert)[A-Z][\w$]*))/i.test(fact.statement);
 }
 
 function isDeterministicFallbackAnchor(fact: RepositoryFileAnalysis["facts"][number]) {
   if (fact.category === "code_location") return /persisted model/i.test(fact.statement);
-  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after|disables automatic retries for repository reconciliation|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
+  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after|replays completed repository reconciliation from a persisted checkpoint|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
 }
 
 /**
@@ -1099,7 +1124,7 @@ export async function analyzeRepositoryFileBatch(
           "Keep exactly one object property per supplied fileKey; do not echo fileKey or path fields.",
           "Map facts or observations to that file's findings without inventing content.",
         ],
-        maxTokens: Math.min(sharedBudget?.model.limits.maxOutputTokens ?? 4_000, 4_000),
+        maxTokens: Math.min(sharedBudget?.model.limits.maxOutputTokens ?? 6_000, 6_000),
         temperature: 0,
         effort: "medium",
         repairStrategy: "repair_last_failure",
@@ -1460,10 +1485,10 @@ export async function analyzeRepositoryFiles(input: Array<{
     if (file.path === "workflows/project-chat.ts") {
       addRangeFact({
         patterns: [
-          /replaying the entire synthesis and/,
-          /reconcileRequiredKnowledge\.maxRetries\s*=\s*0/,
+          /checkpoint\.status\s*===\s*["']completed["']/,
+          /reconcileRequiredKnowledge\.maxRetries\s*=\s*[1-9]\d*/,
         ],
-        statement: `${file.path} disables automatic retries for repository reconciliation because its versioned knowledge mutations are not independently checkpointed.`,
+        statement: `${file.path} replays completed repository reconciliation from a persisted checkpoint and permits bounded automatic retries.`,
         category: "behavior",
         breadth: 5,
         productImportance: 5,

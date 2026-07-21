@@ -450,7 +450,7 @@ async function inventoryRequiredKnowledge(refreshRunId: string) {
 
 async function analyzeRequiredKnowledgeChunk(refreshRunId: string) {
   "use step";
-  return knowledgeRefreshService.analyzeChunk({ runId: refreshRunId, batchSize: 8, maxBatches: 8 });
+  return knowledgeRefreshService.analyzeChunk({ runId: refreshRunId, batchSize: 16, maxBatches: 8 });
 }
 
 async function finalizeRequiredCoverage(refreshRunId: string) {
@@ -468,8 +468,82 @@ async function retryRequiredKnowledgeEmbeddingBackfill(refreshRunId: string) {
   return knowledgeReconciliationService.retryEmbeddingBackfill(refreshRunId);
 }
 
+export function replayedAppliedKnowledgeIds(changes: Array<{
+  entityKind: string;
+  action: string;
+  evidenceItemId: string | null;
+  projectFactId: string | null;
+  highlightId: string | null;
+}>) {
+  const appliedActions = new Set(["created", "updated", "revalidated"]);
+  return {
+    appliedFactIds: Array.from(new Set(changes.flatMap((change) =>
+      change.entityKind === "project_fact" &&
+      appliedActions.has(change.action) &&
+      change.projectFactId
+        ? [change.projectFactId]
+        : []
+    ))),
+    appliedHighlightIds: Array.from(new Set(changes.flatMap((change) =>
+      change.entityKind === "highlight" &&
+      appliedActions.has(change.action) &&
+      change.highlightId
+        ? [change.highlightId]
+        : []
+    ))),
+    promotedEvidenceIds: Array.from(new Set(changes.flatMap((change) =>
+      change.entityKind === "evidence" &&
+      appliedActions.has(change.action) &&
+      change.evidenceItemId
+        ? [change.evidenceItemId]
+        : []
+    ))),
+  };
+}
+
 async function reconcileRequiredKnowledge(refreshRunId: string) {
   "use step";
+  const checkpoint = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: refreshRunId },
+    select: {
+      status: true,
+      warnings: true,
+      changes: {
+        select: {
+          entityKind: true,
+          action: true,
+          evidenceItemId: true,
+          projectFactId: true,
+          highlightId: true,
+        },
+      },
+    },
+  });
+  if (checkpoint.status === "completed") {
+    const warnings = checkpoint.warnings &&
+      typeof checkpoint.warnings === "object" &&
+      !Array.isArray(checkpoint.warnings)
+      ? checkpoint.warnings as Record<string, unknown>
+      : {};
+    const embeddingTelemetry = warnings.embeddingTelemetry &&
+      typeof warnings.embeddingTelemetry === "object" &&
+      !Array.isArray(warnings.embeddingTelemetry)
+      ? warnings.embeddingTelemetry
+      : {
+          attempted: 0,
+          attempts: 0,
+          retried: 0,
+          recovered: 0,
+          failed: 0,
+          failedTargets: [],
+        };
+    return {
+      ...replayedAppliedKnowledgeIds(checkpoint.changes),
+      embeddingTelemetry,
+      staleness: null,
+      replayed: true as const,
+    };
+  }
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   const reconciled = await knowledgeReconciliationService.reconcile(refreshRunId);
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
@@ -485,14 +559,16 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
     appliedHighlightIds: reconciled.appliedHighlightIds,
     promotedEvidenceIds: reconciled.promotedEvidenceIds,
     embeddingTelemetry: reconciled.embeddingTelemetry,
+    reconciliationTelemetry: reconciled.reconciliationTelemetry,
     staleness,
   };
 }
 
-// This step promotes evidence and mutates versioned knowledge. Until each
-// mutation is checkpointed independently, replaying the entire synthesis and
-// reconciliation pass is less safe than surfacing one actionable failure.
-reconcileRequiredKnowledge.maxRetries = 0;
+// Every mutation is generation-fenced and idempotent. The completed-run
+// checkpoint above also turns a lost step response into a cheap replay, so a
+// transient database/provider delivery failure no longer strands the parent
+// chat after repository knowledge has already committed.
+reconcileRequiredKnowledge.maxRetries = 2;
 
 async function failRequiredKnowledgeRefresh(refreshRunId: string, errorMessage: string) {
   "use step";
@@ -1221,8 +1297,26 @@ async function finishDeniedProjectFactReview(runId: string) {
   return { status: "insufficient_context" as const, message };
 }
 
-async function setArtifactRunRunning(runId: string) {
+async function setAgentRunRunning(runId: string) {
   "use step";
+  return markAgentRunRunning(runId);
+}
+
+async function setAgentRunStarted(runId: string) {
+  "use step";
+  const run = await prisma.agentRun.findUnique({
+    where: { id: runId },
+    select: { status: true },
+  });
+  if (run?.status === "awaiting_review") {
+    return { active: true as const, status: "awaiting_review" as const };
+  }
+  if (
+    !run ||
+    ["completed", "insufficient_context", "failed", "cancelled"].includes(run.status)
+  ) {
+    return { active: false as const, status: run?.status ?? "missing" };
+  }
   return markAgentRunRunning(runId);
 }
 
@@ -1306,7 +1400,7 @@ function failureStage(
 }
 
 async function runArtifactLifecycle(runId: string) {
-  const initialTransition = await setArtifactRunRunning(runId);
+  const initialTransition = await setAgentRunRunning(runId);
   if (!initialTransition.active) {
     return terminalAgentRunResult(initialTransition.status);
   }
@@ -1357,7 +1451,7 @@ async function runArtifactLifecycle(runId: string) {
     if (await hasPendingReviewCandidates(runId, batchNumber)) {
       await review;
     }
-    const resumed = await setArtifactRunRunning(runId);
+    const resumed = await setAgentRunRunning(runId);
     if (!resumed.active) return terminalAgentRunResult(resumed.status);
     await emitProgress(runId, "Safety review complete. Rechecking auto-applied context.", "retrieval");
   }
@@ -1380,6 +1474,8 @@ export async function projectChatTurnWorkflow(runId: string) {
       return inactiveWorkflowResult(ownership);
     }
     await assertApplicationRuntimeReady();
+    const running = await setAgentRunStarted(runId);
+    if (!running.active) return terminalAgentRunResult(running.status);
     // startRequiredKnowledgeRefresh and answerProjectQuestion both perform
     // their own terminal-state fences. Separate status-only Workflow steps
     // here added three remote round trips to every turn without closing a race
@@ -1448,6 +1544,8 @@ export async function artifactGenerationWorkflow(runId: string) {
       return inactiveWorkflowResult(ownership);
     }
     await assertApplicationRuntimeReady();
+    const running = await setAgentRunStarted(runId);
+    if (!running.active) return terminalAgentRunResult(running.status);
     const refresh = await runRequiredKnowledgeRefresh(runId);
     if (refresh?.terminalStatus) {
       return terminalAgentRunResult(refresh.terminalStatus);

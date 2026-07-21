@@ -13,6 +13,7 @@ function wait(milliseconds: number) {
 
 export const AGENT_RUN_WORKFLOW_RESERVATION_LEASE_MS = 30_000;
 const AGENT_RUN_WORKFLOW_ATTACH_WAIT_MS = 10_000;
+const MAX_AUTOMATIC_WORKFLOW_RECOVERIES = 1;
 
 function workflowStartReservation(now = Date.now()) {
   return `starting:${now}:${randomUUID()}`;
@@ -186,6 +187,124 @@ export async function startAgentRunWorkflowOnce(input: {
         },
       }),
     ).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Repairs the narrow failure mode where the durable runtime is terminal but
+ * Workbase's product run is still active (for example, a local Workflow step
+ * registry changed after the database commit but before the step response was
+ * acknowledged). Normal application failures terminalize AgentRun inside the
+ * workflow and never enter this path.
+ */
+export async function recoverTerminalWorkflowForActiveAgentRun(input: {
+  runId: string;
+  startWorkflow: () => Promise<{ runId: string }>;
+}) {
+  const current = await prisma.agentRun.findUniqueOrThrow({
+    where: { id: input.runId },
+    select: {
+      workflowId: true,
+      status: true,
+      workflowRecoveryCount: true,
+    },
+  });
+  const active = ["queued", "running", "awaiting_review"].includes(current.status);
+  const priorWorkflowId = attachedWorkflowId(current.workflowId);
+  if (!active || !priorWorkflowId) {
+    return { recovered: false as const, workflowId: priorWorkflowId };
+  }
+  let workflowStatus: string;
+  try {
+    workflowStatus = await getRun(priorWorkflowId).status;
+  } catch {
+    workflowStatus = "missing";
+  }
+  if (!["completed", "failed", "cancelled", "missing"].includes(workflowStatus)) {
+    return { recovered: false as const, workflowId: priorWorkflowId };
+  }
+  if (current.workflowRecoveryCount >= MAX_AUTOMATIC_WORKFLOW_RECOVERIES) {
+    await failAgentRun({
+      runId: input.runId,
+      message: "The durable run stopped before Workbase could finalize its persisted result. Retry the request to start a clean run.",
+      failure: {
+        code: "workflow_recovery_exhausted",
+        stage: "workflow_recovery",
+        retryable: true,
+        recovery: "Retry the request; completed repository refresh work will be reused.",
+      },
+    });
+    return { recovered: false as const, workflowId: priorWorkflowId };
+  }
+
+  const reservation = workflowStartReservation();
+  const reserved = await prisma.agentRun.updateMany({
+    where: {
+      id: input.runId,
+      workflowId: priorWorkflowId,
+      status: { in: ["queued", "running", "awaiting_review"] },
+      workflowRecoveryCount: current.workflowRecoveryCount,
+    },
+    data: {
+      workflowId: reservation,
+      workflowRecoveryCount: { increment: 1 },
+    },
+  });
+  if (!reserved.count) {
+    const winner = await prisma.agentRun.findUniqueOrThrow({
+      where: { id: input.runId },
+      select: { workflowId: true },
+    });
+    return {
+      recovered: false as const,
+      workflowId: attachedWorkflowId(winner.workflowId),
+    };
+  }
+
+  try {
+    const workflow = await input.startWorkflow();
+    const attached = await prisma.agentRun.updateMany({
+      where: {
+        id: input.runId,
+        workflowId: reservation,
+        status: { in: ["queued", "running", "awaiting_review"] },
+      },
+      data: { workflowId: workflow.runId },
+    });
+    if (!attached.count) {
+      await getRun(workflow.runId).cancel().catch(() => undefined);
+      const winner = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: input.runId },
+        select: { workflowId: true },
+      });
+      return {
+        recovered: false as const,
+        workflowId: attachedWorkflowId(winner.workflowId),
+      };
+    }
+    return {
+      recovered: true as const,
+      workflowId: workflow.runId,
+      priorWorkflowId,
+      priorWorkflowStatus: workflowStatus,
+    };
+  } catch (error) {
+    await prisma.agentRun.updateMany({
+      where: { id: input.runId, workflowId: reservation },
+      data: { workflowId: null },
+    });
+    const failure = classifyWorkflowFailure(error);
+    await failAgentRun({
+      runId: input.runId,
+      message: failure.message,
+      failure: {
+        code: failure.code,
+        stage: "workflow_recovery",
+        retryable: failure.retryable,
+        recovery: failure.recovery,
+      },
+    }).catch(() => undefined);
     throw error;
   }
 }
