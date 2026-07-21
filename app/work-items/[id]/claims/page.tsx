@@ -9,6 +9,7 @@ import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import { getWorkItemForUser } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
 import { titleCase } from "@/src/lib/utils";
+import { loadWorkItemRouteData } from "@/src/lib/work-item-route";
 import { ensureHighlightsForWorkItem } from "@/src/services/highlight-bootstrap-service";
 import { Eye, ShieldAlert, Sparkles, Stamp, Target } from "lucide-react";
 
@@ -91,11 +92,13 @@ export default async function HighlightReviewPage({
   const { id } = await params;
   const { error, result } = await searchParams;
   const user = await getDemoUser();
-  await ensureHighlightsForWorkItem({
-    userId: user.id,
-    workItemId: id,
+  const workItem = await loadWorkItemRouteData(async () => {
+    await ensureHighlightsForWorkItem({
+      userId: user.id,
+      workItemId: id,
+    });
+    return getWorkItemForUser(user.id, id);
   });
-  const workItem = await getWorkItemForUser(user.id, id);
   const generateHighlights = generateClaimsAction.bind(null, workItem.id);
   const approveAllPendingHighlights = approveAllPendingHighlightsAction;
 
