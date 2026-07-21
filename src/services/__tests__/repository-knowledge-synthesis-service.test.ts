@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { prisma } from "@/src/lib/prisma";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
 import {
   deterministicSynthesisAnchorSubsystems,
@@ -8,13 +9,19 @@ import {
   isBroadSemanticRepositoryLifecycleFact,
   modelEligibleSynthesisNotebook,
   reusableSynthesisEvidenceFilters,
+  requiredSemanticBaselineFacts,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
   synthesisNotebookSourceCoverageGaps,
   synthesisNotebookReferenceKey,
+  synthesizeRepositoryKnowledge,
 } from "@/src/services/repository-knowledge-synthesis-service";
-import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
+import {
+  analyzeRepositoryFiles,
+  type RepositoryFileAnalysis,
+} from "@/src/services/repository-coverage-service";
+import { REPOSITORY_STATIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
@@ -37,6 +44,10 @@ function entry(path: string, statement = `${path} defines supported repository b
 }
 
 describe("repository synthesis limit fallback", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("admits only exact high-confidence static lifecycle anchors", () => {
     const anchor = {
       path: "src/services/knowledge-refresh-service.ts",
@@ -58,12 +69,28 @@ describe("repository synthesis limit fallback", () => {
       ...anchor,
       statement: "workflows/project-chat.ts uses a durable approval hook to pause and resume work.",
     }, "workflows/project-chat.ts")).toEqual(["workflow_orchestration"]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "src/services/agent-run-workflow-start-service.ts conditionally reserves an unstarted queued run, reuses an attached workflow identifier, cancels an unattached workflow after a terminal-state race, and clears its reservation when startup fails.",
+    }, "src/services/agent-run-workflow-start-service.ts")).toEqual(["workflow_orchestration"]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "src/services/project-chat-store.ts serializes chat-run creation by locking the thread, returning an existing user-scoped idempotency-key run, and rejecting a second active run.",
+    }, "src/services/project-chat-store.ts")).toEqual(["workflow_orchestration"]);
     expect(deterministicSynthesisAnchorSubsystems({ ...anchor, evidenceMode: "semantic" }, anchor.path)).toEqual([]);
     expect(deterministicSynthesisAnchorSubsystems(anchor, "src/services/unrelated-service.ts")).toEqual([]);
     expect(deterministicSynthesisAnchorSubsystems({
       ...anchor,
       statement: "src/services/misc.ts defines the symbol unrelatedUtility.",
     }, anchor.path)).toEqual([]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "README.md states: 5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory",
+    }, "README.md")).toEqual(["product_surface"]);
+    expect(deterministicSynthesisAnchorSubsystems({
+      ...anchor,
+      statement: "README.md states: An arbitrary project promise that has not been explicitly allowlisted",
+    }, "README.md")).toEqual([]);
   });
 
   it("retains a selected one-file project domain as an exact fact without inventing an umbrella claim", () => {
@@ -344,6 +371,173 @@ describe("repository synthesis limit fallback", () => {
     expect(modelEligibleSynthesisNotebook(notebook)).toEqual([]);
     expect(result.facts[0]?.statement).toContain("defines durable workflow entrypoints");
     expect(result.highlights).toEqual([]);
+  });
+
+  it("synthesizes the canonical product flow from exact README anchors without creating a Highlight", async () => {
+    const readme = [
+      "# Workbase",
+      "",
+      "## Product loop",
+      "",
+      "2. Create a Work Item",
+      "3. Attach manual notes and import a real GitHub repository",
+      "4. Refresh commit-pinned repository knowledge and cluster Evidence into work themes",
+      "5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory",
+      "6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates",
+      "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
+    ].join("\n");
+    const [analysis] = await analyzeRepositoryFiles([{
+      repository: "workbase/demo",
+      commitSha: "a".repeat(40),
+      path: "README.md",
+      content: readme,
+    }]);
+    const anchorFacts = (analysis?.facts ?? []).filter((fact) =>
+      deterministicSynthesisAnchorSubsystems(fact, "README.md").includes("product_surface")
+    );
+    const notebook = anchorFacts.map((fact) => ({
+      ...entry("README.md", fact.statement),
+      lineStart: fact.lineStart,
+      lineEnd: fact.lineEnd,
+      category: fact.category,
+      evidenceMode: "deterministic_anchor" as const,
+    }));
+
+    expect(anchorFacts).toHaveLength(6);
+    expect(requiredSemanticBaselineFacts("product_surface", notebook)).toEqual([
+      expect.objectContaining({
+        statement: expect.stringContaining("connects Work Items and attached sources"),
+        confidence: "high",
+        citationIndexes: [1, 4, 5, 6, 2, 3],
+      }),
+    ]);
+    const result = fallbackSubsystemSynthesis("product_surface", notebook);
+    expect(result.facts).toEqual([
+      expect.objectContaining({
+        statement: expect.stringContaining("generates career artifacts from approved non-sensitive Highlights"),
+        citationIndexes: [1, 4, 5, 6, 2, 3],
+      }),
+    ]);
+    expect(result.highlights).toEqual([]);
+
+    const incompleteHybridNotebook = [
+      {
+        ...notebook[0]!,
+        evidenceMode: "semantic" as const,
+        semanticSignals: ["product_surface.product_loop"],
+      },
+      ...notebook.slice(1, 4),
+    ];
+    expect(requiredSemanticBaselineFacts("product_surface", incompleteHybridNotebook)).toEqual([]);
+  });
+
+  it("retains exact product anchors when unrelated semantic coverage makes the refresh degraded", async () => {
+    const readme = [
+      "2. Create a Work Item",
+      "3. Attach manual notes and import a real GitHub repository",
+      "4. Refresh commit-pinned repository knowledge and cluster Evidence into work themes",
+      "5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory",
+      "6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates",
+      "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
+    ].join("\n");
+    const [analysis] = await analyzeRepositoryFiles([{
+      repository: "workbase/demo",
+      commitSha: "a".repeat(40),
+      path: "README.md",
+      content: readme,
+    }]);
+    vi.spyOn(prisma.knowledgeRefreshRun, "findUniqueOrThrow").mockResolvedValue({
+      id: "refresh-1",
+      workItemId: "work-item-1",
+      qualityStatus: "degraded",
+      orchestration: null,
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "workbase/demo",
+        branch: "main",
+        commitSha: "a".repeat(40),
+        treeSha: "b".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      workItem: { title: "Workbase" },
+      snapshots: [{
+        sourceId: "source-1",
+        commitSha: "a".repeat(40),
+        files: [{
+          path: "README.md",
+          blobSha: "blob-readme",
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
+          analysis,
+          semanticRefreshRunId: null,
+          semanticAnalyzerVersion: null,
+          semanticStatus: "failed",
+          semanticAnalysis: null,
+          changeType: "modified",
+        }],
+      }],
+    } as never);
+
+    const [product] = await synthesizeRepositoryKnowledge("refresh-1", { fallbackOnly: true });
+
+    expect(product).toMatchObject({
+      subsystemKey: "product_surface",
+      approvalEligible: true,
+      facts: [expect.objectContaining({
+        statement: expect.stringContaining("connects Work Items and attached sources"),
+      })],
+      highlights: [],
+    });
+    expect(product?.notebook).toHaveLength(6);
+    expect(product?.notebook.every((item) => item.evidenceMode === "deterministic_anchor")).toBe(true);
+  });
+
+  it("preserves supported workflow retry, idempotency, and recovery facets across all three boundaries", () => {
+    const withSignal = (
+      path: string,
+      statement: string,
+      semanticSignals: string[],
+    ) => ({ ...entry(path, statement), semanticSignals });
+    const notebook = [
+      withSignal("workflows/project-chat.ts", "Project chat runs as a durable workflow.", ["workflow_orchestration.chat_workflow"]),
+      withSignal("workflows/project-chat.ts", "Repository refresh runs as a durable workflow.", ["workflow_orchestration.repository_refresh_workflow"]),
+      withSignal("workflows/project-chat.ts", "Artifact generation runs as a durable workflow.", ["workflow_orchestration.artifact_workflow"]),
+      withSignal("workflows/project-chat.ts", "A durable review hook pauses and resumes work.", ["workflow_orchestration.approval_pause_resume"]),
+      withSignal("workflows/project-chat.ts", "Repository reconciliation disables automatic retries because its versioned knowledge writes are not independently checkpointed.", ["workflow_orchestration.reconciliation_retry_boundary"]),
+      withSignal("workflows/project-chat.ts", "A waiting workflow can claim a released shared refresh and resume checkpointed work.", ["workflow_orchestration.shared_refresh_owner_recovery"]),
+      withSignal("src/services/agent-run-workflow-start-service.ts", "Workflow startup conditionally reserves an unstarted queued run and reuses an attached workflow identifier.", ["workflow_orchestration.workflow_start_reservation"]),
+      withSignal("src/services/project-chat-store.ts", "Chat-run creation locks the thread, returns a user-scoped idempotency-key match, and rejects another active run.", ["workflow_orchestration.chat_run_idempotency"]),
+      withSignal("src/services/project-chat-store.ts", "Agent-run event appends are serialized under a run lock.", ["workflow_orchestration.event_sequence_guard"]),
+      withSignal("src/services/project-chat-store.ts", "Completion locks persisted state and does not rewrite terminal runs.", ["workflow_orchestration.terminal_write_guard"]),
+    ];
+
+    const result = fallbackSubsystemSynthesis("workflow_orchestration", notebook);
+    expect(result.facts).toEqual([
+      expect.objectContaining({
+        statement: expect.stringContaining("durable workflow entrypoints"),
+        citationIndexes: [1, 2, 3, 4],
+      }),
+      expect.objectContaining({
+        statement: expect.stringContaining("persistence boundaries"),
+        citationIndexes: [7, 8, 9, 10],
+      }),
+      expect.objectContaining({
+        statement: expect.stringContaining("released shared refresh"),
+        citationIndexes: [6, 5],
+      }),
+    ]);
+
+    // This is the merge used after model synthesis: the model cannot erase a
+    // supported required facet merely by returning one generic broad fact.
+    expect(requiredSemanticBaselineFacts("workflow_orchestration", notebook))
+      .toEqual(result.facts);
+
+    const withoutTerminalGuard = notebook.filter((entry) =>
+      !entry.semanticSignals?.includes("workflow_orchestration.terminal_write_guard")
+    );
+    const partial = requiredSemanticBaselineFacts("workflow_orchestration", withoutTerminalGuard);
+    expect(partial.some((fact) => fact.statement.includes("persistence boundaries"))).toBe(false);
+    expect(partial.some((fact) => fact.statement.includes("released shared refresh"))).toBe(true);
   });
 
   it("rebuilds the broad review workspace from current semantic concepts instead of promoting one narrow source action", () => {

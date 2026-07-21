@@ -46,34 +46,64 @@ async function fetchJson<T>({
   token,
   schema,
   init,
+  transientRetries = 0,
 }: {
   path: string;
   token: string;
   schema: z.ZodType<T>;
   init?: RequestInit;
+  transientRetries?: number;
 }) {
-  const response = await fetch(`${resolveGitHubConfig().apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      ...defaultHeaders,
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(`${resolveGitHubConfig().apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...defaultHeaders,
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
 
-  if (!response.ok) {
-    const remaining = response.headers.get("x-ratelimit-remaining");
-    const reset = response.headers.get("x-ratelimit-reset");
-    if (response.status === 429 || (response.status === 403 && remaining === "0")) {
-      const resetAt = reset ? new Date(Number(reset) * 1_000).toISOString() : "unknown";
-      throw new Error(`GitHub API rate limit exceeded for ${path}; reset at ${resetAt}.`);
+    if (!response.ok) {
+      const remaining = response.headers.get("x-ratelimit-remaining");
+      const reset = response.headers.get("x-ratelimit-reset");
+      if (response.status === 429 || (response.status === 403 && remaining === "0")) {
+        const resetAt = reset ? new Date(Number(reset) * 1_000).toISOString() : "unknown";
+        throw new Error(`GitHub API rate limit exceeded for ${path}; reset at ${resetAt}.`);
+      }
+      if (
+        response.status >= 500 &&
+        response.status <= 599 &&
+        attempt < transientRetries
+      ) {
+        // GitHub's blob endpoint occasionally returns a short-lived 5xx for a
+        // single object. Keep retries bounded and inside the same logical
+        // repository read so they cannot consume the agent's file-read budget.
+        await new Promise<void>((resolve, reject) => {
+          const signal = init?.signal;
+          const onAbort = () => {
+            clearTimeout(timeout);
+            reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+          };
+          const timeout = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+          }, 100 * (2 ** attempt));
+          if (signal?.aborted) {
+            onAbort();
+            return;
+          }
+          signal?.addEventListener("abort", onAbort, { once: true });
+        });
+        continue;
+      }
+      throw new Error(`GitHub API request failed (${response.status}) for ${path}`);
     }
-    throw new Error(`GitHub API request failed (${response.status}) for ${path}`);
-  }
 
-  const json = await response.json();
-  return schema.parse(json);
+    const json = await response.json();
+    return schema.parse(json);
+  }
 }
 
 export async function getGitHubAccessTokenForUser(userId: string) {
@@ -294,7 +324,44 @@ export async function fetchGitHubBlob(input: {
     init: {
       signal: input.signal,
     },
+    transientRetries: 2,
   });
+}
+
+const pinnedContentFileSchema = githubContentFileSchema.extend({
+  sha: z.string().regex(/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i),
+  size: z.number().int().nonnegative(),
+  content: z.string(),
+  encoding: z.string().min(1),
+});
+
+export async function fetchGitHubFileAtRevision(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  path: string;
+  commitSha: string;
+  signal?: AbortSignal;
+}) {
+  const encodedPath = input.path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const file = await fetchJson({
+    path: `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+      input.repo,
+    )}/contents/${encodedPath}?ref=${encodeURIComponent(input.commitSha)}`,
+    token: input.token,
+    schema: pinnedContentFileSchema,
+    init: { signal: input.signal },
+    transientRetries: 1,
+  });
+  return {
+    sha: file.sha,
+    size: file.size,
+    content: file.content,
+    encoding: file.encoding,
+  };
 }
 
 export async function fetchGitHubPullRequests(input: {

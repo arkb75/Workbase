@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "../src/generated/prisma/client";
+import { start } from "workflow/api";
+import { getWorld } from "workflow/runtime";
 import { ensureDemoUser } from "../src/lib/demo-user";
 import { prisma } from "../src/lib/prisma";
+import {
+  executeProjectChatApplicationTurn,
+  projectChatApplicationExecutionMode,
+  projectChatTurnWorkflowReference,
+} from "../src/evals/project-chat-application-execution";
 import {
   type ProjectChatApplicationDriver,
   type ProjectChatApplicationMetrics,
@@ -14,6 +21,7 @@ import {
 } from "../src/evals/project-chat-application-runner";
 import {
   completeAgentRun,
+  buildRollingConversationSummary,
   createProjectChatRun,
   createProjectChatThread,
   failAgentRun,
@@ -29,6 +37,7 @@ import {
   collectUnknownModelUsageAttempts,
   estimateBedrockCostUsd,
 } from "../src/services/model-usage-service";
+import { startAgentRunWorkflowOnce } from "../src/services/agent-run-workflow-start-service";
 
 interface CliOptions {
   provider: "mock" | "bedrock";
@@ -36,6 +45,28 @@ interface CliOptions {
   scenarioIds: ProjectChatApplicationScenarioId[];
   keepData: boolean;
   compact: boolean;
+}
+
+async function waitForAgentRunTerminal(runId: string, timeoutMs = 10 * 60_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const run = await prisma.agentRun.findUnique({
+      where: { id: runId },
+      select: { status: true },
+    });
+    if (
+      run &&
+      ["completed", "insufficient_context", "failed", "cancelled"].includes(
+        run.status,
+      )
+    ) {
+      return run.status;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `Durable application evaluation timed out before AgentRun ${runId} reached a terminal state.`,
+  );
 }
 
 function parseArguments(argv: string[]): CliOptions {
@@ -104,6 +135,15 @@ function researchCoverageGaps(result: unknown, researchState: unknown) {
   ]));
 }
 
+function applicationOutcomeFromAgentRunStatus(
+  status: string,
+): ProjectChatApplicationOutcome {
+  if (status === "completed") return "answered";
+  if (status === "awaiting_review") return "awaiting_review";
+  if (status === "insufficient_context") return "insufficient_context";
+  return "failed";
+}
+
 class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver {
   private readonly threads = new Map<string, { id: string; workItemId: string }>();
   private readonly createdThreadIds = new Set<string>();
@@ -115,6 +155,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     private readonly input: {
       userId: string;
       mainWorkItemId: string;
+      provider: "mock" | "bedrock";
       keepData: boolean;
     },
   ) {}
@@ -287,26 +328,134 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     return entry;
   }
 
-  private async history(threadId: string, currentUserMessageId: string): Promise<ProjectChatHistoryMessage[]> {
-    const messages = await prisma.chatMessage.findMany({
-      where: {
+  private async seedLongThreadScenario(
+    scenario: ProjectChatApplicationScenario,
+    threadId: string,
+  ) {
+    if (scenario.id !== "long_thread_rollover") return;
+    const existingCount = await prisma.chatMessage.count({ where: { threadId } });
+    if (existingCount) return;
+    const messages = Array.from({ length: 16 }, (_, index) => {
+      const sequence = index + 1;
+      const role = sequence % 2 === 1 ? "user" as const : "assistant" as const;
+      const core = sequence === 1
+        ? "Earlier decision under discussion: repository discoveries should become reviewed durable Project Facts before ordinary chat reuses them."
+        : sequence === 2
+          ? "Decision adopted: keep raw repository exploration internal and promote only supported findings into durable memory with provenance."
+          : sequence === 15
+            ? "Current-runtime question: how does the bounded Bedrock tool loop control a project-chat turn?"
+            : sequence === 16
+              ? "Current runtime context: the bounded Bedrock loop enforces tool and token limits inside the durable workflow boundary."
+              : role === "user"
+                ? `Intermediate project question ${Math.ceil(sequence / 2)} asked about repository knowledge and grounded chat.`
+                : `Intermediate answer ${Math.ceil(sequence / 2)} explained that repository analysis becomes reviewed Project Facts with durable provenance.`;
+      return {
         threadId,
-        status: "completed",
-        id: { not: currentUserMessageId },
-      },
-      orderBy: { sequence: "asc" },
-      include: { citations: { orderBy: { ordinal: "asc" } } },
+        sequence,
+        role,
+        status: "completed" as const,
+        content: `${core} ${role === "user" ? "q" : "a"}`.padEnd(4_100, role === "user" ? "q" : "a"),
+        finalizedAt: new Date(),
+      };
     });
-    return messages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      citations: message.citations.map((citation) => ({
-        ordinal: citation.ordinal,
-        kind: citation.kind,
-        label: citation.label,
+    await prisma.chatMessage.createMany({ data: messages });
+    const assistants = await prisma.chatMessage.findMany({
+      where: { threadId, role: "assistant" },
+      select: { id: true, sequence: true },
+      orderBy: { sequence: "asc" },
+    });
+    await prisma.chatCitation.createMany({
+      data: assistants.map((message) => ({
+        messageId: message.id,
+        kind: "project_fact",
+        ordinal: 1,
+        label: `Earlier used Project Fact ${message.sequence / 2}`,
+        excerpt: "Compact manifest test; the full excerpt is not replayed to the chat model.",
       })),
-    }));
+    });
+    const olderMessages = messages.slice(0, messages.length - 12);
+    const rollingSummary = buildRollingConversationSummary(
+      olderMessages.map((message) => ({
+        id: `seeded-${message.sequence}`,
+        role: message.role,
+        content: message.content,
+        citations: message.role === "assistant"
+          ? [{ kind: "project_fact", label: `Earlier used Project Fact ${message.sequence / 2}` }]
+          : [],
+      })),
+      6_000,
+    );
+    await prisma.chatThread.update({
+      where: { id: threadId },
+      data: {
+        rollingSummary,
+        conversationState: {
+          version: 1,
+          olderTurns: olderMessages.map((message) => ({
+            role: message.role,
+            summary: message.content.slice(0, 800),
+          })),
+          seededForApplicationEvaluation: true,
+        },
+      },
+    });
+  }
+
+  private async turnContext(threadId: string, runId: string): Promise<{
+    userMessage: { id: string };
+    history: ProjectChatHistoryMessage[];
+    rollingSummary: string | null;
+  }> {
+    // Fetch the current message, prior conversation, citation manifests, and
+    // rolling summary together. Besides making the evaluator more faithful to
+    // production prompt assembly, this removes two avoidable remote-Postgres
+    // round trips from every measured turn.
+    const thread = await prisma.chatThread.findUniqueOrThrow({
+      where: { id: threadId },
+      select: {
+        rollingSummary: true,
+        messages: {
+          where: { status: "completed" },
+          orderBy: { sequence: "asc" },
+          select: {
+            id: true,
+            agentRunId: true,
+            role: true,
+            content: true,
+            citations: {
+              orderBy: { ordinal: "asc" },
+              select: {
+                ordinal: true,
+                kind: true,
+                label: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    const userMessage = thread.messages.find(
+      (message) => message.agentRunId === runId && message.role === "user",
+    );
+    if (!userMessage) {
+      throw new Error(`Application evaluation could not load the user message for AgentRun ${runId}.`);
+    }
+    return {
+      userMessage: { id: userMessage.id },
+      rollingSummary: thread.rollingSummary,
+      history: thread.messages
+        .filter((message) => message.id !== userMessage.id)
+        .map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          citations: message.citations.map((citation) => ({
+            ordinal: citation.ordinal,
+            kind: citation.kind,
+            label: citation.label,
+          })),
+        })),
+    };
   }
 
   private async persistResult(input: {
@@ -363,6 +512,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       exploredEvidenceCount: result.research.exploredEvidence.length,
       generationRunIds: result.research.generationRunIds,
       applicationEvaluation: true,
+      fallbackUsed: result.fallbackUsed ?? false,
     };
     if (result.status === "awaiting_review") {
       await markAgentRunAwaitingReview({
@@ -477,6 +627,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
   async run(scenario: ProjectChatApplicationScenario): Promise<ProjectChatApplicationObservation> {
     const workItemId = await this.workItemIdFor(scenario);
     const thread = await this.threadFor(scenario, workItemId);
+    await this.seedLongThreadScenario(scenario, thread.id);
     const startedAt = new Date();
     const run = await createProjectChatRun({
       userId: this.input.userId,
@@ -486,44 +637,61 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       idempotencyKey: `application-eval:${scenario.id}:${randomUUID()}`,
     });
     this.createdRunIds.add(run.id);
-    await markAgentRunRunning(run.id);
     await this.seedArtifactScenario(scenario, workItemId, run.id);
-    const userMessage = await prisma.chatMessage.findFirstOrThrow({
-      where: { agentRunId: run.id, role: "user" },
-    });
-    const history = await this.history(thread.id, userMessage.id);
+    const { userMessage, history, rollingSummary } = await this.turnContext(thread.id, run.id);
     let outcome: ProjectChatApplicationOutcome = "failed";
     let answer = "";
     let error: string | null = null;
     let directCoverageGaps: string[] = [];
+    const executionMode = projectChatApplicationExecutionMode({
+      provider: this.input.provider,
+      scenario,
+    });
     try {
-      if (scenario.captureUserContext) {
-        await proposeHighlightFromChatContext({
-          userId: this.input.userId,
-          workItemId,
-          threadId: thread.id,
-          messageId: userMessage.id,
-          agentRunId: run.id,
-          text: scenario.question,
-        });
-      }
-      const result = await runProjectChatAgent({
-        runId: run.id,
-        userId: this.input.userId,
-        workItemId,
-        threadId: thread.id,
-        messageId: userMessage.id,
-        question: scenario.question,
-        history,
-        rollingSummary: (await prisma.chatThread.findUnique({ where: { id: thread.id }, select: { rollingSummary: true } }))?.rollingSummary,
-        allowResearch: scenario.allowResearch,
-        onAgentEvent: (event) => persistResearchAgentEvent(run.id, event),
+      await executeProjectChatApplicationTurn({
+        provider: this.input.provider,
+        scenario,
+        runInline: async () => {
+          await markAgentRunRunning(run.id);
+          if (scenario.captureUserContext) {
+            await proposeHighlightFromChatContext({
+              userId: this.input.userId,
+              workItemId,
+              threadId: thread.id,
+              messageId: userMessage.id,
+              agentRunId: run.id,
+              text: scenario.question,
+            });
+          }
+          const result = await runProjectChatAgent({
+            runId: run.id,
+            userId: this.input.userId,
+            workItemId,
+            threadId: thread.id,
+            messageId: userMessage.id,
+            question: scenario.question,
+            history,
+            rollingSummary,
+            allowResearch: scenario.allowResearch,
+            onAgentEvent: (event) => persistResearchAgentEvent(run.id, event),
+          });
+          directCoverageGaps = result.status === "artifact_requested" ? [] : result.research.coverageGaps;
+          ({ outcome, answer } = await this.persistResult({ runId: run.id, scenario, result }));
+          if (scenario.id === "artifact_missing_impact" && outcome === "insufficient_context") {
+            directCoverageGaps = [answer];
+          }
+        },
+        startDurable: () => startAgentRunWorkflowOnce({
+          runId: run.id,
+          startWorkflow: () => start(projectChatTurnWorkflowReference, [run.id]),
+        }),
+        waitForDurable: async () => {
+          // Workbase's AgentRun is the product audit trail and the state the UI
+          // consumes. Poll it directly: local Workflow return streams can stay
+          // open after the terminal database commit when a dev server reloads.
+          await waitForAgentRunTerminal(run.id);
+        },
       });
-      directCoverageGaps = result.status === "artifact_requested" ? [] : result.research.coverageGaps;
-      ({ outcome, answer } = await this.persistResult({ runId: run.id, scenario, result }));
-      if (scenario.id === "artifact_missing_impact" && outcome === "insufficient_context") {
-        directCoverageGaps = [answer];
-      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
       answer = error;
@@ -534,8 +702,10 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       prisma.agentRun.findUniqueOrThrow({
         where: { id: run.id },
         select: {
+          status: true,
           result: true,
           researchState: true,
+          knowledgeRefreshRunId: true,
           artifact: {
             select: {
               lifecycleStatus: true,
@@ -572,11 +742,15 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       events,
       researchState: storedRun.researchState,
     });
+    if (executionMode === "durable_workflow") {
+      outcome = applicationOutcomeFromAgentRunStatus(storedRun.status);
+    }
     return {
       scenarioId: scenario.id,
       runId: run.id,
       threadId: thread.id,
       workItemId,
+      executionMode,
       outcome,
       answer: assistantMessage.content || answer,
       citationCount: assistantMessage.citations.length,
@@ -584,8 +758,25 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       citationOrdinals: Array.from((assistantMessage.content || answer).matchAll(/\[citation:(\d+)\]/gi))
         .map((match) => Number(match[1]))
         .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0),
+      citationMetadata: assistantMessage.citations.map((citation) => ({
+        ordinal: citation.ordinal,
+        type: citation.kind,
+        title: citation.label,
+        excerpt: citation.excerpt,
+        statement: citation.excerpt,
+      })),
       tools: events.flatMap((event) => event.type === "tool_call" && event.toolName ? [event.toolName] : []),
+      knowledgeRefreshRunId: storedRun.knowledgeRefreshRunId,
       historyMessageCount: history.length,
+      historyCharacterCount: history.reduce((total, message) => total + message.content.length, 0),
+      historyCitationManifestCount: history.reduce((total, message) => total + message.citations.length, 0),
+      rollingSummaryCharacterCount: rollingSummary?.length ?? 0,
+      rollingSummaryPreservedOpeningDecision:
+        /earlier decision under discussion|decision adopted/i.test(rollingSummary ?? ""),
+      rollingSummaryPreservedCitationManifest: /used sources:/i.test(rollingSummary ?? ""),
+      historyPreservedCurrentRuntimeContext: history.some((message) =>
+        /current runtime context|bounded Bedrock tool loop/i.test(message.content)
+      ),
       candidate: candidate ? {
         exists: true,
         status: candidate.status,
@@ -629,6 +820,8 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  process.env.WORKFLOW_LOCAL_BASE_URL ??=
+    process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ?? "http://localhost:3000";
   process.env.WORKBASE_LLM_PROVIDER = options.provider;
   const user = await ensureDemoUser();
   const workItem = await prisma.workItem.findFirst({
@@ -645,6 +838,7 @@ async function main() {
   const driver = new PrismaProjectChatApplicationDriver({
     userId: user.id,
     mainWorkItemId: workItem.id,
+    provider: options.provider,
     keepData: options.keepData,
   });
   const suite = await runProjectChatApplicationScenarios({
@@ -660,8 +854,10 @@ async function main() {
       id: result.scenario.id,
       passed: result.passed,
       outcome: result.observation.outcome,
+      executionMode: result.observation.executionMode,
       metrics: result.observation.metrics,
       tools: result.observation.tools,
+      knowledgeRefreshRunId: result.observation.knowledgeRefreshRunId ?? null,
       citationCount: result.observation.citationCount,
       candidate: result.observation.candidate,
       artifact: result.observation.artifact,
@@ -678,7 +874,13 @@ async function main() {
 }
 
 main()
-  .finally(() => prisma.$disconnect())
+  .finally(async () => {
+    try {
+      await getWorld().close?.();
+    } finally {
+      await prisma.$disconnect();
+    }
+  })
   .catch((error) => {
     console.error(error);
     process.exitCode = 1;

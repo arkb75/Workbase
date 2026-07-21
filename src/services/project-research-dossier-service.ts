@@ -5,6 +5,25 @@ import type {
   ProjectResearchResult,
 } from "@/src/domain/project-chat";
 
+export const PROJECT_RESEARCH_NOTEBOOK_MAX_EXCERPT_BYTES = 8 * 1024;
+export const PROJECT_RESEARCH_NOTEBOOK_MAX_TOTAL_EXCERPT_BYTES = 64 * 1024;
+
+export function truncateUtf8ToByteLength(value: string, maximumBytes: number) {
+  const safeMaximum = Math.max(0, Math.floor(maximumBytes));
+  if (!safeMaximum) return "";
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.byteLength <= safeMaximum) return value;
+
+  // If the first excluded byte is a UTF-8 continuation byte, the byte limit
+  // landed inside a code point. Back up to that code point's leading byte so
+  // decoding never introduces U+FFFD (which could itself exceed the cap).
+  let safeEnd = safeMaximum;
+  while (safeEnd > 0 && (bytes[safeEnd]! & 0b1100_0000) === 0b1000_0000) {
+    safeEnd -= 1;
+  }
+  return bytes.subarray(0, safeEnd).toString("utf8");
+}
+
 const dossierPhases = new Set<ProjectResearchDossier["phase"]>([
   "planning",
   "searching",
@@ -70,6 +89,7 @@ function parseCoverage(value: unknown): ProjectResearchResult["coverage"] {
 function parseNotebook(value: unknown): ProjectResearchDossier["notebook"] {
   const source = record(value);
   if (!source) return null;
+  let remainingExcerptBytes = PROJECT_RESEARCH_NOTEBOOK_MAX_TOTAL_EXCERPT_BYTES;
   const paths = Array.isArray(source.paths)
     ? source.paths.flatMap((entry) => {
         const path = record(entry);
@@ -90,14 +110,34 @@ function parseNotebook(value: unknown): ProjectResearchDossier["notebook"] {
         const type = stringValue(citation?.type);
         const title = stringValue(citation?.title);
         if (!type || !title || !["highlight", "project_fact", "evidence", "artifact", "github_file"].includes(type)) return [];
+        const rawExcerpt = stringValue(citation?.excerpt);
+        const excerpt = rawExcerpt === null
+          ? undefined
+          : truncateUtf8ToByteLength(
+              rawExcerpt,
+              Math.min(
+                PROJECT_RESEARCH_NOTEBOOK_MAX_EXCERPT_BYTES,
+                remainingExcerptBytes,
+              ),
+            );
+        remainingExcerptBytes -= excerpt === undefined
+          ? 0
+          : Buffer.byteLength(excerpt, "utf8");
         return [{
           type: type as ProjectKnowledgeCitation["kind"],
           title,
+          excerpt,
+          evidenceItemId: stringValue(citation?.evidenceItemId) ?? undefined,
+          sourceId: stringValue(citation?.sourceId) ?? undefined,
           repository: stringValue(citation?.repository) ?? undefined,
           commitSha: stringValue(citation?.commitSha) ?? undefined,
+          blobSha: stringValue(citation?.blobSha) ?? undefined,
           path: stringValue(citation?.path) ?? undefined,
           startLine: typeof citation?.startLine === "number" ? citation.startLine : undefined,
           endLine: typeof citation?.endLine === "number" ? citation.endLine : undefined,
+          url: stringValue(citation?.url) ?? undefined,
+          redacted: citation?.redacted === true,
+          redactionCategories: strings(citation?.redactionCategories),
         }];
       })
     : [];

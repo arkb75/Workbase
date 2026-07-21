@@ -14,6 +14,7 @@ function makeClient(responses: Array<{
   text?: string;
   structuredData?: unknown;
   tokenUsage?: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+  stopReason?: string | null;
 } | Error>) {
   const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
   let callIndex = 0;
@@ -36,6 +37,7 @@ function makeClient(responses: Array<{
               outputTokens: 20,
               totalTokens: 30,
             },
+        stopReason: response.stopReason ?? null,
       };
     },
   };
@@ -94,6 +96,27 @@ const numericBoundedSchema = {
     index: {
       type: "integer",
       minimum: 0,
+    },
+  },
+};
+
+const stringAndArrayBoundedSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["label", "items"],
+  properties: {
+    label: {
+      type: "string",
+      minLength: 2,
+      maxLength: 100,
+    },
+    items: {
+      type: "array",
+      minItems: 2,
+      items: {
+        type: "string",
+        minLength: 1,
+      },
     },
   },
 };
@@ -417,13 +440,149 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls[0]?.maxTokens).toBe(4_000);
   });
 
-  it("still rejects a repository-sized prompt when conservative admission headroom is unavailable", async () => {
+  it("preserves a 4K output ceiling for a live-sized semantic micro-batch under a 16K budget", async () => {
+    const { client, calls } = makeClient([{
+      structuredData: { ok: true },
+      tokenUsage: {
+        inputTokens: 8_900,
+        outputTokens: 3_400,
+        totalTokens: 12_300,
+      },
+    }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 16_000,
+    });
+    const liveSizedSchema = {
+      ...jsonSchema,
+      description: "s".repeat(3_000),
+    };
+
+    await client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "x".repeat(24_500),
+      schema,
+      schemaName: "repository_semantic_observation_batch",
+      schemaDescription: "A bounded repository observation batch.",
+      jsonSchema: liveSizedSchema,
+      maxTokens: 4_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxTokens).toBe(4_000);
+    expect(budget.usage.totalTokens).toBe(12_300);
+  });
+
+  it("records max_tokens when a native structured response ends before valid JSON", async () => {
+    const { client } = makeClient([{
+      text: "{\"ok\":",
+      stopReason: "max_tokens",
+    }]);
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema"],
+    })).rejects.toMatchObject({
+      status: "parse_error",
+      attempts: [{
+        mode: "bedrock_json_schema",
+        phase: "generation",
+        status: "parse_error",
+        stopReason: "max_tokens",
+        errorMessage: expect.stringContaining("output-token ceiling"),
+      }],
+    });
+  });
+
+  it("repairs a max-token partial once without replaying the full strict-tool transport", async () => {
+    const { client, calls } = makeClient([
+      {
+        text: "{\"ok\":",
+        stopReason: "max_tokens",
+        tokenUsage: { inputTokens: 100, outputTokens: 128, totalTokens: 228 },
+      },
+      {
+        text: "{\"ok\":true}",
+        tokenUsage: { inputTokens: 80, outputTokens: 8, totalTokens: 88 },
+      },
+    ]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: [
+        "bedrock_json_schema",
+        "strict_tool_use",
+        "text_repair_fallback",
+      ],
+      repairStrategy: "repair_last_failure",
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.structuredOutput?.mode).toBe("bedrock_json_schema");
+    expect(calls[1]?.structuredOutput).toBeUndefined();
+    expect(calls[1]?.systemPrompt).toContain("repair structured model outputs");
+    expect(result.attempts).toEqual([
+      expect.objectContaining({
+        mode: "bedrock_json_schema",
+        phase: "generation",
+        stopReason: "max_tokens",
+      }),
+      expect.objectContaining({
+        mode: "text_repair_fallback",
+        phase: "repair",
+        status: "success",
+      }),
+    ]);
+  });
+
+  it("rejects an adversarial one-character token stream before it can overspend the budget", async () => {
     const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
     const budget = createStructuredGenerationBudget({
       maxModelCalls: 1,
       maxRepairPasses: 0,
       maxOutputTokens: 4_000,
       maxTotalTokens: 9_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "a ".repeat(9_000),
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 4_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    })).rejects.toMatchObject({ code: "token_budget_exhausted" });
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it("still rejects a repository-sized prompt when conservative admission headroom is unavailable", async () => {
+    const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 6_000,
     });
 
     await expect(client.generateStructured({
@@ -475,6 +634,25 @@ describe("toBedrockCompatibleJsonSchema", () => {
       },
     });
   });
+
+  it("removes unsupported string bounds and array minimums above one", () => {
+    expect(toBedrockCompatibleJsonSchema(stringAndArrayBoundedSchema)).toEqual({
+      type: "object",
+      additionalProperties: false,
+      required: ["label", "items"],
+      properties: {
+        label: {
+          type: "string",
+        },
+        items: {
+          type: "array",
+          items: {
+            type: "string",
+          },
+        },
+      },
+    });
+  });
 });
 
 describe("AwsBedrockConverseRuntime", () => {
@@ -496,6 +674,7 @@ describe("AwsBedrockConverseRuntime", () => {
           outputTokens: 1,
           totalTokens: 2,
         },
+        stopReason: "end_turn",
       } as never);
 
     const runtime = new AwsBedrockConverseRuntime({
@@ -503,7 +682,7 @@ describe("AwsBedrockConverseRuntime", () => {
       modelId: "us.anthropic.claude-sonnet-4-6",
     });
 
-    await runtime.converse({
+    const response = await runtime.converse({
       systemPrompt: "Return JSON.",
       userPrompt: "Return {\"ok\":true}.",
       maxTokens: 64,
@@ -537,6 +716,7 @@ describe("AwsBedrockConverseRuntime", () => {
       { text: "Return JSON." },
       { cachePoint: { type: "default" } },
     ]);
+    expect(response.stopReason).toBe("end_turn");
     expect(
       JSON.parse(
         (

@@ -43,7 +43,12 @@ describe("repository semantic orchestration guardrails", () => {
       label: key,
       files: [
         { id: `${key}-specific`, path, score: 10 },
-        ...(key === "project_chat_grounding"
+        ...(key === "workflow_orchestration"
+          ? [
+              { id: "workflow-start-facet", path: "src/services/agent-run-workflow-start-service.ts", score: 9 },
+              { id: "chat-store-facet", path: "src/services/project-chat-store.ts", score: 8 },
+            ]
+          : key === "project_chat_grounding"
           ? [{ id: "project-chat-harness-facet", path: "src/services/project-agent-harness.ts", score: 9 }]
           : key === "repository_knowledge_lifecycle"
             ? [{ id: "semantic-orchestrator-facet", path: "src/services/repository-semantic-orchestrator-service.ts", score: 9 }]
@@ -144,18 +149,20 @@ describe("repository semantic orchestration guardrails", () => {
     });
 
     const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(packages).toHaveLength(4);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length === 4)).toBe(true);
-    expect(selectedIds.size).toBeLessThanOrEqual(16);
+    expect(packages).toHaveLength(3);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(selectedIds.size).toBe(18);
     expect(packages.reduce(
       (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
       0,
-    )).toBeLessThanOrEqual(4);
+    )).toBeLessThanOrEqual(5);
     for (const [primaryId, supplementId] of [
       ["project_chat_grounding-specific", "project-chat-harness-facet"],
       ["repository_knowledge_lifecycle-specific", "semantic-orchestrator-facet"],
       ["knowledge_review_lifecycle-specific", "knowledge-staleness-facet"],
       ["review_ui-specific", "project-workspace-facet"],
+      ["workflow_orchestration-specific", "workflow-start-facet"],
+      ["workflow_orchestration-specific", "chat-store-facet"],
     ]) {
       expect(packages.some((entry) =>
         entry.fileSnapshotIds.includes(primaryId) &&
@@ -169,6 +176,8 @@ describe("repository semantic orchestration guardrails", () => {
       "semantic-orchestrator-facet",
       "knowledge-staleness-facet",
       "project-workspace-facet",
+      "workflow-start-facet",
+      "chat-store-facet",
     ]) expect(selectedIds.has(supplementalId)).toBe(true);
   });
 
@@ -363,9 +372,9 @@ describe("repository semantic orchestration guardrails", () => {
       manifest: manifest(),
     });
 
-    expect(packages).toHaveLength(4);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 2 && entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([4, 4, 4, 4]);
+    expect(packages).toHaveLength(3);
+    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 4 && entry.fileSnapshotIds.length <= 8)).toBe(true);
+    expect(packages.map((entry) => entry.fileSnapshotIds.length)).toEqual([7, 7, 4]);
     expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
       new Set([
         ...Object.keys(paths).map((key) => `${key}-specific`),
@@ -373,6 +382,8 @@ describe("repository semantic orchestration guardrails", () => {
         "semantic-orchestrator-facet",
         "knowledge-staleness-facet",
         "project-workspace-facet",
+        "workflow-start-facet",
+        "chat-store-facet",
       ]),
     );
     for (const key of Object.keys(paths)) {
@@ -423,8 +434,8 @@ describe("repository semantic orchestration guardrails", () => {
     expect(selectedIds.has("tests_operations-specific")).toBe(false);
     expect(selectedIds.has("review_ui-specific")).toBe(true);
     expect(selectedIds.has("project-workspace-facet")).toBe(true);
-    expect(selectedIds.size).toBeLessThanOrEqual(16);
-    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(4);
+    expect(selectedIds.size).toBeLessThanOrEqual(18);
+    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(5);
   });
 
   it("adds repository import beside exploration when the bounded plan has capacity", () => {
@@ -794,6 +805,51 @@ describe("repository semantic orchestration guardrails", () => {
       "review_ui.candidate_metadata",
       "review_ui.citation_navigation",
     ]);
+    expect(semanticSignalKeysForFile({
+      path: "workflows/project-chat.ts",
+      capabilityKeys: ["workflow_orchestration"],
+    })).toEqual([
+      "workflow_orchestration.chat_workflow",
+      "workflow_orchestration.repository_refresh_workflow",
+      "workflow_orchestration.artifact_workflow",
+      "workflow_orchestration.approval_pause_resume",
+      "workflow_orchestration.reconciliation_retry_boundary",
+      "workflow_orchestration.shared_refresh_owner_recovery",
+    ]);
+    expect(semanticSignalKeysForFile({
+      path: "src/services/agent-run-workflow-start-service.ts",
+      capabilityKeys: ["workflow_orchestration", "ai_runtime"],
+    })).toEqual(["workflow_orchestration.workflow_start_reservation"]);
+    expect(semanticSignalKeysForFile({
+      path: "src/services/project-chat-store.ts",
+      capabilityKeys: ["workflow_orchestration", "project_chat_grounding"],
+    })).toEqual([
+      "workflow_orchestration.chat_run_idempotency",
+      "workflow_orchestration.event_sequence_guard",
+      "workflow_orchestration.terminal_write_guard",
+    ]);
+  });
+
+  it("asks workflow files about retry, idempotency, and recovery without unrelated capabilities", () => {
+    const task = buildFileSemanticTask({
+      path: "src/services/project-chat-store.ts",
+      workPackageCapabilityKeys: ["workflow_orchestration", "ingestion_integrations"],
+      staticSubsystemKeys: ["workflow_orchestration", "project_chat_grounding"],
+    });
+
+    expect(task).toMatchObject({
+      capabilityKeys: ["workflow_orchestration"],
+      semanticSignalKeys: [
+        "workflow_orchestration.chat_run_idempotency",
+        "workflow_orchestration.event_sequence_guard",
+        "workflow_orchestration.terminal_write_guard",
+      ],
+      questions: expect.arrayContaining([
+        expect.stringContaining("terminal finalization"),
+        expect.stringContaining("duplicate or replayed writes"),
+      ]),
+    });
+    expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
   });
 
   it("emits a deliberate candidate for every relevant capability supported by a multi-key fact", () => {

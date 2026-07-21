@@ -10,6 +10,7 @@ import {
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
   inferProjectDomainCapability,
+  inferSubsystemsFromPath,
   REPOSITORY_FILE_CHUNK_BYTES,
   selectRequiredSemanticCoverageAreas,
   selectSemanticWindows,
@@ -35,6 +36,114 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
     expect(inferProjectDomainCapability("src/services/miscellaneous-service.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/payments/__tests__/charge.test.ts")).toBeNull();
+  });
+
+  it("classifies persisted chat-run coordination as workflow orchestration", () => {
+    expect(inferSubsystemsFromPath("src/services/project-chat-store.ts")).toContain("workflow_orchestration");
+    expect(inferSubsystemsFromPath("src/services/unrelated-store.ts")).not.toContain("workflow_orchestration");
+  });
+
+  it("extracts exact workflow retry, startup, and persisted-run guards without path-only inference", async () => {
+    const [workflow, startup, store] = await analyzeRepositoryFiles([
+      {
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "workflows/project-chat.ts",
+        content: [
+          "const claimed = await claimRequiredKnowledgeRefresh(runId, refreshRunId);",
+          'const message = "resuming its checkpointed repository work";',
+          "// replaying the entire synthesis and reconciliation pass is unsafe",
+          "reconcileRequiredKnowledge.maxRetries = 0;",
+        ].join("\n"),
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "src/services/agent-run-workflow-start-service.ts",
+        content: [
+          'if (current.workflowId && !current.workflowId.startsWith("starting:")) return current.workflowId;',
+          "const reservation = `starting:${randomUUID()}`;",
+          "const where = { workflowId: null, status: 'queued' };",
+          "const reserve = { data: { workflowId: reservation } };",
+          "await getRun(workflow.runId).cancel();",
+          "const cleanup = { data: { workflowId: null } };",
+        ].join("\n"),
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "a".repeat(40),
+        path: "src/services/project-chat-store.ts",
+        content: [
+          "export async function createProjectChatRun() {",
+          '  const lock = `FROM "ChatThread" FOR UPDATE`;',
+          "  const existing = { userId_idempotencyKey: {} };",
+          "  if (existingRun) return existingRun;",
+          '  throw new Error("Finish or cancel the active thread run");',
+          "}",
+          "export async function appendAgentRunEvent() {",
+          '  const lock = `FROM "AgentRun" WHERE "id" = runId FOR UPDATE`;',
+          '  if ([\"completed\", \"insufficient_context\", \"failed\", \"cancelled\"].includes(runs[0].status)) return;',
+          "  const next = { sequence: (max._max.sequence ?? 0) + 1 };",
+          "}",
+          "export async function completeAgentRun() {",
+          '  const row = `FROM "AgentRun"`;',
+          '  const lock = `FOR UPDATE`;',
+          '  if ([\"completed\", \"insufficient_context\", \"failed\", \"cancelled\"].includes(runs[0].status)) return;',
+          "}",
+        ].join("\n"),
+      },
+    ]);
+
+    expect(workflow?.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        statement: expect.stringContaining("disables automatic retries"),
+        lineStart: 3,
+        lineEnd: 4,
+      }),
+      expect.objectContaining({
+        statement: expect.stringContaining("claim a released shared refresh"),
+        lineStart: 1,
+        lineEnd: 2,
+      }),
+    ]));
+    expect(startup?.facts).toContainEqual(expect.objectContaining({
+      statement: expect.stringContaining("conditionally reserves an unstarted queued run"),
+      lineStart: 1,
+      lineEnd: 6,
+    }));
+    expect(store?.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        statement: expect.stringContaining("serializes chat-run creation"),
+        lineStart: 1,
+        lineEnd: 5,
+      }),
+      expect.objectContaining({
+        statement: expect.stringContaining("serializes agent-run event appends"),
+        lineStart: 7,
+        lineEnd: 10,
+      }),
+      expect.objectContaining({
+        statement: expect.stringContaining("locks persisted run state during completion"),
+        lineStart: 12,
+        lineEnd: 15,
+      }),
+    ]));
+
+    const [incompleteStartup] = await analyzeRepositoryFiles([{
+      repository: "workbase/demo",
+      commitSha: "a".repeat(40),
+      path: "src/services/agent-run-workflow-start-service.ts",
+      content: [
+        'if (current.workflowId && !current.workflowId.startsWith("starting:")) return current.workflowId;',
+        "const reservation = `starting:${randomUUID()}`;",
+        "const where = { workflowId: null, status: 'queued' };",
+        "const reserve = { data: { workflowId: reservation } };",
+        "const cleanup = { data: { workflowId: null } };",
+      ].join("\n"),
+    }]);
+    expect(incompleteStartup?.facts.some((fact) =>
+      fact.statement.includes("conditionally reserves an unstarted queued run")
+    )).toBe(false);
   });
 
   it("adds zero project-domain targets when every Workbase base capability already applies", () => {

@@ -8,6 +8,7 @@ import {
   ArrowUp,
   BookOpenCheck,
   Check,
+  Copy,
   FileText,
   GitBranch,
   LoaderCircle,
@@ -31,6 +32,12 @@ import {
 } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  buildChatClipboardPayload,
+  isExternalChatHref,
+  resolveChatCitationHref,
+  safeHttpUrl,
+} from "@/components/chat/chat-citation-presentation";
 import { ChatMarkdown } from "@/components/chat/chat-markdown";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -129,10 +136,16 @@ export interface ChatWorkspaceRun {
 
 export function selectLatestRunFeedback(runs: ChatWorkspaceRun[]) {
   const latestRun = runs.at(-1) ?? null;
-  return {
-    retryableRun: latestRun && ["failed", "insufficient_context", "cancelled"].includes(latestRun.status)
+  const terminalRetryCandidate =
+    latestRun && ["failed", "insufficient_context", "cancelled"].includes(latestRun.status)
       ? latestRun
-      : null,
+      : null;
+  return {
+    retryableRun:
+      terminalRetryCandidate?.status === "failed" &&
+      terminalRetryCandidate.failure?.retryable === false
+        ? null
+        : terminalRetryCandidate,
     latestFailure: latestRun?.status === "failed" ? latestRun.failure : null,
   };
 }
@@ -151,21 +164,6 @@ const starterPrompts = [
     label: "Write resume bullets emphasizing ownership",
   },
 ];
-
-function citationHref(citation: ChatWorkspaceCitation, workItemId: string) {
-  return (
-    citation.url ??
-    (citation.highlightId
-      ? `/work-items/${workItemId}?tab=highlights`
-      : citation.projectFactId
-        ? `/work-items/${workItemId}?tab=highlights#project-facts`
-      : citation.evidenceItemId
-        ? `/work-items/${workItemId}?tab=sources`
-        : citation.artifactId
-          ? `/work-items/${workItemId}?tab=artifacts&artifactId=${citation.artifactId}`
-          : null)
-  );
-}
 
 export function MessageContent({
   content,
@@ -186,27 +184,31 @@ export function MessageContent({
     if (!referenced.length) return null;
     return (
       <span
+        role="group"
         aria-label={`Sources ${referenced.map((entry) => entry.ordinal).join(", ")}`}
-        className="mx-1 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18"
+        className="mx-1 inline-flex translate-y-[-1px] items-center rounded-full bg-[color:var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-normal leading-none text-[color:var(--accent)] ring-1 ring-[color:var(--accent)]/18"
       >
         [
         {referenced.map(({ ordinal, citation }, citationIndex) => {
-          const href = citationHref(citation, workItemId);
+          const href = resolveChatCitationHref(citation, workItemId);
+          const external = isExternalChatHref(href);
+          const accessibleLabel = `Source ${ordinal}: ${citation.label}${external ? " (opens in a new tab)" : ""}`;
           return (
             <span key={citation.id}>
               {citationIndex ? ", " : ""}
               {href ? (
                 <a
                   href={href}
+                  aria-label={accessibleLabel}
                   title={citation.label}
-                  target={citation.url ? "_blank" : undefined}
-                  rel={citation.url ? "noopener noreferrer" : undefined}
-                  className="hover:underline"
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noopener noreferrer" : undefined}
+                  className="rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
                 >
                   {ordinal}
                 </a>
               ) : (
-                <span title={citation.label}>{ordinal}</span>
+                <span aria-label={accessibleLabel} title={citation.label}>{ordinal}</span>
               )}
             </span>
           );
@@ -225,6 +227,57 @@ export function MessageContent({
   );
 }
 
+export function CopyChatAnswerButton({
+  content,
+  citations,
+  workItemId,
+}: {
+  content: string;
+  citations: ChatWorkspaceCitation[];
+  workItemId: string;
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  const copyMarkdown = async () => {
+    const payload = buildChatClipboardPayload({ content, citations, workItemId });
+    try {
+      if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/plain": new Blob([payload.plainText], { type: "text/plain" }),
+            "text/markdown": new Blob([payload.markdown], { type: "text/markdown" }),
+          }),
+        ]);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload.markdown);
+      } else {
+        throw new Error("Clipboard access is unavailable.");
+      }
+      setCopyState("copied");
+    } catch {
+      try {
+        await navigator.clipboard.writeText(payload.markdown);
+        setCopyState("copied");
+      } catch {
+        setCopyState("failed");
+      }
+    }
+    window.setTimeout(() => setCopyState("idle"), 1_800);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={copyMarkdown}
+      aria-label="Copy answer as Markdown"
+      className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-[color:var(--ink-muted)] transition hover:bg-black/[0.035] hover:text-[color:var(--ink-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+    >
+      {copyState === "copied" ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : <Copy aria-hidden="true" className="h-3.5 w-3.5" />}
+      {copyState === "copied" ? "Copied Markdown" : copyState === "failed" ? "Copy failed" : "Copy Markdown"}
+    </button>
+  );
+}
+
 export function CitationList({
   citations,
   workItemId,
@@ -238,22 +291,24 @@ export function CitationList({
 
   return (
     <details className="group mt-4 border-t border-black/7 pt-3">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-[color:var(--ink-muted)] transition hover:text-[color:var(--ink-strong)]">
-        <GitBranch className="h-3.5 w-3.5" />
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-sm text-xs font-medium text-[color:var(--ink-muted)] transition hover:text-[color:var(--ink-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]">
+        <GitBranch aria-hidden="true" className="h-3.5 w-3.5" />
         {citations.length} source{citations.length === 1 ? "" : "s"}
-        <span className="transition group-open:rotate-90">›</span>
+        <span aria-hidden="true" className="transition group-open:rotate-90">›</span>
       </summary>
       <div className="mt-3 grid gap-2">
         {citations.map((citation, index) => {
-          const href = citationHref(citation, workItemId);
+          const href = resolveChatCitationHref(citation, workItemId);
+          const external = isExternalChatHref(href);
           const body = (
             <div className="grid gap-1.5 border-l-2 border-[color:var(--accent)]/30 pl-3">
               <div className="flex flex-wrap items-center gap-2">
                 {href ? (
                   <a
                     href={href}
-                    target={citation.url ? "_blank" : undefined}
-                    rel={citation.url ? "noopener noreferrer" : undefined}
+                    target={external ? "_blank" : undefined}
+                    rel={external ? "noopener noreferrer" : undefined}
+                    aria-label={`${index + 1}. ${citation.label}${external ? " (opens in a new tab)" : ""}`}
                     className="rounded-sm text-xs font-semibold text-[color:var(--ink-strong)] underline-offset-2 transition hover:text-[color:var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
                   >
                     {index + 1}. {citation.label}
@@ -282,29 +337,33 @@ export function CitationList({
                     View underlying evidence
                   </summary>
                   <div className="mt-2 grid gap-2 border-l border-black/8 pl-3">
-                    {citation.provenance.map((entry) => (
-                      <div key={entry.id} className="grid gap-1">
-                        {entry.url ? (
-                          <a
-                            href={entry.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-fit rounded-sm font-mono text-[10px] underline-offset-2 transition hover:text-[color:var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-                          >
-                            {entry.path ?? entry.title}
-                            {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
-                          </a>
-                        ) : (
-                          <span className="font-mono text-[10px]">
-                            {entry.path ?? entry.title}
-                            {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
-                          </span>
-                        )}
-                        <p className="line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
-                          {entry.excerpt}
-                        </p>
-                      </div>
-                    ))}
+                    {citation.provenance.map((entry) => {
+                      const provenanceHref = safeHttpUrl(entry.url);
+                      return (
+                        <div key={entry.id} className="grid gap-1">
+                          {provenanceHref ? (
+                            <a
+                              href={provenanceHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`${entry.path ?? entry.title} (opens in a new tab)`}
+                              className="w-fit rounded-sm font-mono text-[10px] underline-offset-2 transition hover:text-[color:var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                            >
+                              {entry.path ?? entry.title}
+                              {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
+                            </a>
+                          ) : (
+                            <span className="font-mono text-[10px]">
+                              {entry.path ?? entry.title}
+                              {entry.commitSha ? ` · ${entry.commitSha.slice(0, 8)}` : ""}
+                            </span>
+                          )}
+                          <p className="line-clamp-3 leading-5 text-[color:var(--ink-soft)]">
+                            {entry.excerpt}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </details>
               ) : null}
@@ -670,7 +729,9 @@ export function ProjectChatWorkspace({
                         <p className="font-semibold">{latestFailure.stage ?? "Agent run failed"}</p>
                         <p className="mt-1 leading-6">{latestFailure.message}</p>
                         {latestFailure.recovery ? <p className="mt-1 leading-6"><span className="font-medium">Recovery:</span> {latestFailure.recovery}</p> : null}
-                        <p className="mt-2 text-[11px] text-amber-800">Failure code: {latestFailure.code ?? "workflow_failed"}</p>
+                        <p className="mt-2 text-[11px] text-amber-800">
+                          Failure code: {latestFailure.code ?? "workflow_failed"} · Run ID: {runs.at(-1)?.id}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -691,9 +752,16 @@ export function ProjectChatWorkspace({
                         "max-w-[92%] text-sm leading-7 sm:max-w-[85%]",
                         message.role === "user"
                           ? "rounded-[22px] rounded-br-md bg-[color:var(--ink-strong)] px-5 py-3.5 text-white"
-                          : "w-full border-l border-black/8 pl-5 text-[color:var(--ink-strong)]",
+                          : message.status === "failed"
+                            ? "w-full rounded-r-xl border-l-2 border-amber-400 bg-amber-50/70 py-3 pr-4 pl-5 text-amber-950"
+                            : "w-full border-l border-black/8 pl-5 text-[color:var(--ink-strong)]",
                       )}
                     >
+                      {message.status === "failed" ? (
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge tone="warning">Operational failure</Badge>
+                        </div>
+                      ) : null}
                       {message.status === "awaiting_review" ? (
                         <div className="mb-3 flex items-center gap-2">
                           <Badge tone="warning">Provisional · awaiting Project Fact review</Badge>
@@ -731,8 +799,19 @@ export function ProjectChatWorkspace({
                           </form>
                         </div>
                       ) : null}
-                      {message.role === "assistant" ? (
-                        <CitationList citations={message.citations} workItemId={workItemId} />
+                      {message.role === "assistant" && message.status !== "failed" ? (
+                        <>
+                          <CitationList citations={message.citations} workItemId={workItemId} />
+                          {message.content.trim() ? (
+                            <div className="mt-2 flex justify-end">
+                              <CopyChatAnswerButton
+                                content={message.content}
+                                citations={message.citations}
+                                workItemId={workItemId}
+                              />
+                            </div>
+                          ) : null}
+                        </>
                       ) : null}
                     </div>
                     <span className="px-1 text-[10px] text-[color:var(--ink-muted)]">

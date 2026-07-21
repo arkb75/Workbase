@@ -1,7 +1,9 @@
+import { Prisma } from "@/src/generated/prisma/client";
 import type { JsonValue, ClaimSnapshot, HighlightDraft } from "@/src/domain/types";
 import { createHighlightWithRelations } from "@/src/lib/evidence-persistence";
 import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { inferEvidenceTags } from "@/src/lib/highlight-tags";
+import { resolveBedrockConfig } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { claimResearchService } from "@/src/services/claim-research-service";
@@ -19,21 +21,55 @@ import {
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
 import { publicKnowledgeVerificationService } from "@/src/services/public-knowledge-verification-service";
-import { recordChange } from "@/src/services/knowledge-reconciliation-service";
+import { upsertReviewableKnowledgeChangeInTransaction } from "@/src/services/knowledge-change-service";
+import { KNOWLEDGE_LIFECYCLE_POLICY_VERSION } from "@/src/services/knowledge-reconciliation-service";
+import { lockKnowledgeWorkItemMutation } from "@/src/services/knowledge-mutation-lock-service";
 
 const ownershipPattern =
   /\b(i|we)\s+(built|created|designed|implemented|led|owned|shipped|migrated|optimized|improved|reduced|increased|launched|fixed|introduced|architected)\b/i;
-const impactPattern = /\b\d+(?:\.\d+)?\s*(?:%|x|×|ms|s|sec|seconds?|minutes?|hours?|users?|requests?|records?)(?=\s|[.,;:!?)]|$)/i;
+const impactPattern =
+  /\b\d+(?:\.\d+)?\s*(?:%|x|×|ms|s|sec|seconds?|minutes?|hours?|users?|requests?|records?|repository|repositories|imports?|jobs?|builds?|deployments?|incidents?|customers?)(?=\s|[.,;:!?)]|$)/i;
 const nonAssertionPattern =
-  /\b(did (?:i|we)|have (?:i|we)|if (?:i|we)|hypothetically|for example|imagine (?:i|we)|(?:i|we) (?:did not|didn't|never|might|could|would))\b/i;
+  /\b(?:did not|didn't|didn’t|do not|don't|don’t|does not|doesn't|doesn’t|is not|isn't|isn’t|are not|aren't|aren’t|was not|wasn't|wasn’t|were not|weren't|weren’t|has not|hasn't|hasn’t|have not|haven't|haven’t|had not|hadn't|hadn’t|never|no longer|failed to)\b/i;
+const questionOrPoliteRequestPattern =
+  /^(?:how|what|why|when|where|who|which|can|could|would|will|should|may|might|do|does|did|is|are|am|was|were|has|have|had|tell|show|list|give|help|make sure|resume bullets?|linkedin (?:entry|experience|summary)|project summary|sources?|citations?|provenance|tool calls?)\b|\b(?:please|can you|could you|would you|will you|i (?:want|need|would like) (?:you )?to)\b/i;
+const commandClausePattern =
+  /(?:^|[,.!;:—–]\s*|\s+-\s+|\b(?:and|then|also)\s+)(?:please\s+)?(?:write|draft|generate|create|turn|convert|use|make|craft|rewrite|summari[sz]e|explain|compare|assess|analy[sz]e|grade|rank|check|inspect|search|research|look|find|read|access|pull|refresh|verify|validate|confirm|corroborate|investigate|approve|deny|reject|accept|edit|update|delete|remove|retire|restore|revert|keep|mark|flag|identify|cite|source)\s+(?:me\b|a\b|an\b|the\b|this\b|that\b|these\b|those\b|it\b|my\b|our\b|all\b|any\b|which\b|for\b|at\b|into\b|evidence\b|sources?\b|repo(?:sitory)?\b|github\b|codebase\b|answer\b|claim\b|candidate\b|highlight\b|fact\b|citation\b|resume\b|linkedin\b|project\b)/i;
+const prospectiveOrHedgedPattern =
+  /\b(?:plan(?:s|ned|ning)?\s+to|intend(?:s|ed|ing)?\s+to|aim(?:s|ed|ing)?\s+to|hope(?:s|d|ing)?\s+to|expect(?:s|ed|ing)?\s+to|target(?:s|ed|ing)?\s+(?:is|was|to|of)|goal\s+(?:is|was|to|of)|should|could|would|might|may|will|maybe|perhaps|possibly|probably|potentially|forecast(?:ed)?|projected|aspirational|estimated?|roughly|approximately|apparently|attempted to|tried to|i think|i believe|i suspect|appears? to|seems? to)\b/i;
+const quotedOrAttributedPattern =
+  /["“”`]|(?:^|[\s(])['‘][^'’\n]{5,}['’](?=$|[\s).,;:])|\b(?:according to|(?:someone|they|he|she|the (?:user|assistant|model|agent)) (?:said|claimed|wrote|suggested)|(?:prior|previous|earlier) (?:assistant|answer|message|response))\b/i;
+
+export type SelfReportedContextClassification =
+  | "eligible"
+  | "too_short"
+  | "question_or_request"
+  | "negated"
+  | "prospective_or_hedged"
+  | "quoted_or_attributed"
+  | "not_reusable";
+
+export function classifySelfReportedProjectContext(value: string): SelfReportedContextClassification {
+  const normalized = normalizeWhitespace(value);
+  if (normalized.length < 24) return "too_short";
+  if (
+    normalized.includes("?") ||
+    questionOrPoliteRequestPattern.test(normalized) ||
+    commandClausePattern.test(normalized)
+  ) {
+    return "question_or_request";
+  }
+  if (nonAssertionPattern.test(normalized)) return "negated";
+  if (prospectiveOrHedgedPattern.test(normalized)) return "prospective_or_hedged";
+  if (quotedOrAttributedPattern.test(normalized)) return "quoted_or_attributed";
+  if (!ownershipPattern.test(normalized) && !impactPattern.test(normalized)) {
+    return "not_reusable";
+  }
+  return "eligible";
+}
 
 export function isHighlightWorthyUserContext(value: string) {
-  const normalized = normalizeWhitespace(value);
-  return (
-    normalized.length >= 24 &&
-    !nonAssertionPattern.test(normalized) &&
-    (ownershipPattern.test(normalized) || impactPattern.test(normalized))
-  );
+  return classifySelfReportedProjectContext(value) === "eligible";
 }
 
 export function classifyChatCandidateMatch(input: {
@@ -118,6 +154,99 @@ function loadCandidateContext(userId: string, workItemId: string) {
   });
 }
 
+const ACTIVE_CHAT_HIGHLIGHT_RUN_STATUSES = new Set([
+  "queued",
+  "running",
+  "awaiting_review",
+]);
+const CHAT_HIGHLIGHT_PERSISTENCE_ATTEMPTS = 5;
+
+function persistenceErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : null;
+}
+
+function isRetryableChatHighlightPersistenceError(error: unknown) {
+  const code = persistenceErrorCode(error);
+  if (code === "P2002" || code === "P2034") return true;
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return message.includes("TransactionWriteConflict");
+}
+
+async function chatHighlightPersistenceBackoff(attempt: number) {
+  const baseDelayMs = Math.min(250, 10 * (2 ** attempt));
+  const delayMs = baseDelayMs + Math.floor(Math.random() * Math.max(1, baseDelayMs / 2));
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function loadScopedChatHighlightCandidate(input: {
+  agentRunId: string;
+  userId: string;
+  workItemId: string;
+}) {
+  return prisma.agentRunCandidate.findFirst({
+    where: {
+      agentRunId: input.agentRunId,
+      agentRun: {
+        userId: input.userId,
+        workItemId: input.workItemId,
+      },
+    },
+  });
+}
+
+async function lockScopedChatHighlightRun(
+  tx: Prisma.TransactionClient,
+  input: {
+    agentRunId: string;
+    userId: string;
+    workItemId: string;
+  },
+) {
+  const rows = await tx.$queryRaw<Array<{ status: string }>>`
+    SELECT "status"::text AS "status"
+    FROM "AgentRun"
+    WHERE "id" = ${input.agentRunId}
+      AND "userId" = ${input.userId}
+      AND "workItemId" = ${input.workItemId}
+    FOR UPDATE
+  `;
+  return rows[0]?.status ?? "missing";
+}
+
+function materializedChatHighlightDraft(input: {
+  draft: HighlightDraft;
+  evidence: {
+    id: string;
+    title: string;
+    content: string;
+  };
+  source: {
+    id: string;
+    label: string;
+  };
+}): HighlightDraft {
+  return {
+    ...input.draft,
+    evidence: {
+      ...input.draft.evidence,
+      sourceRefs: [{
+        evidenceItemId: input.evidence.id,
+        sourceId: input.source.id,
+        sourceLabel: input.source.label,
+        sourceType: "chat_context",
+        title: input.evidence.title,
+        excerpt: input.evidence.content,
+      }],
+    },
+  };
+}
+
+function toInputJson(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 export async function proposeHighlightFromChatContext(input: {
   userId: string;
   workItemId: string;
@@ -134,92 +263,74 @@ export async function proposeHighlightFromChatContext(input: {
   // Most chat turns are questions, not reusable ownership/impact statements.
   // Reject those in memory before paying for an idempotency lookup and the
   // larger candidate context graph.
-  const existingCandidate = await prisma.agentRunCandidate.findFirst({
-    where: { agentRunId: input.agentRunId },
-  });
+  const existingCandidate = await loadScopedChatHighlightCandidate(input);
   if (existingCandidate) return existingCandidate;
+
+  const activeRun = await prisma.agentRun.findFirst({
+    where: {
+      id: input.agentRunId,
+      userId: input.userId,
+      workItemId: input.workItemId,
+      status: { in: ["queued", "running", "awaiting_review"] },
+    },
+    select: { id: true },
+  });
+  if (!activeRun) return null;
 
   const dlp = redactRepositorySecrets(normalizeWhitespace(input.text));
   const context = await loadCandidateContext(input.userId, input.workItemId);
-  const source = await prisma.source.upsert({
-    where: {
-      workItemId_type_externalId: {
-        workItemId: input.workItemId,
-        type: "chat_context",
-        externalId: input.threadId,
-      },
-    },
-    create: {
-      workItemId: input.workItemId,
-      type: "chat_context",
-      label: "Self-reported chat context",
-      externalId: input.threadId,
-      metadata: {
-        threadId: input.threadId,
-        selfReported: true,
-      },
-    },
-    update: {
-      updatedAt: new Date(),
-    },
-  });
   const normalizedText = dlp.content;
-  const evidence = await prisma.evidenceItem.upsert({
-    where: {
-      sourceId_externalId: {
-        sourceId: source.id,
-        externalId: `chat-message:${input.messageId}`,
-      },
+  // Keep chat context transient while extraction and verification can still be
+  // cancelled. Source, Evidence, tags, Highlight, candidate, review card, and
+  // any supersession are materialized together only after the scoped AgentRun
+  // is row-locked and confirmed active.
+  const source = {
+    id: `transient-chat-source:${input.threadId}`,
+    workItemId: input.workItemId,
+    type: "chat_context" as const,
+    label: "Self-reported chat context",
+    externalId: input.threadId,
+    rawContent: null,
+    metadata: {
+      threadId: input.threadId,
+      selfReported: true,
     },
-    create: {
-      workItemId: input.workItemId,
-      sourceId: source.id,
-      externalId: `chat-message:${input.messageId}`,
-      type: "chat_user_statement",
-      title: "Self-reported project context",
-      content: normalizedText,
-      searchText: normalizedText,
-      parentKind: "chat_thread",
-      parentKey: input.threadId,
-      included: false,
-      metadata: {
-        threadId: input.threadId,
-        messageId: input.messageId,
-        selfReported: true,
-        corroborationStatus: "not_checked",
-        dlpCategories: dlp.categories,
-      },
-      lifecycleStatus: dlp.categories.length ? "quarantined" : "active",
-      reviewState: "pending_review",
-      approvalSource: "automation",
+  };
+  const evidence = {
+    id: `transient-chat-evidence:${input.messageId}`,
+    workItemId: input.workItemId,
+    sourceId: source.id,
+    externalId: `chat-message:${input.messageId}`,
+    type: "chat_user_statement" as const,
+    title: "Self-reported project context",
+    content: normalizedText,
+    searchText: normalizedText,
+    parentKind: "chat_thread",
+    parentKey: input.threadId,
+    included: false,
+    metadata: {
+      threadId: input.threadId,
+      messageId: input.messageId,
+      selfReported: true,
+      corroborationStatus: "not_checked",
+      dlpCategories: dlp.categories,
     },
-    update: {
-      content: normalizedText,
-      searchText: normalizedText,
+    source: {
+      id: source.id,
+      label: source.label,
+      type: source.type,
+      externalId: source.externalId,
     },
-    include: {
-      source: true,
-      tags: true,
-    },
-  });
+    tags: [],
+    createdAt: undefined,
+    updatedAt: undefined,
+  };
   const evidenceTags = inferEvidenceTags({
     title: evidence.title,
     content: evidence.content,
     sourceType: "chat_context",
     evidenceType: "chat_user_statement",
   });
-
-  if (!evidence.tags.length && evidenceTags.length) {
-    await prisma.evidenceTag.createMany({
-      data: evidenceTags.map((tag) => ({
-        evidenceItemId: evidence.id,
-        dimension: tag.dimension,
-        tag: tag.tag,
-        score: tag.score ?? null,
-      })),
-      skipDuplicates: true,
-    });
-  }
 
   const existingHighlights = context.highlights.map(mapHighlight);
   const useModelGeneration = (process.env.WORKBASE_CHAT_CONTEXT_GENERATION_MODE ?? "deterministic") === "model";
@@ -422,139 +533,279 @@ export async function proposeHighlightFromChatContext(input: {
     cosineDistance: matchDistance,
   });
   const batchNumber = input.batchNumber ?? 1;
-  const ordinal = await prisma.agentRunCandidate.count({
-    where: { agentRunId: input.agentRunId, batchNumber },
-  });
 
   if (matchClassification === "duplicate" || matchClassification === "rejected_guidance_match") {
     return null;
   }
 
-  if (match && matchClassification === "revision") {
-    if (autoSafe) {
-      const created = await prisma.$transaction(async (tx) => {
-        const highlight = await createHighlightWithRelations({ tx, workItemId: input.workItemId, draft: candidateDraft });
+  type CandidateRecord = NonNullable<Awaited<ReturnType<typeof loadScopedChatHighlightCandidate>>>;
+  type MaterializationResult =
+    | { status: "inactive" }
+    | { status: "stale_revision_target" }
+    | { status: "existing"; candidate: CandidateRecord }
+    | {
+        status: "created";
+        candidate: CandidateRecord;
+        highlightId: string | null;
+        draft: HighlightDraft;
+      };
+
+  let materialized: MaterializationResult | null = null;
+  for (let attempt = 0; attempt < CHAT_HIGHLIGHT_PERSISTENCE_ATTEMPTS; attempt += 1) {
+    try {
+      materialized = await prisma.$transaction(async (tx): Promise<MaterializationResult> => {
+        // Join repository reconciliation and user review on the shared Work
+        // Item mutation lock before taking the AgentRun row. A cancellation can
+        // therefore finish while this transaction waits, and every knowledge
+        // writer observes one current Highlight lineage at a time.
+        await lockKnowledgeWorkItemMutation(tx, input.workItemId);
+        const runStatus = await lockScopedChatHighlightRun(tx, input);
+        const winner = await tx.agentRunCandidate.findFirst({
+          where: { agentRunId: input.agentRunId },
+        });
+        if (winner) return { status: "existing", candidate: winner };
+        if (!ACTIVE_CHAT_HIGHLIGHT_RUN_STATUSES.has(runStatus)) {
+          return { status: "inactive" };
+        }
+
+        const expectsRevision = Boolean(match && matchClassification === "revision");
+        const revisionTarget = expectsRevision && match?.updatedAt
+          ? await tx.highlight.findFirst({
+              where: {
+                id: match.id,
+                workItemId: input.workItemId,
+                lifecycleStatus: "active",
+                verificationStatus: "approved",
+                updatedAt: match.updatedAt,
+              },
+              select: { id: true, text: true, updatedAt: true },
+            })
+          : null;
+        if (expectsRevision && !revisionTarget) {
+          // The target was edited, retired, marked stale, or superseded after
+          // semantic matching. Do not attach a successor to that stale
+          // snapshot and do not persist the transient chat Evidence.
+          return { status: "stale_revision_target" };
+        }
+
+        const persistedSource = await tx.source.upsert({
+          where: {
+            workItemId_type_externalId: {
+              workItemId: input.workItemId,
+              type: "chat_context",
+              externalId: input.threadId,
+            },
+          },
+          create: {
+            workItemId: input.workItemId,
+            type: "chat_context",
+            label: source.label,
+            externalId: input.threadId,
+            metadata: toInputJson(source.metadata),
+          },
+          update: {
+            label: source.label,
+            metadata: toInputJson(source.metadata),
+          },
+        });
+        const persistedEvidence = await tx.evidenceItem.upsert({
+          where: {
+            sourceId_externalId: {
+              sourceId: persistedSource.id,
+              externalId: evidence.externalId,
+            },
+          },
+          create: {
+            workItemId: input.workItemId,
+            sourceId: persistedSource.id,
+            externalId: evidence.externalId,
+            type: evidence.type,
+            title: evidence.title,
+            content: normalizedText,
+            searchText: normalizedText,
+            parentKind: evidence.parentKind,
+            parentKey: evidence.parentKey,
+            included: false,
+            metadata: toInputJson(evidence.metadata),
+            lifecycleStatus: dlp.categories.length ? "quarantined" : "active",
+            reviewState: "pending_review",
+            approvalSource: "automation",
+          },
+          update: {
+            title: evidence.title,
+            content: normalizedText,
+            searchText: normalizedText,
+            metadata: toInputJson(evidence.metadata),
+          },
+        });
+        if (evidenceTags.length) {
+          await tx.evidenceTag.createMany({
+            data: evidenceTags.map((tag) => ({
+              evidenceItemId: persistedEvidence.id,
+              dimension: tag.dimension,
+              tag: tag.tag,
+              score: tag.score ?? null,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        const draft = materializedChatHighlightDraft({
+          draft: candidateDraft,
+          evidence: persistedEvidence,
+          source: persistedSource,
+        });
+        const ordinal = await tx.agentRunCandidate.count({
+          where: { agentRunId: input.agentRunId, batchNumber },
+        });
+
+        if (revisionTarget && !autoSafe) {
+          const suggestion = await tx.highlightSuggestion.create({
+            data: {
+              workItemId: input.workItemId,
+              sourceHighlightId: revisionTarget.id,
+              suggestionType: "revision",
+              currentSnapshot: snapshotHighlight(match!) as never,
+              suggestedDraft: serializeHighlightDraft(draft) as never,
+              matchReason: "New self-reported chat context may strengthen this approved highlight.",
+              cosineDistance: matchDistance,
+              sourceEvidenceIds: getDraftEvidenceIds(draft),
+              generationRunIds,
+            },
+          });
+          const candidate = await tx.agentRunCandidate.create({
+            data: {
+              agentRunId: input.agentRunId,
+              highlightSuggestionId: suggestion.id,
+              kind: "highlight_revision",
+              batchNumber,
+              ordinal: ordinal + 1,
+              snapshot: toInputJson(draft),
+            },
+          });
+          return { status: "created", candidate, highlightId: null, draft };
+        }
+
+        const highlight = await createHighlightWithRelations({
+          tx,
+          workItemId: input.workItemId,
+          draft,
+        });
+        const isRevision = Boolean(revisionTarget);
         await tx.highlight.update({
           where: { id: highlight.id },
           data: {
-            lifecycleStatus: "active",
+            lifecycleStatus: autoSafe ? "active" : "quarantined",
             reviewState: "pending_review",
             approvalSource: "automation",
-            publicSafetyStatus: publicVerification.eligible ? "verified" : "failed",
-            autoAppliedAt: new Date(),
-            supersedesHighlightId: match.id,
+            publicSafetyStatus: publicVerification.eligible
+              ? "verified"
+              : autoSafe
+                ? "failed"
+                : "not_eligible",
+            autoAppliedAt: autoSafe ? new Date() : null,
+            supersedesHighlightId: revisionTarget?.id ?? null,
           },
         });
-        await tx.highlight.update({ where: { id: match.id }, data: { lifecycleStatus: "superseded" } });
-        await tx.evidenceItem.update({ where: { id: evidence.id }, data: { included: true, lifecycleStatus: "active", autoAppliedAt: new Date() } });
+        if (autoSafe && revisionTarget) {
+          const superseded = await tx.highlight.updateMany({
+            where: {
+              id: revisionTarget.id,
+              workItemId: input.workItemId,
+              lifecycleStatus: "active",
+              verificationStatus: "approved",
+              updatedAt: revisionTarget.updatedAt,
+            },
+            data: { lifecycleStatus: "superseded" },
+          });
+          if (superseded.count !== 1) {
+            // A non-participating writer changed the row after our re-read.
+            // Abort the whole transaction rather than committing a parallel
+            // active successor or reviving an obsolete lineage.
+            throw Object.assign(new Error("The chat Highlight revision target changed during materialization."), {
+              code: "P2034",
+            });
+          }
+        }
+        if (autoSafe) {
+          await tx.evidenceItem.update({
+            where: { id: persistedEvidence.id },
+            data: {
+              included: true,
+              lifecycleStatus: "active",
+              autoAppliedAt: new Date(),
+            },
+          });
+        }
         const candidate = await tx.agentRunCandidate.create({
           data: {
             agentRunId: input.agentRunId,
             highlightId: highlight.id,
             kind: "new_highlight",
-            status: "approved",
+            status: autoSafe ? "approved" : "pending",
             batchNumber,
             ordinal: ordinal + 1,
-            snapshot: JSON.parse(JSON.stringify(candidateDraft)),
-            reviewedAt: new Date(),
+            snapshot: toInputJson(draft),
+            reviewedAt: autoSafe ? new Date() : null,
           },
         });
-        return { highlight, candidate };
-      });
-      await upsertHighlightEmbedding({
-        highlightId: created.highlight.id,
-        inputText: buildHighlightEmbeddingText(candidateDraft),
-      }).catch(() => undefined);
-      await recordChange({
-        workItemId: input.workItemId,
-        entityKind: "highlight",
-        action: "updated",
-        entityId: created.highlight.id,
-        beforeSnapshot: { id: match.id, text: match.text },
-        afterSnapshot: { id: created.highlight.id, text: candidateDraft.text, summary: candidateDraft.summary },
-        reason: "New self-reported context auto-applied a verified Highlight successor.",
-        provenance: { messageId: input.messageId, evidenceId: evidence.id, selfReported: true },
-        suffix: `${input.agentRunId}:${created.highlight.id}`,
-      });
-      return created.candidate;
-    }
-    return prisma.$transaction(async (tx) => {
-      const suggestion = await tx.highlightSuggestion.create({
-        data: {
+        const action = autoSafe ? (isRevision ? "updated" : "created") : "quarantined";
+        await upsertReviewableKnowledgeChangeInTransaction({
           workItemId: input.workItemId,
-          sourceHighlightId: match.id,
-          suggestionType: "revision",
-          currentSnapshot: snapshotHighlight(match) as never,
-          suggestedDraft: serializeHighlightDraft(candidateDraft) as never,
-          matchReason: "New self-reported chat context may strengthen this approved highlight.",
-          cosineDistance: matchDistance,
-          sourceEvidenceIds: getDraftEvidenceIds(candidateDraft),
-          generationRunIds,
-        },
+          entityKind: "highlight",
+          action,
+          entityId: highlight.id,
+          beforeSnapshot: revisionTarget
+            ? { id: revisionTarget.id, text: revisionTarget.text }
+            : undefined,
+          afterSnapshot: {
+            id: highlight.id,
+            text: draft.text,
+            summary: draft.summary,
+            lifecycleStatus: autoSafe ? "active" : "quarantined",
+          },
+          reason: autoSafe
+            ? isRevision
+              ? "New self-reported context auto-applied a verified Highlight successor."
+              : "A verified self-reported Highlight was auto-applied for later review."
+            : "A self-reported Highlight was quarantined by the automatic safety gate.",
+          provenance: {
+            agentRunId: input.agentRunId,
+            messageId: input.messageId,
+            evidenceId: persistedEvidence.id,
+            selfReported: true,
+            dlpCategories: dlp.categories,
+          },
+          policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+          modelId: resolveBedrockConfig().modelId,
+          idempotencyKey: `direct:highlight:${action}:${input.agentRunId}:${highlight.id}`,
+        }, tx);
+        return { status: "created", candidate, highlightId: highlight.id, draft };
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 15_000,
       });
-
-      return tx.agentRunCandidate.create({
-        data: {
-          agentRunId: input.agentRunId,
-          highlightSuggestionId: suggestion.id,
-          kind: "highlight_revision",
-          batchNumber,
-          ordinal: ordinal + 1,
-          snapshot: JSON.parse(JSON.stringify(candidateDraft)),
-        },
-      });
-    });
+      break;
+    } catch (error) {
+      if (!isRetryableChatHighlightPersistenceError(error)) throw error;
+      const winner = await loadScopedChatHighlightCandidate(input);
+      if (winner) return winner;
+      if (attempt >= CHAT_HIGHLIGHT_PERSISTENCE_ATTEMPTS - 1) throw error;
+      await chatHighlightPersistenceBackoff(attempt);
+    }
   }
 
-  const created = await prisma.$transaction(async (tx) => {
-    const highlight = await createHighlightWithRelations({
-      tx,
-      workItemId: input.workItemId,
-      draft: candidateDraft,
-    });
-    const candidate = await tx.agentRunCandidate.create({
-      data: {
-        agentRunId: input.agentRunId,
-        highlightId: highlight.id,
-        kind: "new_highlight",
-        status: autoSafe ? "approved" : "pending",
-        batchNumber,
-        ordinal: ordinal + 1,
-        snapshot: JSON.parse(JSON.stringify(candidateDraft)),
-        reviewedAt: autoSafe ? new Date() : null,
-      },
-    });
-    await tx.highlight.update({
-      where: { id: highlight.id },
-      data: {
-        lifecycleStatus: autoSafe ? "active" : "quarantined",
-        reviewState: "pending_review",
-        approvalSource: "automation",
-        publicSafetyStatus: publicVerification.eligible ? "verified" : autoSafe ? "failed" : "not_eligible",
-        autoAppliedAt: autoSafe ? new Date() : null,
-      },
-    });
-    if (autoSafe) {
-      await tx.evidenceItem.update({ where: { id: evidence.id }, data: { included: true, lifecycleStatus: "active", autoAppliedAt: new Date() } });
-    }
-    return { highlight, candidate };
-  });
-  await upsertHighlightEmbedding({
-    highlightId: created.highlight.id,
-    inputText: buildHighlightEmbeddingText(candidateDraft),
-  }).catch(() => undefined);
-  await recordChange({
-    workItemId: input.workItemId,
-    entityKind: "highlight",
-    action: autoSafe ? "created" : "quarantined",
-    entityId: created.highlight.id,
-    afterSnapshot: { id: created.highlight.id, text: candidateDraft.text, summary: candidateDraft.summary },
-    reason: autoSafe
-      ? "A verified self-reported Highlight was auto-applied for later review."
-      : "A self-reported Highlight was quarantined by the automatic safety gate.",
-    provenance: { messageId: input.messageId, evidenceId: evidence.id, selfReported: true, dlpCategories: dlp.categories },
-    suffix: `${input.agentRunId}:${created.highlight.id}`,
-  });
-
-  return created.candidate;
+  if (
+    !materialized ||
+    materialized.status === "inactive" ||
+    materialized.status === "stale_revision_target"
+  ) return null;
+  if (materialized.status === "existing") return materialized.candidate;
+  if (materialized.highlightId) {
+    await upsertHighlightEmbedding({
+      highlightId: materialized.highlightId,
+      inputText: buildHighlightEmbeddingText(materialized.draft),
+    }).catch(() => undefined);
+  }
+  return materialized.candidate;
 }

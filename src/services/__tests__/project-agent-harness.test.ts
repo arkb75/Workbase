@@ -71,6 +71,33 @@ describe("project agent harness", () => {
     }).kind).toBe("prior_turn_provenance");
   });
 
+  it.each([
+    "Did you use any information that was not already present?",
+    "What sources did you use?",
+    "Were repository tools called?",
+    "Was a fallback used in the last run?",
+    "Which sources supported your previous answer?",
+  ])("routes explicit prior-turn process questions as provenance: %s", (question) => {
+    expect(routeProjectTurn({
+      question,
+      memoryHits: [],
+      allowResearch: true,
+    }).kind).toBe("prior_turn_provenance");
+  });
+
+  it.each([
+    "How does artifact fallback generation work?",
+    "Explain the partial result recovery path.",
+    "What source code handles imports?",
+    "Which sources feed artifact generation?",
+  ])("does not misroute project behavior as prior-turn provenance: %s", (question) => {
+    expect(routeProjectTurn({
+      question,
+      memoryHits: [approvedFact],
+      allowResearch: true,
+    }).kind).not.toBe("prior_turn_provenance");
+  });
+
   it("does not confuse a normal accomplishment question with provenance inspection", () => {
     expect(routeProjectTurn({
       question: "What did you build in this project?",

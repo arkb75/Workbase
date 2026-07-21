@@ -7,14 +7,28 @@
  * authority, lifecycle behavior, and cost/latency budgets deterministically.
  */
 
+import type { ProjectChatAnswerQualityContract } from "@/src/evals/project-chat-answer-quality";
+
 export type ProjectChatScenarioId =
   | "accomplishments_same_sha"
   | "accomplishments_one_file_delta"
   | "architecture_from_memory"
+  | "accomplishment_recruiter_top_three"
+  | "product_value_and_difficulty"
+  | "team_value_gist"
+  | "senior_backend_exact_four"
+  | "overview_two_paragraph"
+  | "repository_knowledge_explanation"
+  | "architecture_risk_assessment"
+  | "refresh_research_comparison"
+  | "runtime_focused_deep_dive"
   | "architecture_follow_up"
   | "prior_turn_provenance"
+  | "prior_turn_source_scope"
   | "targeted_code_question"
   | "missing_production_metric"
+  | "mixed_workflow_missing_p95"
+  | "unsupported_deployment_topology"
   | "artifact_from_adequate_context"
   | "artifact_missing_impact"
   | "self_reported_impact"
@@ -80,6 +94,7 @@ export interface ProjectChatEvaluationFixture {
   category:
     | "freshness"
     | "memory"
+    | "quality"
     | "conversation"
     | "provenance"
     | "research"
@@ -120,6 +135,7 @@ export interface ProjectChatEvaluationFixture {
     requiresMarkdown?: boolean;
     requiredAnswerPatterns?: readonly string[];
     forbiddenAnswerPatterns?: readonly string[];
+    answerQuality?: ProjectChatAnswerQualityContract;
   };
   envelope: ProjectChatPerformanceEnvelope;
 }
@@ -160,6 +176,19 @@ export const projectChatEvaluationFixtures = [
       requiresMarkdown: true,
       requiredAnswerPatterns: ["accomplish", "architecture|platform", "test|quality"],
       forbiddenAnswerPatterns: ["mandatory human review", "tamper-evident", "always produces"],
+      answerQuality: {
+        minCharacters: 900,
+        maxCharacters: 5_500,
+        minReaderThemes: 5,
+        minPrimaryItems: 4,
+        maxPrimaryItems: 6,
+        minDevelopedItems: 4,
+        minMechanismValueItems: 3,
+        minCitedItems: 4,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+      },
     },
     envelope: { maxLatencyMs: 25_000, maxModelCalls: 1, maxTotalTokens: 25_000, maxEstimatedCostUsd: 0.2, ...noRepositoryWork },
   },
@@ -214,6 +243,279 @@ export const projectChatEvaluationFixtures = [
     envelope: { maxLatencyMs: 12_000, maxModelCalls: 1, maxTotalTokens: 20_000, maxEstimatedCostUsd: 0.15, ...noRepositoryWork },
   },
   {
+    id: "accomplishment_recruiter_top_three",
+    title: "Exactly three recruiter-facing accomplishments",
+    category: "quality",
+    question: "Give a recruiter exactly three strongest Workbase accomplishments. Prioritize product value and engineering difficulty.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact", "highlight"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 3,
+      answerQuality: {
+        minCharacters: 550,
+        maxCharacters: 2_800,
+        minReaderThemes: 3,
+        exactPrimaryItems: 3,
+        minDevelopedItems: 3,
+        minMechanismValueItems: 2,
+        minCitedItems: 3,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+      },
+    },
+    envelope: { maxLatencyMs: 20_000, maxModelCalls: 1, maxTotalTokens: 22_000, maxEstimatedCostUsd: 0.18, ...noRepositoryWork },
+  },
+  {
+    id: "product_value_and_difficulty",
+    title: "Paraphrased end-to-end value and engineering-difficulty synthesis",
+    category: "quality",
+    question: "What were the hardest parts of Workbase to build that also created the most end-to-end user value? Give me the prioritized gist, not a subsystem inventory.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact", "highlight"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 3,
+      answerQuality: {
+        minCharacters: 700,
+        maxCharacters: 4_000,
+        minReaderThemes: 4,
+        minPrimaryItems: 3,
+        maxPrimaryItems: 5,
+        minDevelopedItems: 3,
+        minMechanismValueItems: 3,
+        minCitedItems: 3,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+      },
+    },
+    envelope: { maxLatencyMs: 22_000, maxModelCalls: 1, maxTotalTokens: 26_000, maxEstimatedCostUsd: 0.21, ...noRepositoryWork },
+  },
+  {
+    id: "team_value_gist",
+    title: "Concise team-value gist",
+    category: "quality",
+    question: "Give me the gist of why this project would matter to an engineering team. Use three concise bullets, ordered by value, and connect each capability to what it enables.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact", "highlight"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 3,
+      answerQuality: {
+        minCharacters: 450,
+        maxCharacters: 2_500,
+        minReaderThemes: 3,
+        exactPrimaryItems: 3,
+        minDevelopedItems: 3,
+        minMechanismValueItems: 3,
+        minCitedItems: 3,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+      },
+    },
+    envelope: { maxLatencyMs: 20_000, maxModelCalls: 1, maxTotalTokens: 22_000, maxEstimatedCostUsd: 0.18, ...noRepositoryWork },
+  },
+  {
+    id: "senior_backend_exact_four",
+    title: "Exactly four senior-backend bullets with explicit omissions",
+    category: "quality",
+    question: "Give me exactly four bullets for a senior backend engineer. Prioritize architecture, data integrity, AI/runtime control, and reliability. Omit UI, onboarding, local setup, and routine framework choices.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 4,
+      answerQuality: {
+        minCharacters: 650,
+        maxCharacters: 3_400,
+        minReaderThemes: 4,
+        exactPrimaryItems: 4,
+        minDevelopedItems: 4,
+        minMechanismValueItems: 3,
+        minCitedItems: 4,
+        forbidInternalInventory: true,
+        format: "markdown",
+        forbiddenPatterns: ["\\bUI\\b|onboarding|local setup|npm (?:install|run)|Tailwind"],
+      },
+    },
+    envelope: { maxLatencyMs: 22_000, maxModelCalls: 1, maxTotalTokens: 26_000, maxEstimatedCostUsd: 0.21, ...noRepositoryWork },
+  },
+  {
+    id: "overview_two_paragraph",
+    title: "Two-paragraph non-technical overview",
+    category: "quality",
+    question: "Explain Workbase to a non-technical hiring manager in two concise paragraphs: what it does, why it is trustworthy, and what makes the engineering notable.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact", "highlight"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 2,
+      answerQuality: {
+        minCharacters: 450,
+        maxCharacters: 1_800,
+        minReaderThemes: 3,
+        minMechanismValueItems: 2,
+        minCitedItems: 2,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "paragraphs",
+        forbiddenPatterns: ["\\.ts\\b|Prisma schema|implementation file"],
+      },
+    },
+    envelope: { maxLatencyMs: 18_000, maxModelCalls: 1, maxTotalTokens: 20_000, maxEstimatedCostUsd: 0.16, ...noRepositoryWork },
+  },
+  {
+    id: "repository_knowledge_explanation",
+    title: "Repository-to-knowledge decisions and safeguards",
+    category: "quality",
+    question: "Explain how Workbase turns repository code into trusted, reusable project knowledge. Focus on agent decisions, safeguards, and what happens when existing memory is insufficient.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 3,
+      requiredAnswerPatterns: ["repository", "project fact|highlight|memory", "insufficient|gap|research", "safeguard|bound|pin|review|validat"],
+      answerQuality: {
+        minCharacters: 800,
+        maxCharacters: 5_000,
+        minReaderThemes: 3,
+        minPrimaryItems: 3,
+        maxPrimaryItems: 6,
+        minDevelopedItems: 3,
+        minMechanismValueItems: 2,
+        minCitedItems: 3,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+      },
+    },
+    envelope: { maxLatencyMs: 22_000, maxModelCalls: 1, maxTotalTokens: 26_000, maxEstimatedCostUsd: 0.21, ...noRepositoryWork },
+  },
+  {
+    id: "architecture_risk_assessment",
+    title: "Balanced architecture strengths and risks",
+    category: "quality",
+    question: "Assess Workbase's architecture. Identify its most important strengths, meaningful risks or limitations, and why those tradeoffs matter.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 3,
+      requiredAnswerPatterns: ["strength", "risk|limitation|constraint", "trade-?off|matter"],
+      answerQuality: {
+        minCharacters: 800,
+        maxCharacters: 4_500,
+        minReaderThemes: 4,
+        minPrimaryItems: 3,
+        maxPrimaryItems: 6,
+        minDevelopedItems: 3,
+        minMechanismValueItems: 2,
+        minCitedItems: 3,
+        requirePrioritizedOpening: true,
+        forbidInternalInventory: true,
+        format: "markdown",
+        forbiddenPatterns: ["perfect|guarantees? correctness|eliminates? all"],
+      },
+    },
+    envelope: { maxLatencyMs: 22_000, maxModelCalls: 1, maxTotalTokens: 26_000, maxEstimatedCostUsd: 0.21, ...noRepositoryWork },
+  },
+  {
+    id: "refresh_research_comparison",
+    title: "Refresh and targeted-research comparison table",
+    category: "quality",
+    question: "Compare repository knowledge refresh with targeted repository research in a concise Markdown table. Explain when to use each and how their outputs become trusted memory.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 2,
+      requiredAnswerPatterns: ["refresh", "targeted (?:repository )?research", "project fact|highlight|memory"],
+      answerQuality: {
+        minCharacters: 400,
+        maxCharacters: 2_500,
+        minReaderThemes: 2,
+        minMechanismValueItems: 1,
+        minCitedItems: 1,
+        format: "table",
+      },
+    },
+    envelope: { maxLatencyMs: 18_000, maxModelCalls: 1, maxTotalTokens: 20_000, maxEstimatedCostUsd: 0.16, ...noRepositoryWork },
+  },
+  {
+    id: "runtime_focused_deep_dive",
+    title: "Focused Bedrock and durable-runtime explanation",
+    category: "quality",
+    question: "Explain how the Bedrock tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Do not list unrelated subsystems.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 2,
+      requiredAnswerPatterns: ["bedrock|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
+      answerQuality: {
+        minCharacters: 600,
+        maxCharacters: 3_500,
+        minReaderThemes: 2,
+        minPrimaryItems: 2,
+        maxPrimaryItems: 5,
+        minDevelopedItems: 2,
+        minMechanismValueItems: 2,
+        minCitedItems: 2,
+        format: "markdown",
+        forbiddenPatterns: ["career content product|linkedin experience"],
+      },
+    },
+    envelope: { maxLatencyMs: 20_000, maxModelCalls: 1, maxTotalTokens: 22_000, maxEstimatedCostUsd: 0.18, ...noRepositoryWork },
+  },
+  {
     id: "architecture_follow_up",
     title: "Multi-turn architecture follow-up",
     category: "conversation",
@@ -246,6 +548,25 @@ export const projectChatEvaluationFixtures = [
       requiredSourceKinds: ["prior_turn_provenance"],
       allowedAuthorities: ["process_metadata"],
       minimumUsedSources: 1,
+    },
+    envelope: { maxLatencyMs: 2_000, maxModelCalls: 0, maxTotalTokens: 0, maxEstimatedCostUsd: 0, ...noRepositoryWork },
+  },
+  {
+    id: "prior_turn_source_scope",
+    title: "Exact historical used-information follow-up",
+    category: "provenance",
+    question: "Did you use any information that was not already present?",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true, hasPriorAssistantTurn: true },
+    expected: {
+      route: "prior_turn_provenance",
+      lifecycle: ["answered"],
+      requiredTools: ["inspect_prior_turn_provenance"],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: ["prior_turn_provenance"],
+      requiredSourceKinds: ["prior_turn_provenance"],
+      allowedAuthorities: ["process_metadata"],
+      minimumUsedSources: 1,
+      requiredAnswerPatterns: ["prior turn|sources actually used|used sources"],
     },
     envelope: { maxLatencyMs: 2_000, maxModelCalls: 0, maxTotalTokens: 0, maxEstimatedCostUsd: 0, ...noRepositoryWork },
   },
@@ -296,6 +617,62 @@ export const projectChatEvaluationFixtures = [
       forbiddenAnswerPatterns: ["requests per second", "million requests"],
     },
     envelope: { maxLatencyMs: 15_000, maxModelCalls: 1, maxTotalTokens: 20_000, maxEstimatedCostUsd: 0.15, ...noRepositoryWork },
+  },
+  {
+    id: "mixed_workflow_missing_p95",
+    title: "Supported workflow explanation with an unsupported production metric",
+    category: "missing_context",
+    question: "Explain how Workbase's durable project-chat workflow preserves progress, and tell me its measured production p95 latency.",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["answered"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: ["project_fact"],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 1,
+      requiredAnswerPatterns: [
+        "durable workflow|persist|progress|resume",
+        "p95|production latency|latency percentile",
+        "does not establish|not available|no measured|missing",
+      ],
+      forbiddenAnswerPatterns: ["p95[^.\\n]{0,50}[0-9]+(?:\\.[0-9]+)?\\s*(?:ms|s|seconds?)"],
+      answerQuality: {
+        minCharacters: 400,
+        maxCharacters: 2_800,
+        minReaderThemes: 1,
+        minCitedItems: 1,
+        format: "markdown",
+      },
+    },
+    envelope: { maxLatencyMs: 20_000, maxModelCalls: 1, maxTotalTokens: 22_000, maxEstimatedCostUsd: 0.18, ...noRepositoryWork },
+  },
+  {
+    id: "unsupported_deployment_topology",
+    title: "Unsupported focused question cannot borrow unrelated memory",
+    category: "missing_context",
+    question: "What CDN and production deployment topology does Workbase use?",
+    setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: false },
+    expected: {
+      route: "memory_only",
+      lifecycle: ["insufficient_context"],
+      requiredTools: [],
+      forbiddenTools: ["research_project", "read_repository_file"],
+      allowedSourceKinds: durableMemorySources,
+      requiredSourceKinds: [],
+      allowedAuthorities: durableMemoryAuthorities,
+      minimumUsedSources: 0,
+      requiresCoverageGap: true,
+      forbiddenAnswerPatterns: [
+        "answer could not be verified against its sources",
+        "career content",
+        "resume bullet",
+        "linkedin",
+      ],
+    },
+    envelope: { maxLatencyMs: 12_000, maxModelCalls: 1, maxTotalTokens: 12_000, maxEstimatedCostUsd: 0.1, ...noRepositoryWork },
   },
   {
     id: "artifact_from_adequate_context",

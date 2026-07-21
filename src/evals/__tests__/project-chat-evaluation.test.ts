@@ -53,16 +53,28 @@ function architectureObservation(
 describe("project-chat evaluation fixtures", () => {
   it("defines a valid, unique matrix covering all required realistic scenarios", () => {
     expect(validateProjectChatScenarioFixtures()).toEqual([]);
-    expect(projectChatEvaluationFixtures).toHaveLength(15);
-    expect(new Set(projectChatEvaluationFixtures.map((fixture) => fixture.id)).size).toBe(15);
+    expect(projectChatEvaluationFixtures).toHaveLength(27);
+    expect(new Set(projectChatEvaluationFixtures.map((fixture) => fixture.id)).size).toBe(27);
     expect(projectChatEvaluationFixtures.map((fixture) => fixture.id)).toEqual(expect.arrayContaining([
       "accomplishments_same_sha",
       "accomplishments_one_file_delta",
       "architecture_from_memory",
+      "accomplishment_recruiter_top_three",
+      "product_value_and_difficulty",
+      "team_value_gist",
+      "senior_backend_exact_four",
+      "overview_two_paragraph",
+      "repository_knowledge_explanation",
+      "architecture_risk_assessment",
+      "refresh_research_comparison",
+      "runtime_focused_deep_dive",
       "architecture_follow_up",
       "prior_turn_provenance",
+      "prior_turn_source_scope",
       "targeted_code_question",
       "missing_production_metric",
+      "mixed_workflow_missing_p95",
+      "unsupported_deployment_topology",
       "artifact_from_adequate_context",
       "artifact_missing_impact",
       "self_reported_impact",
@@ -78,6 +90,84 @@ describe("project-chat evaluation fixtures", () => {
     const result = evaluateProjectChatScenario(architectureObservation());
     expect(result.passed).toBe(true);
     expect(result.checks.every((entry) => entry.passed)).toBe(true);
+  });
+
+  it("enforces editorial depth, prioritization, exact counts, and claim-local citations", () => {
+    const fixture = projectChatEvaluationFixtures.find((entry) => entry.id === "accomplishment_recruiter_top_three")!;
+    const sources = [1, 2, 3].map((ordinal) => ({
+      kind: (ordinal === 1 ? "highlight" : "project_fact") as "highlight" | "project_fact",
+      authority: (ordinal === 1 ? "verified_highlight" : "verified_project_fact") as "verified_highlight" | "verified_project_fact",
+      title: `Accomplishment ${ordinal}`,
+      used: true,
+      presentation: "primary" as const,
+    }));
+    const answer = `## Top three accomplishments
+
+1. **Built the career-content product.** Workbase turns repository evidence into tailored resume bullets and project summaries by using reviewed Highlights, which enables users to present credible accomplishments without passing raw notes directly into public output. [citation:1]
+
+2. **Designed repository intelligence.** Semantic repository refresh reconciles current code into reusable Project Facts with commit-pinned provenance, enabling faster future answers while preserving an auditable connection to the implementation. [citation:2]
+
+3. **Implemented a grounded AI agent.** Multi-turn project chat combines hybrid retrieval, claim-local citations, durable workflows, and Bedrock generation, which supports deep technical questions while retaining conversation continuity and safe recovery from provider limits. [citation:3]`;
+    const result = evaluateProjectChatScenario({
+      scenarioId: fixture.id,
+      route: "memory_only",
+      lifecycle: "answered",
+      tools: [],
+      sources,
+      metrics: {
+        latencyMs: 1_000,
+        modelCalls: 1,
+        totalTokens: 2_000,
+        estimatedCostUsd: 0.02,
+        repositoryTreeLookups: 0,
+        repositorySearches: 0,
+        repositoryFileReads: 0,
+        repositoryVisibleBytes: 0,
+        workerCount: 0,
+      },
+      answer,
+      coverageGaps: [],
+      partial: false,
+      repositoryHeadsCurrent: true,
+    });
+    expect(result.checks.filter((check) => !check.passed)).toEqual([]);
+
+    const shallowInventory = evaluateProjectChatScenario({
+      scenarioId: fixture.id,
+      route: "memory_only",
+      lifecycle: "answered",
+      tools: [],
+      sources,
+      metrics: {
+        latencyMs: 1_000,
+        modelCalls: 1,
+        totalTokens: 2_000,
+        estimatedCostUsd: 0.02,
+        repositoryTreeLookups: 0,
+        repositorySearches: 0,
+        repositoryFileReads: 0,
+        repositoryVisibleBytes: 0,
+        workerCount: 0,
+      },
+      answer: "1. RepositoryCapabilityLedger.\n2. RepositoryFileSnapshot.\n3. Prisma.\n4. Utilities.",
+      coverageGaps: [],
+      partial: false,
+      repositoryHeadsCurrent: true,
+    });
+    expect(shallowInventory.passed).toBe(false);
+    expect(shallowInventory.checks.some((check) => check.code === "answer_quality" && !check.passed)).toBe(true);
+  });
+
+  it("rejects generic verification-failure copy on every route", () => {
+    const result = evaluateProjectChatScenario(architectureObservation({
+      answer: "The answer could not be verified against its sources.",
+    }));
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      code: "answer_quality",
+      passed: false,
+      message: "answer does not expose an internal verification or agent failure",
+    }));
   });
 
   it("fails wrong routing, unnecessary research, unused citations, and peer GitHub files", () => {

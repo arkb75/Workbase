@@ -32,19 +32,20 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
     // This validates both the loaded Prisma runtime contract and the physical
     // ranking columns. A broad table-existence check cannot detect a stale HMR
     // singleton, which is the failure mode this guard is designed to catch.
-    await client.projectFact.findFirst({
-      select: {
-        id: true,
-        productImportance: true,
-        implementationBreadth: true,
-        technicalDifficulty: true,
-        distinctiveness: true,
-      },
-    });
-    const [schema] = await client.$queryRaw<Array<{
-      agentHarnessReady: boolean;
-      repositoryKnowledgeReady: boolean;
-    }>>(Prisma.sql`
+    const [, [schema]] = await Promise.all([
+      client.projectFact.findFirst({
+        select: {
+          id: true,
+          productImportance: true,
+          implementationBreadth: true,
+          technicalDifficulty: true,
+          distinctiveness: true,
+        },
+      }),
+      client.$queryRaw<Array<{
+        agentHarnessReady: boolean;
+        repositoryKnowledgeReady: boolean;
+      }>>(Prisma.sql`
       SELECT
         EXISTS (
           SELECT 1
@@ -57,7 +58,8 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
         to_regclass('public."KnowledgeRefreshRun"') IS NOT NULL
           AND to_regclass('public."RepositorySnapshot"') IS NOT NULL
           AND to_regclass('public."KnowledgeChange"') IS NOT NULL AS "repositoryKnowledgeReady"
-    `);
+      `),
+    ]);
     if (!schema?.agentHarnessReady || !schema.repositoryKnowledgeReady) {
       return {
         ready: false,

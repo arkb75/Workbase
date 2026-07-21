@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, ReactNode } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
-import type { Link, Parent, Root, Text } from "mdast";
+import type { Heading, Link, Parent, Root, Text } from "mdast";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
 import { cn } from "@/src/lib/utils";
@@ -63,6 +63,30 @@ function citationOrdinals(node: { properties?: Record<string, unknown> } | undef
   return value.split(",").map(Number).filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0);
 }
 
+function remarkWorkbaseHeadingHierarchy() {
+  return (tree: Root) => {
+    const headings: Heading[] = [];
+    visit(tree, "heading", (node: Heading) => {
+      headings.push(node);
+    });
+    if (!headings.length) return;
+
+    const minimumDepth = Math.min(...headings.map((heading) => heading.depth));
+    const offset = 2 - minimumDepth;
+    for (const heading of headings) {
+      heading.depth = Math.max(2, Math.min(6, heading.depth + offset)) as Heading["depth"];
+    }
+  };
+}
+
+function copySelectionAsPlainText(event: ReactClipboardEvent<HTMLDivElement>) {
+  const text = globalThis.getSelection?.()?.toString();
+  if (!text) return;
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", text);
+  event.clipboardData.setData("text/markdown", text);
+}
+
 export function ChatMarkdown({
   content,
   maxCitationOrdinal,
@@ -76,16 +100,25 @@ export function ChatMarkdown({
 }) {
   const dark = tone === "user";
   return (
-    <div className={cn("chat-markdown min-w-0", dark && "chat-markdown-dark")}>
+    <div
+      className={cn("chat-markdown min-w-0", dark && "chat-markdown-dark")}
+      onCopy={copySelectionAsPlainText}
+    >
       <Markdown
         skipHtml
-        remarkPlugins={[remarkGfm, [remarkWorkbaseCitations, { maxOrdinal: maxCitationOrdinal }]]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkWorkbaseHeadingHierarchy,
+          [remarkWorkbaseCitations, { maxOrdinal: maxCitationOrdinal }],
+        ]}
         urlTransform={(url) => defaultUrlTransform(url)}
         components={{
           h1: ({ children }) => <h2 className="mb-3 mt-6 text-lg font-semibold leading-7 first:mt-0">{children}</h2>,
           h2: ({ children }) => <h2 className="mb-3 mt-6 text-lg font-semibold leading-7 first:mt-0">{children}</h2>,
           h3: ({ children }) => <h3 className="mb-2 mt-5 text-[15px] font-semibold leading-6 first:mt-0">{children}</h3>,
           h4: ({ children }) => <h4 className="mb-2 mt-4 text-sm font-semibold leading-6 first:mt-0">{children}</h4>,
+          h5: ({ children }) => <h5 className="mb-2 mt-4 text-sm font-semibold leading-6 first:mt-0">{children}</h5>,
+          h6: ({ children }) => <h6 className="mb-2 mt-4 text-sm font-semibold leading-6 first:mt-0">{children}</h6>,
           p: ({ children }) => <p className="my-3 leading-7 first:mt-0 last:mb-0">{children}</p>,
           ul: ({ children, className }) => <ul className={cn("my-3 list-disc space-y-1.5 pl-5 marker:text-[color:var(--ink-muted)]", className)}>{children}</ul>,
           ol: ({ children, className }) => <ol className={cn("my-3 list-decimal space-y-1.5 pl-5 marker:text-[color:var(--ink-muted)]", className)}>{children}</ol>,
@@ -141,4 +174,4 @@ export function ChatMarkdown({
   );
 }
 
-export { remarkWorkbaseCitations };
+export { remarkWorkbaseCitations, remarkWorkbaseHeadingHierarchy };

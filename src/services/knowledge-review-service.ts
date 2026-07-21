@@ -24,8 +24,44 @@ import {
   reviewSnapshotMatchesEntity,
   upsertReviewableKnowledgeChange,
 } from "@/src/services/knowledge-change-service";
+import { lockKnowledgeWorkItemMutation } from "@/src/services/knowledge-mutation-lock-service";
 
 type ReviewDecision = "keep" | "edit_and_keep" | "revert" | "retire";
+type PostCommitTask = () => Promise<unknown>;
+
+const authorizedChangeArgs = {
+  include: {
+    projectFact: {
+      include: {
+        evidence: true,
+        supersededByProjectFacts: { select: { id: true, lifecycleStatus: true } },
+      },
+    },
+    highlight: {
+      include: {
+        evidence: { include: { evidenceItem: { include: { source: true } } } },
+        tags: true,
+        supersededByHighlights: { select: { id: true, lifecycleStatus: true } },
+      },
+    },
+    evidenceItem: {
+      include: {
+        supersededByEvidenceItems: { select: { id: true, lifecycleStatus: true } },
+      },
+    },
+    artifact: {
+      include: {
+        highlightProvenance: true,
+        evidenceProvenance: true,
+        supersededByArtifacts: { select: { id: true, lifecycleStatus: true } },
+      },
+    },
+  },
+} as const satisfies Prisma.KnowledgeChangeDefaultArgs;
+
+type AuthorizedKnowledgeChange = Prisma.KnowledgeChangeGetPayload<
+  typeof authorizedChangeArgs
+>;
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -82,8 +118,9 @@ async function queueEditedKnowledgeRevalidation(input: {
 }
 
 async function createEditedSuccessor(input: {
-  change: Awaited<ReturnType<typeof loadAuthorizedChange>>;
+  change: AuthorizedKnowledgeChange;
   patch: Record<string, unknown>;
+  tx: Prisma.TransactionClient;
 }) {
   const { change } = input;
   if (change.projectFact) {
@@ -91,43 +128,45 @@ async function createEditedSuccessor(input: {
     const category = typeof input.patch.category === "string" && ["architecture", "behavior", "data_flow", "code_location", "dependency", "configuration"].includes(input.patch.category)
       ? input.patch.category as typeof change.projectFact.category
       : change.projectFact.category;
-    const successor = await prisma.$transaction(async (tx) => {
-      const created = await tx.projectFact.create({
-        data: {
-          workItemId: change.workItemId,
-          statement,
-          category,
-          confidence: change.projectFact!.confidence,
-          status: "approved",
-          sensitivityFlag: typeof input.patch.sensitivityFlag === "boolean" ? input.patch.sensitivityFlag : change.projectFact!.sensitivityFlag,
-          reviewNotes: typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact!.reviewNotes,
-          searchText: normalizeWhitespace([statement, category, typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact!.reviewNotes ?? ""].join(" ")),
-          supersedesProjectFactId: change.projectFact!.id,
-          lifecycleStatus: "needs_validation",
-          reviewState: "reviewed",
-          approvalSource: "user",
-          publicSafetyStatus: "not_eligible",
-          validatedThroughSha: null,
-          lastValidatedAt: null,
-          // User edits change the assertion. Preserve provenance, but require the
-          // edited successor to be validated again before claiming current-head coverage.
-          validationHeads: Prisma.JsonNull,
-          subsystemKey: change.projectFact!.subsystemKey,
-          productImportance: change.projectFact!.productImportance,
-          implementationBreadth: change.projectFact!.implementationBreadth,
-          technicalDifficulty: change.projectFact!.technicalDifficulty,
-          distinctiveness: change.projectFact!.distinctiveness,
-          evidence: { create: change.projectFact!.evidence.map((entry) => ({ evidenceItemId: entry.evidenceItemId, relevanceScore: entry.relevanceScore })) },
-        },
-      });
-      await tx.projectFact.update({ where: { id: change.projectFact!.id }, data: { status: "superseded", lifecycleStatus: "superseded" } });
-      return created;
+    const successor = await input.tx.projectFact.create({
+      data: {
+        workItemId: change.workItemId,
+        statement,
+        category,
+        confidence: change.projectFact.confidence,
+        status: "approved",
+        sensitivityFlag: typeof input.patch.sensitivityFlag === "boolean" ? input.patch.sensitivityFlag : change.projectFact.sensitivityFlag,
+        reviewNotes: typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact.reviewNotes,
+        searchText: normalizeWhitespace([statement, category, typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.projectFact.reviewNotes ?? ""].join(" ")),
+        supersedesProjectFactId: change.projectFact.id,
+        lifecycleStatus: "needs_validation",
+        reviewState: "reviewed",
+        approvalSource: "user",
+        publicSafetyStatus: "not_eligible",
+        validatedThroughSha: null,
+        lastValidatedAt: null,
+        // User edits change the assertion. Preserve provenance, but require the
+        // edited successor to be validated again before claiming current-head coverage.
+        validationHeads: Prisma.JsonNull,
+        subsystemKey: change.projectFact.subsystemKey,
+        productImportance: change.projectFact.productImportance,
+        implementationBreadth: change.projectFact.implementationBreadth,
+        technicalDifficulty: change.projectFact.technicalDifficulty,
+        distinctiveness: change.projectFact.distinctiveness,
+        evidence: { create: change.projectFact.evidence.map((entry) => ({ evidenceItemId: entry.evidenceItemId, relevanceScore: entry.relevanceScore })) },
+      },
     });
-    await upsertProjectFactEmbedding({
-      projectFactId: successor.id,
-      inputText: buildProjectFactEmbeddingText(successor),
-    }).catch(() => undefined);
-    return { kind: "project_fact" as const, id: successor.id };
+    await input.tx.projectFact.update({
+      where: { id: change.projectFact.id },
+      data: { status: "superseded", lifecycleStatus: "superseded" },
+    });
+    return {
+      successor: { kind: "project_fact" as const, id: successor.id },
+      postCommitTasks: [() => upsertProjectFactEmbedding({
+        projectFactId: successor.id,
+        inputText: buildProjectFactEmbeddingText(successor),
+      }).catch(() => undefined)] satisfies PostCommitTask[],
+    };
   }
   if (change.highlight) {
     const text = typeof input.patch.text === "string" ? input.patch.text.trim() : change.highlight.text;
@@ -136,22 +175,21 @@ async function createEditedSuccessor(input: {
       ? input.patch.visibility as typeof change.highlight.visibility
       : change.highlight.visibility;
     const tags = inferHighlightTags({ text, summary, verificationNotes: change.highlight.verificationNotes });
-    const successor = await prisma.$transaction(async (tx) => {
-      const created = await tx.highlight.create({
+    const successor = await input.tx.highlight.create({
         data: {
           workItemId: change.workItemId,
           text,
           summary,
           searchText: normalizeWhitespace([text, summary, change.highlight!.verificationNotes ?? ""].join(" ")),
-          confidence: change.highlight!.confidence,
-          ownershipClarity: change.highlight!.ownershipClarity,
-          sensitivityFlag: typeof input.patch.sensitivityFlag === "boolean" ? input.patch.sensitivityFlag : change.highlight!.sensitivityFlag,
+          confidence: change.highlight.confidence,
+          ownershipClarity: change.highlight.ownershipClarity,
+          sensitivityFlag: typeof input.patch.sensitivityFlag === "boolean" ? input.patch.sensitivityFlag : change.highlight.sensitivityFlag,
           verificationStatus: "approved",
           visibility,
-          risksSummary: change.highlight!.risksSummary,
-          missingInfo: change.highlight!.missingInfo,
-          verificationNotes: typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.highlight!.verificationNotes,
-          metadata: change.highlight!.metadata ?? undefined,
+          risksSummary: change.highlight.risksSummary,
+          missingInfo: change.highlight.missingInfo,
+          verificationNotes: typeof input.patch.reviewNotes === "string" ? input.patch.reviewNotes : change.highlight.verificationNotes,
+          metadata: change.highlight.metadata ?? undefined,
           lifecycleStatus: "needs_validation",
           reviewState: "reviewed",
           approvalSource: "user",
@@ -159,159 +197,153 @@ async function createEditedSuccessor(input: {
           validatedThroughSha: null,
           lastValidatedAt: null,
           validationHeads: Prisma.JsonNull,
-          supersedesHighlightId: change.highlight!.id,
-          evidence: { create: change.highlight!.evidence.map((entry) => ({ evidenceItemId: entry.evidenceItemId, relevanceScore: entry.relevanceScore })) },
+          supersedesHighlightId: change.highlight.id,
+          evidence: { create: change.highlight.evidence.map((entry) => ({ evidenceItemId: entry.evidenceItemId, relevanceScore: entry.relevanceScore })) },
           tags: { create: tags.map((tag) => ({ dimension: tag.dimension, tag: tag.tag, score: tag.score ?? null })) },
         },
-      });
-      await tx.highlight.update({ where: { id: change.highlight!.id }, data: { lifecycleStatus: "superseded" } });
-      return created;
     });
-    await upsertHighlightEmbedding({
-      highlightId: successor.id,
-      inputText: buildHighlightEmbeddingText({
-        text: successor.text,
-        summary: successor.summary,
-        verificationNotes: successor.verificationNotes,
-        tags,
-        evidence: {
-          summary: successor.summary,
-          verificationNotes: successor.verificationNotes,
-          sourceRefs: change.highlight.evidence.map((entry) => ({
-            evidenceItemId: entry.evidenceItemId,
-            sourceId: entry.evidenceItem.sourceId,
-            sourceType: entry.evidenceItem.source.type,
-            sourceLabel: entry.evidenceItem.source.label,
-            title: entry.evidenceItem.title,
-            excerpt: entry.evidenceItem.content,
-          })),
-        },
-      }),
-    }).catch(() => undefined);
-    await invalidateHighlightDependents({
-      workItemId: change.workItemId,
-      highlightId: change.highlight.id,
-      reason: "A supporting Highlight was superseded by a user-edited version that requires validation.",
-      idempotencyScope: `edit-highlight:${change.id}:${successor.id}`,
+    await input.tx.highlight.update({
+      where: { id: change.highlight.id },
+      data: { lifecycleStatus: "superseded" },
     });
-    return { kind: "highlight" as const, id: successor.id };
+    return {
+      successor: { kind: "highlight" as const, id: successor.id },
+      postCommitTasks: [
+        () => upsertHighlightEmbedding({
+          highlightId: successor.id,
+          inputText: buildHighlightEmbeddingText({
+            text: successor.text,
+            summary: successor.summary,
+            verificationNotes: successor.verificationNotes,
+            tags,
+            evidence: {
+              summary: successor.summary,
+              verificationNotes: successor.verificationNotes,
+              sourceRefs: change.highlight!.evidence.map((entry) => ({
+                evidenceItemId: entry.evidenceItemId,
+                sourceId: entry.evidenceItem.sourceId,
+                sourceType: entry.evidenceItem.source.type,
+                sourceLabel: entry.evidenceItem.source.label,
+                title: entry.evidenceItem.title,
+                excerpt: entry.evidenceItem.content,
+              })),
+            },
+          }),
+        }).catch(() => undefined),
+        () => invalidateHighlightDependents({
+          workItemId: change.workItemId,
+          highlightId: change.highlight!.id,
+          reason: "A supporting Highlight was superseded by a user-edited version that requires validation.",
+          idempotencyScope: `edit-highlight:${change.id}:${successor.id}`,
+        }),
+      ] satisfies PostCommitTask[],
+    };
   }
   if (change.evidenceItem) {
     const title = typeof input.patch.title === "string" ? input.patch.title.trim() : change.evidenceItem.title;
     const content = typeof input.patch.content === "string" ? input.patch.content.trim() : change.evidenceItem.content;
     const externalId = `correction:${change.evidenceItem.id}:${suffix(`${title}:${content}`)}`;
-    const successor = await prisma.$transaction(async (tx) => {
-      const created = await tx.evidenceItem.create({
+    const successor = await input.tx.evidenceItem.create({
         data: {
           workItemId: change.workItemId,
-          sourceId: change.evidenceItem!.sourceId,
+          sourceId: change.evidenceItem.sourceId,
           externalId,
-          logicalKey: change.evidenceItem!.logicalKey ?? change.evidenceItem!.externalId,
-          type: change.evidenceItem!.type,
+          logicalKey: change.evidenceItem.logicalKey ?? change.evidenceItem.externalId,
+          type: change.evidenceItem.type,
           title,
           content,
           searchText: normalizeWhitespace([title, content].join(" ")),
           parentKind: "user_correction",
           parentKey: change.evidenceItem!.id,
           included: true,
-          metadata: toInputJson({ correctedEvidenceId: change.evidenceItem!.id, originalMetadata: change.evidenceItem!.metadata }),
+          metadata: toInputJson({ correctedEvidenceId: change.evidenceItem.id, originalMetadata: change.evidenceItem.metadata }),
           lifecycleStatus: "active",
           reviewState: "reviewed",
           approvalSource: "user",
           publicSafetyStatus: "not_eligible",
-          supersedesEvidenceItemId: change.evidenceItem!.id,
+          supersedesEvidenceItemId: change.evidenceItem.id,
         },
-      });
-      await tx.evidenceItem.update({ where: { id: change.evidenceItem!.id }, data: { lifecycleStatus: "superseded" } });
-      return created;
     });
-    await invalidateEvidenceDependents({
-      workItemId: change.workItemId,
-      evidenceItemId: change.evidenceItem.id,
-      reason: "Supporting Evidence was superseded by a user-edited immutable revision.",
-      idempotencyScope: `edit-evidence:${change.id}:${successor.id}`,
+    await input.tx.evidenceItem.update({
+      where: { id: change.evidenceItem.id },
+      data: { lifecycleStatus: "superseded" },
     });
-    await upsertEvidenceEmbedding({
-      evidenceItemId: successor.id,
-      inputText: buildEvidenceEmbeddingText({
-        title: successor.title,
-        content: successor.content,
-        searchText: successor.searchText,
-      }),
-    }).catch(() => undefined);
-    return { kind: "evidence" as const, id: successor.id };
+    return {
+      successor: { kind: "evidence" as const, id: successor.id },
+      postCommitTasks: [
+        () => invalidateEvidenceDependents({
+          workItemId: change.workItemId,
+          evidenceItemId: change.evidenceItem!.id,
+          reason: "Supporting Evidence was superseded by a user-edited immutable revision.",
+          idempotencyScope: `edit-evidence:${change.id}:${successor.id}`,
+        }),
+        () => upsertEvidenceEmbedding({
+          evidenceItemId: successor.id,
+          inputText: buildEvidenceEmbeddingText({
+            title: successor.title,
+            content: successor.content,
+            searchText: successor.searchText,
+          }),
+        }).catch(() => undefined),
+      ] satisfies PostCommitTask[],
+    };
   }
   if (change.artifact) {
     const content = typeof input.patch.content === "string" ? input.patch.content.trim() : change.artifact.content;
-    const successor = await prisma.$transaction(async (tx) => {
-      const created = await tx.artifact.create({
+    const successor = await input.tx.artifact.create({
         data: {
-          userId: change.artifact!.userId,
-          workItemId: change.artifact!.workItemId,
-          type: change.artifact!.type,
-          targetAngle: change.artifact!.targetAngle,
-          tone: change.artifact!.tone,
-          requestBrief: change.artifact!.requestBrief,
+          userId: change.artifact.userId,
+          workItemId: change.artifact.workItemId,
+          type: change.artifact.type,
+          targetAngle: change.artifact.targetAngle,
+          tone: change.artifact.tone,
+          requestBrief: change.artifact.requestBrief,
           content,
-          searchText: normalizeWhitespace([change.artifact!.requestBrief, content].join(" ")),
+          searchText: normalizeWhitespace([change.artifact.requestBrief, content].join(" ")),
           lifecycleStatus: "active",
           reviewState: "reviewed",
           approvalSource: "user",
           publicSafetyStatus: "pending",
-          supersedesArtifactId: change.artifact!.id,
-          highlightProvenance: { create: change.artifact!.highlightProvenance.map((entry) => ({ highlightId: entry.highlightId, highlightSnapshot: entry.highlightSnapshot as Prisma.InputJsonValue, rank: entry.rank, relevanceScore: entry.relevanceScore })) },
-          evidenceProvenance: { create: change.artifact!.evidenceProvenance.map((entry) => ({ evidenceItemId: entry.evidenceItemId, evidenceSnapshot: entry.evidenceSnapshot as Prisma.InputJsonValue, rank: entry.rank, relevanceScore: entry.relevanceScore })) },
+          supersedesArtifactId: change.artifact.id,
+          highlightProvenance: { create: change.artifact.highlightProvenance.map((entry) => ({ highlightId: entry.highlightId, highlightSnapshot: entry.highlightSnapshot as Prisma.InputJsonValue, rank: entry.rank, relevanceScore: entry.relevanceScore })) },
+          evidenceProvenance: { create: change.artifact.evidenceProvenance.map((entry) => ({ evidenceItemId: entry.evidenceItemId, evidenceSnapshot: entry.evidenceSnapshot as Prisma.InputJsonValue, rank: entry.rank, relevanceScore: entry.relevanceScore })) },
         },
-      });
-      await tx.artifact.update({ where: { id: change.artifact!.id }, data: { lifecycleStatus: "superseded" } });
-      return created;
     });
-    await upsertArtifactEmbedding({
-      artifactId: successor.id,
-      inputText: buildArtifactEmbeddingText(successor),
-    }).catch(() => undefined);
-    return { kind: "artifact" as const, id: successor.id };
+    await input.tx.artifact.update({
+      where: { id: change.artifact.id },
+      data: { lifecycleStatus: "superseded" },
+    });
+    return {
+      successor: { kind: "artifact" as const, id: successor.id },
+      postCommitTasks: [() => upsertArtifactEmbedding({
+        artifactId: successor.id,
+        inputText: buildArtifactEmbeddingText(successor),
+      }).catch(() => undefined)] satisfies PostCommitTask[],
+    };
   }
   throw new Error("The knowledge change no longer references an item.");
 }
 
-function loadAuthorizedChange(userId: string, changeId: string) {
-  return prisma.knowledgeChange.findFirstOrThrow({
+function loadAuthorizedChange(
+  userId: string,
+  changeId: string,
+  client: Pick<Prisma.TransactionClient, "knowledgeChange"> = prisma,
+): Promise<AuthorizedKnowledgeChange> {
+  return client.knowledgeChange.findFirstOrThrow({
     where: { id: changeId, workItem: { userId } },
-    include: {
-      projectFact: {
-        include: {
-          evidence: true,
-          supersededByProjectFacts: { select: { id: true, lifecycleStatus: true } },
-        },
-      },
-      highlight: {
-        include: {
-          evidence: { include: { evidenceItem: { include: { source: true } } } },
-          tags: true,
-          supersededByHighlights: { select: { id: true, lifecycleStatus: true } },
-        },
-      },
-      evidenceItem: { include: { supersededByEvidenceItems: { select: { id: true, lifecycleStatus: true } } } },
-      artifact: {
-        include: {
-          highlightProvenance: true,
-          evidenceProvenance: true,
-          supersededByArtifacts: { select: { id: true, lifecycleStatus: true } },
-        },
-      },
-    },
+    ...authorizedChangeArgs,
   });
 }
 
 async function retireOutdatedReviewCard(
-  change: Awaited<ReturnType<typeof loadAuthorizedChange>>,
+  change: AuthorizedKnowledgeChange,
+  tx: Prisma.TransactionClient,
 ) {
   const relation = entityRelation(change);
   const entityId = entityRelationId(change);
   const entity = change.projectFact ?? change.highlight ?? change.evidenceItem ?? change.artifact;
   if (!relation || !entityId) return false;
-  const newer = await prisma.knowledgeChange.findFirst({
+  const newer = await tx.knowledgeChange.findFirst({
     where: {
       workItemId: change.workItemId,
       id: { not: change.id },
@@ -332,7 +364,7 @@ async function retireOutdatedReviewCard(
     entity: entity as unknown as Record<string, unknown> | null,
   });
   if (!newer && !activeSuccessor && matches) return false;
-  await prisma.knowledgeChange.updateMany({
+  const retired = await tx.knowledgeChange.updateMany({
     where: { id: change.id, decision: "pending" },
     data: {
       decision: "retired",
@@ -342,14 +374,18 @@ async function retireOutdatedReviewCard(
         : "This review card no longer matches the current entity version and was retired without mutating knowledge.",
     },
   });
-  return true;
+  return retired.count === 1;
 }
 
-async function setEntityReviewState(change: Awaited<ReturnType<typeof loadAuthorizedChange>>, reviewState: "reviewed" | "reverted") {
-  if (change.projectFactId) await prisma.projectFact.updateMany({ where: { id: change.projectFactId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
-  if (change.highlightId) await prisma.highlight.updateMany({ where: { id: change.highlightId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
-  if (change.evidenceItemId) await prisma.evidenceItem.updateMany({ where: { id: change.evidenceItemId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
-  if (change.artifactId) await prisma.artifact.updateMany({ where: { id: change.artifactId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
+async function setEntityReviewState(
+  change: AuthorizedKnowledgeChange,
+  reviewState: "reviewed" | "reverted",
+  tx: Prisma.TransactionClient,
+) {
+  if (change.projectFactId) await tx.projectFact.updateMany({ where: { id: change.projectFactId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
+  if (change.highlightId) await tx.highlight.updateMany({ where: { id: change.highlightId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
+  if (change.evidenceItemId) await tx.evidenceItem.updateMany({ where: { id: change.evidenceItemId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
+  if (change.artifactId) await tx.artifact.updateMany({ where: { id: change.artifactId }, data: { reviewState, approvalSource: reviewState === "reviewed" ? "user" : undefined } });
 }
 
 type KnowledgeChangeAction = "created" | "updated" | "revalidated" | "retired" | "quarantined";
@@ -383,7 +419,7 @@ function snapshotStringArray(snapshot: Record<string, unknown> | null, key: stri
     : null;
 }
 
-function resolvedSuccessor(change: Awaited<ReturnType<typeof loadAuthorizedChange>>) {
+function resolvedSuccessor(change: AuthorizedKnowledgeChange) {
   const after = snapshotRecord(change.afterSnapshot);
   const recordedId = snapshotString(after, "reviewSuccessorId");
   const recordedKind = snapshotString(after, "reviewSuccessorKind");
@@ -400,7 +436,170 @@ function resolvedSuccessor(change: Awaited<ReturnType<typeof loadAuthorizedChang
   return relationSuccessor;
 }
 
-async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthorizedChange>>) {
+function replayablePostCommitTasks(
+  change: AuthorizedKnowledgeChange,
+  userId: string,
+): PostCommitTask[] {
+  const tasks: PostCommitTask[] = [];
+  const successor = resolvedSuccessor(change);
+  const before = snapshotRecord(change.beforeSnapshot);
+  const after = snapshotRecord(change.afterSnapshot);
+  const entityId = entityRelationId(change);
+  const beforeId = snapshotString(before, "id");
+  const afterId = snapshotString(after, "id");
+  const hasExplicitPredecessor = Boolean(
+    change.projectFact?.supersedesProjectFactId ||
+    change.highlight?.supersedesHighlightId ||
+    change.evidenceItem?.supersedesEvidenceItemId ||
+    change.artifact?.supersedesArtifactId,
+  );
+  const inPlace = Boolean(
+    entityId &&
+    ((beforeId === entityId && (!afterId || afterId === entityId)) ||
+      (!beforeId && !afterId && !hasExplicitPredecessor)),
+  );
+  const replayRevertInvalidation = change.decision === "reverted" &&
+    knowledgeRevertMode(change.action, { inPlace }) === "retire_applied_revision";
+  if (change.decision === "edited_and_kept" && successor) {
+    if (successor.kind === "project_fact") {
+      tasks.push(async () => {
+        const fact = await prisma.projectFact.findUnique({ where: { id: successor.id } });
+        if (!fact) return;
+        await upsertProjectFactEmbedding({
+          projectFactId: fact.id,
+          inputText: buildProjectFactEmbeddingText(fact),
+        });
+      });
+    } else if (successor.kind === "highlight") {
+      tasks.push(async () => {
+        const highlight = await prisma.highlight.findUnique({
+          where: { id: successor.id },
+          include: { evidence: { include: { evidenceItem: { include: { source: true } } } } },
+        });
+        if (!highlight) return;
+        const tags = inferHighlightTags({
+          text: highlight.text,
+          summary: highlight.summary,
+          verificationNotes: highlight.verificationNotes,
+        });
+        await upsertHighlightEmbedding({
+          highlightId: highlight.id,
+          inputText: buildHighlightEmbeddingText({
+            text: highlight.text,
+            summary: highlight.summary,
+            verificationNotes: highlight.verificationNotes,
+            tags,
+            evidence: {
+              summary: highlight.summary,
+              verificationNotes: highlight.verificationNotes,
+              sourceRefs: highlight.evidence.map((entry) => ({
+                evidenceItemId: entry.evidenceItemId,
+                sourceId: entry.evidenceItem.sourceId,
+                sourceType: entry.evidenceItem.source.type,
+                sourceLabel: entry.evidenceItem.source.label,
+                title: entry.evidenceItem.title,
+                excerpt: entry.evidenceItem.content,
+              })),
+            },
+          }),
+        });
+      });
+    } else if (successor.kind === "evidence") {
+      tasks.push(async () => {
+        const evidence = await prisma.evidenceItem.findUnique({ where: { id: successor.id } });
+        if (!evidence) return;
+        await upsertEvidenceEmbedding({
+          evidenceItemId: evidence.id,
+          inputText: buildEvidenceEmbeddingText({
+            title: evidence.title,
+            content: evidence.content,
+            searchText: evidence.searchText,
+          }),
+        });
+      });
+    } else if (successor.kind === "artifact") {
+      tasks.push(async () => {
+        const artifact = await prisma.artifact.findUnique({ where: { id: successor.id } });
+        if (!artifact) return;
+        await upsertArtifactEmbedding({
+          artifactId: artifact.id,
+          inputText: buildArtifactEmbeddingText(artifact),
+        });
+      });
+    }
+    if (change.highlight) {
+      tasks.push(() => invalidateHighlightDependents({
+        workItemId: change.workItemId,
+        highlightId: change.highlight!.id,
+        reason: "A supporting Highlight was superseded by a user-edited version that requires validation.",
+        idempotencyScope: `edit-highlight:${change.id}:${successor.id}`,
+      }));
+    } else if (change.evidenceItem) {
+      tasks.push(() => invalidateEvidenceDependents({
+        workItemId: change.workItemId,
+        evidenceItemId: change.evidenceItem!.id,
+        reason: "Supporting Evidence was superseded by a user-edited immutable revision.",
+        idempotencyScope: `edit-evidence:${change.id}:${successor.id}`,
+      }));
+    }
+    tasks.push(() => queueEditedKnowledgeRevalidation({
+      userId,
+      workItemId: change.workItemId,
+      successor,
+    }));
+  } else if (
+    (change.decision === "retired" || replayRevertInvalidation) &&
+    change.highlight
+  ) {
+    tasks.push(() => invalidateHighlightDependents({
+      workItemId: change.workItemId,
+      highlightId: change.highlight!.id,
+      reason: change.decision === "retired"
+        ? "A supporting Highlight was retired."
+        : "An automatically applied Highlight was reverted.",
+      idempotencyScope: `${change.decision === "retired" ? "retire" : "revert"}:${change.id}`,
+    }));
+  } else if (
+    (change.decision === "retired" || replayRevertInvalidation) &&
+    change.evidenceItem
+  ) {
+    tasks.push(() => invalidateEvidenceDependents({
+      workItemId: change.workItemId,
+      evidenceItemId: change.evidenceItem!.id,
+      reason: change.decision === "retired"
+        ? "Supporting Evidence was retired."
+        : "Automatically applied Evidence was reverted.",
+      idempotencyScope: `${change.decision === "retired" ? "retire" : "revert"}:${change.id}`,
+    }));
+  }
+  return tasks;
+}
+
+async function runPostCommitTasksSafely(
+  changeId: string,
+  tasks: readonly PostCommitTask[],
+) {
+  let pending = [...tasks];
+  for (let attempt = 0; attempt < 2 && pending.length; attempt += 1) {
+    const attempted = pending;
+    const results = await Promise.allSettled(attempted.map((task) => task()));
+    pending = attempted.filter((_, index) => results[index]?.status === "rejected");
+  }
+  if (pending.length) {
+    // The durable decision remains successful. Every task is idempotent and is
+    // reconstructed on a resolution retry, so a transient provider/dependency
+    // failure cannot turn a committed review into an ambiguous API error.
+    console.error("Knowledge review post-commit maintenance remains pending", {
+      changeId,
+      taskCount: pending.length,
+    });
+  }
+}
+
+async function revertAppliedChange(
+  change: AuthorizedKnowledgeChange,
+  tx: Prisma.TransactionClient,
+): Promise<PostCommitTask[]> {
   const before = snapshotRecord(change.beforeSnapshot);
   const after = snapshotRecord(change.afterSnapshot);
   const entityId = change.projectFactId ?? change.highlightId ?? change.evidenceItemId ?? change.artifactId;
@@ -423,7 +622,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
     const priorLifecycle = snapshotString(before, "lifecycleStatus") ?? "active";
     if (change.projectFact) {
       const priorStatus = snapshotString(before, "status") ?? "approved";
-      await prisma.projectFact.update({
+      await tx.projectFact.update({
         where: { id: change.projectFact.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.projectFact.lifecycleStatus,
@@ -433,7 +632,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     } else if (change.highlight) {
-      await prisma.highlight.update({
+      await tx.highlight.update({
         where: { id: change.highlight.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.highlight.lifecycleStatus,
@@ -442,7 +641,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     } else if (change.evidenceItem) {
-      await prisma.evidenceItem.update({
+      await tx.evidenceItem.update({
         where: { id: change.evidenceItem.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.evidenceItem.lifecycleStatus,
@@ -452,7 +651,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     } else if (change.artifact) {
-      await prisma.artifact.update({
+      await tx.artifact.update({
         where: { id: change.artifact.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.artifact.lifecycleStatus,
@@ -461,7 +660,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     }
-    return;
+    return [];
   }
 
   if (mode === "restore_in_place") {
@@ -472,8 +671,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
       : toInputJson(before.validationHeads);
     if (change.projectFact) {
       const evidenceItemIds = snapshotStringArray(before, "evidenceItemIds");
-      await prisma.$transaction(async (tx) => {
-        await tx.projectFact.update({
+      await tx.projectFact.update({
           where: { id: change.projectFact!.id },
           data: {
             lifecycleStatus: priorLifecycle as typeof change.projectFact.lifecycleStatus,
@@ -487,21 +685,19 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
             publicSafetyStatus: (snapshotString(before, "publicSafetyStatus") ?? change.projectFact!.publicSafetyStatus) as typeof change.projectFact.publicSafetyStatus,
             autoAppliedAt: snapshotDate(before, "autoAppliedAt"),
           },
-        });
-        if (evidenceItemIds) {
-          await tx.projectFactEvidence.deleteMany({ where: { projectFactId: change.projectFact!.id } });
-          if (evidenceItemIds.length) {
-            await tx.projectFactEvidence.createMany({
-              data: evidenceItemIds.map((evidenceItemId) => ({ projectFactId: change.projectFact!.id, evidenceItemId })),
-              skipDuplicates: true,
-            });
-          }
-        }
       });
+      if (evidenceItemIds) {
+        await tx.projectFactEvidence.deleteMany({ where: { projectFactId: change.projectFact.id } });
+        if (evidenceItemIds.length) {
+          await tx.projectFactEvidence.createMany({
+            data: evidenceItemIds.map((evidenceItemId) => ({ projectFactId: change.projectFact!.id, evidenceItemId })),
+            skipDuplicates: true,
+          });
+        }
+      }
     } else if (change.highlight) {
       const evidenceItemIds = snapshotStringArray(before, "evidenceItemIds");
-      await prisma.$transaction(async (tx) => {
-        await tx.highlight.update({
+      await tx.highlight.update({
           where: { id: change.highlight!.id },
           data: {
             lifecycleStatus: priorLifecycle as typeof change.highlight.lifecycleStatus,
@@ -514,19 +710,18 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
             publicSafetyStatus: (snapshotString(before, "publicSafetyStatus") ?? change.highlight!.publicSafetyStatus) as typeof change.highlight.publicSafetyStatus,
             autoAppliedAt: snapshotDate(before, "autoAppliedAt"),
           },
-        });
-        if (evidenceItemIds) {
-          await tx.highlightEvidence.deleteMany({ where: { highlightId: change.highlight!.id } });
-          if (evidenceItemIds.length) {
-            await tx.highlightEvidence.createMany({
-              data: evidenceItemIds.map((evidenceItemId) => ({ highlightId: change.highlight!.id, evidenceItemId })),
-              skipDuplicates: true,
-            });
-          }
-        }
       });
+      if (evidenceItemIds) {
+        await tx.highlightEvidence.deleteMany({ where: { highlightId: change.highlight.id } });
+        if (evidenceItemIds.length) {
+          await tx.highlightEvidence.createMany({
+            data: evidenceItemIds.map((evidenceItemId) => ({ highlightId: change.highlight!.id, evidenceItemId })),
+            skipDuplicates: true,
+          });
+        }
+      }
     } else if (change.evidenceItem) {
-      await prisma.evidenceItem.update({
+      await tx.evidenceItem.update({
         where: { id: change.evidenceItem.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.evidenceItem.lifecycleStatus,
@@ -541,7 +736,7 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     } else if (change.artifact) {
-      await prisma.artifact.update({
+      await tx.artifact.update({
         where: { id: change.artifact.id },
         data: {
           lifecycleStatus: priorLifecycle as typeof change.artifact.lifecycleStatus,
@@ -555,57 +750,83 @@ async function revertAppliedChange(change: Awaited<ReturnType<typeof loadAuthori
         },
       });
     }
-    return;
+    return [];
   }
 
   if (change.projectFact) {
-    await prisma.projectFact.update({ where: { id: change.projectFact.id }, data: { lifecycleStatus: "retired", reviewState: "reverted", status: "rejected" } });
-    if (change.projectFact.supersedesProjectFactId) await prisma.projectFact.update({ where: { id: change.projectFact.supersedesProjectFactId }, data: { lifecycleStatus: "active", status: "approved" } });
+    await tx.projectFact.update({ where: { id: change.projectFact.id }, data: { lifecycleStatus: "retired", reviewState: "reverted", status: "rejected" } });
+    if (change.projectFact.supersedesProjectFactId) await tx.projectFact.update({ where: { id: change.projectFact.supersedesProjectFactId }, data: { lifecycleStatus: "active", status: "approved" } });
   } else if (change.highlight) {
-    await prisma.highlight.update({ where: { id: change.highlight.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
-    if (change.highlight.supersedesHighlightId) await prisma.highlight.update({ where: { id: change.highlight.supersedesHighlightId }, data: { lifecycleStatus: "active" } });
-    await invalidateHighlightDependents({
+    await tx.highlight.update({ where: { id: change.highlight.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
+    if (change.highlight.supersedesHighlightId) await tx.highlight.update({ where: { id: change.highlight.supersedesHighlightId }, data: { lifecycleStatus: "active" } });
+    return [() => invalidateHighlightDependents({
       workItemId: change.workItemId,
-      highlightId: change.highlight.id,
+      highlightId: change.highlight!.id,
       reason: "An automatically applied Highlight was reverted.",
       idempotencyScope: `revert:${change.id}`,
-    });
+    })];
   } else if (change.evidenceItem) {
-    await prisma.evidenceItem.update({ where: { id: change.evidenceItem.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
-    if (change.evidenceItem.supersedesEvidenceItemId) await prisma.evidenceItem.update({ where: { id: change.evidenceItem.supersedesEvidenceItemId }, data: { lifecycleStatus: "active" } });
-    await invalidateEvidenceDependents({
+    await tx.evidenceItem.update({ where: { id: change.evidenceItem.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
+    if (change.evidenceItem.supersedesEvidenceItemId) await tx.evidenceItem.update({ where: { id: change.evidenceItem.supersedesEvidenceItemId }, data: { lifecycleStatus: "active" } });
+    return [() => invalidateEvidenceDependents({
       workItemId: change.workItemId,
-      evidenceItemId: change.evidenceItem.id,
+      evidenceItemId: change.evidenceItem!.id,
       reason: "Automatically applied Evidence was reverted.",
       idempotencyScope: `revert:${change.id}`,
-    });
+    })];
   } else if (change.artifact) {
-    await prisma.artifact.update({ where: { id: change.artifact.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
-    if (change.artifact.supersedesArtifactId) await prisma.artifact.update({ where: { id: change.artifact.supersedesArtifactId }, data: { lifecycleStatus: "active", staleReason: null } });
+    await tx.artifact.update({ where: { id: change.artifact.id }, data: { lifecycleStatus: "retired", reviewState: "reverted" } });
+    if (change.artifact.supersedesArtifactId) await tx.artifact.update({ where: { id: change.artifact.supersedesArtifactId }, data: { lifecycleStatus: "active", staleReason: null } });
   }
+  return [];
 }
 
-async function retireEntity(change: Awaited<ReturnType<typeof loadAuthorizedChange>>, feedback?: string | null) {
-  if (change.projectFact) await prisma.projectFact.update({ where: { id: change.projectFact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: feedback ?? "Retired during knowledge review.", reviewState: "reviewed" } });
+async function retireEntity(
+  change: AuthorizedKnowledgeChange,
+  feedback: string | null | undefined,
+  tx: Prisma.TransactionClient,
+): Promise<PostCommitTask[]> {
+  if (change.projectFact) await tx.projectFact.update({ where: { id: change.projectFact.id }, data: { lifecycleStatus: "retired", status: "rejected", rejectionReason: feedback ?? "Retired during knowledge review.", reviewState: "reviewed" } });
   if (change.highlight) {
-    await prisma.highlight.update({ where: { id: change.highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: feedback ?? "Retired during knowledge review.", reviewState: "reviewed" } });
-    await invalidateHighlightDependents({
+    await tx.highlight.update({ where: { id: change.highlight.id }, data: { lifecycleStatus: "retired", rejectionReason: feedback ?? "Retired during knowledge review.", reviewState: "reviewed" } });
+    return [() => invalidateHighlightDependents({
       workItemId: change.workItemId,
-      highlightId: change.highlight.id,
+      highlightId: change.highlight!.id,
       reason: "A supporting Highlight was retired.",
       idempotencyScope: `retire:${change.id}`,
-    });
+    })];
   }
   if (change.evidenceItem) {
-    await prisma.evidenceItem.update({ where: { id: change.evidenceItem.id }, data: { lifecycleStatus: "retired", included: false, purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), reviewState: "reviewed" } });
-    await invalidateEvidenceDependents({
+    await tx.evidenceItem.update({ where: { id: change.evidenceItem.id }, data: { lifecycleStatus: "retired", included: false, purgeEligibleAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), reviewState: "reviewed" } });
+    return [() => invalidateEvidenceDependents({
       workItemId: change.workItemId,
-      evidenceItemId: change.evidenceItem.id,
+      evidenceItemId: change.evidenceItem!.id,
       reason: "Supporting Evidence was retired.",
       idempotencyScope: `retire:${change.id}`,
-    });
+    })];
   }
-  if (change.artifact) await prisma.artifact.update({ where: { id: change.artifact.id }, data: { lifecycleStatus: "retired", reviewState: "reviewed", staleReason: feedback ?? change.artifact.staleReason } });
+  if (change.artifact) await tx.artifact.update({ where: { id: change.artifact.id }, data: { lifecycleStatus: "retired", reviewState: "reviewed", staleReason: feedback ?? change.artifact.staleReason } });
+  return [];
+}
+
+async function runSerializableKnowledgeReview<T>(
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 15_000,
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : null;
+      if (code === "P2034" && attempt < 2) continue;
+      throw error;
+    }
+  }
+  throw new Error("The knowledge review transaction could not be completed.");
 }
 
 export async function resolveKnowledgeChange(input: {
@@ -615,83 +836,177 @@ export async function resolveKnowledgeChange(input: {
   patch?: Record<string, unknown>;
   feedback?: string | null;
 }) {
-  const change = await loadAuthorizedChange(input.userId, input.changeId);
-  if (change.decision !== "pending") {
-    return { changeId: change.id, decision: change.decision, successor: resolvedSuccessor(change) };
+  // This first read establishes authorization and the Work-Item lock key. The
+  // row is deliberately re-read after both the advisory lock and FOR UPDATE;
+  // it is never trusted as mutation state.
+  const authorized = await loadAuthorizedChange(input.userId, input.changeId);
+  if (authorized.decision !== "pending") {
+    await runPostCommitTasksSafely(
+      authorized.id,
+      replayablePostCommitTasks(authorized, input.userId),
+    );
+    return {
+      changeId: authorized.id,
+      decision: authorized.decision,
+      successor: resolvedSuccessor(authorized),
+    };
   }
-  if (await retireOutdatedReviewCard(change)) {
-    return { changeId: change.id, decision: "retired" as const, successor: null, superseded: true };
-  }
-  if (change.action === "quarantined" && input.decision === "keep") {
-    throw new Error("Quarantined knowledge cannot be kept unchanged. Edit it into a validation-gated successor, revert it, or retire it.");
-  }
-  let successor: { kind: string; id: string } | null = null;
-  if (input.decision === "keep") {
-    await setEntityReviewState(change, "reviewed");
-  } else if (input.decision === "edit_and_keep") {
-    successor = await createEditedSuccessor({ change, patch: input.patch ?? {} });
-  } else if (input.decision === "revert") {
-    await revertAppliedChange(change);
-  } else {
-    await retireEntity(change, input.feedback);
-  }
-  if (successor) {
-    await queueEditedKnowledgeRevalidation({
-      userId: input.userId,
-      workItemId: change.workItemId,
-      successor,
+  const outcome = await runSerializableKnowledgeReview(async (tx) => {
+    await lockKnowledgeWorkItemMutation(tx, authorized.workItemId);
+    await tx.$queryRaw`
+      SELECT 1::int AS locked
+      FROM "KnowledgeChange"
+      WHERE "id" = ${input.changeId}
+      FOR UPDATE
+    `;
+    const change = await loadAuthorizedChange(input.userId, input.changeId, tx);
+    if (change.decision !== "pending") {
+      return {
+        result: {
+          changeId: change.id,
+          decision: change.decision,
+          successor: resolvedSuccessor(change),
+        },
+        postCommitTasks: [] as PostCommitTask[],
+      };
+    }
+    if (await retireOutdatedReviewCard(change, tx)) {
+      return {
+        result: {
+          changeId: change.id,
+          decision: "retired" as const,
+          successor: null,
+          superseded: true as const,
+        },
+        postCommitTasks: [] as PostCommitTask[],
+      };
+    }
+    if (change.action === "quarantined" && input.decision === "keep") {
+      throw new Error("Quarantined knowledge cannot be kept unchanged. Edit it into a validation-gated successor, revert it, or retire it.");
+    }
+
+    let successor: { kind: string; id: string } | null = null;
+    let postCommitTasks: PostCommitTask[] = [];
+    if (input.decision === "keep") {
+      await setEntityReviewState(change, "reviewed", tx);
+    } else if (input.decision === "edit_and_keep") {
+      const edited = await createEditedSuccessor({
+        change,
+        patch: input.patch ?? {},
+        tx,
+      });
+      successor = edited.successor;
+      postCommitTasks = edited.postCommitTasks;
+    } else if (input.decision === "revert") {
+      postCommitTasks = await revertAppliedChange(change, tx);
+    } else {
+      postCommitTasks = await retireEntity(change, input.feedback, tx);
+    }
+
+    const decision = input.decision === "keep"
+      ? "kept"
+      : input.decision === "edit_and_keep"
+        ? "edited_and_kept"
+        : input.decision === "revert"
+          ? "reverted"
+          : "retired";
+    const resolved = await tx.knowledgeChange.updateMany({
+      where: { id: change.id, decision: "pending" },
+      data: {
+        decision,
+        reviewedAt: new Date(),
+        reviewedByUserId: input.userId,
+        feedback: input.feedback ?? null,
+        ...(successor
+          ? {
+              afterSnapshot: toInputJson({
+                ...(snapshotRecord(change.afterSnapshot) ?? {}),
+                reviewSuccessorId: successor.id,
+                reviewSuccessorKind: successor.kind,
+              }),
+            }
+          : {}),
+      },
     });
-  }
-  const decision = input.decision === "keep"
-    ? "kept"
-    : input.decision === "edit_and_keep"
-      ? "edited_and_kept"
-      : input.decision === "revert"
-        ? "reverted"
-        : "retired";
-  await prisma.knowledgeChange.update({
-    where: { id: change.id },
-    data: {
-      decision,
-      reviewedAt: new Date(),
-      reviewedByUserId: input.userId,
-      feedback: input.feedback ?? null,
-      ...(successor
-        ? {
-            afterSnapshot: toInputJson({
-              ...(snapshotRecord(change.afterSnapshot) ?? {}),
-              reviewSuccessorId: successor.id,
-              reviewSuccessorKind: successor.kind,
-            }),
-          }
-        : {}),
-    },
+    if (resolved.count !== 1) {
+      // The row lock makes this unreachable during normal operation. Throwing
+      // still guarantees every entity mutation above rolls back if a trigger or
+      // future caller changes the decision unexpectedly.
+      throw new Error("The knowledge review decision was already resolved.");
+    }
+    if (successor) {
+      postCommitTasks.push(() => queueEditedKnowledgeRevalidation({
+        userId: input.userId,
+        workItemId: change.workItemId,
+        successor: successor!,
+      }));
+    }
+    return {
+      result: { changeId: change.id, decision, successor },
+      postCommitTasks,
+    };
   });
-  return { changeId: change.id, decision, successor };
+
+  // Provider calls and dependent invalidation can be slow and independently
+  // retryable. They must never hold a database lock or run for a transaction
+  // that later rolls back.
+  await runPostCommitTasksSafely(input.changeId, outcome.postCommitTasks);
+  return outcome.result;
 }
 
 export async function purgeExpiredUnreferencedEvidence(now = new Date()) {
   const candidates = await prisma.evidenceItem.findMany({
     where: { lifecycleStatus: { in: ["retired", "stale"] }, purgeEligibleAt: { lte: now } },
-    include: {
-      highlightEvidence: true,
-      projectFactEvidence: true,
-      artifactProvenance: true,
-      chatCitations: true,
-      knowledgeChanges: true,
-      supersededByEvidenceItems: true,
-    },
+    select: { id: true, workItemId: true },
   });
-  const ids = candidates.filter((item) =>
-    !item.highlightEvidence.length &&
-    !item.projectFactEvidence.length &&
-    !item.artifactProvenance.length &&
-    !item.chatCitations.length &&
-    !item.knowledgeChanges.length &&
-    !item.supersededByEvidenceItems.length,
-  ).map((item) => item.id);
-  if (ids.length) await prisma.evidenceItem.deleteMany({ where: { id: { in: ids } } });
-  return ids;
+  const idsByWorkItem = new Map<string, string[]>();
+  for (const candidate of candidates) {
+    const ids = idsByWorkItem.get(candidate.workItemId) ?? [];
+    ids.push(candidate.id);
+    idsByWorkItem.set(candidate.workItemId, ids);
+  }
+  const deletedIds: string[] = [];
+  for (const [workItemId, candidateIds] of idsByWorkItem) {
+    const deleted = await runSerializableKnowledgeReview(async (tx) => {
+      await lockKnowledgeWorkItemMutation(tx, workItemId);
+      await tx.$queryRaw`
+        SELECT "id"
+        FROM "EvidenceItem"
+        WHERE "id" IN (${Prisma.join(candidateIds)})
+        FOR UPDATE
+      `;
+      const where: Prisma.EvidenceItemWhereInput = {
+        id: { in: candidateIds },
+        workItemId,
+        lifecycleStatus: { in: ["retired", "stale"] },
+        purgeEligibleAt: { lte: now },
+        highlightEvidence: { none: {} },
+        projectFactEvidence: { none: {} },
+        artifactProvenance: { none: {} },
+        chatCitations: { none: {} },
+        knowledgeChanges: { none: {} },
+        supersededByEvidenceItems: { none: {} },
+      };
+      // Re-read every relation after the row lock. An attachment that committed
+      // after the initial scan excludes the row; an attachment that starts
+      // later must wait on the referenced Evidence row and cannot be cascaded.
+      const stillUnreferenced = await tx.evidenceItem.findMany({
+        where,
+        select: { id: true },
+      });
+      const ids = stillUnreferenced.map((item) => item.id);
+      if (!ids.length) return [];
+      const removed = await tx.evidenceItem.deleteMany({
+        where: { ...where, id: { in: ids } },
+      });
+      if (removed.count !== ids.length) {
+        throw new Error("Evidence references changed while expired evidence was being purged.");
+      }
+      return ids;
+    });
+    deletedIds.push(...deleted);
+  }
+  return deletedIds;
 }
 
 async function createManualLifecycleChange(input: {

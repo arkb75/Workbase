@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applySynthesisCoverageGapsToRefreshState,
   allowsCanonicalKnowledgeReplacement,
+  highlightReconciliationCasWhere,
   isNewerKnowledgeRefreshGeneration,
+  knowledgeRefreshStateForEmbeddingTelemetry,
+  projectFactReconciliationCasWhere,
   repositoryHighlightPublicDisposition,
+  runBoundedKnowledgeEmbeddingTasks,
   shouldQuarantineSynthesizedCandidate,
 } from "@/src/services/knowledge-reconciliation-service";
 
@@ -77,6 +81,161 @@ describe("repository knowledge auto-apply policy", () => {
       eligible: false,
       reasons: [expect.stringContaining("requires reviewed ownership context")],
     });
+  });
+
+  it("expires a reconciliation selection after a concurrent user edit", () => {
+    const selectedAt = new Date("2026-07-21T10:00:00.000Z");
+    const editedAt = new Date("2026-07-21T10:00:01.000Z");
+    expect(projectFactReconciliationCasWhere({
+      id: "fact-1",
+      workItemId: "work-1",
+      statement: "Repository refreshes reactivate facts.",
+      status: "approved",
+      lifecycleStatus: "needs_validation",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+      supersedesProjectFactId: null,
+      updatedAt: selectedAt,
+    })).toMatchObject({
+      updatedAt: selectedAt,
+      reviewState: "pending_review",
+      approvalSource: "automation",
+    });
+    expect(highlightReconciliationCasWhere({
+      id: "highlight-1",
+      workItemId: "work-1",
+      text: "Original text",
+      summary: "Original summary",
+      verificationStatus: "approved",
+      lifecycleStatus: "needs_validation",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+      supersedesHighlightId: null,
+      updatedAt: selectedAt,
+    })).toMatchObject({
+      updatedAt: selectedAt,
+      text: "Original text",
+      reviewState: "pending_review",
+    });
+
+    // Postgres updateMany uses every field above as one compare-and-swap. A
+    // user edit advances updatedAt and changes review ownership, so a refresh
+    // holding the old selection can update zero rows and must skip it.
+    const current = {
+      updatedAt: editedAt,
+      reviewState: "reviewed",
+      approvalSource: "user",
+      lifecycleStatus: "needs_validation",
+    };
+    const staleWhere = projectFactReconciliationCasWhere({
+      id: "fact-1",
+      workItemId: "work-1",
+      statement: "Repository refreshes reactivate facts.",
+      status: "approved",
+      lifecycleStatus: "needs_validation",
+      reviewState: "pending_review",
+      approvalSource: "automation",
+      updatedAt: selectedAt,
+    });
+    expect(current.updatedAt).not.toEqual(staleWhere.updatedAt);
+    expect(current.reviewState).not.toEqual(staleWhere.reviewState);
+  });
+
+  it("runs independent embedding writes in bounded waves without failing reconciled memory", async () => {
+    let active = 0;
+    let peak = 0;
+    const completed: number[] = [];
+    const tasks = Array.from({ length: 9 }, (_, index) => ({
+      entityKind: index % 2 === 0 ? "project_fact" as const : "highlight" as const,
+      entityId: `entity-${index}`,
+      execute: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await Promise.resolve();
+        active -= 1;
+        completed.push(index);
+        if (index === 5) throw new Error("embedding provider unavailable");
+      },
+    }));
+
+    await expect(
+      runBoundedKnowledgeEmbeddingTasks(tasks, 4),
+    ).resolves.toEqual({
+      attempted: 9,
+      attempts: 10,
+      retried: 1,
+      recovered: 0,
+      failed: 1,
+      failedTargets: [{ entityKind: "highlight", entityId: "entity-5" }],
+    });
+    expect(peak).toBe(4);
+    expect(completed).toHaveLength(10);
+  });
+
+  it("rejects an invalid embedding concurrency before starting work", async () => {
+    await expect(
+      runBoundedKnowledgeEmbeddingTasks([], 0),
+    ).rejects.toThrow("positive integer");
+  });
+
+  it("recovers a transient embedding failure in one bounded retry", async () => {
+    let attempts = 0;
+    await expect(runBoundedKnowledgeEmbeddingTasks([{
+      entityKind: "project_fact",
+      entityId: "fact-1",
+      execute: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("temporary throttle");
+      },
+    }], 1)).resolves.toEqual({
+      attempted: 1,
+      attempts: 2,
+      retried: 1,
+      recovered: 1,
+      failed: 0,
+      failedTargets: [],
+    });
+  });
+
+  it("degrades and records failed embedding targets, then restores the prior quality after backfill", () => {
+    const failed = knowledgeRefreshStateForEmbeddingTelemetry({
+      warnings: { analyzerVersion: "v1" },
+      qualityStatus: "verified",
+      telemetry: {
+        attempted: 2,
+        attempts: 3,
+        retried: 1,
+        recovered: 0,
+        failed: 1,
+        failedTargets: [{ entityKind: "highlight", entityId: "highlight-1" }],
+      },
+      now: new Date("2026-07-19T12:00:00.000Z"),
+    });
+    expect(failed).toMatchObject({
+      qualityStatus: "degraded",
+      warnings: {
+        analyzerVersion: "v1",
+        embeddingBaseQuality: "verified",
+        embeddingTelemetry: {
+          failed: 1,
+          failedTargets: [{ entityKind: "highlight", entityId: "highlight-1" }],
+          updatedAt: "2026-07-19T12:00:00.000Z",
+        },
+      },
+    });
+
+    expect(knowledgeRefreshStateForEmbeddingTelemetry({
+      warnings: failed.warnings,
+      qualityStatus: "degraded",
+      telemetry: {
+        attempted: 1,
+        attempts: 1,
+        retried: 0,
+        recovered: 0,
+        failed: 0,
+        failedTargets: [],
+      },
+    }).qualityStatus).toBe("verified");
   });
 
   it("treats a later resolved differing head as a newer knowledge generation", () => {

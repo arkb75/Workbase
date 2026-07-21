@@ -197,9 +197,15 @@ export interface PriorTurnProvenanceService {
     workItemId: string;
     threadId: string;
     assistantMessageId?: string | null;
+    auditRunId?: string | null;
   }): Promise<{
     messageId: string;
     repositoryInspected: boolean;
+    repositoryActivity:
+      | "none"
+      | "targeted_research"
+      | "knowledge_refresh"
+      | "knowledge_refresh_and_targeted_research";
     partial: boolean;
     fallbackUsed: boolean;
     toolCalls: Array<{ name: string; count: number }>;

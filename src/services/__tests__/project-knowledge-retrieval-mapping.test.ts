@@ -37,6 +37,7 @@ import {
   buildMemoryCatalog,
   rankAccomplishmentHits,
 } from "@/src/services/project-chat-agent-service";
+import { selectProjectAnswerEditorialThemes } from "@/src/services/project-answer-editorial-service";
 
 const commitSha = "a".repeat(40);
 const now = new Date("2026-07-12T20:00:00.000Z");
@@ -300,6 +301,57 @@ describe("project knowledge retrieval mappings", () => {
     const hydratedQuery = mocks.findWorkItem.mock.calls[1]![0];
     expect(hydratedQuery.include.highlights.where.id.in).toEqual(rankedIds.slice(0, 48));
     expect(hydratedQuery.include.highlights.take).toBe(48);
+  });
+
+  it("carries semantic relevance through the memory catalog into focused editorial selection", async () => {
+    const highlight = {
+      ...approvedHighlight(),
+      text: "Credential redaction before model-visible events",
+      summary:
+        "The Bedrock runtime redacts GitHub tokens, AWS access keys, bearer credentials, and private keys before model-visible events.",
+      searchText: "credential redaction tokens keys model events",
+      metadata: {
+        subsystemKey: "ai_runtime",
+        scores: {
+          productImportance: 4,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        },
+      },
+    };
+    mocks.findNearestProjectKnowledge.mockResolvedValue({
+      highlights: new Map([[highlight.id, 0.72]]),
+      projectFacts: new Map(),
+      evidence: new Map(),
+      artifacts: new Map(),
+    });
+    mocks.findWorkItem.mockResolvedValue({
+      id: "work-item-1",
+      highlights: [highlight],
+      projectFacts: [],
+      evidenceItems: [],
+      artifacts: [],
+    });
+
+    const result = await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Explain its security posture.",
+      purpose: "private_chat",
+    });
+    const catalog = buildMemoryCatalog({
+      hits: result.hits,
+      query: "Explain its security posture.",
+    });
+    const selection = selectProjectAnswerEditorialThemes({
+      question: "Explain its security posture.",
+      entries: catalog.entries,
+    });
+
+    expect(result.hits[0]?.retrievalRelevance).toBeGreaterThanOrEqual(0.72);
+    expect(catalog.entries[0]?.retrievalRelevance).toBe(result.hits[0]?.retrievalRelevance);
+    expect(selection.selectedThemes.map((theme) => theme.key)).toEqual(["ai_runtime"]);
   });
 
   it("excludes repository excerpts before the evidence hydration limit", async () => {

@@ -15,6 +15,7 @@ import { resolveBedrockConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import {
+  assertAnswerCitationContract,
   dedupeCitationCatalog,
   finalizeGroundedAnswer,
   selectReferencedCitations,
@@ -32,37 +33,80 @@ import { projectExecutionRouterService } from "@/src/services/project-execution-
 import {
   accomplishmentCoverageAnchorScore,
   accomplishmentSubsystemPriority,
-  auditAccomplishmentBlocks,
-  buildDeterministicAccomplishmentBlocks,
-  compactAlreadyGroundedAccomplishmentBlocks,
-  completeGroundedAccomplishmentAnswer,
   filterSupersededAccomplishmentClaims,
   isTopLevelAccomplishmentSubsystem,
-  selectAccomplishmentRequirementSet,
-  validateExactSourceAccomplishmentBlocks,
-  verifyCompletedAccomplishmentAnswer,
 } from "@/src/services/project-answer-completeness-service";
 import {
+  detectGroundingContractIssues,
   extractClaimCitationMap,
-  groundProjectAnswer,
+  type ProjectAnswerGroundingEntry,
 } from "@/src/services/project-answer-grounding-service";
+import {
+  addSourceBoundedEditorialContext,
+  auditProjectAnswerEditorialQuality,
+  buildExactSourceEditorialFallbackBlocks,
+  buildProjectAnswerEditorialModelGuidance,
+  classifyProjectAnswerEditorialProfile,
+  selectProjectAnswerEditorialThemes,
+  type ProjectAnswerEditorialProfile,
+  type ProjectAnswerEditorialSelection,
+} from "@/src/services/project-answer-editorial-service";
+import {
+  sanitizeProjectAnswerFailure,
+  verifyProjectAnswerWithRecovery,
+} from "@/src/services/project-answer-recovery-service";
+import { normalizeProjectResearchResultForChat } from "@/src/services/project-research-result-normalization-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import {
   mergeProjectResearchDossier,
   parseProjectResearchDossier,
   repositoryFreshnessFromDossier,
 } from "@/src/services/project-research-dossier-service";
+import { isHighlightWorthyUserContext } from "@/src/services/chat-highlight-candidate-service";
 
 const freshnessIntentPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
 const liveRepositoryIntentPattern = /(?:\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|look(?:\s+at)?|access)\b.{0,80}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:repo|repository|github|codebase)\b.{0,80}\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|access)\b)|(?:\b(?:inspect|search|read|check|access|compare)\b.{0,100}\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b)/i;
 const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.{0,80}\b(?:accomplishments?|achievements?|contributions?|work|features?)\b|\b(?:summari[sz]e|assess|rank)\b.{0,100}\b(?:accomplishments?|achievements?|contributions?)\b/i;
-const architectureSynthesisPattern = /\b(?:main|overall|system|project|high[- ]level)?\s*architecture\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
-const broadArchitectureAnswerPattern = /\b(?:(?:main|overall|system|project|high[- ]level)\s+architecture|architecture overview)\b|\bhow does\b.{0,100}\b(?:architecture|system|pipeline|data flow)\b/i;
 const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
 const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
+const semanticAnswerVerificationIntentPattern =
+  /\b(?:assess|evaluate|critique|compare|trade[- ]?offs?|recommend|should|risk|weakness|limitation|implication|pros?\s+and\s+cons?|why is|why does|how good|how well)\b/i;
+const MAX_EDITORIAL_CITATIONS = 16;
 
 export function supportsDeterministicAccomplishmentFormat(question: string) {
   return accomplishmentSynthesisPattern.test(question) && !accomplishmentFormatConstraintPattern.test(question);
+}
+
+/**
+ * A second model pass is useful for analytical conclusions, but redundant for
+ * factual summaries whose claims can be checked directly against their cited
+ * durable memory. Keep ordinary Q&A on deterministic grounding and exact
+ * source recovery; reserve semantic verification for prompts that explicitly
+ * ask the model to judge, compare, recommend, or reason about trade-offs.
+ */
+export function projectAnswerGroundingModeForQuestion(
+  question: string,
+): "deterministic" | "hybrid" {
+  return semanticAnswerVerificationIntentPattern.test(question)
+    ? "hybrid"
+    : "deterministic";
+}
+
+export function usesDeterministicEditorialSynthesis(question: string) {
+  if (projectAnswerGroundingModeForQuestion(question) === "deterministic") {
+    return true;
+  }
+  const profile = classifyProjectAnswerEditorialProfile(question);
+  // A balanced strength/risk assessment of already reviewed project memory is
+  // a bounded editorial operation: each selected subsystem has an explicit,
+  // source-bounded assessment template whose inference is labelled in the
+  // answer. Paying for an open-ended model pass here added roughly two minutes
+  // in the live matrix and still fell back to those same durable premises.
+  // Keep genuinely open-ended recommendations and comparisons model-backed.
+  return profile.kind === "assessment" &&
+    !/\b(?:recommend|should|redesign|change|choose|prefer|better|versus|vs\.?|compare|alternative)\b/i.test(
+      question,
+    );
 }
 
 export interface ProjectChatHistoryMessage {
@@ -113,6 +157,45 @@ export function explicitPriorRetryExplanation(input: {
   return `In my previous answer, the part I was referring to was: ${explanation}`;
 }
 
+export function explicitPriorEvidenceGapExplanation(input: {
+  question: string;
+  history?: ProjectChatHistoryMessage[];
+}) {
+  if (
+    !/\b(?:why|how come)\b.{0,80}\b(?:could(?: not|n't)|can(?: not|'t)|did(?: not|n't)|unable|insufficient|missing|no answer)\b/i.test(
+      input.question,
+    )
+  ) {
+    return null;
+  }
+  const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
+  if (
+    !priorAssistant ||
+    !/\b(?:does not establish|did not find|not enough|no (?:relevant|approved|supported)|insufficient|missing|cannot safely)\b/i.test(
+      priorAssistant.content,
+    )
+  ) {
+    return null;
+  }
+  const gap = priorAssistant.content
+    .replace(/\[citation:\d+\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1_000);
+  return `The previous answer stopped instead of guessing because its evidence boundary was: ${gap}`;
+}
+
+function socialChatAnswer(question: string) {
+  const normalized = question.trim().replace(/[!.?]+$/g, "").trim();
+  if (/^(?:hi|hello|hey|good (?:morning|afternoon|evening))$/i.test(normalized)) {
+    return "Hi — ask me about this project's architecture, implementation, decisions, accomplishments, sources, or a career artifact.";
+  }
+  if (/^(?:thanks|thank you|thx)$/i.test(normalized)) {
+    return "You’re welcome.";
+  }
+  return null;
+}
+
 export type ProjectChatAgentResult =
   | {
       status: "answered" | "awaiting_review" | "insufficient_context";
@@ -122,6 +205,7 @@ export type ProjectChatAgentResult =
       citationPolicy: AnswerCitationPolicy;
       groundedClaims: Array<{ claim: string; citationIndexes: number[] }>;
       freshness: FinalizedChatAnswer["freshness"];
+      fallbackUsed?: boolean;
     }
   | { status: "artifact_requested"; brief: string };
 
@@ -130,7 +214,37 @@ function toInputJson(value: unknown): Prisma.InputJsonValue {
 }
 
 export function requiresLiveRepositoryResearch(question: string) {
-  return freshnessIntentPattern.test(question) || liveRepositoryIntentPattern.test(question);
+  // Process questions about the prior turn are answered from the persisted
+  // run/citation manifest. Words such as "inspect" and "repository" describe
+  // the prior action being audited; they are not authorization or intent to
+  // start a new repository refresh.
+  const controlPlaneIntent = routeProjectTurn({
+    question,
+    memoryHits: [],
+    pendingCandidateIds: [],
+    allowResearch: false,
+  });
+  if (controlPlaneIntent.kind === "prior_turn_provenance") return false;
+  if (liveRepositoryIntentPattern.test(question)) return true;
+  if (!freshnessIntentPattern.test(question)) return false;
+  // Freshness words often refer to conversation or review state rather than
+  // repository-backed product state. Do not pay for a full repository refresh
+  // for "my recent answer" or "current candidate status."
+  if (
+    /\b(?:answer|message|conversation|thread|chat history|review status|candidate status|artifact status)\b/i.test(
+      question,
+    )
+  ) {
+    return false;
+  }
+  return accomplishmentSynthesisPattern.test(question) ||
+    /\b(?:workbase|project (?:architecture|capabilities|implementation|behavior)|codebase|implementation|feature set|repository knowledge)\b/i.test(
+      question,
+    );
+}
+
+export function isContextOnlyProjectStatement(value: string) {
+  return isHighlightWorthyUserContext(value);
 }
 
 export function buildStandaloneResearchQuestion(input: {
@@ -140,6 +254,14 @@ export function buildStandaloneResearchQuestion(input: {
 }) {
   const priorUserObjective = input.history?.filter((message) => message.role === "user").at(-1);
   const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
+  const hasDelegatedQuestion = Boolean(
+    input.delegatedQuestion && input.delegatedQuestion !== input.currentQuestion,
+  );
+  if (!priorUserObjective && !priorAssistant && !hasDelegatedQuestion) {
+    // Do not turn controller labels such as "Current follow-up" into semantic
+    // query terms. A standalone request is already complete as written.
+    return input.currentQuestion.slice(0, 6_000);
+  }
   return [
     priorUserObjective ? `Prior user objective: ${priorUserObjective.content}` : null,
     priorAssistant
@@ -149,7 +271,7 @@ export function buildStandaloneResearchQuestion(input: {
       ? `Prior used sources: ${JSON.stringify(priorAssistant.citations.map((citation) => ({ type: citation.kind, title: citation.label })))}`
       : null,
     `Current follow-up: ${input.currentQuestion}`,
-    input.delegatedQuestion && input.delegatedQuestion !== input.currentQuestion
+    hasDelegatedQuestion
       ? `Specific research request: ${input.delegatedQuestion}`
       : null,
   ].filter(Boolean).join("\n").slice(0, 6_000);
@@ -184,7 +306,7 @@ export function buildContextualRetrievalQuery(input: {
   ].filter(Boolean).join("\n").slice(0, 4_000);
 }
 
-function selectHistory(messages: ProjectChatHistoryMessage[]) {
+export function selectProjectChatHistory(messages: ProjectChatHistoryMessage[]) {
   const selected: ProjectChatHistoryMessage[] = [];
   let chars = 0;
   for (const message of messages.slice(-12).reverse()) {
@@ -193,15 +315,15 @@ function selectHistory(messages: ProjectChatHistoryMessage[]) {
       0,
     );
     const nextChars = message.content.length + citationChars;
-    if (selected.length && chars + nextChars > 60_000) break;
+    if (chars + nextChars > 60_000) break;
     selected.push(message);
     chars += nextChars;
   }
   return selected.reverse();
 }
 
-function toBedrockHistory(messages: ProjectChatHistoryMessage[]): Message[] {
-  const selected = selectHistory(messages);
+export function buildBedrockProjectChatHistory(messages: ProjectChatHistoryMessage[]): Message[] {
+  const selected = selectProjectChatHistory(messages);
   while (selected[0]?.role === "assistant") selected.shift();
   return selected.map((message, index) => ({
     role: message.role,
@@ -237,8 +359,43 @@ export function buildMemoryCatalog(input: {
       if (--limit <= 0) break;
     }
   };
-  if (input.query && accomplishmentSynthesisPattern.test(input.query)) {
+  const editorialProfile = input.query
+    ? classifyProjectAnswerEditorialProfile(input.query)
+    : null;
+  if (input.query && retryQuestionPattern.test(input.query)) {
+    // Referential retry questions are narrow even when their contextual query
+    // contains a long architecture answer. Reserve the exact durable-memory
+    // match before broad editorial or authority quotas can crowd it out.
+    add(input.hits.filter((hit) =>
+      ["verified_highlight", "verified_project_fact", "included_evidence"].includes(hit.authority) &&
+      /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(`${hit.title} ${hit.content}`)
+    ), 2);
+  }
+  if (
+    input.query &&
+    editorialProfile &&
+    ["focused", "comparison", "assessment"].includes(editorialProfile.kind)
+  ) {
+    // Analytical questions are query-directed. Reserve their best durable
+    // matches before adding broad project coverage so relevant comparison
+    // sides or risks cannot be crowded out by generally impressive work.
+    add(input.hits.filter((hit) =>
+      ["highlight", "project_fact", "evidence"].includes(hit.kind) &&
+      ["verified_highlight", "verified_project_fact", "included_evidence"].includes(hit.authority)
+    ), 10);
+  }
+  if (input.query && editorialProfile && editorialProfile.kind !== "focused") {
     add(rankAccomplishmentHits(input.hits, 12), 12);
+  } else if (input.query) {
+    // Retrieval is already query-ranked. Reserve its strongest durable-memory
+    // matches before authority quotas so a focused runtime or schema question
+    // is not crowded out by unrelated high-authority Highlights.
+    add(input.hits.filter((hit) =>
+      ["highlight", "project_fact", "evidence"].includes(hit.kind) &&
+      ["verified_highlight", "verified_project_fact", "included_evidence"].includes(hit.authority)
+    ), 8);
+  }
+  if (input.query && accomplishmentSynthesisPattern.test(input.query)) {
     // One explicit self-report is enough to authorize accurate "you built"
     // wording in private chat. Reserve it before generic evidence slots so a
     // long list of commits or README records cannot crowd it out.
@@ -246,20 +403,6 @@ export function buildMemoryCatalog(input: {
       hit.kind === "evidence" &&
       hit.authority === "included_evidence" &&
       (hit.ownershipAuthority ?? 0) >= 3
-    ), 2);
-  } else if (input.query && architectureSynthesisPattern.test(input.query)) {
-    // Architecture questions need a subsystem-balanced catalog. Pure top-k
-    // similarity otherwise tends to return several near-duplicate facts from
-    // whichever subsystem happens to share the word "architecture."
-    add(rankAccomplishmentHits(input.hits, 10), 10);
-  }
-  if (input.query && retryQuestionPattern.test(input.query)) {
-    // Referential retry questions are narrow even when their contextual query
-    // contains a long architecture answer. Reserve the exact durable-memory
-    // match before broad architecture or authority quotas can crowd it out.
-    add(input.hits.filter((hit) =>
-      ["verified_highlight", "verified_project_fact", "included_evidence"].includes(hit.authority) &&
-      /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(`${hit.title} ${hit.content}`)
     ), 2);
   }
   add(input.hits.filter((hit) => hit.kind === "project_fact" && preferredIds.has(hit.id)), 8);
@@ -279,6 +422,42 @@ export function buildMemoryCatalog(input: {
   // Only the durable memory object is a peer citation. Repository excerpts and
   // other linked evidence remain high-level provenance previews underneath it.
   const citations = dedupeCitationCatalog(selected.flatMap(peerCitationsForHit));
+  const focusedEvidenceExcerpt = (hit: ProjectKnowledgeHit) => {
+    if (!input.query || hit.kind !== "evidence" || hit.content.length <= 800) {
+      return hit.content.slice(0, 2_000);
+    }
+    const query = input.query.toLowerCase();
+    const aliases = [
+      ...query.split(/[^a-z0-9_]+/).filter((term) => term.length >= 4),
+      ...(/\b(?:security|secure|posture|secret|credential)\b/i.test(query)
+        ? ["credential", "redact", "secret", "oauth", "authorization", "permission"]
+        : []),
+      ...(/\b(?:authentication|authorization|permission|oauth)\b/i.test(query)
+        ? ["oauth", "authentication", "authorization", "permission", "attached"]
+        : []),
+      ...(/\b(?:resilien|recovery|recover|fault tolerance)\w*/i.test(query)
+        ? ["durable", "persist", "resume", "retry", "progress", "idempotent"]
+        : []),
+    ];
+    const terms = Array.from(new Set(aliases));
+    const segments = hit.content
+      .split(/\n{2,}|\n(?=(?:[-*#]|\d+[.)]\s))/)
+      .map((segment, index) => ({
+        index,
+        segment: segment.trim(),
+        score: terms.filter((term) => segment.toLowerCase().includes(term)).length,
+      }))
+      .filter((entry) => entry.segment);
+    const selectedSegments = segments
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, 4)
+      .sort((left, right) => left.index - right.index);
+    return (selectedSegments.length ? selectedSegments : segments.slice(0, 2))
+      .map((entry) => entry.segment)
+      .join("\n\n")
+      .slice(0, 800);
+  };
   const entries = selected.map((hit) => {
     const peers = peerCitationsForHit(hit);
     const citationIndexes = peers.flatMap((peer) => {
@@ -295,9 +474,10 @@ export function buildMemoryCatalog(input: {
       kind: hit.kind,
       authority: hit.authority,
       title: hit.title,
-      content: hit.content.slice(0, 2_000),
+      content: focusedEvidenceExcerpt(hit),
       currentRun: hit.kind === "project_fact" && preferredIds.has(hit.id),
       citationIndexes,
+      retrievalRelevance: hit.retrievalRelevance ?? 0,
       supportingSources: [
         ...hit.citations
           .filter((citation) => !peers.includes(citation))
@@ -454,36 +634,120 @@ function normalizedAnswerKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9%]+/g, " ").trim();
 }
 
-function deterministicMemoryAnswer(
-  hits: ProjectKnowledgeHit[],
-  catalog: ReturnType<typeof buildMemoryCatalog>,
+const recoveryStopWords = new Set([
+  "about", "answer", "and", "are", "current", "explain", "focus", "from",
+  "how", "into", "latest", "make", "project", "repository", "that", "the",
+  "their", "this", "through", "up", "what", "when", "with", "workbase", "your",
+]);
+
+function recoveryTerms(value: string) {
+  return new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((term) =>
+    term.length > 2 && !recoveryStopWords.has(term)
+  ));
+}
+
+function recoveryEntryScore(
+  entry: ProjectAnswerGroundingEntry,
+  questionTerms: Set<string>,
 ) {
-  const currentRunTitles = new Set(catalog.entries.filter((entry) => entry.currentRun).map((entry) => entry.title));
-  const eligible = hits.filter((hit) =>
-    hit.authority === "verified_highlight" ||
-    hit.authority === "verified_project_fact" ||
-    hit.authority === "included_evidence"
-  );
-  const prioritized = [
-    ...eligible.filter((hit) => currentRunTitles.has(hit.title)),
-    ...eligible.filter((hit) => !currentRunTitles.has(hit.title)),
-  ];
-  const seenContent = new Set<string>();
-  const grounded = prioritized.filter((hit) => {
-    const key = normalizedAnswerKey(hit.content);
-    if (!key || seenContent.has(key)) return false;
-    seenContent.add(key);
-    return true;
-  }).slice(0, Math.max(3, currentRunTitles.size));
-  const answer = grounded.map((hit) => {
-    const entry = catalog.entries.find((candidate) => candidate.title === hit.title);
-    const citationIndex = entry?.citationIndexes[0];
-    return `${hit.content}${citationIndex ? ` [citation:${citationIndex}]` : ""}`;
-  }).join("\n\n");
-  return {
-    ...selectReferencedCitations(answer, catalog.citations),
-    uncompactedContent: answer,
-  };
+  const entryTerms = recoveryTerms(`${entry.title} ${entry.content}`);
+  const overlap = Array.from(questionTerms).filter((term) => entryTerms.has(term)).length;
+  const ranking = entry.accomplishmentRanking;
+  const significance = ranking
+    ? ranking.productImportance * 5 +
+      ranking.implementationBreadth * 4 +
+      ranking.technicalDifficulty * 3 +
+      ranking.distinctiveness * 2 +
+      ranking.evidenceStrength * 2 +
+      ranking.freshness +
+      ranking.impactBonus
+    : 0;
+  return overlap * 25 +
+    significance +
+    Number(entry.currentRun) * 20 +
+    Number(entry.authority === "verified_project_fact") * 8 +
+    Number(entry.authority === "verified_highlight") * 6;
+}
+
+function safeRecoveryHeading(value: string) {
+  return value
+    .replace(/\[citation:\d+\]|\[\d+(?:\s*,\s*\d+)*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+/**
+ * Produces a source-exact answer when drafting or semantic verification is
+ * unavailable. It intentionally sacrifices paraphrase quality before it
+ * sacrifices truth: every published block is copied from one active durable
+ * memory entry and receives only that entry's citation indexes.
+ */
+export function buildExactSourceRecoveryAnswer(input: {
+  question: string;
+  entries: ProjectAnswerGroundingEntry[];
+  catalog: ProjectKnowledgeCitation[];
+  freshness?: FinalizedChatAnswer["freshness"];
+  maximumBlocks?: number;
+}) {
+  const questionTerms = recoveryTerms(input.question);
+  const eligible = input.entries
+    .filter((entry) =>
+      ["verified_project_fact", "verified_highlight", "included_evidence"].includes(entry.authority) &&
+      entry.citationIndexes.length > 0
+    )
+    .sort((left, right) =>
+      recoveryEntryScore(right, questionTerms) - recoveryEntryScore(left, questionTerms)
+    );
+  const seen = new Set<string>();
+  const blocks = eligible.flatMap((entry) => {
+    const content = entry.content.trim();
+    const contentKey = normalizedAnswerKey(content);
+    if (!contentKey || seen.has(contentKey)) return [];
+    const citationIndexes = Array.from(new Set(entry.citationIndexes)).slice(0, 2);
+    if (!citationIndexes.length) return [];
+    const headingCandidate = safeRecoveryHeading(entry.title);
+    const heading = detectGroundingContractIssues({
+      answer: `${headingCandidate} ${citationIndexes.map((index) => `[citation:${index}]`).join("")}`,
+      citationCount: input.catalog.length,
+      entries: input.entries,
+    }).length
+      ? null
+      : headingCandidate || null;
+    const block = {
+      heading,
+      bodyMarkdown: content,
+      citationIndexes,
+    };
+    const contractIssues = detectGroundingContractIssues({
+      answer: [
+        heading ? `### ${heading}` : null,
+        `${content} ${citationIndexes.map((index) => `[citation:${index}]`).join("")}`,
+      ].filter(Boolean).join("\n"),
+      citationCount: input.catalog.length,
+      entries: input.entries,
+    });
+    if (contractIssues.length) return [];
+    try {
+      // Validate each block independently so one malformed historical source
+      // cannot prevent other supported memory from being returned.
+      finalizeGroundedAnswer({
+        blocks: [block],
+        catalog: input.catalog,
+        freshness: input.freshness,
+      });
+    } catch {
+      return [];
+    }
+    seen.add(contentKey);
+    return [block];
+  }).slice(0, input.maximumBlocks ?? 5);
+  if (!blocks.length) return null;
+  return finalizeGroundedAnswer({
+    blocks,
+    catalog: input.catalog,
+    freshness: input.freshness,
+  });
 }
 
 function deterministicHistoryAwareAnswer(input: {
@@ -503,9 +767,7 @@ function deterministicHistoryAwareAnswer(input: {
   const citationIndex = entry?.citationIndexes[0];
   if (!citationIndex) return null;
 
-  const answer = /durable workflows?.*project chat.*artifact generation/i.test(hit.content)
-    ? "The retry-safe part is the durable workflow orchestration around project chat and artifact generation. It is described as retry-safe because the same supported implementation fact ties those steps to persisted runs, progress events, and review/resume boundaries."
-    : `The part identified as retry-safe is: ${hit.content} I am identifying it because this is the retrieved project-memory item that explicitly documents retry or backoff behavior.`;
+  const answer = `The retrieved project-memory item that explicitly documents the retry or backoff behavior says: ${hit.content} That is the supported part I was referring to; I am not extending it into a broader retry guarantee.`;
   const grounded = `${answer} [citation:${citationIndex}]`;
   return {
     ...selectReferencedCitations(grounded, input.catalog.citations),
@@ -513,85 +775,113 @@ function deterministicHistoryAwareAnswer(input: {
   };
 }
 
-function appendAccomplishmentCoverageNote(answer: string, warning: string | null) {
-  return warning
-    ? `${answer.trim()}\n\n> **Coverage note:** ${warning}`
-    : answer;
-}
-
-function accomplishmentRequirementManifest(
-  selection: ReturnType<typeof selectAccomplishmentRequirementSet>,
-  citations: ProjectKnowledgeCitation[],
-  ownershipCitationIndexes: number[],
-) {
-  const sourceRefs = (indexes: number[]) => indexes.flatMap((citationIndex) => {
-    const citation = citations[citationIndex - 1];
-    if (!citation) return [];
-    const sourceId = citation.projectFactId ?? citation.highlightId ??
-      citation.evidenceItemId ?? citation.artifactId ?? citation.sourceId;
-    return [{
-      citationIndex,
-      kind: citation.kind,
-      sourceId: sourceId ?? null,
-      title: citation.label,
-    }];
-  });
+function editorialPlanForPrompt(selection: ProjectAnswerEditorialSelection) {
   return {
-    requirements: selection.requirements.map((requirement) => {
-      const citationIndexes = Array.from(new Set([
-        ...requirement.citationIndexes,
-        ...ownershipCitationIndexes.slice(0, 1),
-      ])).slice(0, 4);
-      return {
-        key: requirement.requirementKey,
-        subsystemKeys: Array.from(new Set(requirement.members
-          .map((member) => member.subsystemKey)
-          .filter((value): value is string => Boolean(value)))),
-        citationIndexes,
-        ownershipCitationIndexes: ownershipCitationIndexes.slice(0, 1),
-        sourceRefs: sourceRefs(citationIndexes),
-        members: requirement.members.map((member) => ({
-          title: member.title,
-          content: member.content.slice(0, 700),
-          citationIndexes: member.citationIndexes,
-          sourceRefs: sourceRefs(member.citationIndexes),
-        })),
-      };
-    }),
-    minimumBlocks: Math.min(7, selection.requirements.length),
-    maximumBlocks: 10,
-    maximumUniqueCitations: 20,
-    overflowWarning: selection.coverageWarning,
+    profile: {
+      kind: selection.profile.kind,
+      audience: selection.profile.audience,
+      depth: selection.profile.depth,
+      format: selection.profile.format,
+      comprehensive: selection.profile.comprehensive,
+      targetItemCount: selection.profile.targetItemCount,
+      focusTerms: selection.profile.focusTerms,
+    },
+    selectedThemes: selection.selectedThemes.map((theme, index) => ({
+      rank: index + 1,
+      key: theme.key,
+      label: theme.label,
+      evidence: Array.from(new Map(
+        [...theme.highPriorityMembers, ...theme.representativeMembers]
+          .map((member) => [member.entryIndex, member] as const),
+      ).values()).slice(0, 4).map((member) => ({
+        title: member.entry.title,
+        content: member.entry.content,
+        authority: member.entry.authority,
+        citationIndexes: member.entry.citationIndexes,
+        ownershipAuthority: member.entry.ownershipAuthority ?? 0,
+      })),
+    })),
+    omittedThemeLabels: selection.omittedThemes.map((theme) => theme.label),
   };
 }
 
-export function ensureAccomplishmentCoverage(
-  answer: string,
-  entries: ReturnType<typeof buildMemoryCatalog>["entries"],
+function canonicalMarkdownSections(markdown: string) {
+  const matches = Array.from(markdown.matchAll(/^###\s+(.+)$/gm));
+  if (!matches.length) return [];
+  return matches.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[index + 1]?.index ?? markdown.length;
+    return {
+      heading: match[1]!.trim(),
+      body: markdown.slice(start, end).trim(),
+    };
+  });
+}
+
+function flattenEditorialBody(value: string) {
+  return value
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitTrailingCoverageLimit(markdown: string) {
+  const delimiter = "\n\n> **Coverage limit:**";
+  const index = markdown.lastIndexOf(delimiter);
+  if (index < 0) return { answer: markdown, coverageLimit: null };
+  return {
+    answer: markdown.slice(0, index).trimEnd(),
+    coverageLimit: markdown.slice(index + 2).trim(),
+  };
+}
+
+export function applyProjectAnswerEditorialPresentation(
+  markdown: string,
+  profile: ProjectAnswerEditorialProfile,
 ) {
-  const used = new Set(Array.from(answer.matchAll(/\[citation:(\d+)\]/gi)).map((match) => Number(match[1])));
-  const required = entries
-    .filter((entry) => entry.citationIndexes.length > 0)
-    .filter((entry) => (entry.accomplishmentRanking?.productImportance ?? 0) >= 4)
-    .filter((entry) => (entry.accomplishmentRanking?.implementationBreadth ?? 0) >= 3)
-    .filter((entry) => !/\b(?:defines (?:the )?(?:symbol|model)|contains .* behavior|is present in)\b/i.test(`${entry.title} ${entry.content}`));
-  const bySubsystem = new Map<string, (typeof required)[number]>();
-  for (const entry of required) {
-    const key = entry.subsystemKey ?? `${entry.kind}:${entry.title}`;
-    if (!bySubsystem.has(key)) bySubsystem.set(key, entry);
+  if (profile.format === "headings") return markdown;
+  const { answer, coverageLimit } = splitTrailingCoverageLimit(markdown);
+  const sections = canonicalMarkdownSections(answer);
+  if (!sections.length) return markdown;
+  let presented: string;
+  if (profile.format === "bullets") {
+    presented = sections
+      .map((section) => `- **${section.heading}:** ${flattenEditorialBody(section.body)}`)
+      .join("\n");
+  } else if (profile.format === "paragraphs") {
+    presented = sections
+      .map((section) => `**${section.heading}.** ${flattenEditorialBody(section.body)}`)
+      .join("\n\n");
+  } else {
+    const escapeCell = (value: string) => flattenEditorialBody(value).replace(/\|/g, "\\|");
+    presented = [
+      "| Theme | Assessment |",
+      "| --- | --- |",
+      ...sections.map((section) => `| ${escapeCell(section.heading)} | ${escapeCell(section.body)} |`),
+    ].join("\n");
   }
-  const missing = Array.from(bySubsystem.values())
-    .filter((entry) => !entry.citationIndexes.some((index) => used.has(index)))
-    .slice(0, 8);
-  if (!missing.length) return answer;
-  return [
-    answer.trim(),
-    "## Other significant systems",
-    ...missing.map((entry) => {
-      const ordinal = entry.citationIndexes[0]!;
-      return `- **${entry.title}** — ${entry.content} [citation:${ordinal}]`;
-    }),
-  ].join("\n\n");
+  return coverageLimit
+    ? `${presented}\n\n${coverageLimit}`
+    : presented;
+}
+
+function presentFinalizedAnswer(
+  finalized: FinalizedChatAnswer,
+  profile: ProjectAnswerEditorialProfile,
+) {
+  const presented = {
+    ...finalized,
+    markdown: applyProjectAnswerEditorialPresentation(finalized.markdown, profile),
+  };
+  assertAnswerCitationContract({
+    content: presented.markdown,
+    citations: presented.citations,
+    policy: presented.citationPolicy,
+    groundedClaims: presented.groundedClaims,
+  });
+  return presented;
 }
 
 function completeRefreshFreshness(
@@ -790,10 +1080,15 @@ function provenanceAnswer(provenance: Awaited<ReturnType<typeof priorTurnProvena
   const sources = provenance.usedSources.length
     ? provenance.usedSources.map((source) => `${source.title} (${source.kind})`).join(", ")
     : "none";
+  const repositoryActivity = provenance.repositoryActivity === "knowledge_refresh"
+    ? "Yes. The prior turn used a latest-commit repository knowledge refresh."
+    : provenance.repositoryActivity === "targeted_research"
+      ? "Yes. The prior turn performed bounded targeted repository research."
+      : provenance.repositoryActivity === "knowledge_refresh_and_targeted_research"
+        ? "Yes. The prior turn used a latest-commit repository knowledge refresh and also performed bounded targeted repository research."
+        : "No. The prior turn did not perform repository research or a repository knowledge refresh.";
   return [
-    provenance.repositoryInspected
-      ? "Yes. The prior turn performed bounded repository research."
-      : "No. The prior turn did not perform repository research.",
+    repositoryActivity,
     `Observable tool activity: ${tools}.`,
     `Sources actually used by the answer: ${sources}.`,
     provenance.partial ? "The prior run was marked partial." : "The prior run was not marked partial.",
@@ -820,40 +1115,92 @@ async function answerPriorTurnProvenance(input: RunProjectChatAgentInput): Promi
     const answer = "There is no earlier completed assistant answer in this thread to inspect.";
     return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
   }
-  await appendAgentRunEvent({
-    runId: input.runId,
-    type: "tool_call",
-    toolName: "inspect_prior_turn_provenance",
-    payload: { assistantMessageId: priorAssistantMessageId },
-    isUserVisible: false,
-  }).catch(() => null);
   const provenance = await priorTurnProvenanceService.inspect({
     userId: input.userId,
     workItemId: input.workItemId,
     threadId: input.threadId,
     assistantMessageId: priorAssistantMessageId,
+    auditRunId: input.runId,
   });
-  await appendAgentRunEvent({
-    runId: input.runId,
-    type: "tool_result",
-    toolName: "inspect_prior_turn_provenance",
-    payload: {
-      repositoryInspected: provenance.repositoryInspected,
-      toolCallCount: provenance.toolCalls.reduce((total, tool) => total + tool.count, 0),
-      usedSourceCount: provenance.usedSources.length,
-      partial: provenance.partial,
-      fallbackUsed: provenance.fallbackUsed,
-    },
-    isUserVisible: false,
-  }).catch(() => null);
   const answer = provenanceAnswer(provenance);
   return { status: "answered", answer, citations: [], research: directResearchResult({ answer, citations: [] }), citationPolicy: "none", groundedClaims: [], freshness: null };
+}
+
+async function answerCapturedProjectContext(
+  input: RunProjectChatAgentInput,
+): Promise<ProjectChatAgentResult | null> {
+  if (!isContextOnlyProjectStatement(input.question)) return null;
+  const candidate = await prisma.agentRunCandidate.findFirst({
+    where: { agentRunId: input.runId },
+    include: {
+      highlight: {
+        select: {
+          text: true,
+          lifecycleStatus: true,
+          reviewState: true,
+          sensitivityFlag: true,
+        },
+      },
+      highlightSuggestion: {
+        select: { id: true },
+      },
+    },
+    orderBy: [{ batchNumber: "asc" }, { ordinal: "asc" }],
+  });
+  if (!candidate) return null;
+
+  const answer = candidate.status === "approved" && candidate.highlight?.lifecycleStatus === "active"
+    ? [
+        "Saved this as self-reported private project memory and auto-applied it for use in this project.",
+        "It is highlighted for later review, and it remains labeled as self-reported unless repository evidence corroborates it.",
+      ].join(" ")
+    : candidate.highlight?.sensitivityFlag || candidate.highlight?.lifecycleStatus === "quarantined"
+      ? "I captured the statement, but it is quarantined and will remain outside ordinary project retrieval until its safety review is resolved."
+      : candidate.highlightSuggestion
+        ? "I captured this as a proposed revision to existing project memory. It will remain highlighted for later review."
+        : "I captured this as a project-memory candidate for review.";
+  return {
+    status: "answered",
+    answer,
+    citations: [],
+    citationPolicy: "none",
+    groundedClaims: [],
+    freshness: null,
+    research: directResearchResult({ answer, citations: [] }),
+  };
 }
 
 async function executeProjectChatAgent(
   input: RunProjectChatAgentInput,
   mode: "normal" | "post_review_finalization",
 ): Promise<ProjectChatAgentResult> {
+  const socialAnswer = socialChatAnswer(input.question);
+  if (socialAnswer) {
+    return {
+      status: "answered",
+      answer: socialAnswer,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: null,
+      research: directResearchResult({ answer: socialAnswer, citations: [] }),
+    };
+  }
+  const priorEvidenceGap = explicitPriorEvidenceGapExplanation({
+    question: input.question,
+    history: input.history,
+  });
+  if (priorEvidenceGap) {
+    return {
+      status: "answered",
+      answer: priorEvidenceGap,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: null,
+      research: directResearchResult({ answer: priorEvidenceGap, citations: [] }),
+    };
+  }
   // Control-plane turns do not need repositories, candidates, refresh state,
   // or the knowledge graph. Resolve the context-free intents before the three
   // capability queries so provenance inspection stays a bounded metadata read.
@@ -869,6 +1216,8 @@ async function executeProjectChatAgent(
   if (controlPlaneIntent.kind === "prior_turn_provenance") {
     return answerPriorTurnProvenance(input);
   }
+  const capturedContextAnswer = await answerCapturedProjectContext(input);
+  if (capturedContextAnswer) return capturedContextAnswer;
   const capabilityInputs = await loadCapabilityInputs(input);
   // Explicit control-plane intents do not need project retrieval. Resolve
   // them before loading the knowledge graph or generating a query embedding.
@@ -906,6 +1255,7 @@ async function executeProjectChatAgent(
       freshness: null,
     };
   }
+  const editorialProfile = classifyProjectAnswerEditorialProfile(input.question);
   const memory = await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,
     workItemId: input.workItemId,
@@ -917,26 +1267,24 @@ async function executeProjectChatAgent(
     preferredProjectFactIds: capabilityInputs.currentRunProjectFactIds,
     limits: mode === "post_review_finalization"
       ? { highlights: 6, projectFacts: Math.max(6, capabilityInputs.currentRunProjectFactIds.length), evidence: 6, artifacts: 3 }
-      : undefined,
+      : editorialProfile.kind === "focused"
+        // Focused questions frequently join two neighboring subsystems (for
+        // example, the Bedrock tool loop and its durable workflow boundary).
+        // Give hybrid retrieval enough headroom to return both before the
+        // editorial selector applies the tighter model-visible catalog cap.
+        ? { highlights: 12, projectFacts: 16, evidence: 8, artifacts: 3 }
+        : undefined,
   });
   const memoryCatalog = buildMemoryCatalog({
     hits: memory.hits,
     currentRunProjectFactIds: capabilityInputs.currentRunProjectFactIds,
     query: input.question,
   });
-  const accomplishmentRequirements = accomplishmentSynthesisPattern.test(input.question)
-    ? selectAccomplishmentRequirementSet(memoryCatalog.entries)
-    : null;
-  const accomplishmentManifest = accomplishmentRequirements
-    ? accomplishmentRequirementManifest(
-        accomplishmentRequirements,
-        memoryCatalog.citations,
-        memoryCatalog.entries
-          .filter((entry) => entry.authority === "included_evidence" && (entry.ownershipAuthority ?? 0) >= 3)
-          .flatMap((entry) => entry.citationIndexes)
-          .slice(0, 1),
-      )
-    : null;
+  const editorialSelection = selectProjectAnswerEditorialThemes({
+    question: input.question,
+    entries: memoryCatalog.entries,
+    profile: editorialProfile,
+  });
   const deterministicIntent = routeProjectTurn({
     question: input.question,
     memoryHits: memory.hits,
@@ -987,7 +1335,7 @@ async function executeProjectChatAgent(
     },
     isUserVisible: false,
   }).catch(() => null);
-  const routedIntent = ["artifact_request", "candidate_review", "prior_turn_provenance"].includes(deterministicIntent.kind)
+  const executionRoutedIntent = ["artifact_request", "candidate_review", "prior_turn_provenance"].includes(deterministicIntent.kind)
     ? deterministicIntent
     : ["targeted_repository_research", "repository_refresh"].includes(executionRoute.mode)
     ? {
@@ -1002,6 +1350,20 @@ async function executeProjectChatAgent(
       : executionRoute.mode === "insufficient_context"
         ? { ...deterministicIntent, kind: "direct_answer" as const, confidence: executionRoute.confidence, reason: "The execution router found no authorized supported research path." }
         : { ...deterministicIntent, kind: "direct_answer" as const, confidence: executionRoute.confidence, reason: `Model execution route: ${executionRoute.mode}.` };
+  const routedIntent =
+    mode === "normal" &&
+    editorialProfile.kind === "focused" &&
+    editorialSelection.selectedThemes.length === 0 &&
+    input.allowResearch !== false &&
+    capabilityInputs.repositories.length > 0
+      ? {
+          ...executionRoutedIntent,
+          kind: "repository_research" as const,
+          coverage: "targeted" as const,
+          confidence: 1,
+          reason: "No relevant durable-memory theme met the focused-query relevance threshold.",
+        }
+      : executionRoutedIntent;
   const intent = capabilityInputs.knowledgeRefresh && routedIntent.kind === "repository_research"
     ? {
         ...routedIntent,
@@ -1096,106 +1458,38 @@ async function executeProjectChatAgent(
       ],
       onAgentEvent: input.onAgentEvent,
     });
-    const groundedClaims = extractClaimCitationMap(result.answer);
+    const normalized = normalizeProjectResearchResultForChat({
+      result,
+      dossier: capabilityInputs.researchDossier,
+    });
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "tool_result",
+      toolName: "normalize_research_answer",
+      payload: normalized.diagnostics,
+      isUserVisible: false,
+    }).catch(() => null);
     return {
-      status: result.status === "awaiting_review" ? "awaiting_review" : result.status === "answered" ? "answered" : "insufficient_context",
-      answer: result.answer,
-      citations: result.citations,
-      research: result,
-      citationPolicy: groundedClaims.length ? "required_inline" : result.citations.length ? "attached" : "none",
-      groundedClaims: groundedClaims.length ? groundedClaims : result.groundedClaims ?? [],
+      status: normalized.status,
+      answer: normalized.answer,
+      citations: normalized.citations,
+      research: normalized.research,
+      citationPolicy: normalized.citationPolicy,
+      groundedClaims: normalized.groundedClaims,
       freshness: null,
     };
   }
 
-  if (
-    accomplishmentRequirements &&
-    supportsDeterministicAccomplishmentFormat(input.question) &&
-    (process.env.WORKBASE_ACCOMPLISHMENT_ANSWER_MODE ?? "deterministic") !== "model"
-  ) {
-    try {
-      const exact = validateExactSourceAccomplishmentBlocks({
-        blocks: buildDeterministicAccomplishmentBlocks([], memoryCatalog.entries),
-        entries: memoryCatalog.entries,
-        citationCount: memoryCatalog.citations.length,
-        dossier: capabilityInputs.researchDossier,
-      });
-      const finalized = finalizeGroundedAnswer({
-        blocks: exact.blocks,
-        catalog: memoryCatalog.citations,
-        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
-      });
-      const answerWithCoverage = appendAccomplishmentCoverageNote(
-        finalized.markdown,
-        exact.audit.coverageWarning,
-      );
-      await appendAgentRunEvent({
-        runId: input.runId,
-        type: "tool_result",
-        toolName: "audit_answer_completeness",
-        payload: {
-          completionState: "verified_deterministic_fast_path",
-          generationRunId: null,
-          requirements: accomplishmentManifest?.requirements ?? [],
-          requiredCount: exact.audit.requirements.length,
-          initialMissingCount: 0,
-          finalMissingCount: 0,
-          minimumBlocks: exact.audit.minimumBlocks,
-          maximumBlocks: exact.audit.maximumBlocks,
-          maximumUniqueCitations: accomplishmentManifest?.maximumUniqueCitations ?? 20,
-          initialBlockCount: exact.blocks.length,
-          finalBlockCount: exact.blocks.length,
-          fallbackUsed: false,
-          overflowWarning: exact.audit.coverageWarning,
-          warning: null,
-        },
-        isUserVisible: false,
-      }).catch(() => null);
-      return {
-        status: "answered",
-        answer: answerWithCoverage,
-        citations: finalized.citations,
-        citationPolicy: finalized.citationPolicy,
-        groundedClaims: finalized.groundedClaims,
-        freshness: finalized.freshness,
-        research: directResearchResult({
-          answer: answerWithCoverage,
-          citations: finalized.citations,
-          dossier: capabilityInputs.researchDossier,
-          warnings: exact.audit.coverageWarning ? [exact.audit.coverageWarning] : [],
-          groundedClaims: finalized.groundedClaims,
-        }),
-      };
-    } catch (error) {
-      await appendAgentRunEvent({
-        runId: input.runId,
-        type: "tool_result",
-        toolName: "audit_answer_completeness",
-        payload: {
-          completionState: "deterministic_fast_path_unavailable",
-          fallbackUsed: true,
-          warning: error instanceof Error ? error.message.slice(0, 300) : "The exact-source answer could not be assembled.",
-        },
-        isUserVisible: false,
-      }).catch(() => null);
-      // Continue through the ordinary answer path; a sparse or newly-created
-      // project must not turn an optimization miss into a failed durable run.
-    }
-  }
-
-  // Broad architecture summaries and source-specific follow-ups can be
-  // assembled directly from the already-ranked durable-memory catalog. Paying
-  // for a drafting call and then a second semantic-verifier call repeated work
-  // without adding evidence, and could exhaust the verifier budget on large
-  // catalogs. Keep open-ended or ambiguous synthesis on Sonnet.
+  // Source-specific transcript follow-ups can be answered exactly without a
+  // drafting call. Broad architecture and overview questions still need an
+  // editorial synthesis pass: concatenating the retrieval catalog produced an
+  // accurate but shallow inventory instead of explaining layers and data flow.
   const exactMemoryAnswer = deterministicHistoryAwareAnswer({
     question: input.question,
     history: input.history,
     hits: memoryCatalog.selectedHits,
     catalog: memoryCatalog,
-  }) ?? (broadArchitectureAnswerPattern.test(input.question)
-    ? deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog)
-    : null);
+  });
   if (exactMemoryAnswer?.content) {
     const groundedClaims = extractClaimCitationMap(exactMemoryAnswer.content);
     return {
@@ -1253,104 +1547,110 @@ async function executeProjectChatAgent(
     };
   }
 
-  if (resolveWorkbaseLlmProvider() === "mock") {
-    const selected = deterministicHistoryAwareAnswer({
-      question: input.question,
-      history: input.history,
-      hits: memoryCatalog.selectedHits,
-      catalog: memoryCatalog,
-    }) ?? deterministicMemoryAnswer(memoryCatalog.selectedHits, memoryCatalog);
-    const accomplishmentIntent = accomplishmentSynthesisPattern.test(input.question);
-    // selectReferencedCitations compacts ordinals for persisted answers. The
-    // completeness pipeline still uses the original catalog, so it must retain
-    // original ordinals until finalizeGroundedAnswer performs the one canonical
-    // compaction at the end.
-    const groundedContent = accomplishmentIntent ? selected.uncompactedContent : selected.content;
-    const answer = groundedContent || "I do not have enough grounded project context to answer that yet.";
-    if (groundedContent && accomplishmentIntent) {
-      const initialGrounding = await groundProjectAnswer({
-        answer: groundedContent,
-        entries: memoryCatalog.entries,
-        citationCount: memoryCatalog.citations.length,
+  if (
+    editorialProfile.kind === "focused" &&
+    editorialSelection.selectedThemes.length === 0
+  ) {
+    const answer = capabilityInputs.repositories.length && input.allowResearch === false
+      ? "The active approved project memory does not establish this specific behavior, and repository research is disabled for this turn."
+      : "The active approved project memory does not establish this specific behavior, and no authorized research result is available to fill the gap.";
+    return {
+      status: "insufficient_context",
+      answer,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      research: directResearchResult({
+        answer: "",
+        citations: [],
         dossier: capabilityInputs.researchDossier,
-      });
-      const initialAudit = auditAccomplishmentBlocks(initialGrounding.blocks, memoryCatalog.entries);
-      const compactedGrounding = initialAudit.complete
-        ? initialGrounding.blocks
-        : compactAlreadyGroundedAccomplishmentBlocks(initialGrounding.blocks, memoryCatalog.entries);
-      const verified = compactedGrounding
-        ? {
-            grounded: { ...initialGrounding, blocks: compactedGrounding },
-            audit: auditAccomplishmentBlocks(compactedGrounding, memoryCatalog.entries),
-            partial: false,
-            warning: null,
-          }
-        : await verifyCompletedAccomplishmentAnswer({
-            completion: await completeGroundedAccomplishmentAnswer({
-              workItemId: input.workItemId,
-              runId: input.runId,
-              blocks: initialGrounding.blocks,
-              entries: memoryCatalog.entries,
-            }),
-            entries: memoryCatalog.entries,
-            citationCount: memoryCatalog.citations.length,
-            dossier: capabilityInputs.researchDossier,
-          });
-      const finalized = finalizeGroundedAnswer({
-        blocks: verified.grounded.blocks,
-        catalog: memoryCatalog.citations,
-        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
-      });
-      const answerWithCoverage = appendAccomplishmentCoverageNote(
-        finalized.markdown,
-        verified.warning ?? verified.audit.coverageWarning,
-      );
+        warnings: [answer],
+      }),
+    };
+  }
+
+  if (
+    resolveWorkbaseLlmProvider() === "mock" ||
+    usesDeterministicEditorialSynthesis(input.question)
+  ) {
+    const freshness = completeRefreshFreshness(capabilityInputs.knowledgeRefresh);
+    const editorialBlocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(editorialSelection),
+      editorialSelection,
+    );
+    const exact = editorialBlocks.length
+      ? finalizeGroundedAnswer({
+          blocks: editorialBlocks,
+          catalog: memoryCatalog.citations,
+          freshness,
+        })
+      : editorialProfile.kind === "focused"
+        ? null
+        : buildExactSourceRecoveryAnswer({
+          question: input.question,
+          entries: memoryCatalog.entries,
+          catalog: memoryCatalog.citations,
+          freshness,
+          maximumBlocks: editorialProfile.targetItemCount.maximum,
+        });
+    if (!exact) {
+      const answer = "I do not have enough active, source-backed project memory to answer this request without guessing.";
       return {
-        status: "answered",
-        answer: answerWithCoverage,
-        citations: finalized.citations,
-        citationPolicy: finalized.citationPolicy,
-        groundedClaims: finalized.groundedClaims,
-        freshness: finalized.freshness,
+        status: "insufficient_context",
+        answer,
+        citations: [],
+        citationPolicy: "none",
+        groundedClaims: [],
+        freshness,
         research: directResearchResult({
-          answer: answerWithCoverage,
-          citations: finalized.citations,
+          answer: "",
+          citations: [],
           dossier: capabilityInputs.researchDossier,
-          warnings: verified.warning || verified.audit.coverageWarning
-            ? [verified.warning ?? verified.audit.coverageWarning!]
-            : [],
-          groundedClaims: finalized.groundedClaims,
+          warnings: [answer],
         }),
       };
     }
-    const groundedClaims = extractClaimCitationMap(groundedContent);
+    const presented = presentFinalizedAnswer(exact, editorialProfile);
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "tool_result",
+      toolName: "compose_project_answer",
+      payload: {
+        mode: "deterministic_source_synthesis",
+        reason: resolveWorkbaseLlmProvider() === "mock"
+          ? "mock_provider"
+          : "factual_source_bounded_request",
+        themeCount: editorialSelection.selectedThemes.length,
+        citationCount: presented.citations.length,
+      },
+      isUserVisible: false,
+    }).catch(() => null);
     return {
-      status: groundedContent ? "answered" : "insufficient_context",
-      answer,
-      citations: selected.citations,
-      citationPolicy: groundedContent ? "required_inline" : "none",
-      groundedClaims,
-      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      status: "answered",
+      answer: presented.markdown,
+      citations: presented.citations,
+      citationPolicy: presented.citationPolicy,
+      groundedClaims: presented.groundedClaims,
+      freshness: presented.freshness,
       research: directResearchResult({
-        answer: groundedContent,
-        citations: selected.citations,
+        answer: presented.markdown,
+        citations: presented.citations,
         dossier: capabilityInputs.researchDossier,
-        groundedClaims,
+        groundedClaims: presented.groundedClaims,
       }),
     };
   }
 
   const messages: Message[] = [
-    ...toBedrockHistory(input.history ?? []),
+    ...buildBedrockProjectChatHistory(input.history ?? []),
     {
       role: "user",
       content: [{
         text: [
           `<request>${input.question}</request>`,
           `<retrieved_project_memory>${JSON.stringify(memoryCatalog.entries)}</retrieved_project_memory>`,
-          accomplishmentManifest
-            ? `<accomplishment_requirement_manifest>${JSON.stringify(accomplishmentManifest)}</accomplishment_requirement_manifest>`
-            : "",
+          `<editorial_plan>${JSON.stringify(editorialPlanForPrompt(editorialSelection))}</editorial_plan>`,
           `<capability_manifest>${JSON.stringify(toModelCapabilityManifest(turnContext))}</capability_manifest>`,
           mode === "post_review_finalization"
             ? `<reviewed_research>${JSON.stringify({
@@ -1371,7 +1671,7 @@ async function executeProjectChatAgent(
   const agent = BedrockConverseAgent.fromConfig({
     ...resolveBedrockConfig(),
     // The runtime requires a positive limit even though this phase exposes no tools.
-    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 30_000 },
+    defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 60_000 },
   });
   try {
     const result = await agent.run({
@@ -1381,6 +1681,10 @@ async function executeProjectChatAgent(
         "Use chronological conversation history first, then retrieved durable project memory.",
         "The capability manifest accurately describes what this run can and cannot do; do not claim hidden access.",
         "This phase has no tools. If the supplied sources are insufficient, state the exact missing information.",
+        "Answer the user's actual decision or question before supplying background. Do not mirror the retrieval catalog or capability ledger as an inventory.",
+        buildProjectAnswerEditorialModelGuidance(editorialProfile),
+        "Use editorial_plan as the prioritized answer plan. Retrieved project memory outside the selected themes remains available for corroboration or a directly requested detail, but is not an output checklist.",
+        "Write Markdown for the user, with one independently citable top-level item per planned theme. Include any thesis inside the first supported item rather than adding an uncited preamble.",
         mode === "post_review_finalization"
           ? "This is the continuation of a reviewed repository-research run. Prioritize every currentRun Project Fact, preserve the stated partial and coverage-gap status, and describe freshness using repository commit/inspection timestamps—not source import time."
           : "",
@@ -1388,7 +1692,7 @@ async function executeProjectChatAgent(
           ? "A latest-commit repository refresh mapped every eligible safe file for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata, preserve any explicit semantic coverage gaps, and never claim more completeness than that matrix supports. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
         accomplishmentSynthesisPattern.test(input.question)
-          ? "For an accomplishment synthesis, follow accomplishment_requirement_manifest exactly: explicitly cover every member under its allowed citationIndexes, combine members sharing one requirement key into one coherent accomplishment, and stay within its dynamic block and source limits. A citation alone does not count as coverage; the prose must state the supported capability. Lead with product and user value, then follow the manifest's project-level salience order. Do not elevate routine utilities or filename-level observations above broader systems. Clearly distinguish repository-proven implementation facts from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
+          ? "For accomplishments, lead with product value and the strongest end-to-end systems. Clearly distinguish repository-proven implementation from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
           : "",
         "Cite factual project claims with [citation:N] using only citationIndexes in retrieved_project_memory.",
         "Use the minimum decisive citation set. SupportingSources are provenance previews, not extra peer citations.",
@@ -1397,7 +1701,10 @@ async function executeProjectChatAgent(
       ].filter(Boolean).join(" "),
       messages,
       tools: [],
-      maxTokens: 4_000,
+      // The editorial contract tops out at 4,500 characters. A 3K-token
+      // ceiling leaves ample room for Markdown and adaptive reasoning without
+      // allowing a final formatting pass to consume a research-sized budget.
+      maxTokens: 3_000,
       temperature: 0,
       effort: "medium",
       enablePromptCaching: true,
@@ -1411,134 +1718,195 @@ async function executeProjectChatAgent(
         citationCount: memoryCatalog.citations.length,
         currentRunProjectFactCount: capabilityInputs.currentRunProjectFactIds.length,
         partial: capabilityInputs.researchDossier?.partial ?? false,
+        verificationMode: projectAnswerGroundingModeForQuestion(input.question),
       },
       isUserVisible: false,
     }).catch(() => null);
-    const grounded = await groundProjectAnswer({
-      answer: result.text,
+    let recovered = await verifyProjectAnswerWithRecovery({
+      question: input.question,
+      draftAnswer: result.text,
       entries: memoryCatalog.entries,
-      citationCount: memoryCatalog.citations.length,
+      catalog: memoryCatalog.citations,
       dossier: capabilityInputs.researchDossier,
+      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+      selection: editorialSelection,
+      requiredBlockCount: {
+        minimum: editorialProfile.targetItemCount.minimum,
+        maximum: editorialProfile.targetItemCount.maximum,
+      },
+      maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
+      verificationMode: projectAnswerGroundingModeForQuestion(input.question),
     });
+    let quality = recovered.status === "answered"
+      ? auditProjectAnswerEditorialQuality({
+          profile: editorialProfile,
+          selection: editorialSelection,
+          blocks: recovered.blocks,
+          rawAnswer: applyProjectAnswerEditorialPresentation(
+            recovered.finalized.markdown,
+            editorialProfile,
+          ),
+        })
+      : null;
+    const requiresEditorialFallback = Boolean(
+      quality &&
+      (
+        !quality.checks.itemCount ||
+        !quality.checks.format ||
+        !quality.checks.prioritization ||
+        !quality.checks.depth ||
+        !quality.checks.mechanism ||
+        !quality.checks.value ||
+        !quality.checks.analysis ||
+        !quality.checks.nonredundant ||
+        !quality.checks.lowLevelDetail ||
+        !quality.checks.genericVerificationErrorFree
+      ),
+    );
+    if (requiresEditorialFallback) {
+      const exact = await verifyProjectAnswerWithRecovery({
+        question: input.question,
+        draftAnswer: "",
+        entries: memoryCatalog.entries,
+        catalog: memoryCatalog.citations,
+        dossier: capabilityInputs.researchDossier,
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+        selection: editorialSelection,
+        requiredBlockCount: {
+          minimum: editorialProfile.targetItemCount.minimum,
+          maximum: editorialProfile.targetItemCount.maximum,
+        },
+        maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
+        forceExactFallback: true,
+      });
+      if (exact.status === "answered") {
+        recovered = exact;
+        quality = auditProjectAnswerEditorialQuality({
+          profile: editorialProfile,
+          selection: editorialSelection,
+          blocks: exact.blocks,
+          rawAnswer: applyProjectAnswerEditorialPresentation(
+            exact.finalized.markdown,
+            editorialProfile,
+          ),
+        });
+      }
+    }
     await appendAgentRunEvent({
       runId: input.runId,
       type: "tool_result",
       toolName: "verify_project_answer",
       payload: {
-        issueCount: grounded.issues.length,
-        usage: grounded.tokenUsage,
+        ...recovered.telemetry,
+        usage: recovered.telemetry.verifier.tokenUsage,
+        durationMs: recovered.telemetry.verifier.durationMs,
+        editorialQuality: quality?.checks ?? null,
+        editorialFallbackUsed: requiresEditorialFallback,
       },
       isUserVisible: false,
     }).catch(() => null);
-    let finalGrounded = grounded;
-    let accomplishmentCoverageWarning: string | null = null;
-    if (accomplishmentSynthesisPattern.test(input.question)) {
-      const initialAudit = auditAccomplishmentBlocks(grounded.blocks, memoryCatalog.entries);
-      let completionState = "skipped_initial_answer_complete";
-      let generationRunId: string | null = null;
-      let fallbackUsed = false;
-      let completionWarning: string | null = null;
-      let finalAudit = initialAudit;
-      const compactedGrounding = initialAudit.complete
-        ? grounded.blocks
-        : compactAlreadyGroundedAccomplishmentBlocks(grounded.blocks, memoryCatalog.entries);
-      if (compactedGrounding) {
-        finalGrounded = {
-          ...grounded,
-          blocks: compactedGrounding.map((block) => ({ ...block, heading: block.heading ?? null })),
-        };
-        finalAudit = auditAccomplishmentBlocks(compactedGrounding, memoryCatalog.entries);
-        accomplishmentCoverageWarning = finalAudit.coverageWarning;
-        completionState = initialAudit.complete
-          ? "skipped_initial_answer_complete"
-          : "compacted_already_grounded_blocks";
-      } else {
-        const completion = await completeGroundedAccomplishmentAnswer({
-          workItemId: input.workItemId,
-          runId: input.runId,
-          blocks: grounded.blocks,
-          entries: memoryCatalog.entries,
-        });
-        const verified = await verifyCompletedAccomplishmentAnswer({
-          completion,
-          entries: memoryCatalog.entries,
-          citationCount: memoryCatalog.citations.length,
+    if (recovered.status === "insufficient_context") {
+      return {
+        status: "insufficient_context",
+        answer: recovered.message,
+        citations: [],
+        citationPolicy: "none",
+        groundedClaims: [],
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+        research: directResearchResult({
+          answer: "",
+          citations: [],
           dossier: capabilityInputs.researchDossier,
-        });
-        finalGrounded = verified.grounded;
-        finalAudit = verified.audit;
-        accomplishmentCoverageWarning = verified.warning ?? verified.audit.coverageWarning;
-        generationRunId = completion.generationRunId;
-        fallbackUsed = completion.fallbackUsed;
-        completionWarning = verified.warning ?? completion.warning;
-        completionState = verified.partial
-          ? "safe_partial_first_grounding_fallback"
-          : completion.fallbackUsed
-            ? "verified_deterministic_repair"
-            : "completed_repair";
-      }
-      await appendAgentRunEvent({
-        runId: input.runId,
-        type: "tool_result",
-        toolName: "audit_answer_completeness",
-        payload: {
-          completionState,
-          generationRunId,
-          requirements: accomplishmentManifest?.requirements ?? [],
-          requiredCount: initialAudit.requirements.length,
-          initialMissingCount: initialAudit.missingMembers.length,
-          finalMissingCount: finalAudit.missingMembers.length,
-          minimumBlocks: initialAudit.minimumBlocks,
-          maximumBlocks: initialAudit.maximumBlocks,
-          maximumUniqueCitations: accomplishmentManifest?.maximumUniqueCitations ?? 20,
-          initialBlockCount: grounded.blocks.length,
-          finalBlockCount: finalGrounded.blocks.length,
-          fallbackUsed,
-          overflowWarning: finalAudit.coverageWarning,
-          warning: completionWarning,
-        },
-        isUserVisible: false,
-      }).catch(() => null);
+          warnings: recovered.warnings,
+        }),
+      };
     }
-    const finalized = finalizeGroundedAnswer({
-      blocks: finalGrounded.blocks,
-      catalog: memoryCatalog.citations,
-      freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
-    });
-    const answerWithCoverage = appendAccomplishmentCoverageNote(
-      finalized.markdown,
-      accomplishmentCoverageWarning,
-    );
+    const finalized = presentFinalizedAnswer(recovered.finalized, editorialProfile);
     const research = directResearchResult({
-      answer: answerWithCoverage,
+      answer: finalized.markdown,
       citations: finalized.citations,
       dossier: capabilityInputs.researchDossier,
-      warnings: Array.from(new Set([
-        ...grounded.issues,
-        ...finalGrounded.issues,
-        ...(accomplishmentCoverageWarning ? [accomplishmentCoverageWarning] : []),
-      ])),
+      warnings: recovered.warnings,
       groundedClaims: finalized.groundedClaims,
     });
     return {
       status: "answered",
-      answer: answerWithCoverage,
+      answer: finalized.markdown,
       citations: finalized.citations,
       citationPolicy: finalized.citationPolicy,
       groundedClaims: finalized.groundedClaims,
       freshness: finalized.freshness,
+      fallbackUsed:
+        requiresEditorialFallback ||
+        (
+          recovered.telemetry.fallback.attempted &&
+          recovered.telemetry.fallback.acceptedBlockCount > 0
+        ),
       research,
     };
   } catch (error) {
+    const freshness = completeRefreshFreshness(capabilityInputs.knowledgeRefresh);
+    const recovered = await verifyProjectAnswerWithRecovery({
+      question: input.question,
+      draftAnswer: "",
+      entries: memoryCatalog.entries,
+      catalog: memoryCatalog.citations,
+      dossier: capabilityInputs.researchDossier,
+      freshness,
+      selection: editorialSelection,
+      requiredBlockCount: {
+        minimum: editorialProfile.targetItemCount.minimum,
+        maximum: editorialProfile.targetItemCount.maximum,
+      },
+      maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
+      forceExactFallback: true,
+    });
     await appendAgentRunEvent({
       runId: input.runId,
-      type: "error",
-      toolName: "verify_project_answer",
-      payload: { code: "grounding_integrity_failed" },
-      message: "The answer could not be verified against its sources.",
-      isUserVisible: true,
+      type: "tool_result",
+      toolName: "recover_grounded_answer",
+      payload: {
+        code: "answer_pipeline_recovered",
+        errorName: sanitizeProjectAnswerFailure(error).name,
+        fallbackOutcome: recovered.telemetry.outcome,
+        fallbackBlockCount: recovered.telemetry.finalBlockCount,
+      },
+      isUserVisible: false,
     }).catch(() => null);
-    throw error;
+    if (recovered.status === "answered") {
+      const presented = presentFinalizedAnswer(recovered.finalized, editorialProfile);
+      return {
+        status: "answered",
+        answer: presented.markdown,
+        citations: presented.citations,
+        citationPolicy: presented.citationPolicy,
+        groundedClaims: presented.groundedClaims,
+        freshness: presented.freshness,
+        fallbackUsed: true,
+        research: directResearchResult({
+          answer: presented.markdown,
+          citations: presented.citations,
+          dossier: capabilityInputs.researchDossier,
+          warnings: recovered.warnings,
+          groundedClaims: presented.groundedClaims,
+        }),
+      };
+    }
+    const answer = recovered.message;
+    return {
+      status: "insufficient_context",
+      answer,
+      citations: [],
+      citationPolicy: "none",
+      groundedClaims: [],
+      freshness,
+      research: directResearchResult({
+        answer: "",
+        citations: [],
+        dossier: capabilityInputs.researchDossier,
+        warnings: [answer],
+      }),
+    };
   }
 }
 

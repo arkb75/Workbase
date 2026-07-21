@@ -27,6 +27,22 @@ function sanitizeJsonSchemaNodeForBedrock(value: unknown): unknown {
     }
 
     if (
+      objectValue.type === "array" &&
+      key === "minItems" &&
+      nestedValue !== 0 &&
+      nestedValue !== 1
+    ) {
+      return [];
+    }
+
+    if (
+      objectValue.type === "string" &&
+      (key === "minLength" || key === "maxLength")
+    ) {
+      return [];
+    }
+
+    if (
       (objectValue.type === "integer" || objectValue.type === "number") &&
       ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"].includes(
         key,

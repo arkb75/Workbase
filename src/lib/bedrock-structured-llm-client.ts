@@ -25,6 +25,7 @@ export interface StructuredOutputAttemptRecord {
   status: "success" | GenerationFailureStatus;
   validationErrors: JsonValue | null;
   errorMessage?: string | null;
+  stopReason?: string | null;
 }
 
 export interface StructuredGenerationBudgetUsage {
@@ -105,6 +106,7 @@ export interface ConverseTextRuntime {
     text: string;
     structuredData: unknown;
     tokenUsage: JsonValue | null;
+    stopReason?: string | null;
   }>;
 }
 
@@ -142,23 +144,59 @@ function numericTokenUsage(value: JsonValue | null, key: "inputTokens" | "output
     : 0;
 }
 
+function tokenDensityFloor(value: string) {
+  const units = value.match(/[a-z0-9_]+|[^\s]/giu) ?? [];
+  return units.reduce((total, unit) => {
+    if (!/^[a-z0-9_]+$/iu.test(unit) || unit.length < 24) {
+      return total + 1;
+    }
+    // Long homogeneous fixture strings compress into very few tokens, while
+    // hashes, minified identifiers, and other high-entropy runs commonly do
+    // not. Charge the latter at a conservative two bytes per token without
+    // reintroducing the blanket /2 estimate that starved ordinary source-code
+    // prompts.
+    const distinctCharacters = new Set(unit.toLowerCase()).size;
+    return total + (
+      distinctCharacters >= 8
+        ? Math.ceil(Buffer.byteLength(unit, "utf8") / 2)
+        : 1
+    );
+  }, 0);
+}
+
 function estimatedInputTokenReserve(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
-  const schemaBytes = input.structuredOutput
-    ? Buffer.byteLength(JSON.stringify(input.structuredOutput.jsonSchema), "utf8") +
-      Buffer.byteLength(input.structuredOutput.schemaName, "utf8") +
-      Buffer.byteLength(input.structuredOutput.schemaDescription, "utf8")
-    : 0;
-  const promptBytes = Buffer.byteLength(input.systemPrompt, "utf8") +
-    Buffer.byteLength(input.userPrompt, "utf8") +
-    schemaBytes;
-  // Source code and English prompts normally encode several UTF-8 bytes per
-  // token. Reserving one token per two bytes remains deliberately conservative
-  // for mixed code/JSON while avoiding the old one-byte assumption, which
-  // rejected safe requests and starved their output before any provider call.
-  // The fixed reserve covers Bedrock's message/tool envelope. Actual reported
-  // usage is still enforced after every call, so this is admission headroom,
-  // not a replacement for the hard cumulative budget.
-  return Math.ceil(promptBytes / 2) + 512;
+  const segments = [
+    input.systemPrompt,
+    input.userPrompt,
+    ...(input.structuredOutput
+      ? [
+          JSON.stringify(input.structuredOutput.jsonSchema),
+          input.structuredOutput.schemaName,
+          input.structuredOutput.schemaDescription,
+        ]
+      : []),
+  ];
+  const promptBytes = segments.reduce(
+    (total, segment) => total + Buffer.byteLength(segment, "utf8"),
+    0,
+  );
+  const densityFloor = segments.reduce(
+    (total, segment) => total + tokenDensityFloor(segment),
+    0,
+  );
+  // Calibrate the admission reserve to the repository workloads this client
+  // actually sends. Mixed TypeScript/JSON prompts in live Bedrock usage remain
+  // above three UTF-8 bytes per reported input token after the structured
+  // schema is included. The former one-token-per-two-bytes estimate reserved
+  // almost twice the provider-reported input and silently reduced a 4K output
+  // request to roughly 2K, causing otherwise schema-constrained JSON to end at
+  // max_tokens. Three bytes per token plus a larger fixed envelope remains
+  // conservative for the observed payloads while preserving the declared
+  // output ceiling. The lexical density floor separately protects minified
+  // JSON, one-character token streams, hashes, and identifiers that can fall
+  // below three bytes per token. Actual usage is still enforced after every
+  // provider call because this remains an admission estimate, not a tokenizer.
+  return Math.max(Math.ceil(promptBytes / 3), densityFloor) + 768;
 }
 
 function readTextFromContent(content: ContentBlock[] | undefined) {
@@ -305,6 +343,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
     return {
       text: readTextFromContent(response.output?.message?.content),
       structuredData: readToolInputFromContent(response.output?.message?.content),
+      stopReason: response.stopReason ?? null,
       tokenUsage:
         response.usage && typeof response.usage === "object"
           ? (JSON.parse(JSON.stringify(response.usage)) as JsonValue)
@@ -691,8 +730,10 @@ export class BedrockStructuredLlmClient {
           validationErrors: JsonValue | null;
           tokenUsage: JsonValue | null;
           transportMode: StructuredOutputTransportMode;
+          stopReason: string | null;
         }
       | null = null;
+    let hitOutputTokenLimit = false;
 
     for (const mode of nativeModes) {
       let response;
@@ -727,6 +768,7 @@ export class BedrockStructuredLlmClient {
           validationErrors: null,
           tokenUsage: null,
           transportMode: mode,
+          stopReason: null,
         };
         continue;
       }
@@ -744,6 +786,7 @@ export class BedrockStructuredLlmClient {
           phase: "generation",
           status: "success",
           validationErrors: null,
+          stopReason: response.stopReason ?? null,
         });
 
         return {
@@ -765,7 +808,11 @@ export class BedrockStructuredLlmClient {
         phase: "generation",
         status: parsed.status,
         validationErrors: parsed.validationErrors as JsonValue,
-        errorMessage: null,
+        errorMessage:
+          response.stopReason === "max_tokens"
+            ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+            : null,
+        stopReason: response.stopReason ?? null,
       });
       lastFailure = {
         status: parsed.status,
@@ -773,7 +820,16 @@ export class BedrockStructuredLlmClient {
         validationErrors: parsed.validationErrors as JsonValue,
         tokenUsage: response.tokenUsage,
         transportMode: mode,
+        stopReason: response.stopReason ?? null,
       };
+      if (response.stopReason === "max_tokens") {
+        // Switching from native JSON schema to strict tool use repeats the same
+        // full synthesis with the same output ceiling. Preserve the charged
+        // partial result and route it directly into the single bounded repair
+        // pass instead of paying for a predictably identical truncation.
+        hitOutputTokenLimit = true;
+        break;
+      }
     }
 
     if (!transportPreference.includes("text_repair_fallback")) {
@@ -789,13 +845,29 @@ export class BedrockStructuredLlmClient {
     }
 
     let firstTextResponse: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
-    const repairSource = params.repairStrategy === "repair_last_failure" ? lastFailure : null;
+    const repairSource =
+      params.repairStrategy === "repair_last_failure" || hitOutputTokenLimit
+        ? lastFailure
+        : null;
+
+    if (hitOutputTokenLimit && !repairSource?.rawOutput) {
+      throw new StructuredOutputError(
+        "Bedrock reached the output-token ceiling without returning partial structured output that could be repaired.",
+        lastFailure?.status ?? "parse_error",
+        null,
+        lastFailure?.validationErrors ?? null,
+        tokenUsageSnapshot(),
+        lastFailure?.transportMode ?? null,
+        normalizeAttemptRecords(attempts),
+      );
+    }
 
     if (repairSource?.rawOutput) {
       firstTextResponse = {
         text: repairSource.rawOutput,
         structuredData: null,
         tokenUsage: repairSource.tokenUsage,
+        stopReason: repairSource.stopReason,
       };
     } else {
       try {
@@ -844,6 +916,7 @@ export class BedrockStructuredLlmClient {
           status: "success",
           validationErrors: null,
           errorMessage: null,
+          stopReason: firstTextResponse.stopReason ?? null,
         });
       }
 
@@ -867,7 +940,11 @@ export class BedrockStructuredLlmClient {
         phase: "generation",
         status: firstAttempt.status,
         validationErrors: firstAttempt.validationErrors as JsonValue,
-        errorMessage: null,
+        errorMessage:
+          firstTextResponse.stopReason === "max_tokens"
+            ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+            : null,
+        stopReason: firstTextResponse.stopReason ?? null,
       });
     }
 
@@ -936,6 +1013,7 @@ export class BedrockStructuredLlmClient {
         status: "success",
         validationErrors: null,
         errorMessage: null,
+        stopReason: repairResponse.stopReason ?? null,
       });
 
       return {
@@ -957,7 +1035,11 @@ export class BedrockStructuredLlmClient {
       phase: "repair",
       status: repairedAttempt.status,
       validationErrors: repairedAttempt.validationErrors as JsonValue,
-      errorMessage: null,
+      errorMessage:
+        repairResponse.stopReason === "max_tokens"
+          ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+          : null,
+      stopReason: repairResponse.stopReason ?? null,
     });
 
     throw new StructuredOutputError(

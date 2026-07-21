@@ -4,6 +4,11 @@ import type {
   FinalizedChatAnswer,
   ProjectKnowledgeCitation,
 } from "@/src/domain/project-chat";
+import {
+  publicArtifactVisibilityRules,
+  type ArtifactType,
+  type VisibilityLevel,
+} from "@/src/lib/options";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
@@ -15,6 +20,71 @@ import {
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+interface RollingSummaryMessage {
+  id: string;
+  role: string;
+  content: string;
+  citations?: Array<{ kind: string; label: string }>;
+}
+
+function compactRollingSummaryLine(message: RollingSummaryMessage) {
+  const content = normalizeWhitespace(
+    message.content
+      .replace(/\[citation:\d+\]/gi, "")
+      .replace(/```[\s\S]*?```/g, " [code omitted] "),
+  );
+  const compactContent = content.length > 280
+    ? `${content.slice(0, 277).trimEnd()}…`
+    : content;
+  const sourceManifest = (message.citations ?? [])
+    .slice(0, 3)
+    .map((citation) =>
+      `${normalizeWhitespace(citation.kind).slice(0, 40)}:${normalizeWhitespace(citation.label).slice(0, 100)}`
+    );
+  return [
+    `${message.role} (${message.id}): ${compactContent || "[empty message]"}`,
+    sourceManifest.length ? `used sources: ${sourceManifest.join("; ")}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/**
+ * Preserves both the thread's opening objective/decisions and its most recent
+ * older turns inside a fixed prompt budget. Each assistant entry carries only
+ * the high-level type/title manifest of sources the answer actually used.
+ */
+export function buildRollingConversationSummary(
+  messages: RollingSummaryMessage[],
+  maxCharacters = 6_000,
+) {
+  if (!messages.length || maxCharacters <= 0) return null;
+  const lines = messages.map(compactRollingSummaryLine);
+  const selected = new Set<number>();
+  const openingCount = Math.min(2, lines.length);
+  for (let index = 0; index < openingCount; index += 1) selected.add(index);
+
+  const render = () => {
+    const indexes = Array.from(selected).sort((left, right) => left - right);
+    const output: string[] = [];
+    indexes.forEach((index, position) => {
+      const previous = indexes[position - 1];
+      if (previous !== undefined && index > previous + 1) {
+        output.push(`… ${index - previous - 1} older message(s) omitted from the compact summary …`);
+      }
+      output.push(lines[index]!);
+    });
+    return output.join("\n");
+  };
+
+  for (let index = lines.length - 1; index >= openingCount; index -= 1) {
+    selected.add(index);
+    if (render().length > maxCharacters) selected.delete(index);
+  }
+  const rendered = render();
+  return rendered.length <= maxCharacters
+    ? rendered
+    : `${rendered.slice(0, Math.max(0, maxCharacters - 1)).trimEnd()}…`;
 }
 
 export function buildChatCitationRows(messageId: string, citations: ProjectKnowledgeCitation[]) {
@@ -103,6 +173,203 @@ export function mergeCompletedRunResult(input: {
       },
     } : {}),
   };
+}
+
+const ARTIFACT_PROVENANCE_CHANGED_MESSAGE =
+  "The artifact was not published because its approved source context changed before finalization. Review the affected Highlights and Evidence, then retry.";
+
+type ArtifactFinalizationProvenanceResult =
+  | { eligible: true }
+  | { eligible: false; message: string };
+
+/**
+ * Locks and revalidates the complete public-Artifact authority graph in the
+ * same transaction that publishes the Artifact. The earlier workflow check
+ * protects the verifier input; this fence protects the verifier-to-publish
+ * interval, where review or reconciliation may have changed durable memory.
+ */
+async function revalidateArtifactFinalizationProvenance(
+  tx: Prisma.TransactionClient,
+  input: {
+    artifactId: string;
+    runId: string;
+    workItemId: string;
+  },
+): Promise<ArtifactFinalizationProvenanceResult> {
+  const artifacts = await tx.$queryRaw<Array<{
+    id: string;
+    type: string;
+    lifecycleStatus: string;
+    publicSafetyStatus: string;
+    workItemId: string | null;
+    originatingAgentRunId: string | null;
+  }>>`
+    SELECT
+      "id",
+      "type"::text AS "type",
+      "lifecycleStatus"::text AS "lifecycleStatus",
+      "publicSafetyStatus"::text AS "publicSafetyStatus",
+      "workItemId",
+      "originatingAgentRunId"
+    FROM "Artifact"
+    WHERE "id" = ${input.artifactId}
+    FOR UPDATE
+  `;
+  const artifact = artifacts[0];
+  if (
+    !artifact ||
+    artifact.workItemId !== input.workItemId ||
+    artifact.originatingAgentRunId !== input.runId ||
+    !["quarantined", "active"].includes(artifact.lifecycleStatus) ||
+    artifact.publicSafetyStatus !== "verified" ||
+    !(artifact.type in publicArtifactVisibilityRules)
+  ) {
+    return {
+      eligible: false,
+      message:
+        "The artifact was not published because its verified draft is no longer eligible for this project run. Retry generation from current approved context.",
+    };
+  }
+
+  // Lock the immutable-at-publication dependency lists before locking their
+  // live entities. This prevents provenance rows from being removed or added
+  // while the final eligibility decision is made.
+  const highlightProvenance = await tx.$queryRaw<Array<{
+    id: string;
+    highlightId: string | null;
+  }>>`
+    SELECT "id", "highlightId"
+    FROM "ArtifactHighlightProvenance"
+    WHERE "artifactId" = ${input.artifactId}
+    FOR UPDATE
+  `;
+  const evidenceProvenance = await tx.$queryRaw<Array<{
+    id: string;
+    evidenceItemId: string | null;
+  }>>`
+    SELECT "id", "evidenceItemId"
+    FROM "ArtifactEvidenceProvenance"
+    WHERE "artifactId" = ${input.artifactId}
+    FOR UPDATE
+  `;
+
+  const highlights = await tx.$queryRaw<Array<{
+    id: string;
+    verificationStatus: string;
+    lifecycleStatus: string;
+    publicSafetyStatus: string;
+    sensitivityFlag: boolean;
+    visibility: string;
+  }>>`
+    SELECT
+      "id",
+      "verificationStatus"::text AS "verificationStatus",
+      "lifecycleStatus"::text AS "lifecycleStatus",
+      "publicSafetyStatus"::text AS "publicSafetyStatus",
+      "sensitivityFlag",
+      "visibility"::text AS "visibility"
+    FROM "Claim"
+    WHERE "id" IN (
+      SELECT "highlightId"
+      FROM "ArtifactHighlightProvenance"
+      WHERE "artifactId" = ${input.artifactId}
+        AND "highlightId" IS NOT NULL
+    )
+    FOR UPDATE
+  `;
+  const expectedHighlightIds = new Set(
+    highlightProvenance.flatMap((entry) => entry.highlightId ? [entry.highlightId] : []),
+  );
+  const allowedVisibilities = new Set<VisibilityLevel>(
+    publicArtifactVisibilityRules[artifact.type as ArtifactType],
+  );
+  if (
+    highlightProvenance.length === 0 ||
+    expectedHighlightIds.size !== highlightProvenance.length ||
+    highlights.length !== expectedHighlightIds.size ||
+    highlights.some((highlight) =>
+      highlight.verificationStatus !== "approved" ||
+      highlight.lifecycleStatus !== "active" ||
+      highlight.publicSafetyStatus !== "verified" ||
+      highlight.sensitivityFlag ||
+      !allowedVisibilities.has(highlight.visibility as VisibilityLevel)
+    )
+  ) {
+    return {
+      eligible: false,
+      message:
+        "The artifact was not published because a supporting Highlight is no longer active, approved, non-sensitive, public-safe, and visibility-compatible. Review the source Highlights, then retry.",
+    };
+  }
+
+  const evidence = await tx.$queryRaw<Array<{
+    id: string;
+    included: boolean;
+    lifecycleStatus: string;
+  }>>`
+    SELECT
+      "id",
+      "included",
+      "lifecycleStatus"::text AS "lifecycleStatus"
+    FROM "EvidenceItem"
+    WHERE "id" IN (
+      SELECT "evidenceItemId"
+      FROM "ArtifactEvidenceProvenance"
+      WHERE "artifactId" = ${input.artifactId}
+        AND "evidenceItemId" IS NOT NULL
+    )
+    FOR UPDATE
+  `;
+  const expectedEvidenceIds = new Set(
+    evidenceProvenance.flatMap((entry) => entry.evidenceItemId ? [entry.evidenceItemId] : []),
+  );
+  if (
+    expectedEvidenceIds.size !== evidenceProvenance.length ||
+    evidence.length !== expectedEvidenceIds.size ||
+    evidence.some((item) => !item.included || item.lifecycleStatus !== "active")
+  ) {
+    return {
+      eligible: false,
+      message:
+        "The artifact was not published because supporting Evidence is no longer included and active. Review the source Evidence, then retry.",
+    };
+  }
+
+  // Lock the exact live Highlight↔Evidence edges used to authorize every
+  // persisted Evidence dependency. A source that is still active but was
+  // detached from all used Highlights can no longer justify publication.
+  const liveLinks = expectedEvidenceIds.size
+    ? await tx.$queryRaw<Array<{
+        highlightId: string;
+        evidenceItemId: string;
+      }>>`
+        SELECT "highlightId", "evidenceItemId"
+        FROM "HighlightEvidence"
+        WHERE "highlightId" IN (
+          SELECT "highlightId"
+          FROM "ArtifactHighlightProvenance"
+          WHERE "artifactId" = ${input.artifactId}
+            AND "highlightId" IS NOT NULL
+        )
+          AND "evidenceItemId" IN (
+            SELECT "evidenceItemId"
+            FROM "ArtifactEvidenceProvenance"
+            WHERE "artifactId" = ${input.artifactId}
+              AND "evidenceItemId" IS NOT NULL
+          )
+        FOR UPDATE
+      `
+    : [];
+  const linkedEvidenceIds = new Set(liveLinks.map((link) => link.evidenceItemId));
+  if ([...expectedEvidenceIds].some((evidenceItemId) => !linkedEvidenceIds.has(evidenceItemId))) {
+    return {
+      eligible: false,
+      message:
+        "The artifact was not published because supporting Evidence is no longer linked to any of the used Highlights. Review the Highlight provenance, then retry.",
+    };
+  }
+
+  return { eligible: true };
 }
 
 export async function createProjectChatThread(input: {
@@ -322,14 +589,16 @@ export async function appendAgentRunEvent(input: {
 }
 
 export async function markAgentRunRunning(runId: string) {
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const [run] = await tx.$queryRaw<Array<{ status: string; startedAt: Date | null }>>`
       SELECT "status"::text AS "status", "startedAt"
       FROM "AgentRun"
       WHERE "id" = ${runId}
       FOR UPDATE
     `;
-    if (!run || !["queued", "running", "awaiting_review"].includes(run.status)) return;
+    if (!run || !["queued", "running", "awaiting_review"].includes(run.status)) {
+      return { active: false as const, status: run?.status ?? "missing" };
+    }
     await tx.agentRun.update({
       where: { id: runId },
       data: {
@@ -341,6 +610,7 @@ export async function markAgentRunRunning(runId: string) {
       where: { agentRunId: runId, role: "assistant" },
       data: { status: "running" },
     });
+    return { active: true as const, status: "running" as const };
   });
 }
 
@@ -355,11 +625,16 @@ export async function markAgentRunAwaitingReview(input: {
 }) {
   const content = input.content.trim();
   assertAnswerCitationContract({ content, citations: input.citations, policy: input.citationPolicy, groundedClaims: input.groundedClaims });
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{ status: string }>>`
       SELECT "status"::text AS "status" FROM "AgentRun" WHERE "id" = ${input.runId} FOR UPDATE
     `;
-    if (!runs[0] || !["queued", "running", "awaiting_review"].includes(runs[0].status)) return;
+    if (!runs[0] || !["queued", "running", "awaiting_review"].includes(runs[0].status)) {
+      return {
+        persisted: false as const,
+        status: runs[0]?.status ?? "missing",
+      };
+    }
     const message = await tx.chatMessage.findFirstOrThrow({
       where: { agentRunId: input.runId, role: "assistant" },
       orderBy: { sequence: "desc" },
@@ -402,6 +677,7 @@ export async function markAgentRunAwaitingReview(input: {
         }),
       },
     });
+    return { persisted: true as const, status: "awaiting_review" as const };
   });
 }
 
@@ -416,22 +692,28 @@ export async function completeAgentRun(input: {
   researchFinalization?: {
     usedProjectFactIds: string[];
   };
+  artifactFinalization?: {
+    artifactId: string;
+    supersedesArtifactId?: string | null;
+  };
 }) {
   const content = input.content.trim();
   const citations = input.citations ?? [];
   assertAnswerCitationContract({ content, citations, policy: input.citationPolicy, groundedClaims: input.groundedClaims });
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{
       status: string;
       result: unknown;
       researchState: unknown;
       environmentSnapshot: unknown;
+      workItemId: string;
     }>>`
       SELECT
         "status"::text AS "status",
         "result",
         "researchState",
-        "environmentSnapshot"
+        "environmentSnapshot",
+        "workItemId"
       FROM "AgentRun"
       WHERE "id" = ${input.runId}
       FOR UPDATE
@@ -440,43 +722,97 @@ export async function completeAgentRun(input: {
       !runs[0] ||
       ["completed", "insufficient_context", "failed", "cancelled"].includes(runs[0].status)
     ) {
-      return;
+      return {
+        persisted: false as const,
+        status: runs[0]?.status ?? "missing",
+      };
     }
+    const artifactProvenance = input.artifactFinalization
+      ? await revalidateArtifactFinalizationProvenance(tx, {
+          artifactId: input.artifactFinalization.artifactId,
+          runId: input.runId,
+          workItemId: runs[0].workItemId,
+        })
+      : { eligible: true as const };
+    const provenanceFailureMessage = artifactProvenance.eligible
+      ? null
+      : artifactProvenance.message || ARTIFACT_PROVENANCE_CHANGED_MESSAGE;
+    const finalContent = provenanceFailureMessage ?? content;
+    const finalCitations = provenanceFailureMessage ? [] : citations;
+    const finalCitationPolicy: AnswerCitationPolicy = provenanceFailureMessage
+      ? "none"
+      : input.citationPolicy;
+    const finalStatus = provenanceFailureMessage
+      ? "insufficient_context" as const
+      : "completed" as const;
     const message = await tx.chatMessage.findFirstOrThrow({
       where: { agentRunId: input.runId, role: "assistant" },
       orderBy: { sequence: "desc" },
+      include: {
+        _count: { select: { citations: true } },
+      },
     });
-    await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
+    // A review-resumed workflow is marked running before finalization, so the
+    // run status alone cannot identify its provisional citation rows. Count
+    // rows in the existing message read and replace only when rows are really
+    // present; ordinary first-pass turns still avoid the extra delete write.
+    if (message._count.citations > 0) {
+      await tx.chatCitation.deleteMany({ where: { messageId: message.id } });
+    }
 
-    if (citations.length) {
-      await tx.chatCitation.createMany({ data: buildChatCitationRows(message.id, citations) });
+    if (finalCitations.length) {
+      await tx.chatCitation.createMany({ data: buildChatCitationRows(message.id, finalCitations) });
     }
 
     await tx.chatMessage.update({
       where: { id: message.id },
       data: {
-        content,
+        content: finalContent,
         status: "completed",
         finalizedAt: new Date(),
         metadata: toInputJson({
           provisional: false,
           originatingRunId: input.runId,
           citationContractVersion: 2,
-          citationIntegrity: "verified",
+          citationIntegrity: provenanceFailureMessage ? "not_applicable" : "verified",
           renderVersion: 2,
-          citationPolicy: input.citationPolicy,
+          citationPolicy: finalCitationPolicy,
           freshness: input.freshness ?? null,
+          ...(provenanceFailureMessage ? {
+            outcome: "insufficient_context",
+            operationalFailure: false,
+            retryable: true,
+            failureCode: "artifact_provenance_changed",
+          } : {}),
         }),
       },
     });
-    const threadMessages = await tx.chatMessage.findMany({
-      where: { threadId: message.threadId },
-      orderBy: { sequence: "asc" },
-    });
-    const olderMessages = threadMessages.slice(0, Math.max(0, threadMessages.length - 12));
-    const rollingSummary = olderMessages
-      .map((entry) => `${entry.role}: ${entry.id === message.id ? content : entry.content}`)
-      .join("\n");
+    // The rolling summary contains only messages outside the latest 12-turn
+    // prompt window. Short threads therefore need no history read at all; for
+    // long threads, load only the prefix that can actually enter the summary.
+    const olderMessages = message.sequence > 12
+      ? await tx.chatMessage.findMany({
+          where: {
+            threadId: message.threadId,
+            sequence: { lte: message.sequence - 12 },
+          },
+          orderBy: { sequence: "asc" },
+          include: {
+            citations: {
+              orderBy: { ordinal: "asc" },
+              select: { kind: true, label: true },
+            },
+          },
+        })
+      : [];
+    const rollingSummary = buildRollingConversationSummary(
+      olderMessages.map((entry) => ({
+        id: entry.id,
+        role: entry.role,
+        content: entry.id === message.id ? finalContent : entry.content,
+        citations: entry.citations,
+      })),
+    );
     await tx.chatThread.update({
       where: { id: message.threadId },
       data: {
@@ -486,7 +822,7 @@ export async function completeAgentRun(input: {
           olderTurns: olderMessages.slice(-24).map((entry) => ({
             messageId: entry.id,
             role: entry.role,
-            summary: (entry.id === message.id ? content : entry.content).slice(0, 800),
+            summary: (entry.id === message.id ? finalContent : entry.content).slice(0, 800),
           })),
           lastCompletedRunId: input.runId,
           updatedAt: new Date().toISOString(),
@@ -497,26 +833,164 @@ export async function completeAgentRun(input: {
       runs[0].researchState,
       runs[0].environmentSnapshot,
       {
-        status: "completed",
-        citationCount: citations.length,
-        usedProjectFactIds: input.researchFinalization?.usedProjectFactIds ?? citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
+        status: finalStatus,
+        citationCount: finalCitations.length,
+        usedProjectFactIds: provenanceFailureMessage
+          ? []
+          : input.researchFinalization?.usedProjectFactIds ?? finalCitations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []),
       },
     );
     const completedResult = mergeCompletedRunResult({
       existing: runs[0].result,
-      next: input.result,
+      next: provenanceFailureMessage
+        ? {
+            ...(record(input.result) ?? {}),
+            status: "insufficient_context",
+            message: provenanceFailureMessage,
+            failureCode: "artifact_provenance_changed",
+          }
+        : input.result,
       researchState: completedResearchState ?? runs[0].researchState,
       environmentSnapshot: runs[0].environmentSnapshot,
     });
+    if (input.artifactFinalization && provenanceFailureMessage) {
+      await tx.artifact.updateMany({
+        where: {
+          id: input.artifactFinalization.artifactId,
+          originatingAgentRunId: input.runId,
+        },
+        data: {
+          lifecycleStatus: "quarantined",
+          publicSafetyStatus: "failed",
+          staleReason: provenanceFailureMessage,
+        },
+      });
+    } else if (input.artifactFinalization) {
+      const activated = await tx.artifact.updateMany({
+        where: {
+          id: input.artifactFinalization.artifactId,
+          originatingAgentRunId: input.runId,
+          lifecycleStatus: { in: ["quarantined", "active"] },
+          publicSafetyStatus: "verified",
+        },
+        data: {
+          lifecycleStatus: "active",
+          staleReason: null,
+        },
+      });
+      if (activated.count !== 1) {
+        throw new Error(
+          "The verified Artifact could not be activated atomically with its completed run.",
+        );
+      }
+      if (input.artifactFinalization.supersedesArtifactId) {
+        await tx.artifact.updateMany({
+          where: {
+            id: input.artifactFinalization.supersedesArtifactId,
+            workItemId: runs[0].workItemId,
+            lifecycleStatus: "active",
+          },
+          data: { lifecycleStatus: "superseded" },
+        });
+      }
+    }
     await tx.agentRun.update({
       where: { id: input.runId },
       data: {
-        status: "completed",
+        status: finalStatus,
         result: toInputJson(completedResult),
         ...(completedResearchState ? { researchState: toInputJson(completedResearchState) } : {}),
+        ...(provenanceFailureMessage ? {
+          error: toInputJson({
+            message: provenanceFailureMessage,
+            code: "artifact_provenance_changed",
+            retryable: true,
+          }),
+        } : {}),
         finishedAt: new Date(),
       },
     });
+    if (provenanceFailureMessage) {
+      return {
+        persisted: true as const,
+        status: "insufficient_context" as const,
+        message: provenanceFailureMessage,
+      };
+    }
+    return {
+      persisted: true as const,
+      status: "completed" as const,
+    };
+  });
+}
+
+export async function cancelActiveAgentRunPersistence(input: {
+  runId: string;
+  userId: string;
+  workItemId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const runs = await tx.$queryRaw<Array<{
+      status: string;
+      workflowId: string | null;
+      knowledgeRefreshRunId: string | null;
+    }>>`
+      SELECT
+        "status"::text AS "status",
+        "workflowId",
+        "knowledgeRefreshRunId"
+      FROM "AgentRun"
+      WHERE "id" = ${input.runId}
+        AND "userId" = ${input.userId}
+        AND "workItemId" = ${input.workItemId}
+      FOR UPDATE
+    `;
+    const status = runs[0]?.status ?? "missing";
+    if (!["queued", "running", "awaiting_review"].includes(status)) {
+      return {
+        cancelled: false as const,
+        status,
+        workflowId: runs[0]?.workflowId ?? null,
+        knowledgeRefreshRunId: runs[0]?.knowledgeRefreshRunId ?? null,
+      };
+    }
+
+    const assistantMessages = await tx.chatMessage.findMany({
+      where: { agentRunId: input.runId, role: "assistant" },
+      select: { id: true },
+    });
+    const messageIds = assistantMessages.map((message) => message.id);
+    if (messageIds.length) {
+      await tx.chatCitation.deleteMany({
+        where: { messageId: { in: messageIds } },
+      });
+    }
+    await tx.chatMessage.updateMany({
+      where: {
+        id: { in: messageIds },
+        status: { in: ["queued", "running", "awaiting_review"] },
+      },
+      data: {
+        status: "cancelled",
+        content: "This run was cancelled.",
+        finalizedAt: new Date(),
+        metadata: toInputJson({
+          outcome: "cancelled",
+          operationalFailure: false,
+          citationIntegrity: "not_applicable",
+        }),
+      },
+    });
+    await tx.agentRun.update({
+      where: { id: input.runId },
+      data: { status: "cancelled", finishedAt: new Date() },
+    });
+    return {
+      cancelled: true as const,
+      status: "cancelled" as const,
+      workflowId: runs[0]?.workflowId ?? null,
+      knowledgeRefreshRunId: runs[0]?.knowledgeRefreshRunId ?? null,
+    };
   });
 }
 
@@ -567,9 +1041,19 @@ export async function failAgentRun(input: {
     await tx.chatMessage.updateMany({
       where: { agentRunId: input.runId, role: "assistant" },
       data: {
-        status: "failed",
+        // "Insufficient context" is a valid conversational outcome, not an
+        // operationally failed assistant turn. Keep it in multi-turn history
+        // so a follow-up such as "why?" can refer to the precise evidence gap.
+        status: input.insufficient ? "completed" : "failed",
         content: input.message,
         finalizedAt: new Date(),
+        metadata: toInputJson({
+          outcome: status,
+          operationalFailure: !input.insufficient,
+          retryable: input.failure?.retryable ?? true,
+          failureCode: input.failure?.code ?? null,
+          recovery: input.failure?.recovery ?? null,
+        }),
       },
     });
   });

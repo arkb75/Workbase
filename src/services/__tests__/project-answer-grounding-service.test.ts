@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectGroundingContractIssues,
+  evaluateDeterministicAnswerGrounding,
   extractClaimCitationMap,
   findUnsupportedOwnershipClaims,
   groundProjectAnswer,
@@ -110,7 +111,7 @@ describe("project answer grounding contract", () => {
       answer: [
         "You solo-built grounded chat. [citation:1]",
         "The repository implements grounded chat. [citation:1]",
-        "You designed the reviewed chat experience. [citation:2]",
+        "You designed the grounded chat system. [citation:2]",
       ].join("\n\n"),
       entries: [projectFactEntry, ownedHighlightEntry],
       citationCount: 2,
@@ -118,7 +119,7 @@ describe("project answer grounding contract", () => {
 
     expect(result.blocks.map((block) => block.bodyMarkdown)).toEqual([
       "The repository implements grounded chat.",
-      "You designed the reviewed chat experience.",
+      "You designed the grounded chat system.",
     ]);
     expect(result.issues).toEqual([
       expect.stringContaining("Repository-only sources cannot establish personal ownership"),
@@ -137,6 +138,106 @@ describe("project answer grounding contract", () => {
       bodyMarkdown: "You built Workbase as a full-stack project.",
       citationIndexes: [3],
     }]);
+  });
+
+  it("treats zero supported cited blocks as a normal grounding result", async () => {
+    const result = await groundProjectAnswer({
+      answer: "Redis and Kubernetes provide durable workflow retries. [citation:1]",
+      entries: [projectFactEntry],
+      citationCount: 1,
+    });
+
+    expect(result.blocks).toEqual([]);
+    expect(result.tokenUsage).toBeNull();
+  });
+
+  it("exposes only the deterministically safe subset of a mixed draft", () => {
+    const dossier = parseProjectResearchDossier({
+      objective: "Current assessment",
+      phase: "finalizing",
+      updatedAt: "2026-07-10T20:30:00.000Z",
+      repositories: [{
+        sourceId: "source-1",
+        name: "arkb75/Workbase",
+        importedAt: "2026-04-06T02:05:31.418Z",
+        pinnedSha: "06f3ae5d40a3efbd7959b9e179cd8a9059cc70e5",
+        committedAt: "2026-07-09T23:02:00.000Z",
+        resolvedAt: "2026-07-10T20:30:00.000Z",
+      }],
+    });
+    const entries = [{
+      ...projectFactEntry,
+      content: [
+        "The repository implements grounded project chat.",
+        "The assessment was imported on April 6, 2026.",
+      ].join(" "),
+    }];
+    const result = evaluateDeterministicAnswerGrounding({
+      answer: [
+        "The repository implements grounded project chat. [citation:1]",
+        "The repository implements grounded project chat. [citation:1][citation:9]",
+        "You solo-built grounded project chat. [citation:1]",
+        "The repository always implements grounded project chat. [citation:1]",
+        "The repository implements 99 grounded chat workflows. [citation:1]",
+        "This assessment is current as of April 6, 2026. [citation:1]",
+        "Redis and Kubernetes provide durable workflow retries. [citation:1]",
+      ].join("\n\n"),
+      entries,
+      citationCount: 1,
+      dossier,
+    });
+
+    expect(result.safeBlocks).toEqual([{
+      heading: null,
+      bodyMarkdown: "The repository implements grounded project chat.",
+      citationIndexes: [1],
+    }]);
+    expect(result.blocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("citation:9"),
+    }));
+    expect(result.blocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("solo-built"),
+    }));
+    expect(result.safeBlocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("always"),
+    }));
+    expect(result.safeBlocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("99"),
+    }));
+    expect(result.safeBlocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("April 6, 2026"),
+    }));
+    expect(result.safeBlocks).not.toContainEqual(expect.objectContaining({
+      bodyMarkdown: expect.stringContaining("Redis"),
+    }));
+    expect(result.issues).toEqual(expect.arrayContaining([
+      "The answer references unavailable citation [citation:9].",
+      expect.stringContaining("Repository-only sources cannot establish personal ownership"),
+      "The answer labels the source import date as current even though a newer repository inspection exists.",
+    ]));
+    expect(result.requiresModel).toBe(true);
+  });
+
+  it("rejects malformed and out-of-range ordinals from deterministic safe blocks", () => {
+    const result = evaluateDeterministicAnswerGrounding({
+      answer: [
+        "The repository implements grounded project chat. [citation:1]",
+        "The repository implements grounded project chat. [citation:0]",
+        "The repository implements grounded project chat. [citation:-1]",
+        "The repository implements grounded project chat. [citation:1.5]",
+        "The repository implements grounded project chat. [citation:nope]",
+      ].join("\n\n"),
+      entries: [projectFactEntry],
+      citationCount: 1,
+    });
+
+    expect(result.safeBlocks).toHaveLength(1);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      "The answer references unavailable citation [citation:0].",
+      "The answer references unavailable citation [citation:-1].",
+      "The answer references unavailable citation [citation:1.5].",
+      "The answer references unavailable citation [citation:nope].",
+    ]));
   });
 
 });

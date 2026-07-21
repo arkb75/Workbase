@@ -540,10 +540,11 @@ describe("repository Evidence promotion lifecycle", () => {
   });
 
   it("creates a reviewable successor instead of resurrecting user-retired evidence", async () => {
+    const baseExternalId = "file:blob-1:src/runtime.ts:10:14:71807b0a2eda";
     const retired = {
       id: "retired-evidence",
       sourceId: "source-1",
-      externalId: "retired-external",
+      externalId: baseExternalId,
       logicalKey: "github_file:src/runtime.ts:10:14",
       title: "src/runtime.ts:10-14",
       content: "export function run() {}",
@@ -563,7 +564,6 @@ describe("repository Evidence promotion lifecycle", () => {
       },
     };
     mockEvidenceRows([retired], [{ id: "successor-evidence" }]);
-    prismaMock.evidenceItem.findUnique.mockResolvedValue(retired);
     prismaMock.evidenceItem.upsert.mockResolvedValue({
       id: "successor-evidence",
       title: retired.title,
@@ -944,10 +944,11 @@ describe("repository Evidence promotion lifecycle", () => {
   });
 
   it("honors a retired successor when the original promotion workflow retries", async () => {
+    const baseExternalId = "file:blob-1:src/runtime.ts:10:14:71807b0a2eda";
     const retiredOriginal = {
       id: "retired-original",
       sourceId: "source-1",
-      externalId: "base",
+      externalId: baseExternalId,
       logicalKey: "github_file:src/runtime.ts:10:14",
       title: "src/runtime.ts:10-14",
       content: "export function run() {}",
@@ -969,7 +970,6 @@ describe("repository Evidence promotion lifecycle", () => {
       reviewState: "reverted",
     };
     mockEvidenceRows([retiredOriginal, retiredSuccessor], []);
-    prismaMock.evidenceItem.findUnique.mockResolvedValue(retiredOriginal);
     prismaMock.evidenceItem.upsert.mockResolvedValue(retiredSuccessor);
 
     const result = await promoteRepositoryCitations({

@@ -66,6 +66,7 @@ export async function persistResearchAgentEvent(
         ? {
             iteration: event.iteration,
             stopReason: event.stopReason,
+            durationMs: event.durationMs,
             usage: event.usage,
             aggregateUsage: event.aggregateUsage,
           }

@@ -27,6 +27,10 @@ import {
   TOP_LEVEL_ACCOMPLISHMENT_SUBSYSTEMS,
   accomplishmentCoverageAnchorScore,
 } from "../src/services/project-answer-completeness-service";
+import {
+  evaluateProjectChatAnswerQuality,
+  projectChatReaderThemes,
+} from "../src/evals/project-chat-answer-quality";
 import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import {
@@ -216,28 +220,6 @@ async function main() {
   const canonicalOrdinals = Array.from(message.content.matchAll(/\[citation:(\d+)\]/g)).map((match) => Number(match[1]));
   const plainPseudoCitations = Array.from(message.content.matchAll(/\[(\d+)\](?:\s*\[(\d+)\])*/g));
   const headings = Array.from(message.content.matchAll(/^#{2,4}\s+.+$/gm)).length;
-  const coverageAreas = [
-    /knowledge|refresh|repository/i,
-    /agent|bedrock|ai|llm/i,
-    /workflow|durable/i,
-    /retriev|citation|provenance|ground/i,
-    /github|oauth|ingest/i,
-    /highlight|artifact|review|verification/i,
-    /data model|prisma|postgres/i,
-    /test|ui|workspace/i,
-  ].filter((pattern) => pattern.test(message.content)).length;
-  const requiredCapabilityCoverage = {
-    product: /career content|resume bullets|linkedin|project summar/i.test(message.content),
-    repositoryLifecycle: /knowledge refresh|repository refresh|snapshot|staleness|reconcil/i.test(message.content),
-    aiRuntime: /bedrock|structured llm|agent runtime|tool use/i.test(message.content),
-    workflows: /durable workflow|workflow orchestrat|approval gate/i.test(message.content),
-    retrieval: /retriev|rag|citation|provenance|ground/i.test(message.content),
-    github: /github|oauth|repository ingest/i.test(message.content),
-    reviewArtifacts: /highlight|artifact|human-in-the-loop|review/i.test(message.content),
-    dataModel: /prisma|data model|postgres|schema/i.test(message.content),
-    tests: /automated test|test coverage|vitest|workflow test/i.test(message.content),
-    ui: /user interface|workspace ui|review ui|chat workspace/i.test(message.content),
-  };
   const usedOrdinals = new Set(canonicalOrdinals);
   const citedProjectFactIds = message.citations.flatMap((citation) => citation.projectFactId ? [citation.projectFactId] : []);
   const citedHighlightIds = message.citations.flatMap((citation) => citation.highlightId ? [citation.highlightId] : []);
@@ -324,7 +306,7 @@ async function main() {
   const runtimeCompletenessAudit = parseRuntimeAccomplishmentAudit(completenessPayload);
   const countRange = runtimeCompletenessAudit
     ? { minimum: runtimeCompletenessAudit.minimumBlocks, maximum: runtimeCompletenessAudit.maximumBlocks }
-    : { minimum: 1, maximum: 10 };
+    : { minimum: 4, maximum: 6 };
   const structure = evaluateAccomplishmentAnswerStructure({
     content: message.content,
     citations: message.citations.map((citation) => ({ ordinal: citation.ordinal, kind: citation.kind })),
@@ -458,6 +440,37 @@ async function main() {
       }),
     ],
   });
+  const answerQualityChecks = evaluateProjectChatAnswerQuality({
+    answer: message.content,
+    contract: {
+      minCharacters: 900,
+      maxCharacters: 5_500,
+      minReaderThemes: 5,
+      minPrimaryItems: 4,
+      maxPrimaryItems: 6,
+      minDevelopedItems: 4,
+      minMechanismValueItems: 3,
+      minCitedItems: 4,
+      requirePrioritizedOpening: true,
+      forbidInternalInventory: true,
+      format: "markdown",
+      forbiddenPatterns: [
+        "\\b(?:every|all) (?:file|subsystem|capability)\\b",
+        "\\b512[- ]dimension(?:al)?\\b",
+      ],
+    },
+  });
+  const representedLedger = ledgerCoverage.filter((entry) =>
+    entry.representedByUsedCitation && entry.semanticallyRepresentedByUsedCitation
+  );
+  const requiredEditorialAnchors = ["product_surface", "repository_knowledge_lifecycle"];
+  const prioritizedLedgerSelectionHealthy =
+    ledgerCoverage.length > 0 &&
+    representedLedger.length >= Math.min(4, ledgerCoverage.length) &&
+    requiredEditorialAnchors.every((capabilityKey) =>
+      !ledgerCoverage.some((entry) => entry.capabilityKey === capabilityKey) ||
+      representedLedger.some((entry) => entry.capabilityKey === capabilityKey)
+    );
   const checks = {
     latestCommitPinned: targets.length > 0 && targets.every((target) => typeof target.commitSha === "string" && target.commitSha.length === 40),
     allEligibleFilesMapped: coverage.length > 0 && coverage.every((entry) => Number(entry.analyzedPaths) + Number(entry.excludedPaths) === Number(entry.totalPaths)),
@@ -470,8 +483,6 @@ async function main() {
     agentRunLinkedToRefresh: persistedRun.knowledgeRefreshRunId === refresh.id,
     citationRowsMatchMarkers: canonicalOrdinals.length > 0 && canonicalOrdinals.every((ordinal) => message.citations.some((citation) => citation.ordinal === ordinal)) && message.citations.every((citation) => canonicalOrdinals.includes(citation.ordinal)),
     noPlainPseudoCitations: plainPseudoCitations.length === 0,
-    runtimeCompletenessManifestAvailable: runtimeCompletenessAudit !== null,
-    runtimeRequirementsRepresented: runtimeRequirementCoverage?.complete === true,
     accomplishmentCountInRange: structure.countInRange,
     everyAccomplishmentCited: structure.allBlocksCited,
     noArtifactOnlyAccomplishments: structure.noArtifactOnlyBlocks,
@@ -479,15 +490,13 @@ async function main() {
     ownershipClaimsSupported: unsupportedOwnershipClaims.length === 0,
     durableSourcesOnly: message.citations.every((citation) => citation.kind !== "github_file"),
     usageTelemetryComplete: usageComplete,
+    editorialQuality: answerQualityChecks.every((check) => check.passed),
   };
   const diagnostics = {
     markdownStructured: headings >= Math.min(4, countRange.minimum),
-    broadArchitectureCoverage: coverageAreas >= 6,
-    mandatoryKeywordCoverage: Object.values(requiredCapabilityCoverage).every(Boolean),
+    readerThemeCoverage: projectChatReaderThemes(message.content).length >= 5,
     accomplishmentsLexicallyNonredundant: structure.nonredundant,
-    highPriorityLedgerRepresented: ledgerCoverage.length > 0 && ledgerCoverage.every((entry) =>
-      entry.representedByUsedCitation && entry.semanticallyRepresentedByUsedCitation
-    ),
+    prioritizedLedgerSelectionHealthy,
   };
   process.stdout.write(`${JSON.stringify({
     workItem: { id: workItem.id, title: workItem.title },
@@ -511,7 +520,7 @@ async function main() {
     })),
     checks,
     diagnostics,
-    requiredCapabilityCoverage,
+    answerQualityChecks,
     runtimeCompleteness: runtimeCompletenessAudit ? {
       minimumBlocks: runtimeCompletenessAudit.minimumBlocks,
       maximumBlocks: runtimeCompletenessAudit.maximumBlocks,

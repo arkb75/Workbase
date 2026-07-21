@@ -7,10 +7,16 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
-  projectFact: { update: vi.fn(), updateMany: vi.fn() },
-  highlight: { update: vi.fn(), updateMany: vi.fn() },
-  evidenceItem: { update: vi.fn(), updateMany: vi.fn() },
-  artifact: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
+  projectFact: { update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
+  highlight: { update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
+  evidenceItem: {
+    update: vi.fn(),
+    updateMany: vi.fn(),
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    deleteMany: vi.fn(),
+  },
+  artifact: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
   $transaction: vi.fn(),
 }));
 const upsertProjectFactEmbeddingMock = vi.hoisted(() => vi.fn());
@@ -39,15 +45,39 @@ vi.mock("@/src/services/repository-knowledge-refresh-application-service", () =>
 
 import {
   knowledgeRevertMode,
+  purgeExpiredUnreferencedEvidence,
   resolveKnowledgeChange,
 } from "@/src/services/knowledge-review-service";
+
+function transactionClient(overrides: Record<string, unknown> = {}) {
+  return {
+    $queryRaw: vi.fn().mockResolvedValue([{ locked: 1 }]),
+    knowledgeChange: prismaMock.knowledgeChange,
+    projectFact: prismaMock.projectFact,
+    projectFactEvidence: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    highlight: prismaMock.highlight,
+    highlightEvidence: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    evidenceItem: prismaMock.evidenceItem,
+    artifact: prismaMock.artifact,
+    ...overrides,
+  };
+}
 
 describe("knowledge review lifecycle integrity", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     prismaMock.knowledgeChange.update.mockResolvedValue({});
     prismaMock.knowledgeChange.findFirst.mockResolvedValue(null);
-    prismaMock.knowledgeChange.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.knowledgeChange.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.$transaction.mockImplementation(async (callback) =>
+      callback(transactionClient())
+    );
     upsertProjectFactEmbeddingMock.mockResolvedValue({});
     upsertHighlightEmbeddingMock.mockResolvedValue({});
     invalidateHighlightDependentsMock.mockResolvedValue([]);
@@ -93,7 +123,9 @@ describe("knowledge review lifecycle integrity", () => {
         update: vi.fn().mockResolvedValue({}),
       },
     };
-    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx));
+    prismaMock.$transaction.mockImplementation(async (callback) =>
+      callback(transactionClient(tx))
+    );
 
     await resolveKnowledgeChange({
       userId: "user-1",
@@ -172,7 +204,9 @@ describe("knowledge review lifecycle integrity", () => {
         update: vi.fn().mockResolvedValue({}),
       },
     };
-    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx));
+    prismaMock.$transaction.mockImplementation(async (callback) =>
+      callback(transactionClient(tx))
+    );
 
     await resolveKnowledgeChange({
       userId: "user-1",
@@ -341,7 +375,9 @@ describe("knowledge review lifecycle integrity", () => {
         createMany: vi.fn().mockResolvedValue({ count: 2 }),
       },
     };
-    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx));
+    prismaMock.$transaction.mockImplementation(async (callback) =>
+      callback(transactionClient(tx))
+    );
 
     await resolveKnowledgeChange({
       userId: "user-1",
@@ -428,6 +464,163 @@ describe("knowledge review lifecycle integrity", () => {
       successor: { kind: "project_fact", id: "fact-new" },
     });
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
-    expect(startKnowledgeRefreshMock).not.toHaveBeenCalled();
+    expect(startKnowledgeRefreshMock).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "knowledge-edit:project_fact:fact-new",
+    }));
+  });
+
+  it("serializes concurrent edit decisions so only one immutable successor is created", async () => {
+    const projectFact = {
+      id: "fact-old",
+      statement: "Original assertion",
+      category: "architecture",
+      confidence: "high",
+      status: "approved",
+      sensitivityFlag: false,
+      reviewNotes: null,
+      subsystemKey: "runtime",
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+      evidence: [],
+      supersededByProjectFacts: [],
+    };
+    let current = {
+      id: "change-concurrent",
+      workItemId: "work-1",
+      createdAt: new Date(),
+      action: "updated",
+      decision: "pending",
+      beforeSnapshot: null,
+      afterSnapshot: { id: "fact-old" },
+      projectFactId: "fact-old",
+      highlightId: null,
+      evidenceItemId: null,
+      artifactId: null,
+      projectFact,
+      highlight: null,
+      evidenceItem: null,
+      artifact: null,
+    };
+    let preflightReads = 0;
+    let releasePreflights!: () => void;
+    const bothPreflights = new Promise<void>((resolve) => { releasePreflights = resolve; });
+    prismaMock.knowledgeChange.findFirstOrThrow.mockImplementation(async () => {
+      if (preflightReads < 2) {
+        preflightReads += 1;
+        if (preflightReads === 2) releasePreflights();
+        else await bothPreflights;
+      }
+      return { ...current, afterSnapshot: { ...current.afterSnapshot } };
+    });
+    prismaMock.knowledgeChange.updateMany.mockImplementation(async ({ where, data }) => {
+      if (where.decision !== "pending" || current.decision !== "pending") return { count: 0 };
+      current = {
+        ...current,
+        decision: data.decision,
+        afterSnapshot: data.afterSnapshot ?? current.afterSnapshot,
+      };
+      return { count: 1 };
+    });
+    const create = vi.fn().mockResolvedValue({
+      ...projectFact,
+      id: "fact-only-successor",
+      statement: "Edited assertion",
+      lifecycleStatus: "needs_validation",
+    });
+    const tx = transactionClient({
+      projectFact: { create, update: vi.fn().mockResolvedValue({}) },
+    });
+    let tail = Promise.resolve();
+    prismaMock.$transaction.mockImplementation(async (callback) => {
+      const previous = tail;
+      let release!: () => void;
+      tail = new Promise<void>((resolve) => { release = resolve; });
+      await previous;
+      try {
+        return await callback(tx);
+      } finally {
+        release();
+      }
+    });
+
+    const [first, second] = await Promise.all([
+      resolveKnowledgeChange({ userId: "user-1", changeId: current.id, decision: "edit_and_keep", patch: { statement: "Edited assertion" } }),
+      resolveKnowledgeChange({ userId: "user-1", changeId: current.id, decision: "edit_and_keep", patch: { statement: "Different retry text" } }),
+    ]);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(first.successor).toEqual({ kind: "project_fact", id: "fact-only-successor" });
+    expect(second.successor).toEqual(first.successor);
+  });
+
+  it("returns durable success after post-commit failure and replays idempotent maintenance on retry", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    prismaMock.knowledgeChange.findFirstOrThrow.mockResolvedValue({
+      id: "change-maintenance",
+      workItemId: "work-1",
+      action: "updated",
+      decision: "edited_and_kept",
+      beforeSnapshot: null,
+      afterSnapshot: {
+        id: "highlight-old",
+        reviewSuccessorId: "highlight-new",
+        reviewSuccessorKind: "highlight",
+      },
+      highlightId: "highlight-old",
+      projectFactId: null,
+      evidenceItemId: null,
+      artifactId: null,
+      projectFact: null,
+      highlight: { id: "highlight-old", supersedesHighlightId: null },
+      evidenceItem: null,
+      artifact: null,
+    });
+    invalidateHighlightDependentsMock
+      .mockRejectedValueOnce(new Error("temporary dependency failure"))
+      .mockRejectedValueOnce(new Error("temporary dependency failure"))
+      .mockResolvedValue([]);
+
+    await expect(resolveKnowledgeChange({
+      userId: "user-1",
+      changeId: "change-maintenance",
+      decision: "edit_and_keep",
+    })).resolves.toMatchObject({ decision: "edited_and_kept" });
+    await expect(resolveKnowledgeChange({
+      userId: "user-1",
+      changeId: "change-maintenance",
+      decision: "edit_and_keep",
+    })).resolves.toMatchObject({ decision: "edited_and_kept" });
+
+    expect(invalidateHighlightDependentsMock).toHaveBeenCalledTimes(3);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("rechecks relations under the Evidence row lock when an attachment races purge", async () => {
+    const now = new Date("2026-07-21T12:00:00.000Z");
+    let attached = false;
+    let reads = 0;
+    prismaMock.evidenceItem.findMany.mockImplementation(async () => {
+      reads += 1;
+      if (reads === 1) return [{ id: "evidence-expired", workItemId: "work-1" }];
+      return attached ? [] : [{ id: "evidence-expired" }];
+    });
+    prismaMock.evidenceItem.deleteMany.mockResolvedValue({ count: 1 });
+    let lockCalls = 0;
+    const tx = transactionClient({
+      $queryRaw: vi.fn().mockImplementation(async () => {
+        lockCalls += 1;
+        if (lockCalls === 2) attached = true;
+        return [{ locked: 1 }];
+      }),
+    });
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(purgeExpiredUnreferencedEvidence(now)).resolves.toEqual([]);
+
+    expect(lockCalls).toBe(2);
+    expect(prismaMock.evidenceItem.deleteMany).not.toHaveBeenCalled();
   });
 });

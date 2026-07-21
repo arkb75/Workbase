@@ -319,7 +319,10 @@ export function inferSubsystemsFromPath(path: string) {
   if (/bedrock|llm|model|agent/.test(value)) keys.push("ai_runtime");
   if (/github|source|import|ingest|oauth|integration/.test(value)) keys.push("ingestion_integrations");
   if (/retriev|citation|provenance|embedding|search/.test(value)) keys.push("retrieval_provenance");
-  if (/workflow|orchestrat|run-|queue|job/.test(value)) keys.push("workflow_orchestration");
+  if (
+    /workflow|orchestrat|run-|queue|job/.test(value) ||
+    value === "src/services/project-chat-store.ts"
+  ) keys.push("workflow_orchestration");
   if (/app\/|component|page\.tsx|review|workspace|ui/.test(value)) keys.push("review_ui");
   if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
   const projectDomain = inferProjectDomainCapability(path);
@@ -693,14 +696,14 @@ function isMeaningfulDeterministicFallbackFact(fact: RepositoryFileAnalysis["fac
   if (/\bis present in the (?:current|complete) (?:repository )?snapshot\b/i.test(fact.statement)) return false;
   if (isDeterministicFallbackAnchor(fact)) return true;
   if (fact.category !== "code_location") {
-    return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states)/i.test(fact.statement);
+    return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|disables automatic retries for repository reconciliation|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
   }
   return /(?:persisted model|defines (?:the )?symbol (?:[A-Za-z_$][\w$]*(?:Workflow|Service|Workspace|Review|Artifact|Chat|Knowledge|GitHub|OAuth|Citation|Highlight|Agent)[A-Za-z_$\d]*|(?:fetch|resolve|get|list|search|read|persist|create|update|delete|generate|synthesize|reconcile|refresh|review|approve|verify|retrieve|ingest|import|upsert)[A-Z][\w$]*))/i.test(fact.statement);
 }
 
 function isDeterministicFallbackAnchor(fact: RepositoryFileAnalysis["facts"][number]) {
   if (fact.category === "code_location") return /persisted model/i.test(fact.statement);
-  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after)/i.test(fact.statement);
+  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements Bedrock Converse or tool-result handling|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after|disables automatic retries for repository reconciliation|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
 }
 
 /**
@@ -1358,6 +1361,30 @@ export async function analyzeRepositoryFiles(input: Array<{
       const lineEnd = Math.max(...matchedLines) + 1;
       addFact(input.statement, input.category, lineStart, input.breadth, lineEnd, input.productImportance ?? 4);
     };
+    const addScopedRangeFact = (input: {
+      startPattern: RegExp;
+      patterns: RegExp[];
+      statement: string;
+      category: ProjectFactCategory;
+      breadth: number;
+      productImportance?: number;
+    }) => {
+      const scopeStart = lines.findIndex((line) => input.startPattern.test(line));
+      if (scopeStart < 0) return;
+      const matchedLines = input.patterns.map((pattern) =>
+        lines.findIndex((line, index) => index >= scopeStart && pattern.test(line))
+      );
+      if (matchedLines.some((line) => line < 0)) return;
+      const lineEnd = Math.max(scopeStart, ...matchedLines) + 1;
+      addFact(
+        input.statement,
+        input.category,
+        scopeStart + 1,
+        input.breadth,
+        lineEnd,
+        input.productImportance ?? 4,
+      );
+    };
 
     // These cross-line recognizers are deliberately syntax-shaped rather than
     // path-shaped. They recover high-value lifecycle behavior from exact code
@@ -1430,6 +1457,84 @@ export async function analyzeRepositoryFiles(input: Array<{
       breadth: 4,
       productImportance: 4,
     });
+    if (file.path === "workflows/project-chat.ts") {
+      addRangeFact({
+        patterns: [
+          /replaying the entire synthesis and/,
+          /reconcileRequiredKnowledge\.maxRetries\s*=\s*0/,
+        ],
+        statement: `${file.path} disables automatic retries for repository reconciliation because its versioned knowledge mutations are not independently checkpointed.`,
+        category: "behavior",
+        breadth: 5,
+        productImportance: 5,
+      });
+      addRangeFact({
+        patterns: [
+          /const claimed = await claimRequiredKnowledgeRefresh\(/,
+          /resuming its checkpointed repository work/,
+        ],
+        statement: `${file.path} lets a waiting turn claim a released shared refresh and resume its checkpointed repository work.`,
+        category: "behavior",
+        breadth: 5,
+        productImportance: 5,
+      });
+    }
+    if (file.path === "src/services/agent-run-workflow-start-service.ts") {
+      addRangeFact({
+        patterns: [
+          /if \(current\.workflowId && !current\.workflowId\.startsWith\("starting:"\)\)/,
+          /const reservation = `starting:\$\{randomUUID\(\)\}`/,
+          /workflowId:\s*null/,
+          /data:\s*\{\s*workflowId:\s*reservation\s*\}/,
+          /getRun\(workflow\.runId\)\.cancel\(\)/,
+          /data:\s*\{\s*workflowId:\s*null\s*\}/,
+        ],
+        statement: `${file.path} conditionally reserves an unstarted queued run, reuses an attached workflow identifier, cancels an unattached workflow after a terminal-state race, and clears its reservation when startup fails.`,
+        category: "data_flow",
+        breadth: 5,
+        productImportance: 5,
+      });
+    }
+    if (file.path === "src/services/project-chat-store.ts") {
+      addScopedRangeFact({
+        startPattern: /export async function createProjectChatRun/,
+        patterns: [
+          /FROM "ChatThread"/,
+          /FOR UPDATE/,
+          /userId_idempotencyKey:/,
+          /if \(existingRun\)/,
+          /Finish or cancel the active thread run/,
+        ],
+        statement: `${file.path} serializes chat-run creation by locking the thread, returning an existing user-scoped idempotency-key run, and rejecting a second active run.`,
+        category: "data_flow",
+        breadth: 5,
+        productImportance: 5,
+      });
+      addScopedRangeFact({
+        startPattern: /export async function appendAgentRunEvent/,
+        patterns: [
+          /FROM "AgentRun".*FOR UPDATE/,
+          /\["completed", "insufficient_context", "failed", "cancelled"\]\.includes\(runs\[0\]\.status\)/,
+          /sequence:\s*\(max\._max\.sequence \?\? 0\) \+ 1/,
+        ],
+        statement: `${file.path} serializes agent-run event appends with a run lock and refuses to append events after the run reaches a terminal state.`,
+        category: "data_flow",
+        breadth: 5,
+        productImportance: 5,
+      });
+      addScopedRangeFact({
+        startPattern: /export async function completeAgentRun/,
+        patterns: [
+          /FROM "AgentRun"/,
+          /FOR UPDATE/,
+          /\["completed", "insufficient_context", "failed", "cancelled"\]\.includes\(runs\[0\]\.status\)/,
+        ],
+        statement: `${file.path} locks persisted run state during completion and returns without rewriting a run that is already terminal.`,
+        category: "data_flow",
+        breadth: 5,
+        productImportance: 5,
+      });
+    }
     const highlightInvalidation = lines.findIndex((line) => /await\s+invalidateHighlightDependents\s*\(/.test(line));
     if (highlightInvalidation >= 0) {
       addFact(
