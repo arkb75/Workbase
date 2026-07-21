@@ -54,6 +54,7 @@ import {
 import {
   isWorkItemDescriptionSourceMetadata,
 } from "@/src/lib/evidence-persistence";
+import { loadWorkItemRouteData } from "@/src/lib/work-item-route";
 import {
   artifactToneOptions,
   artifactTypeOptions,
@@ -845,22 +846,24 @@ export default async function WorkItemDetailPage({
   });
   const user = await getDemoUser();
 
-  const [workItemResult, githubConnection, chatWorkspace] = await Promise.all([
-    getWorkItemWorkspaceForUser(user.id, id, activeTab, {
-      evidencePage,
-      knowledgePage,
-    }),
-    activeTab === "sources"
-      ? githubAuthService.getConnection(user.id)
-      : Promise.resolve(null),
-    activeTab === "chat"
-      ? getProjectChatWorkspace({
-          userId: user.id,
-          workItemId: id,
-          activeThreadId: thread,
-        })
-      : Promise.resolve(null),
-  ]);
+  const [workItemResult, githubConnection, chatWorkspace] = await loadWorkItemRouteData(
+    () => Promise.all([
+      getWorkItemWorkspaceForUser(user.id, id, activeTab, {
+        evidencePage,
+        knowledgePage,
+      }),
+      activeTab === "sources"
+        ? githubAuthService.getConnection(user.id)
+        : Promise.resolve(null),
+      activeTab === "chat"
+        ? getProjectChatWorkspace({
+            userId: user.id,
+            workItemId: id,
+            activeThreadId: thread,
+          })
+        : Promise.resolve(null),
+    ] as const),
+  );
   const {
     workItem,
     sensitiveContextAvailable: chatSensitiveContextAvailable,

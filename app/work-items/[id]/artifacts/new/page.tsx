@@ -21,6 +21,7 @@ import {
   artifactTypeOptions,
   targetAngleOptions,
 } from "@/src/lib/options";
+import { loadWorkItemRouteData } from "@/src/lib/work-item-route";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +100,7 @@ export default async function ArtifactGeneratorPage({
   const { id } = await params;
   const { artifactId, error } = await searchParams;
   const user = await getDemoUser();
-  const workItem = await getWorkItemForUser(user.id, id);
+  const workItem = await loadWorkItemRouteData(() => getWorkItemForUser(user.id, id));
   const artifactFormIdempotencyKey = `artifact-form:${workItem.id}:${randomUUID()}`;
   const approvedHighlights = workItem.highlights.filter(
     (highlight) => highlight.verificationStatus === "approved" && !highlight.sensitivityFlag,
