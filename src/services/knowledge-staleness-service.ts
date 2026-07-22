@@ -5,7 +5,7 @@ import {
   upsertReviewableKnowledgeChangesInTransaction,
 } from "@/src/services/knowledge-change-service";
 import { resolveBedrockConfig } from "@/src/lib/llm-config";
-import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
+import { invalidateStaleEvidenceDependentsInTransaction } from "@/src/services/knowledge-dependency-service";
 import {
   knowledgeSimilarity,
   recordContentAddressedRevalidations,
@@ -1158,10 +1158,9 @@ export async function reconcileStaleKnowledge(input: {
     }
   }
 
-  let staleEvidenceIds: string[] = [];
   if (staleEvidencePlans.length) {
     const purgeEligibleAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-    staleEvidenceIds = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       const updated = await tx.evidenceItem.updateManyAndReturn({
         where: { OR: staleEvidencePlans.map((plan) => evidenceCasWhere(plan.evidence)) },
         data: { lifecycleStatus: "stale", purgeEligibleAt },
@@ -1197,48 +1196,15 @@ export async function reconcileStaleKnowledge(input: {
         modelId,
         idempotencyKey: `${run.id}:evidence:updated:${plan.evidence.id}:stale:${run.id}`,
       })), tx);
+      await invalidateStaleEvidenceDependentsInTransaction({
+        workItemId: run.workItemId,
+        evidenceItemIds: winners.map((plan) => plan.evidence.id),
+        reason: "One or more immutable repository excerpts are pinned to an older repository head and require review.",
+        idempotencyScope: `refresh:${run.id}:stale-evidence-batch`,
+        refreshRunId: run.id,
+      }, tx);
       return winners.map((plan) => plan.evidence.id);
     }, { timeoutMs: 30_000 });
-
-    if (staleEvidenceIds.length) {
-      const dependentEvidence = await prisma.evidenceItem.findMany({
-        where: {
-          id: { in: staleEvidenceIds },
-          OR: [
-            {
-              projectFactEvidence: {
-                some: { projectFact: { workItemId: run.workItemId, lifecycleStatus: { in: ["active", "needs_validation"] } } },
-              },
-            },
-            {
-              highlightEvidence: {
-                some: { highlight: { workItemId: run.workItemId, lifecycleStatus: { in: ["active", "needs_validation"] } } },
-              },
-            },
-            {
-              artifactProvenance: {
-                some: { artifact: { workItemId: run.workItemId, lifecycleStatus: "active" } },
-              },
-            },
-          ],
-        },
-        select: { id: true },
-      });
-      const planById = new Map(staleEvidencePlans.map((plan) => [plan.evidence.id, plan]));
-      await runBounded(dependentEvidence, 4, async ({ id }) => {
-        const plan = planById.get(id);
-        if (!plan) return;
-        await invalidateEvidenceDependents({
-          workItemId: run.workItemId,
-          evidenceItemId: id,
-          reason: plan.reason,
-          idempotencyScope: `refresh:${run.id}:evidence-stale:${id}`,
-          refreshRunId: run.id,
-          mutationFence: (operation) =>
-            withKnowledgeRefreshGenerationFence(input.runId, operation),
-        });
-      });
-    }
   }
 
   await runBounded(Array.from(evidenceRevalidationGroups.values()), 8, async (group) => {
