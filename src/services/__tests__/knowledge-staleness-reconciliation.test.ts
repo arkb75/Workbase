@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   artifactUpdateMany: vi.fn(),
   artifactUpdateManyAndReturn: vi.fn(),
   knowledgeChangeFind: vi.fn(),
+  recordReviewableChangesBatch: vi.fn(),
   recordChange: vi.fn(),
   recordContentAddressedRevalidations: vi.fn(),
   invalidateEvidenceDependents: vi.fn(),
@@ -56,13 +57,26 @@ vi.mock("@/src/lib/prisma", () => ({
   },
 }));
 
+vi.mock("@/src/lib/llm-config", () => ({
+  resolveBedrockConfig: () => ({ modelId: "test-model" }),
+}));
+
 vi.mock("@/src/services/knowledge-reconciliation-service", () => ({
   knowledgeSimilarity: vi.fn(() => 0),
   recordChange: mocks.recordChange,
   recordContentAddressedRevalidations: mocks.recordContentAddressedRevalidations,
   STRONG_KNOWLEDGE_IDENTITY_THRESHOLD: 0.8,
+  KNOWLEDGE_LIFECYCLE_POLICY_VERSION: "knowledge-lifecycle-v3",
   withKnowledgeRefreshGenerationFence: mocks.generationFence,
 }));
+
+vi.mock("@/src/services/knowledge-change-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/src/services/knowledge-change-service")>();
+  return {
+    ...actual,
+    upsertReviewableKnowledgeChangesInTransaction: mocks.recordReviewableChangesBatch,
+  };
+});
 
 vi.mock("@/src/services/knowledge-dependency-service", () => ({
   invalidateEvidenceDependents: mocks.invalidateEvidenceDependents,
@@ -121,6 +135,7 @@ describe("monotonic repository staleness reconciliation", () => {
     mocks.artifactUpdateManyAndReturn.mockImplementation(returnCasWinners);
     mocks.recordChange.mockResolvedValue({});
     mocks.recordContentAddressedRevalidations.mockResolvedValue({ count: 0 });
+    mocks.recordReviewableChangesBatch.mockResolvedValue([]);
     mocks.knowledgeChangeFind.mockResolvedValue([]);
     mocks.generationFence.mockImplementation(async (
       _runId: string,
@@ -441,6 +456,74 @@ describe("monotonic repository staleness reconciliation", () => {
     expect(recorded.every((entry) =>
       (entry as { action: string }).action === "revalidated"
     )).toBe(true);
+  });
+
+  it("marks changed excerpts in one guarded batch and invalidates only excerpts with live dependents", async () => {
+    const excerpts = Array.from({ length: 20 }, (_, index) => evidence({
+      id: `changed-${index}`,
+      path: `src/changed-${index}.ts`,
+      blobSha: `blob-old-${index}`,
+      lifecycleStatus: "active",
+    }));
+    mocks.refreshFind.mockResolvedValue({
+      id: "refresh-stale-bulk",
+      workItemId: "work-1",
+      qualityStatus: "verified",
+      coverage: [{
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        coverageGaps: [],
+      }],
+      targetHeads: [{ sourceId: "source-1", repository: "owner/repo", commitSha: "head-new" }],
+      snapshots: [{
+        id: "snapshot-new",
+        sourceId: "source-1",
+        commitSha: "head-new",
+        inventoryComplete: true,
+        analysisComplete: true,
+        coverageComplete: true,
+        files: excerpts.map((item) => ({
+          path: (item.metadata as { path: string }).path,
+          blobSha: `${(item.metadata as { blobSha: string }).blobSha}-changed`,
+        })),
+      }],
+    });
+    mocks.factFind.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mocks.highlightFind.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mocks.evidenceFind
+      .mockResolvedValueOnce(excerpts)
+      .mockResolvedValueOnce([{ id: "changed-7" }]);
+    mocks.artifactFind.mockResolvedValue([]);
+
+    await reconcileStaleKnowledge({
+      runId: "refresh-stale-bulk",
+      appliedFactIds: [],
+      appliedHighlightIds: [],
+    });
+
+    expect(mocks.evidenceUpdateManyAndReturn).toHaveBeenCalledTimes(1);
+    expect(mocks.evidenceUpdateManyAndReturn).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        OR: expect.arrayContaining(
+          excerpts.map((item) => expect.objectContaining({ id: item.id })),
+        ),
+      },
+      data: expect.objectContaining({ lifecycleStatus: "stale", purgeEligibleAt: expect.any(Date) }),
+    }));
+    expect(mocks.recordReviewableChangesBatch).toHaveBeenCalledTimes(1);
+    expect(mocks.recordReviewableChangesBatch).toHaveBeenCalledWith(
+      expect.arrayContaining(excerpts.map((item) => expect.objectContaining({
+        entityKind: "evidence",
+        entityId: item.id,
+        idempotencyKey: `refresh-stale-bulk:evidence:updated:${item.id}:stale:refresh-stale-bulk`,
+      }))),
+      expect.any(Object),
+    );
+    expect(mocks.invalidateEvidenceDependents).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateEvidenceDependents).toHaveBeenCalledWith(expect.objectContaining({
+      evidenceItemId: "changed-7",
+    }));
   });
 
   it("does not replace review cards when unresolved knowledge is already awaiting validation", async () => {
