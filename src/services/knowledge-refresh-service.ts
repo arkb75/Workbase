@@ -12,6 +12,7 @@ import {
   inferSubsystemsFromPath,
   isProjectDomainCapabilityKey,
   mergeRepositoryFileAnalysis,
+  MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE,
   REPOSITORY_COVERAGE_POLICY_VERSION,
   selectRequiredSemanticCoverageAreas,
   type RepositoryFileAnalysis,
@@ -752,11 +753,20 @@ async function rebaseSnapshotCapabilityMappings(snapshotId: string) {
 }
 
 export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batchSize?: number }) {
+  const startedAt = Date.now();
   const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: input.runId },
     include: { snapshots: true, workItem: { select: { userId: true } } },
   });
-  if (run.status === "completed") return { remaining: 0, analyzed: 0 };
+  if (run.status === "completed") {
+    return {
+      remaining: 0,
+      analyzed: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      durationMs: Date.now() - startedAt,
+    };
+  }
   assertKnowledgeRefreshCanExecute(input.runId, run.status);
   const targets = new Map(parseTargets(run.targetHeads).map((target) => [target.sourceId, target]));
   const snapshots = run.snapshots.filter((snapshot) => snapshot.inventoryComplete && !snapshot.analysisComplete);
@@ -770,57 +780,97 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     },
     include: { snapshot: true },
     orderBy: [{ snapshotId: "asc" }, { path: "asc" }],
-    take: Math.max(1, Math.min(input.batchSize ?? 8, 16)),
+    take: Math.max(1, Math.min(input.batchSize ?? 16, 128)),
   });
 
-  const prepared = await Promise.all(batch.map(async (file) => {
+  const cachedCandidates = batch.length
+    ? await prisma.repositoryFileSnapshot.findMany({
+        where: {
+          id: { notIn: batch.map((file) => file.id) },
+          analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
+          disposition: "analyzed",
+          analysis: { not: Prisma.DbNull },
+          OR: batch.flatMap((file) => file.blobSha
+            ? [{
+                path: file.path,
+                blobSha: file.blobSha,
+                snapshot: { sourceId: file.snapshot.sourceId },
+              }]
+            : []),
+        },
+        include: { snapshot: { select: { sourceId: true } } },
+        orderBy: { analyzedAt: "desc" },
+      })
+    : [];
+  const cacheByIdentity = selectLatestStaticAnalysisCacheCandidates(cachedCandidates);
+
+  const cached: Array<{
+    file: (typeof batch)[number];
+    analysis: RepositoryFileAnalysis;
+    contentHash: string | null;
+  }> = [];
+  const pendingFiles: Array<{
+    file: (typeof batch)[number];
+    target: RepositoryTargetHead;
+  }> = [];
+  for (const file of batch) {
     const target = targets.get(file.snapshot.sourceId);
     if (!target || !file.blobSha) throw new Error(`The target for ${file.path} is unavailable.`);
-    const cached = await prisma.repositoryFileSnapshot.findFirst({
-      where: {
-        id: { not: file.id },
-        path: file.path,
-        blobSha: file.blobSha,
-        analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
-        disposition: "analyzed",
-        analysis: { not: Prisma.DbNull },
-        snapshot: { sourceId: file.snapshot.sourceId },
-      },
-      orderBy: { analyzedAt: "desc" },
-    });
-    const cachedAnalysis = rebaseCachedAnalysis(cached?.analysis, file.path);
+    const cachedCandidate = cacheByIdentity.get(
+      `${file.snapshot.sourceId}:${file.path}:${file.blobSha}`,
+    );
+    const cachedAnalysis = rebaseCachedAnalysis(cachedCandidate?.analysis, file.path);
     if (cachedAnalysis) {
-      await prisma.repositoryFileSnapshot.update({
-        where: { id: file.id },
+      cached.push({
+        file,
+        analysis: cachedAnalysis,
+        contentHash: cachedCandidate?.contentHash ?? null,
+      });
+    } else {
+      pendingFiles.push({ file, target });
+    }
+  }
+
+  const analyzedAt = new Date();
+  for (let offset = 0; offset < cached.length; offset += 50) {
+    await prisma.$transaction(cached.slice(offset, offset + 50).map((entry) =>
+      prisma.repositoryFileSnapshot.update({
+        where: { id: entry.file.id },
         data: {
           disposition: "analyzed",
-          contentHash: cached?.contentHash,
+          contentHash: entry.contentHash,
           analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
-          analysis: toInputJson(cachedAnalysis),
-          analyzedAt: new Date(),
+          analysis: toInputJson(entry.analysis),
+          analyzedAt,
         },
-      });
-      return { kind: "cached" as const };
-    }
+      })
+    ));
+  }
 
-    const read = await repositoryKnowledgeSyncService.readFile({
-      userId: run.workItem.userId,
-      workItemId: run.workItemId,
+  for (
+    let offset = 0;
+    offset < pendingFiles.length;
+    offset += MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE
+  ) {
+    const wave = pendingFiles.slice(offset, offset + MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE);
+    const pending = await Promise.all(wave.map(async ({ file, target }) => ({
+      file,
       target,
-      entry: {
-        path: file.path,
-        blobSha: file.blobSha,
-        sizeBytes: file.sizeBytes,
-        mode: "100644",
-        objectType: "blob",
-        disposition: "eligible",
-        exclusionReason: null,
-      },
-    });
-    return { kind: "pending" as const, file, target, read };
-  }));
-  const pending = prepared.filter((entry): entry is Extract<(typeof prepared)[number], { kind: "pending" }> => entry.kind === "pending");
-  if (pending.length) {
+      read: await repositoryKnowledgeSyncService.readFile({
+        userId: run.workItem.userId,
+        workItemId: run.workItemId,
+        target,
+        entry: {
+          path: file.path,
+          blobSha: file.blobSha!,
+          sizeBytes: file.sizeBytes,
+          mode: "100644",
+          objectType: "blob",
+          disposition: "eligible",
+          exclusionReason: null,
+        },
+      }),
+    })));
     const analyses = await analyzeRepositoryFilesHierarchically(pending.map((entry) => ({
       repository: entry.target.repository,
       commitSha: entry.target.commitSha,
@@ -828,8 +878,8 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
       content: entry.read.content,
     })));
     const paired = pairRepositoryAnalysesByInputOrder({ pending, analyses });
-    await Promise.all(paired.map(async ({ entry, analysis }) => {
-      await prisma.repositoryFileSnapshot.update({
+    await prisma.$transaction(paired.map(({ entry, analysis }) =>
+      prisma.repositoryFileSnapshot.update({
         where: { id: entry.file.id },
         data: {
           disposition: "analyzed",
@@ -838,10 +888,10 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
           analysis: toInputJson({ ...analysis, redacted: entry.read.redacted, redactionCategories: entry.read.redactionCategories }),
           analyzedAt: new Date(),
         },
-      });
-    }));
+      })
+    ));
   }
-  const analyzed = prepared.length;
+  const analyzed = batch.length;
 
   const remaining = await prisma.repositoryFileSnapshot.count({
     where: {
@@ -859,7 +909,26 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     where: { id: input.runId },
     data: { progress: toInputJson({ repositories: run.snapshots.length, analyzedFiles, remainingFiles: remaining }) },
   });
-  return { remaining, analyzed };
+  return {
+    remaining,
+    analyzed,
+    cacheHits: cached.length,
+    cacheMisses: pendingFiles.length,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+export function selectLatestStaticAnalysisCacheCandidates<T extends {
+  path: string;
+  blobSha: string | null;
+  snapshot: { sourceId: string };
+}>(candidates: readonly T[]) {
+  const cacheByIdentity = new Map<string, T>();
+  for (const candidate of candidates) {
+    const key = `${candidate.snapshot.sourceId}:${candidate.path}:${candidate.blobSha ?? ""}`;
+    if (!cacheByIdentity.has(key)) cacheByIdentity.set(key, candidate);
+  }
+  return cacheByIdentity;
 }
 
 export function pairRepositoryAnalysesByInputOrder<T extends {
@@ -886,18 +955,30 @@ export async function analyzeKnowledgeRefreshChunk(input: {
   batchSize?: number;
   maxBatches?: number;
 }) {
-  const batchSize = Math.max(1, Math.min(input.batchSize ?? 16, 16));
+  const batchSize = Math.max(1, Math.min(input.batchSize ?? 128, 128));
   const maxBatches = Math.max(1, Math.min(input.maxBatches ?? 8, 16));
   let remaining = 1;
   let analyzed = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
   let batches = 0;
+  const startedAt = Date.now();
   while (remaining > 0 && batches < maxBatches) {
     const result = await analyzeKnowledgeRefreshBatch({ runId: input.runId, batchSize });
     remaining = result.remaining;
     analyzed += result.analyzed;
+    cacheHits += result.cacheHits;
+    cacheMisses += result.cacheMisses;
     batches += 1;
   }
-  return { remaining, analyzed, batches };
+  return {
+    remaining,
+    analyzed,
+    batches,
+    cacheHits,
+    cacheMisses,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 async function repairKnowledgeCoverageGapsLegacy(runId: string) {

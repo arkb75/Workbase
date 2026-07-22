@@ -1291,13 +1291,17 @@ export async function analyzeRepositoryFileBatch(
   }));
 }
 
+export const MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE = 8;
+
 export async function analyzeRepositoryFiles(input: Array<{
   repository: string;
   commitSha: string;
   path: string;
   content: string;
 }>): Promise<RepositoryFileAnalysis[]> {
-  if (!input.length || input.length > 8) throw new Error("Repository analysis batches must contain between one and eight files.");
+  if (!input.length || input.length > MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE) {
+    throw new Error(`Repository analysis batches must contain between one and ${MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE} files.`);
+  }
   return input.map((file) => {
     const lines = file.content.split("\n");
     const dependencies: string[] = [];
