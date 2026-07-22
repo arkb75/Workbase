@@ -450,7 +450,7 @@ async function inventoryRequiredKnowledge(refreshRunId: string) {
 
 async function analyzeRequiredKnowledgeChunk(refreshRunId: string) {
   "use step";
-  return knowledgeRefreshService.analyzeChunk({ runId: refreshRunId, batchSize: 16, maxBatches: 8 });
+  return knowledgeRefreshService.analyzeChunk({ runId: refreshRunId, batchSize: 128, maxBatches: 1 });
 }
 
 async function finalizeRequiredCoverage(refreshRunId: string) {
