@@ -12,6 +12,7 @@ import {
   inferSubsystemsFromPath,
   isProjectDomainCapabilityKey,
   mergeRepositoryFileAnalysis,
+  MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE,
   REPOSITORY_COVERAGE_POLICY_VERSION,
   selectRequiredSemanticCoverageAreas,
   type RepositoryFileAnalysis,
@@ -846,8 +847,12 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     ));
   }
 
-  for (let offset = 0; offset < pendingFiles.length; offset += 16) {
-    const wave = pendingFiles.slice(offset, offset + 16);
+  for (
+    let offset = 0;
+    offset < pendingFiles.length;
+    offset += MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE
+  ) {
+    const wave = pendingFiles.slice(offset, offset + MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE);
     const pending = await Promise.all(wave.map(async ({ file, target }) => ({
       file,
       target,
