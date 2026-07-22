@@ -1,8 +1,235 @@
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
-import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
+import {
+  upsertReviewableKnowledgeChange,
+  upsertReviewableKnowledgeChangesInTransaction,
+  type ReviewableKnowledgeChangeInput,
+} from "@/src/services/knowledge-change-service";
 
 const POLICY_VERSION = "knowledge-lifecycle-v2";
+
+/**
+ * Invalidates every live dependent of a stale-evidence batch inside the same
+ * generation-fenced transaction that marks the Evidence stale. This is both
+ * retry-safe and bounded: a committed transaction contains the complete
+ * lifecycle transition, while a failed transaction leaves nothing for a
+ * workflow retry to reconstruct.
+ */
+export async function invalidateStaleEvidenceDependentsInTransaction(input: {
+  workItemId: string;
+  evidenceItemIds: string[];
+  reason: string;
+  idempotencyScope: string;
+  refreshRunId: string;
+}, client: Prisma.TransactionClient) {
+  if (!input.evidenceItemIds.length) {
+    return { evidenceItemIds: [], projectFactIds: [], highlightIds: [], artifactIds: [] };
+  }
+  const staleEvidence = await client.evidenceItem.findMany({
+    where: {
+      id: { in: input.evidenceItemIds },
+      workItemId: input.workItemId,
+      lifecycleStatus: "stale",
+    },
+    select: { id: true },
+  });
+  const staleEvidenceIds = staleEvidence.map((evidence) => evidence.id);
+  if (!staleEvidenceIds.length) {
+    return { evidenceItemIds: [], projectFactIds: [], highlightIds: [], artifactIds: [] };
+  }
+  const [facts, highlights] = await Promise.all([
+    client.projectFact.findMany({
+      where: {
+        workItemId: input.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+        evidence: { some: { evidenceItemId: { in: staleEvidenceIds } } },
+      },
+      select: {
+        id: true,
+        statement: true,
+        lifecycleStatus: true,
+        validatedThroughSha: true,
+        validationHeads: true,
+        evidence: {
+          where: { evidenceItemId: { in: staleEvidenceIds } },
+          select: { evidenceItemId: true },
+        },
+      },
+    }),
+    client.highlight.findMany({
+      where: {
+        workItemId: input.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+        evidence: { some: { evidenceItemId: { in: staleEvidenceIds } } },
+      },
+      select: {
+        id: true,
+        text: true,
+        lifecycleStatus: true,
+        validatedThroughSha: true,
+        validationHeads: true,
+        evidence: {
+          where: { evidenceItemId: { in: staleEvidenceIds } },
+          select: { evidenceItemId: true },
+        },
+      },
+    }),
+  ]);
+  const factIds = facts.map((fact) => fact.id);
+  const highlightIds = highlights.map((highlight) => highlight.id);
+  if (factIds.length) {
+    await client.projectFact.updateMany({
+      where: {
+        id: { in: factIds },
+        workItemId: input.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+      },
+      data: {
+        lifecycleStatus: "needs_validation",
+        validatedThroughSha: null,
+        validationHeads: Prisma.JsonNull,
+        lastValidatedAt: null,
+      },
+    });
+  }
+  if (highlightIds.length) {
+    await client.highlight.updateMany({
+      where: {
+        id: { in: highlightIds },
+        workItemId: input.workItemId,
+        lifecycleStatus: { in: ["active", "needs_validation"] },
+      },
+      data: {
+        lifecycleStatus: "needs_validation",
+        validatedThroughSha: null,
+        validationHeads: Prisma.JsonNull,
+        lastValidatedAt: null,
+      },
+    });
+  }
+  const artifacts = await client.artifact.findMany({
+    where: {
+      workItemId: input.workItemId,
+      lifecycleStatus: "active",
+      OR: [
+        { evidenceProvenance: { some: { evidenceItemId: { in: staleEvidenceIds } } } },
+        ...(highlightIds.length
+          ? [{ highlightProvenance: { some: { highlightId: { in: highlightIds } } } }]
+          : []),
+      ],
+    },
+    select: {
+      id: true,
+      content: true,
+      lifecycleStatus: true,
+      staleReason: true,
+      evidenceProvenance: {
+        where: { evidenceItemId: { in: staleEvidenceIds } },
+        select: { evidenceItemId: true },
+      },
+      highlightProvenance: {
+        where: { highlightId: { in: highlightIds.length ? highlightIds : [""] } },
+        select: { highlightId: true },
+      },
+    },
+  });
+  const artifactIds = artifacts.map((artifact) => artifact.id);
+  if (artifactIds.length) {
+    await client.artifact.updateMany({
+      where: {
+        id: { in: artifactIds },
+        workItemId: input.workItemId,
+        lifecycleStatus: "active",
+      },
+      data: { lifecycleStatus: "stale", staleReason: input.reason },
+    });
+  }
+
+  const changes: ReviewableKnowledgeChangeInput[] = [
+    ...facts.map((fact) => ({
+      workItemId: input.workItemId,
+      refreshRunId: input.refreshRunId,
+      entityKind: "project_fact" as const,
+      action: "updated" as const,
+      entityId: fact.id,
+      beforeSnapshot: {
+        id: fact.id,
+        statement: fact.statement,
+        lifecycleStatus: fact.lifecycleStatus,
+        validatedThroughSha: fact.validatedThroughSha,
+        validationHeads: fact.validationHeads,
+      },
+      afterSnapshot: {
+        id: fact.id,
+        statement: fact.statement,
+        lifecycleStatus: "needs_validation",
+        validatedThroughSha: null,
+        validationHeads: null,
+      },
+      reason: input.reason,
+      provenance: {
+        invalidatedEvidenceItemIds: fact.evidence.map((entry) => entry.evidenceItemId),
+      },
+      policyVersion: POLICY_VERSION,
+      idempotencyKey: `${input.idempotencyScope}:dependency-invalidation:project_fact:${fact.id}`,
+    })),
+    ...highlights.map((highlight) => ({
+      workItemId: input.workItemId,
+      refreshRunId: input.refreshRunId,
+      entityKind: "highlight" as const,
+      action: "updated" as const,
+      entityId: highlight.id,
+      beforeSnapshot: {
+        id: highlight.id,
+        text: highlight.text,
+        lifecycleStatus: highlight.lifecycleStatus,
+        validatedThroughSha: highlight.validatedThroughSha,
+        validationHeads: highlight.validationHeads,
+      },
+      afterSnapshot: {
+        id: highlight.id,
+        text: highlight.text,
+        lifecycleStatus: "needs_validation",
+        validatedThroughSha: null,
+        validationHeads: null,
+      },
+      reason: input.reason,
+      provenance: {
+        invalidatedEvidenceItemIds: highlight.evidence.map((entry) => entry.evidenceItemId),
+      },
+      policyVersion: POLICY_VERSION,
+      idempotencyKey: `${input.idempotencyScope}:dependency-invalidation:highlight:${highlight.id}`,
+    })),
+    ...artifacts.map((artifact) => ({
+      workItemId: input.workItemId,
+      refreshRunId: input.refreshRunId,
+      entityKind: "artifact" as const,
+      action: "updated" as const,
+      entityId: artifact.id,
+      beforeSnapshot: {
+        id: artifact.id,
+        content: artifact.content,
+        lifecycleStatus: artifact.lifecycleStatus,
+        staleReason: artifact.staleReason,
+      },
+      afterSnapshot: {
+        id: artifact.id,
+        content: artifact.content,
+        lifecycleStatus: "stale",
+        staleReason: input.reason,
+      },
+      reason: input.reason,
+      provenance: {
+        invalidatedEvidenceItemIds: artifact.evidenceProvenance.map((entry) => entry.evidenceItemId),
+        invalidatedHighlightIds: artifact.highlightProvenance.map((entry) => entry.highlightId),
+      },
+      policyVersion: POLICY_VERSION,
+      idempotencyKey: `${input.idempotencyScope}:dependency-invalidation:artifact:${artifact.id}`,
+    })),
+  ];
+  await upsertReviewableKnowledgeChangesInTransaction(changes, client);
+  return { evidenceItemIds: staleEvidenceIds, projectFactIds: factIds, highlightIds, artifactIds };
+}
 
 async function recordInvalidation(input: {
   workItemId: string;

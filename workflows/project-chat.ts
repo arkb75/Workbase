@@ -547,11 +547,16 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   const reconciled = await knowledgeReconciliationService.reconcile(refreshRunId);
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
-  const staleness = await knowledgeStalenessService.reconcile({
+  const stalenessStartedAt = Date.now();
+  const stalenessResult = await knowledgeStalenessService.reconcile({
     runId: refreshRunId,
     appliedFactIds: reconciled.appliedFactIds,
     appliedHighlightIds: reconciled.appliedHighlightIds,
   });
+  const staleness = {
+    ...stalenessResult,
+    durationMs: Date.now() - stalenessStartedAt,
+  };
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
   await knowledgeRefreshService.complete(refreshRunId);
   return {

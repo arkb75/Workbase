@@ -21,6 +21,7 @@ import {
   recordAutoResolvedKnowledgeChanges,
   reviewSnapshotMatchesEntity,
   upsertReviewableKnowledgeChange,
+  upsertReviewableKnowledgeChangesInTransaction,
 } from "@/src/services/knowledge-change-service";
 
 describe("reviewable knowledge changes", () => {
@@ -119,6 +120,66 @@ describe("reviewable knowledge changes", () => {
     );
     expect(prismaMock.knowledgeChange.upsert).toHaveBeenCalledTimes(1);
     expect(prismaMock.knowledgeChange.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates and coalesces a review batch in constant database operations", async () => {
+    let createdRows: Array<{ id: string; idempotencyKey: string }> = [];
+    prismaMock.knowledgeChange.createMany.mockImplementation(async ({ data }) => {
+      createdRows = data.map((entry: { id: string; idempotencyKey: string }) => ({
+        id: entry.id,
+        idempotencyKey: entry.idempotencyKey,
+      }));
+      return { count: createdRows.length };
+    });
+    prismaMock.knowledgeChange.findMany.mockImplementation(async ({ where }) =>
+      where?.idempotencyKey ? createdRows : []
+    );
+
+    const result = await upsertReviewableKnowledgeChangesInTransaction(
+      Array.from({ length: 20 }, (_, index) => ({
+        workItemId: "work-1",
+        refreshRunId: "refresh-1",
+        entityKind: "evidence" as const,
+        action: "updated" as const,
+        entityId: `evidence-${index}`,
+        afterSnapshot: { id: `evidence-${index}`, lifecycleStatus: "stale" },
+        reason: "The immutable excerpt is pinned to an older head.",
+        policyVersion: "knowledge-lifecycle-v3",
+        idempotencyKey: `stale-${index}`,
+      })),
+      prismaMock as never,
+    );
+
+    expect(result).toHaveLength(20);
+    expect(prismaMock.knowledgeChange.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.knowledgeChange.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.knowledgeChange.updateMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.knowledgeChange.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        evidenceItemId: { in: Array.from({ length: 20 }, (_, index) => `evidence-${index}`) },
+      }),
+    }));
+  });
+
+  it("does not retire current cards when a review batch is replayed", async () => {
+    prismaMock.knowledgeChange.findMany.mockResolvedValue([{
+      id: "existing-change",
+      idempotencyKey: "stale-1",
+    }]);
+
+    await upsertReviewableKnowledgeChangesInTransaction([{
+      workItemId: "work-1",
+      refreshRunId: "refresh-1",
+      entityKind: "evidence",
+      action: "updated",
+      entityId: "evidence-1",
+      reason: "The immutable excerpt is pinned to an older head.",
+      policyVersion: "knowledge-lifecycle-v3",
+      idempotencyKey: "stale-1",
+    }], prismaMock as never);
+
+    expect(prismaMock.knowledgeChange.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.knowledgeChange.updateMany).not.toHaveBeenCalled();
   });
 
   it("rejects a review snapshot after the canonical entity has moved to another head", () => {

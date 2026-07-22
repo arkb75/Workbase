@@ -1,8 +1,25 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 
 type EntityKind = "evidence" | "highlight" | "project_fact" | "artifact";
 type ChangeAction = "created" | "updated" | "revalidated" | "retired" | "quarantined";
+
+export type ReviewableKnowledgeChangeInput = {
+  workItemId: string;
+  refreshRunId?: string | null;
+  entityKind: EntityKind;
+  action: ChangeAction;
+  entityId: string;
+  beforeSnapshot?: unknown;
+  afterSnapshot?: unknown;
+  reason: string;
+  provenance?: unknown;
+  downstreamImpact?: unknown;
+  policyVersion: string;
+  modelId?: string | null;
+  idempotencyKey: string;
+};
 
 export type AutoResolvedKnowledgeChangeInput = {
   workItemId: string;
@@ -87,6 +104,129 @@ export async function upsertReviewableKnowledgeChange(input: {
   return runSerializableTransaction((client) =>
     upsertReviewableKnowledgeChangeOnce(input, client)
   );
+}
+
+/**
+ * Persists a homogeneous review batch with a constant number of database
+ * round trips. Explicit IDs let retries distinguish rows inserted by this
+ * transaction from rows that already existed under the same idempotency key,
+ * so replaying an old workflow cannot retire a newer review card.
+ */
+export async function upsertReviewableKnowledgeChangesInTransaction(
+  inputs: readonly ReviewableKnowledgeChangeInput[],
+  client: Prisma.TransactionClient,
+) {
+  if (!inputs.length) return [];
+  const workItemIds = new Set(inputs.map((input) => input.workItemId));
+  if (workItemIds.size !== 1) {
+    throw new Error("A reviewable knowledge-change batch must belong to one Work Item.");
+  }
+  const workItemId = inputs[0]!.workItemId;
+  const requested = inputs.map((input) => ({ input, id: randomUUID() }));
+  await client.knowledgeChange.createMany({
+    data: requested.map(({ input, id }) => ({
+      id,
+      workItemId,
+      refreshRunId: input.refreshRunId ?? null,
+      entityKind: input.entityKind,
+      action: input.action,
+      ...relationFor(input.entityKind, input.entityId),
+      ...(input.beforeSnapshot === undefined
+        ? {}
+        : { beforeSnapshot: toInputJson(input.beforeSnapshot) }),
+      ...(input.afterSnapshot === undefined
+        ? {}
+        : { afterSnapshot: toInputJson(input.afterSnapshot) }),
+      reason: input.reason,
+      ...(input.provenance === undefined
+        ? {}
+        : { provenance: toInputJson(input.provenance) }),
+      ...(input.downstreamImpact === undefined
+        ? {}
+        : { downstreamImpact: toInputJson(input.downstreamImpact) }),
+      policyVersion: input.policyVersion,
+      modelId: input.modelId ?? null,
+      idempotencyKey: input.idempotencyKey,
+    })),
+    skipDuplicates: true,
+  });
+  const persisted = await client.knowledgeChange.findMany({
+    where: {
+      workItemId,
+      idempotencyKey: { in: inputs.map((input) => input.idempotencyKey) },
+    },
+    select: { id: true, idempotencyKey: true },
+  });
+  const requestedIds = new Set<string>(requested.map((entry) => entry.id));
+  const newlyInserted = persisted.filter((change) => requestedIds.has(change.id));
+  if (newlyInserted.length) {
+    const newIds = new Set<string>(newlyInserted.map((change) => change.id));
+    const insertedInputs = requested
+      .filter((entry) => newIds.has(entry.id))
+      .map((entry) => entry.input);
+    const reviewedAt = new Date();
+    for (const entityKind of ["evidence", "highlight", "project_fact", "artifact"] as const) {
+      const entityIds = Array.from(new Set(
+        insertedInputs
+          .filter((input) => input.entityKind === entityKind)
+          .map((input) => input.entityId),
+      ));
+      if (!entityIds.length) continue;
+      await client.knowledgeChange.updateMany({
+        where: {
+          workItemId,
+          decision: "pending",
+          id: { notIn: Array.from(newIds) },
+          ...(entityKind === "evidence"
+            ? { evidenceItemId: { in: entityIds } }
+            : entityKind === "highlight"
+              ? { highlightId: { in: entityIds } }
+              : entityKind === "project_fact"
+                ? { projectFactId: { in: entityIds } }
+                : { artifactId: { in: entityIds } }),
+        },
+        data: {
+          decision: "retired",
+          reviewedAt,
+          feedback: "This review card was superseded by a newer lifecycle transition for the same item.",
+        },
+      });
+      const predecessorIds = Array.from(new Set(insertedInputs.flatMap((input) => {
+        if (input.entityKind !== entityKind) return [];
+        const before = input.beforeSnapshot &&
+          typeof input.beforeSnapshot === "object" &&
+          !Array.isArray(input.beforeSnapshot)
+          ? input.beforeSnapshot as Record<string, unknown>
+          : null;
+        const predecessorId = typeof before?.id === "string" ? before.id : null;
+        return predecessorId && predecessorId !== input.entityId ? [predecessorId] : [];
+      })));
+      if (!predecessorIds.length) continue;
+      await client.knowledgeChange.updateMany({
+        where: {
+          workItemId,
+          decision: "pending",
+          ...(entityKind === "evidence"
+            ? { evidenceItemId: { in: predecessorIds } }
+            : entityKind === "highlight"
+              ? { highlightId: { in: predecessorIds } }
+              : entityKind === "project_fact"
+                ? { projectFactId: { in: predecessorIds } }
+                : { artifactId: { in: predecessorIds } }),
+        },
+        data: {
+          decision: "retired",
+          reviewedAt,
+          feedback: "This review card was superseded by a newer immutable successor.",
+        },
+      });
+    }
+  }
+  const byKey = new Map(persisted.map((change) => [change.idempotencyKey, change]));
+  return inputs.flatMap((input) => {
+    const change = byKey.get(input.idempotencyKey);
+    return change ? [change] : [];
+  });
 }
 
 async function upsertReviewableKnowledgeChangeOnce(

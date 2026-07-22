@@ -1,12 +1,17 @@
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
-import { reviewSnapshotMatchesEntity } from "@/src/services/knowledge-change-service";
-import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
+import {
+  reviewSnapshotMatchesEntity,
+  upsertReviewableKnowledgeChangesInTransaction,
+} from "@/src/services/knowledge-change-service";
+import { resolveBedrockConfig } from "@/src/lib/llm-config";
+import { invalidateStaleEvidenceDependentsInTransaction } from "@/src/services/knowledge-dependency-service";
 import {
   knowledgeSimilarity,
   recordContentAddressedRevalidations,
   recordChange,
   STRONG_KNOWLEDGE_IDENTITY_THRESHOLD,
+  KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
   withKnowledgeRefreshGenerationFence,
 } from "@/src/services/knowledge-reconciliation-service";
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
@@ -1067,6 +1072,15 @@ export async function reconcileStaleKnowledge(input: {
     commitSha: string;
     snapshotId: string;
   }>();
+  const staleEvidencePlans: Array<{
+    evidence: EvidenceCasSnapshot & {
+      sourceId: string;
+      title: string;
+    };
+    commitSha: string;
+    currentCommitSha: string | null;
+    reason: string;
+  }> = [];
   for (const evidence of repositoryEvidence) {
     const contentAddressed = contentAddressedProvenance({
       evidence: [{ evidenceItem: evidence }],
@@ -1135,37 +1149,62 @@ export async function reconcileStaleKnowledge(input: {
       : null;
     const commitSha = typeof metadata?.commitSha === "string" ? metadata.commitSha : null;
     if (commitSha && targetShaBySource.get(evidence.sourceId) !== commitSha) {
-      const reason = "This immutable repository excerpt is pinned to an older repository head and requires review.";
-      const purgeEligibleAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-      const marked = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
-        tx.evidenceItem.updateMany({
-          where: evidenceCasWhere(evidence),
-          data: { lifecycleStatus: "stale", purgeEligibleAt },
-        })
-      );
-      if (marked.count !== 1) continue;
-      await recordChange({
-        workItemId: run.workItemId,
-        refreshRunId: run.id,
-        entityKind: "evidence",
-        action: "updated",
-        entityId: evidence.id,
-        beforeSnapshot: { id: evidence.id, title: evidence.title, lifecycleStatus: evidence.lifecycleStatus, validatedThroughSha: evidence.validatedThroughSha },
-        afterSnapshot: { id: evidence.id, title: evidence.title, lifecycleStatus: "stale", validatedThroughSha: evidence.validatedThroughSha },
-        reason,
-        provenance: { priorCommitSha: commitSha, currentCommitSha: targetShaBySource.get(evidence.sourceId) ?? null },
-        suffix: `${evidence.id}:stale:${run.id}`,
-      });
-      await invalidateEvidenceDependents({
-        workItemId: run.workItemId,
-        evidenceItemId: evidence.id,
-        reason,
-        idempotencyScope: `refresh:${run.id}:evidence-stale:${evidence.id}`,
-        refreshRunId: run.id,
-        mutationFence: (operation) =>
-          withKnowledgeRefreshGenerationFence(input.runId, operation),
+      staleEvidencePlans.push({
+        evidence,
+        commitSha,
+        currentCommitSha: targetShaBySource.get(evidence.sourceId) ?? null,
+        reason: "This immutable repository excerpt is pinned to an older repository head and requires review.",
       });
     }
+  }
+
+  if (staleEvidencePlans.length) {
+    const purgeEligibleAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+      const updated = await tx.evidenceItem.updateManyAndReturn({
+        where: { OR: staleEvidencePlans.map((plan) => evidenceCasWhere(plan.evidence)) },
+        data: { lifecycleStatus: "stale", purgeEligibleAt },
+        select: { id: true },
+      });
+      const winnerIds = new Set(updated.map((evidence) => evidence.id));
+      const winners = staleEvidencePlans.filter((plan) => winnerIds.has(plan.evidence.id));
+      const modelId = resolveBedrockConfig().modelId;
+      await upsertReviewableKnowledgeChangesInTransaction(winners.map((plan) => ({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "evidence" as const,
+        action: "updated" as const,
+        entityId: plan.evidence.id,
+        beforeSnapshot: {
+          id: plan.evidence.id,
+          title: plan.evidence.title,
+          lifecycleStatus: plan.evidence.lifecycleStatus,
+          validatedThroughSha: plan.evidence.validatedThroughSha,
+        },
+        afterSnapshot: {
+          id: plan.evidence.id,
+          title: plan.evidence.title,
+          lifecycleStatus: "stale",
+          validatedThroughSha: plan.evidence.validatedThroughSha,
+        },
+        reason: plan.reason,
+        provenance: {
+          priorCommitSha: plan.commitSha,
+          currentCommitSha: plan.currentCommitSha,
+        },
+        policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
+        modelId,
+        idempotencyKey: `${run.id}:evidence:updated:${plan.evidence.id}:stale:${run.id}`,
+      })), tx);
+      await invalidateStaleEvidenceDependentsInTransaction({
+        workItemId: run.workItemId,
+        evidenceItemIds: winners.map((plan) => plan.evidence.id),
+        reason: "One or more immutable repository excerpts are pinned to an older repository head and require review.",
+        idempotencyScope: `refresh:${run.id}:stale-evidence-batch`,
+        refreshRunId: run.id,
+      }, tx);
+      return winners.map((plan) => plan.evidence.id);
+    }, { timeoutMs: 30_000 });
   }
 
   await runBounded(Array.from(evidenceRevalidationGroups.values()), 8, async (group) => {
