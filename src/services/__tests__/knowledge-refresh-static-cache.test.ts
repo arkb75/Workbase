@@ -140,12 +140,69 @@ describe("repository static-analysis cache selection", () => {
     ]);
     expect(mocks.readFile).toHaveBeenCalledTimes(9);
     expect(mocks.fileUpdate).toHaveBeenCalledTimes(9);
+    expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.fileUpdate.mock.calls.map(([call]) => call.where.id)).toEqual(files.map((file) => file.id));
     expect(result).toEqual(expect.objectContaining({
       remaining: 0,
       analyzed: 9,
       cacheHits: 0,
       cacheMisses: 9,
+    }));
+  });
+
+  it("promotes forty cache hits with bounded independent writes and no repository reads", async () => {
+    const files = Array.from({ length: 40 }, (_, index) => ({
+      id: `current-${index}`,
+      snapshotId: "snapshot-current",
+      path: `src/cached-${index}.ts`,
+      blobSha: `blob-${index}`,
+      sizeBytes: 100,
+      disposition: "eligible",
+      analysis: null,
+      analyzerVersion: null,
+      snapshot: { id: "snapshot-current", sourceId: "source-1" },
+    }));
+    const candidates = files.map((file, index) => ({
+      id: `cached-${index}`,
+      path: file.path,
+      blobSha: file.blobSha,
+      contentHash: `hash:${file.path}`,
+      analysis: { path: file.path, facts: [], subsystemKeys: [] },
+      snapshot: { sourceId: "source-1" },
+    }));
+    mocks.refreshFind.mockResolvedValue({
+      id: "refresh-cache",
+      workItemId: "work-1",
+      status: "analyzing",
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "owner/repo",
+        branch: "main",
+        commitSha: "head-1",
+        treeSha: "tree-1",
+        committedAt: null,
+        resolvedAt: "2026-07-21T00:00:00.000Z",
+      }],
+      snapshots: [{
+        id: "snapshot-current",
+        sourceId: "source-1",
+        inventoryComplete: true,
+        analysisComplete: false,
+      }],
+      workItem: { userId: "user-1" },
+    });
+    mocks.fileFind.mockResolvedValueOnce(files).mockResolvedValueOnce(candidates);
+
+    const result = await analyzeKnowledgeRefreshBatch({ runId: "refresh-cache", batchSize: 128 });
+
+    expect(mocks.readFile).not.toHaveBeenCalled();
+    expect(mocks.analyzeFiles).not.toHaveBeenCalled();
+    expect(mocks.fileUpdate).toHaveBeenCalledTimes(40);
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      analyzed: 40,
+      cacheHits: 40,
+      cacheMisses: 0,
     }));
   });
 });

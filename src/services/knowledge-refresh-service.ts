@@ -832,8 +832,11 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
   }
 
   const analyzedAt = new Date();
-  for (let offset = 0; offset < cached.length; offset += 50) {
-    await prisma.$transaction(cached.slice(offset, offset + 50).map((entry) =>
+  // Cache promotion is independently idempotent per snapshot row. Keep the
+  // writes bounded and parallel instead of placing dozens of distinct JSON
+  // updates in one transaction, which PostgreSQL must execute serially.
+  for (let offset = 0; offset < cached.length; offset += 32) {
+    await Promise.all(cached.slice(offset, offset + 32).map((entry) =>
       prisma.repositoryFileSnapshot.update({
         where: { id: entry.file.id },
         data: {
@@ -878,7 +881,7 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
       content: entry.read.content,
     })));
     const paired = pairRepositoryAnalysesByInputOrder({ pending, analyses });
-    await prisma.$transaction(paired.map(({ entry, analysis }) =>
+    await Promise.all(paired.map(({ entry, analysis }) =>
       prisma.repositoryFileSnapshot.update({
         where: { id: entry.file.id },
         data: {
