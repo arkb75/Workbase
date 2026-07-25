@@ -394,7 +394,7 @@ export type ProjectFactWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidence?: Prisma.ProjectFactEvidenceListRelationFilter
-  embedding?: Prisma.XOR<Prisma.ProjectFactEmbeddingNullableScalarRelationFilter, Prisma.ProjectFactEmbeddingWhereInput> | null
+  embeddings?: Prisma.ProjectFactEmbeddingListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
   supersedesProjectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
@@ -431,7 +431,7 @@ export type ProjectFactOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   workItem?: Prisma.WorkItemOrderByWithRelationInput
   evidence?: Prisma.ProjectFactEvidenceOrderByRelationAggregateInput
-  embedding?: Prisma.ProjectFactEmbeddingOrderByWithRelationInput
+  embeddings?: Prisma.ProjectFactEmbeddingOrderByRelationAggregateInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   agentRunCandidates?: Prisma.AgentRunCandidateOrderByRelationAggregateInput
   supersedesProjectFact?: Prisma.ProjectFactOrderByWithRelationInput
@@ -471,7 +471,7 @@ export type ProjectFactWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"ProjectFact"> | Date | string
   workItem?: Prisma.XOR<Prisma.WorkItemScalarRelationFilter, Prisma.WorkItemWhereInput>
   evidence?: Prisma.ProjectFactEvidenceListRelationFilter
-  embedding?: Prisma.XOR<Prisma.ProjectFactEmbeddingNullableScalarRelationFilter, Prisma.ProjectFactEmbeddingWhereInput> | null
+  embeddings?: Prisma.ProjectFactEmbeddingListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   agentRunCandidates?: Prisma.AgentRunCandidateListRelationFilter
   supersedesProjectFact?: Prisma.XOR<Prisma.ProjectFactNullableScalarRelationFilter, Prisma.ProjectFactWhereInput> | null
@@ -572,7 +572,7 @@ export type ProjectFactCreateInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
@@ -608,7 +608,7 @@ export type ProjectFactUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
@@ -642,7 +642,7 @@ export type ProjectFactUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
@@ -678,7 +678,7 @@ export type ProjectFactUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -1027,12 +1027,12 @@ export type ProjectFactUpdateOneRequiredWithoutEvidenceNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactUpdateToOneWithWhereWithoutEvidenceInput, Prisma.ProjectFactUpdateWithoutEvidenceInput>, Prisma.ProjectFactUncheckedUpdateWithoutEvidenceInput>
 }
 
-export type ProjectFactUpdateOneRequiredWithoutEmbeddingNestedInput = {
-  create?: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingInput>
-  connectOrCreate?: Prisma.ProjectFactCreateOrConnectWithoutEmbeddingInput
-  upsert?: Prisma.ProjectFactUpsertWithoutEmbeddingInput
+export type ProjectFactUpdateOneRequiredWithoutEmbeddingsNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingsInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingsInput>
+  connectOrCreate?: Prisma.ProjectFactCreateOrConnectWithoutEmbeddingsInput
+  upsert?: Prisma.ProjectFactUpsertWithoutEmbeddingsInput
   connect?: Prisma.ProjectFactWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.ProjectFactUpdateWithoutEmbeddingInput>, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactUpdateToOneWithWhereWithoutEmbeddingsInput, Prisma.ProjectFactUpdateWithoutEmbeddingsInput>, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingsInput>
 }
 
 export type ProjectFactCreateNestedOneWithoutChatCitationsInput = {
@@ -1093,7 +1093,7 @@ export type ProjectFactCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
@@ -1128,7 +1128,7 @@ export type ProjectFactUncheckedCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1220,7 +1220,7 @@ export type ProjectFactCreateWithoutKnowledgeChangesInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
@@ -1255,7 +1255,7 @@ export type ProjectFactUncheckedCreateWithoutKnowledgeChangesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1304,7 +1304,7 @@ export type ProjectFactUpdateWithoutKnowledgeChangesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
@@ -1339,7 +1339,7 @@ export type ProjectFactUncheckedUpdateWithoutKnowledgeChangesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -1372,7 +1372,7 @@ export type ProjectFactCreateWithoutSupersededByProjectFactsInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
@@ -1407,7 +1407,7 @@ export type ProjectFactUncheckedCreateWithoutSupersededByProjectFactsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
@@ -1445,7 +1445,7 @@ export type ProjectFactCreateWithoutSupersedesProjectFactInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1479,7 +1479,7 @@ export type ProjectFactUncheckedCreateWithoutSupersedesProjectFactInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1534,7 +1534,7 @@ export type ProjectFactUpdateWithoutSupersededByProjectFactsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
@@ -1569,7 +1569,7 @@ export type ProjectFactUncheckedUpdateWithoutSupersededByProjectFactsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -1617,7 +1617,7 @@ export type ProjectFactCreateWithoutEvidenceInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
@@ -1652,7 +1652,7 @@ export type ProjectFactUncheckedCreateWithoutEvidenceInput = {
   distinctiveness?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1701,7 +1701,7 @@ export type ProjectFactUpdateWithoutEvidenceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
@@ -1736,14 +1736,14 @@ export type ProjectFactUncheckedUpdateWithoutEvidenceInput = {
   distinctiveness?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
 }
 
-export type ProjectFactCreateWithoutEmbeddingInput = {
+export type ProjectFactCreateWithoutEmbeddingsInput = {
   id?: string
   statement: string
   category: $Enums.ProjectFactCategory
@@ -1777,7 +1777,7 @@ export type ProjectFactCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutProjectFactInput
 }
 
-export type ProjectFactUncheckedCreateWithoutEmbeddingInput = {
+export type ProjectFactUncheckedCreateWithoutEmbeddingsInput = {
   id?: string
   workItemId: string
   statement: string
@@ -1811,23 +1811,23 @@ export type ProjectFactUncheckedCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
 }
 
-export type ProjectFactCreateOrConnectWithoutEmbeddingInput = {
+export type ProjectFactCreateOrConnectWithoutEmbeddingsInput = {
   where: Prisma.ProjectFactWhereUniqueInput
-  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingsInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingsInput>
 }
 
-export type ProjectFactUpsertWithoutEmbeddingInput = {
-  update: Prisma.XOR<Prisma.ProjectFactUpdateWithoutEmbeddingInput, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingInput>
-  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingInput>
+export type ProjectFactUpsertWithoutEmbeddingsInput = {
+  update: Prisma.XOR<Prisma.ProjectFactUpdateWithoutEmbeddingsInput, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingsInput>
+  create: Prisma.XOR<Prisma.ProjectFactCreateWithoutEmbeddingsInput, Prisma.ProjectFactUncheckedCreateWithoutEmbeddingsInput>
   where?: Prisma.ProjectFactWhereInput
 }
 
-export type ProjectFactUpdateToOneWithWhereWithoutEmbeddingInput = {
+export type ProjectFactUpdateToOneWithWhereWithoutEmbeddingsInput = {
   where?: Prisma.ProjectFactWhereInput
-  data: Prisma.XOR<Prisma.ProjectFactUpdateWithoutEmbeddingInput, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingInput>
+  data: Prisma.XOR<Prisma.ProjectFactUpdateWithoutEmbeddingsInput, Prisma.ProjectFactUncheckedUpdateWithoutEmbeddingsInput>
 }
 
-export type ProjectFactUpdateWithoutEmbeddingInput = {
+export type ProjectFactUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   statement?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumProjectFactCategoryFieldUpdateOperationsInput | $Enums.ProjectFactCategory
@@ -1861,7 +1861,7 @@ export type ProjectFactUpdateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutProjectFactNestedInput
 }
 
-export type ProjectFactUncheckedUpdateWithoutEmbeddingInput = {
+export type ProjectFactUncheckedUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   statement?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1922,7 +1922,7 @@ export type ProjectFactCreateWithoutChatCitationsInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
@@ -1957,7 +1957,7 @@ export type ProjectFactUncheckedCreateWithoutChatCitationsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
@@ -2006,7 +2006,7 @@ export type ProjectFactUpdateWithoutChatCitationsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -2041,7 +2041,7 @@ export type ProjectFactUncheckedUpdateWithoutChatCitationsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -2074,7 +2074,7 @@ export type ProjectFactCreateWithoutAgentRunCandidatesInput = {
   updatedAt?: Date | string
   workItem: Prisma.WorkItemCreateNestedOneWithoutProjectFactsInput
   evidence?: Prisma.ProjectFactEvidenceCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutProjectFactInput
   supersedesProjectFact?: Prisma.ProjectFactCreateNestedOneWithoutSupersededByProjectFactsInput
   supersededByProjectFacts?: Prisma.ProjectFactCreateNestedManyWithoutSupersedesProjectFactInput
@@ -2109,7 +2109,7 @@ export type ProjectFactUncheckedCreateWithoutAgentRunCandidatesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedCreateNestedManyWithoutProjectFactInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutProjectFactInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutSupersedesProjectFactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutProjectFactInput
@@ -2158,7 +2158,7 @@ export type ProjectFactUpdateWithoutAgentRunCandidatesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -2193,7 +2193,7 @@ export type ProjectFactUncheckedUpdateWithoutAgentRunCandidatesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutProjectFactNestedInput
@@ -2253,7 +2253,7 @@ export type ProjectFactUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersedesProjectFact?: Prisma.ProjectFactUpdateOneWithoutSupersededByProjectFactsNestedInput
@@ -2288,7 +2288,7 @@ export type ProjectFactUncheckedUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -2378,7 +2378,7 @@ export type ProjectFactUpdateWithoutSupersedesProjectFactInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutProjectFactsNestedInput
   evidence?: Prisma.ProjectFactEvidenceUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -2412,7 +2412,7 @@ export type ProjectFactUncheckedUpdateWithoutSupersedesProjectFactInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.ProjectFactEvidenceUncheckedUpdateManyWithoutProjectFactNestedInput
-  embedding?: Prisma.ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput
+  embeddings?: Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutProjectFactNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutProjectFactNestedInput
   supersededByProjectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactNestedInput
@@ -2454,6 +2454,7 @@ export type ProjectFactUncheckedUpdateManyWithoutSupersedesProjectFactInput = {
 
 export type ProjectFactCountOutputType = {
   evidence: number
+  embeddings: number
   chatCitations: number
   agentRunCandidates: number
   supersededByProjectFacts: number
@@ -2462,6 +2463,7 @@ export type ProjectFactCountOutputType = {
 
 export type ProjectFactCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidence?: boolean | ProjectFactCountOutputTypeCountEvidenceArgs
+  embeddings?: boolean | ProjectFactCountOutputTypeCountEmbeddingsArgs
   chatCitations?: boolean | ProjectFactCountOutputTypeCountChatCitationsArgs
   agentRunCandidates?: boolean | ProjectFactCountOutputTypeCountAgentRunCandidatesArgs
   supersededByProjectFacts?: boolean | ProjectFactCountOutputTypeCountSupersededByProjectFactsArgs
@@ -2483,6 +2485,13 @@ export type ProjectFactCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.
  */
 export type ProjectFactCountOutputTypeCountEvidenceArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.ProjectFactEvidenceWhereInput
+}
+
+/**
+ * ProjectFactCountOutputType without action
+ */
+export type ProjectFactCountOutputTypeCountEmbeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ProjectFactEmbeddingWhereInput
 }
 
 /**
@@ -2543,7 +2552,7 @@ export type ProjectFactSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   updatedAt?: boolean
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.ProjectFact$evidenceArgs<ExtArgs>
-  embedding?: boolean | Prisma.ProjectFact$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.ProjectFact$embeddingsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.ProjectFact$chatCitationsArgs<ExtArgs>
   agentRunCandidates?: boolean | Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>
   supersedesProjectFact?: boolean | Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>
@@ -2647,7 +2656,7 @@ export type ProjectFactOmit<ExtArgs extends runtime.Types.Extensions.InternalArg
 export type ProjectFactInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workItem?: boolean | Prisma.WorkItemDefaultArgs<ExtArgs>
   evidence?: boolean | Prisma.ProjectFact$evidenceArgs<ExtArgs>
-  embedding?: boolean | Prisma.ProjectFact$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.ProjectFact$embeddingsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.ProjectFact$chatCitationsArgs<ExtArgs>
   agentRunCandidates?: boolean | Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>
   supersedesProjectFact?: boolean | Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>
@@ -2669,7 +2678,7 @@ export type $ProjectFactPayload<ExtArgs extends runtime.Types.Extensions.Interna
   objects: {
     workItem: Prisma.$WorkItemPayload<ExtArgs>
     evidence: Prisma.$ProjectFactEvidencePayload<ExtArgs>[]
-    embedding: Prisma.$ProjectFactEmbeddingPayload<ExtArgs> | null
+    embeddings: Prisma.$ProjectFactEmbeddingPayload<ExtArgs>[]
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     agentRunCandidates: Prisma.$AgentRunCandidatePayload<ExtArgs>[]
     supersedesProjectFact: Prisma.$ProjectFactPayload<ExtArgs> | null
@@ -3099,7 +3108,7 @@ export interface Prisma__ProjectFactClient<T, Null = never, ExtArgs extends runt
   readonly [Symbol.toStringTag]: "PrismaPromise"
   workItem<T extends Prisma.WorkItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItemDefaultArgs<ExtArgs>>): Prisma.Prisma__WorkItemClient<runtime.Types.Result.GetResult<Prisma.$WorkItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   evidence<T extends Prisma.ProjectFact$evidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$evidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectFactEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  embedding<T extends Prisma.ProjectFact$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$embeddingArgs<ExtArgs>>): Prisma.Prisma__ProjectFactEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  embeddings<T extends Prisma.ProjectFact$embeddingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$embeddingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectFactEmbeddingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatCitations<T extends Prisma.ProjectFact$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   agentRunCandidates<T extends Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$agentRunCandidatesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunCandidatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   supersedesProjectFact<T extends Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFact$supersedesProjectFactArgs<ExtArgs>>): Prisma.Prisma__ProjectFactClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
@@ -3585,9 +3594,9 @@ export type ProjectFact$evidenceArgs<ExtArgs extends runtime.Types.Extensions.In
 }
 
 /**
- * ProjectFact.embedding
+ * ProjectFact.embeddings
  */
-export type ProjectFact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type ProjectFact$embeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
    * Select specific fields to fetch from the ProjectFactEmbedding
    */
@@ -3601,6 +3610,11 @@ export type ProjectFact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.I
    */
   include?: Prisma.ProjectFactEmbeddingInclude<ExtArgs> | null
   where?: Prisma.ProjectFactEmbeddingWhereInput
+  orderBy?: Prisma.ProjectFactEmbeddingOrderByWithRelationInput | Prisma.ProjectFactEmbeddingOrderByWithRelationInput[]
+  cursor?: Prisma.ProjectFactEmbeddingWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ProjectFactEmbeddingScalarFieldEnum | Prisma.ProjectFactEmbeddingScalarFieldEnum[]
 }
 
 /**

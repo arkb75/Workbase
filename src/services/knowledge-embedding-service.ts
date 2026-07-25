@@ -1,14 +1,29 @@
-import { randomUUID } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
+import type { EmbeddingIndexIdentity } from "@/src/lib/embedding-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
+  EmbeddingWriteFenceChangedError,
+  type EmbeddingEntityKind,
+  persistVersionedEmbeddingBatch,
+  resolveActiveEmbeddingIndex,
+  resolveEmbeddingWriteSet,
+} from "@/src/services/embedding-index-service";
+import {
   embeddingIdentityIsFresh,
+  beginEmbeddingWriteGeneration,
   generateHighlightEmbedding,
   hashEmbeddingInput,
-  resolveCurrentHighlightEmbeddingIdentity,
+  scheduleShadowEmbeddingWrites,
   vectorToSqlLiteral,
 } from "@/src/services/highlight-embedding-service";
+
+type ExistingEmbeddingIdentity = {
+  indexVersionId: string;
+  inputHash: string;
+  modelId: string;
+  dimensions: number;
+};
 
 export function buildEvidenceEmbeddingText(input: {
   title: string;
@@ -49,115 +64,151 @@ export function buildProjectFactEmbeddingText(input: {
   ).slice(0, 20_000);
 }
 
-export async function upsertEvidenceEmbedding(input: {
+async function loadExistingRows(input: {
+  kind: Exclude<EmbeddingEntityKind, "highlight">;
+  entityId: string;
+  targetIds: string[];
+}) {
+  if (input.kind === "evidence") {
+    return prisma.$queryRaw<ExistingEmbeddingIdentity[]>(Prisma.sql`
+      SELECT "indexVersionId", "inputHash", "modelId", "dimensions"
+      FROM "EvidenceEmbedding"
+      WHERE "evidenceItemId" = ${input.entityId}
+        AND "indexVersionId" IN (${Prisma.join(input.targetIds)})
+    `);
+  }
+  if (input.kind === "artifact") {
+    return prisma.$queryRaw<ExistingEmbeddingIdentity[]>(Prisma.sql`
+      SELECT "indexVersionId", "inputHash", "modelId", "dimensions"
+      FROM "ArtifactEmbedding"
+      WHERE "artifactId" = ${input.entityId}
+        AND "indexVersionId" IN (${Prisma.join(input.targetIds)})
+    `);
+  }
+  return prisma.$queryRaw<ExistingEmbeddingIdentity[]>(Prisma.sql`
+    SELECT "indexVersionId", "inputHash", "modelId", "dimensions"
+    FROM "ProjectFactEmbedding"
+    WHERE "projectFactId" = ${input.entityId}
+      AND "indexVersionId" IN (${Prisma.join(input.targetIds)})
+  `);
+}
+
+function reusedEmbedding(
+  identity: Awaited<ReturnType<typeof resolveActiveEmbeddingIndex>>,
+  inputText: string,
+) {
+  return {
+    ...identity,
+    inputHash: hashEmbeddingInput(inputText),
+    inputText,
+    vector: null,
+    usage: { inputTokens: null, totalTokens: null, costUsd: null },
+    reused: true as const,
+  };
+}
+
+async function upsertKnowledgeEmbedding(input: {
+  kind: Exclude<EmbeddingEntityKind, "highlight">;
+  entityId: string;
+  inputText: string;
+  skipFreshnessCheck?: boolean;
+}) {
+  for (let fenceAttempt = 0; fenceAttempt < 3; fenceAttempt += 1) {
+    const writeSet = await resolveEmbeddingWriteSet();
+    const existingRows = input.skipFreshnessCheck
+      ? []
+      : await loadExistingRows({
+          kind: input.kind,
+          entityId: input.entityId,
+          targetIds: writeSet.targets.map((target) => target.id),
+        });
+    const existingByVersion = new Map(
+      existingRows.map((row) => [row.indexVersionId, row]),
+    );
+    const staleTargets = writeSet.targets.filter(
+      (target) =>
+        !embeddingIdentityIsFresh(
+          existingByVersion.get(target.id),
+          input.inputText,
+          target,
+        ),
+    );
+    if (!staleTargets.length) return reusedEmbedding(writeSet.active, input.inputText);
+
+    const generation = beginEmbeddingWriteGeneration({
+      writeSet,
+      staleTargets,
+      inputText: input.inputText,
+    });
+    try {
+      const activeGenerated = await generation.activeEmbedding;
+      if (activeGenerated) {
+        await persistVersionedEmbeddingBatch({
+          writeSet,
+          kind: input.kind,
+          entityId: input.entityId,
+          embeddings: [activeGenerated],
+        });
+      }
+      // Shadow generation began concurrently, but it is deliberately detached
+      // only after the availability-critical active write has committed.
+      scheduleShadowEmbeddingWrites({
+        writeSet,
+        kind: input.kind,
+        entityId: input.entityId,
+        shadowTargets: generation.shadowTargets,
+        shadowResults: generation.shadowResults,
+      });
+      return activeGenerated
+        ? { ...activeGenerated, reused: false as const }
+        : reusedEmbedding(writeSet.active, input.inputText);
+    } catch (error) {
+      if (error instanceof EmbeddingWriteFenceChangedError && fenceAttempt < 2) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Embedding write set did not stabilize.");
+}
+
+export function upsertEvidenceEmbedding(input: {
   evidenceItemId: string;
   inputText: string;
   skipFreshnessCheck?: boolean;
 }) {
-  if (!input.skipFreshnessCheck) {
-    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
-      SELECT "inputHash", "modelId", "dimensions"
-      FROM "EvidenceEmbedding"
-      WHERE "evidenceItemId" = ${input.evidenceItemId}
-      LIMIT 1
-    `;
-    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
-      const identity = resolveCurrentHighlightEmbeddingIdentity();
-      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
-    }
-  }
-  const embedding = await generateHighlightEmbedding(input.inputText);
-  const vectorLiteral = vectorToSqlLiteral(embedding.vector);
-
-  await prisma.$executeRaw`
-    INSERT INTO "EvidenceEmbedding"
-      ("id", "evidenceItemId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "createdAt", "updatedAt")
-    VALUES
-      (${randomUUID()}, ${input.evidenceItemId}, ${embedding.modelId}, ${embedding.dimensions}, ${embedding.inputHash}, ${embedding.inputText}, CAST(${vectorLiteral} AS vector), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("evidenceItemId") DO UPDATE SET
-      "modelId" = EXCLUDED."modelId",
-      "dimensions" = EXCLUDED."dimensions",
-      "inputHash" = EXCLUDED."inputHash",
-      "inputText" = EXCLUDED."inputText",
-      "embedding" = EXCLUDED."embedding",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
-
-  return { ...embedding, reused: false };
+  return upsertKnowledgeEmbedding({
+    kind: "evidence",
+    entityId: input.evidenceItemId,
+    inputText: input.inputText,
+    skipFreshnessCheck: input.skipFreshnessCheck,
+  });
 }
 
-export async function upsertArtifactEmbedding(input: {
+export function upsertArtifactEmbedding(input: {
   artifactId: string;
   inputText: string;
   skipFreshnessCheck?: boolean;
 }) {
-  if (!input.skipFreshnessCheck) {
-    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
-      SELECT "inputHash", "modelId", "dimensions"
-      FROM "ArtifactEmbedding"
-      WHERE "artifactId" = ${input.artifactId}
-      LIMIT 1
-    `;
-    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
-      const identity = resolveCurrentHighlightEmbeddingIdentity();
-      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
-    }
-  }
-  const embedding = await generateHighlightEmbedding(input.inputText);
-  const vectorLiteral = vectorToSqlLiteral(embedding.vector);
-
-  await prisma.$executeRaw`
-    INSERT INTO "ArtifactEmbedding"
-      ("id", "artifactId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "createdAt", "updatedAt")
-    VALUES
-      (${randomUUID()}, ${input.artifactId}, ${embedding.modelId}, ${embedding.dimensions}, ${embedding.inputHash}, ${embedding.inputText}, CAST(${vectorLiteral} AS vector), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("artifactId") DO UPDATE SET
-      "modelId" = EXCLUDED."modelId",
-      "dimensions" = EXCLUDED."dimensions",
-      "inputHash" = EXCLUDED."inputHash",
-      "inputText" = EXCLUDED."inputText",
-      "embedding" = EXCLUDED."embedding",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
-
-  return { ...embedding, reused: false };
+  return upsertKnowledgeEmbedding({
+    kind: "artifact",
+    entityId: input.artifactId,
+    inputText: input.inputText,
+    skipFreshnessCheck: input.skipFreshnessCheck,
+  });
 }
 
-export async function upsertProjectFactEmbedding(input: {
+export function upsertProjectFactEmbedding(input: {
   projectFactId: string;
   inputText: string;
   skipFreshnessCheck?: boolean;
 }) {
-  if (!input.skipFreshnessCheck) {
-    const existingRows = await prisma.$queryRaw<Array<{ inputHash: string; modelId: string; dimensions: number }>>`
-      SELECT "inputHash", "modelId", "dimensions"
-      FROM "ProjectFactEmbedding"
-      WHERE "projectFactId" = ${input.projectFactId}
-      LIMIT 1
-    `;
-    if (embeddingIdentityIsFresh(existingRows[0], input.inputText)) {
-      const identity = resolveCurrentHighlightEmbeddingIdentity();
-      return { ...identity, inputHash: hashEmbeddingInput(input.inputText), inputText: input.inputText, vector: null, reused: true };
-    }
-  }
-  const embedding = await generateHighlightEmbedding(input.inputText);
-  const vectorLiteral = vectorToSqlLiteral(embedding.vector);
-
-  await prisma.$executeRaw`
-    INSERT INTO "ProjectFactEmbedding"
-      ("id", "projectFactId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "createdAt", "updatedAt")
-    VALUES
-      (${randomUUID()}, ${input.projectFactId}, ${embedding.modelId}, ${embedding.dimensions}, ${embedding.inputHash}, ${embedding.inputText}, CAST(${vectorLiteral} AS vector), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("projectFactId") DO UPDATE SET
-      "modelId" = EXCLUDED."modelId",
-      "dimensions" = EXCLUDED."dimensions",
-      "inputHash" = EXCLUDED."inputHash",
-      "inputText" = EXCLUDED."inputText",
-      "embedding" = EXCLUDED."embedding",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
-
-  return { ...embedding, reused: false };
+  return upsertKnowledgeEmbedding({
+    kind: "projectFact",
+    entityId: input.projectFactId,
+    inputText: input.inputText,
+    skipFreshnessCheck: input.skipFreshnessCheck,
+  });
 }
 
 export async function ensureProjectKnowledgeEmbeddings(input: {
@@ -183,75 +234,28 @@ export async function ensureProjectKnowledgeEmbeddings(input: {
     tone: string;
   }>;
 }) {
-  const evidenceInputById = new Map(
-    input.evidenceItems.map((item) => [
-      item.id,
-      buildEvidenceEmbeddingText({
-        ...item,
-        sourceLabel: item.source.label,
-      }),
-    ]),
-  );
-  const projectFactInputById = new Map(
-    input.projectFacts.map((fact) => [fact.id, buildProjectFactEmbeddingText(fact)]),
-  );
-  const artifactInputById = new Map(
-    input.artifacts.map((artifact) => [
-      artifact.id,
-      buildArtifactEmbeddingText(artifact),
-    ]),
-  );
-  const [projectFactRows, evidenceRows, artifactRows] = await Promise.all([
-    input.projectFacts.length
-      ? prisma.$queryRaw<Array<{ projectFactId: string; inputHash: string; modelId: string; dimensions: number }>>(Prisma.sql`
-          SELECT "projectFactId", "inputHash", "modelId", "dimensions"
-          FROM "ProjectFactEmbedding"
-          WHERE "projectFactId" IN (${Prisma.join(input.projectFacts.map((fact) => fact.id))})
-        `)
-      : Promise.resolve([]),
-    input.evidenceItems.length
-      ? prisma.$queryRaw<Array<{ evidenceItemId: string; inputHash: string; modelId: string; dimensions: number }>>(Prisma.sql`
-          SELECT "evidenceItemId", "inputHash", "modelId", "dimensions"
-          FROM "EvidenceEmbedding"
-          WHERE "evidenceItemId" IN (${Prisma.join(input.evidenceItems.map((item) => item.id))})
-        `)
-      : Promise.resolve([]),
-    input.artifacts.length
-      ? prisma.$queryRaw<Array<{ artifactId: string; inputHash: string; modelId: string; dimensions: number }>>(Prisma.sql`
-          SELECT "artifactId", "inputHash", "modelId", "dimensions"
-          FROM "ArtifactEmbedding"
-          WHERE "artifactId" IN (${Prisma.join(input.artifacts.map((item) => item.id))})
-        `)
-      : Promise.resolve([]),
-  ]);
-  const projectFactById = new Map(projectFactRows.map((row) => [row.projectFactId, row]));
-  const evidenceById = new Map(evidenceRows.map((row) => [row.evidenceItemId, row]));
-  const artifactById = new Map(artifactRows.map((row) => [row.artifactId, row]));
-  const expectedIdentity = resolveCurrentHighlightEmbeddingIdentity();
-  const isFresh = (row: { inputHash: string; modelId: string; dimensions: number } | undefined, inputText: string) =>
-    row?.inputHash === hashEmbeddingInput(inputText) &&
-    row.modelId === expectedIdentity.modelId &&
-    row.dimensions === expectedIdentity.dimensions;
-
   const writes = [
-    ...input.projectFacts.flatMap((fact) => {
-      const inputText = projectFactInputById.get(fact.id) ?? "";
-      return isFresh(projectFactById.get(fact.id), inputText)
-        ? []
-        : [() => upsertProjectFactEmbedding({ projectFactId: fact.id, inputText, skipFreshnessCheck: true })];
-    }),
-    ...input.evidenceItems.flatMap((item) => {
-      const inputText = evidenceInputById.get(item.id) ?? "";
-      return isFresh(evidenceById.get(item.id), inputText)
-        ? []
-        : [() => upsertEvidenceEmbedding({ evidenceItemId: item.id, inputText, skipFreshnessCheck: true })];
-    }),
-    ...input.artifacts.flatMap((artifact) => {
-      const inputText = artifactInputById.get(artifact.id) ?? "";
-      return isFresh(artifactById.get(artifact.id), inputText)
-        ? []
-        : [() => upsertArtifactEmbedding({ artifactId: artifact.id, inputText, skipFreshnessCheck: true })];
-    }),
+    ...input.projectFacts.map((fact) => () =>
+      upsertProjectFactEmbedding({
+        projectFactId: fact.id,
+        inputText: buildProjectFactEmbeddingText(fact),
+      })
+    ),
+    ...input.evidenceItems.map((item) => () =>
+      upsertEvidenceEmbedding({
+        evidenceItemId: item.id,
+        inputText: buildEvidenceEmbeddingText({
+          ...item,
+          sourceLabel: item.source.label,
+        }),
+      })
+    ),
+    ...input.artifacts.map((artifact) => () =>
+      upsertArtifactEmbedding({
+        artifactId: artifact.id,
+        inputText: buildArtifactEmbeddingText(artifact),
+      })
+    ),
   ];
   for (let offset = 0; offset < writes.length; offset += 4) {
     await Promise.allSettled(writes.slice(offset, offset + 4).map((write) => write()));
@@ -263,7 +267,22 @@ export async function findNearestProjectKnowledge(input: {
   query: string;
   limit?: number;
 }) {
-  const embedding = await generateHighlightEmbedding(input.query);
+  const active = await resolveActiveEmbeddingIndex();
+  const ranked = await rankProjectKnowledgeForIndex({
+    ...input,
+    index: active,
+  });
+  return ranked.matches;
+}
+
+export async function rankProjectKnowledgeForIndex(input: {
+  workItemId: string;
+  query: string;
+  index: EmbeddingIndexIdentity;
+  limit?: number;
+}) {
+  const startedAt = performance.now();
+  const embedding = await generateHighlightEmbedding(input.query, input.index);
   const vectorLiteral = vectorToSqlLiteral(embedding.vector);
   const limit = input.limit ?? 30;
   const [highlightRows, projectFactRows, evidenceRows, artifactRows] = await Promise.all([
@@ -273,6 +292,7 @@ export async function findNearestProjectKnowledge(input: {
       FROM "HighlightEmbedding"
       INNER JOIN "Claim" ON "Claim"."id" = "HighlightEmbedding"."highlightId"
       WHERE "Claim"."workItemId" = ${input.workItemId}
+        AND "HighlightEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "HighlightEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
     `,
@@ -282,6 +302,7 @@ export async function findNearestProjectKnowledge(input: {
       FROM "ProjectFactEmbedding"
       INNER JOIN "ProjectFact" ON "ProjectFact"."id" = "ProjectFactEmbedding"."projectFactId"
       WHERE "ProjectFact"."workItemId" = ${input.workItemId}
+        AND "ProjectFactEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "ProjectFactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
     `,
@@ -291,6 +312,7 @@ export async function findNearestProjectKnowledge(input: {
       FROM "EvidenceEmbedding"
       INNER JOIN "EvidenceItem" ON "EvidenceItem"."id" = "EvidenceEmbedding"."evidenceItemId"
       WHERE "EvidenceItem"."workItemId" = ${input.workItemId}
+        AND "EvidenceEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "EvidenceEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
     `,
@@ -300,15 +322,24 @@ export async function findNearestProjectKnowledge(input: {
       FROM "ArtifactEmbedding"
       INNER JOIN "Artifact" ON "Artifact"."id" = "ArtifactEmbedding"."artifactId"
       WHERE "Artifact"."workItemId" = ${input.workItemId}
+        AND "ArtifactEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "ArtifactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
     `,
   ]);
 
   return {
-    highlights: new Map(highlightRows.map((row) => [row.id, Number(row.similarity)])),
-    projectFacts: new Map(projectFactRows.map((row) => [row.id, Number(row.similarity)])),
-    evidence: new Map(evidenceRows.map((row) => [row.id, Number(row.similarity)])),
-    artifacts: new Map(artifactRows.map((row) => [row.id, Number(row.similarity)])),
+    matches: {
+      highlights: new Map(highlightRows.map((row) => [row.id, Number(row.similarity)])),
+      projectFacts: new Map(projectFactRows.map((row) => [row.id, Number(row.similarity)])),
+      evidence: new Map(evidenceRows.map((row) => [row.id, Number(row.similarity)])),
+      artifacts: new Map(artifactRows.map((row) => [row.id, Number(row.similarity)])),
+    },
+    telemetry: {
+      latencyMs: performance.now() - startedAt,
+      inputTokens: embedding.usage.inputTokens,
+      totalTokens: embedding.usage.totalTokens,
+      costUsd: embedding.usage.costUsd,
+    },
   };
 }

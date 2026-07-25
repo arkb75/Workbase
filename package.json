@@ -17,9 +17,11 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:backfill-chat-citations": "tsx --env-file=.env scripts/backfill-chat-citations.ts",
     "db:backfill-repository-knowledge": "tsx --env-file=.env scripts/backfill-repository-knowledge.ts",
+    "db:embedding-index": "tsx --env-file=.env scripts/manage-embedding-index.ts",
     "eval:project-chat": "tsx --env-file=.env scripts/evaluate-project-chat.ts",
     "eval:project-chat:suite": "tsx scripts/evaluate-project-chat-suite.ts",
     "eval:project-chat:application": "tsx --env-file=.env scripts/evaluate-project-chat-application.ts",
+    "eval:embeddings": "tsx --env-file=.env scripts/evaluate-embedding-index.ts",
     "test:eval": "vitest run src/evals/__tests__",
     "bedrock:preflight": "tsx scripts/bedrock-preflight.ts"
   },
