@@ -3,9 +3,9 @@ import {
   ConverseCommand,
   type ContentBlock,
 } from "@aws-sdk/client-bedrock-runtime";
+import { fromIni } from "@aws-sdk/credential-providers";
 import { z } from "zod";
 import type { JsonValue } from "@/src/domain/types";
-import { createAwsCredentials } from "@/src/lib/aws-credentials";
 import { toBedrockCompatibleJsonSchema } from "@/src/lib/llm-json-schemas";
 import type {
   JsonSchemaObject,
@@ -231,7 +231,11 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
   ) {
     this.client = new BedrockRuntimeClient({
       region: config.region,
-      credentials: createAwsCredentials(config),
+      credentials: config.profile
+        ? fromIni({
+            profile: config.profile,
+          })
+        : undefined,
     });
   }
 

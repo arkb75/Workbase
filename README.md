@@ -39,10 +39,6 @@ npm install
 cp .env.example .env
 ```
 
-Local environment files are explicitly excluded from Vercel source uploads;
-production configuration must be supplied through Vercel environment
-variables.
-
 3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
 4. Add the GitHub OAuth App and encryption settings from `.env.example`
 
@@ -55,12 +51,6 @@ For proactive production refreshes, also set:
 Workbase registers a push-only repository webhook when an attached repository
 is administered by the connected GitHub user. Repositories without webhook
 administration permission continue to use the scheduled freshness scan.
-
-Production repository freshness uses push webhooks first, a 15-minute
-authenticated GitHub Actions scan as the operational fallback, and a daily
-Vercel Cron scan as an independent safety net. Configure the repository secrets
-`WORKBASE_CRON_URL` and `WORKBASE_CRON_SECRET`; the URL must end in
-`/api/cron/repository-knowledge` and the secret must match `CRON_SECRET`.
 
 5. Generate the Prisma client and apply committed migrations
 
