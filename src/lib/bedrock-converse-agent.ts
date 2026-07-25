@@ -7,9 +7,9 @@ import {
   type StopReason,
   type TokenUsage,
 } from "@aws-sdk/client-bedrock-runtime";
+import { fromIni } from "@aws-sdk/credential-providers";
 import { z } from "zod";
 import type { JsonValue } from "@/src/domain/types";
-import { createAwsCredentials } from "@/src/lib/aws-credentials";
 import {
   toBedrockCompatibleJsonSchema,
   type JsonSchemaObject,
@@ -59,7 +59,11 @@ export class AwsBedrockConverseTransport implements BedrockConverseTransport {
   constructor(config: { region: string; profile?: string }) {
     this.client = new BedrockRuntimeClient({
       region: config.region,
-      credentials: createAwsCredentials(config),
+      credentials: config.profile
+        ? fromIni({
+            profile: config.profile,
+          })
+        : undefined,
     });
   }
 
