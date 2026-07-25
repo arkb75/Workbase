@@ -39,10 +39,6 @@ npm install
 cp .env.example .env
 ```
 
-Local environment files are explicitly excluded from Vercel source uploads;
-production configuration must be supplied through Vercel environment
-variables.
-
 3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
 4. Add the GitHub OAuth App and encryption settings from `.env.example`
 
