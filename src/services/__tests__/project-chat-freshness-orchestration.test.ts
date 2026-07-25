@@ -349,10 +349,17 @@ import {
   artifactGenerationWorkflow,
   projectChatTurnWorkflow,
   replayedAppliedKnowledgeIds,
+  repositoryKnowledgeRefreshDebounceDelay,
   repositoryKnowledgeRefreshWorkflow,
 } from "@/workflows/project-chat";
 
 describe("project chat latest-commit freshness orchestration", () => {
+  it("debounces only proactive webhook refreshes before expensive work", () => {
+    expect(repositoryKnowledgeRefreshDebounceDelay("webhook_push")).toBe("5s");
+    expect(repositoryKnowledgeRefreshDebounceDelay("chat_freshness")).toBeNull();
+    expect(repositoryKnowledgeRefreshDebounceDelay("manual")).toBeNull();
+  });
+
   it("does not reconstruct retired or quarantined knowledge as applied on replay", () => {
     expect(replayedAppliedKnowledgeIds([
       { entityKind: "project_fact", action: "revalidated", projectFactId: "fact-current", highlightId: null, evidenceItemId: null },

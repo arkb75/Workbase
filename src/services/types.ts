@@ -128,6 +128,20 @@ export interface GitHubRepoImportService {
       repository: GitHubRepositorySummary;
       importedAt: string;
       counts: Record<string, number>;
+      webhook:
+        | {
+            status: "configured";
+            hookId: string;
+            created: boolean;
+            configuredAt: string;
+            configurationFingerprint: string;
+          }
+        | {
+            status: "not_configured" | "unavailable";
+            reasonCode: string;
+            checkedAt?: string;
+            configurationFingerprint?: string;
+          };
     };
   }>;
 }
@@ -217,7 +231,7 @@ export interface RepositoryKnowledgeSyncService {
   start(input: {
     userId: string;
     workItemId: string;
-    trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+    trigger: "repository_attach" | "webhook_push" | "scheduled" | "manual" | "chat_freshness" | "backfill";
     idempotencyKey: string;
   }): Promise<{
     runId: string;

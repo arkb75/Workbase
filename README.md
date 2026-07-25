@@ -42,6 +42,16 @@ cp .env.example .env
 3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
 4. Add the GitHub OAuth App and encryption settings from `.env.example`
 
+For proactive production refreshes, also set:
+
+- `WORKBASE_GITHUB_WEBHOOK_URL` to the public HTTPS
+  `/api/github/webhook` endpoint.
+- `GITHUB_WEBHOOK_SECRET` to a random value of at least 32 characters.
+
+Workbase registers a push-only repository webhook when an attached repository
+is administered by the connected GitHub user. Repositories without webhook
+administration permission continue to use the scheduled freshness scan.
+
 5. Generate the Prisma client and apply committed migrations
 
 ```bash
@@ -82,6 +92,7 @@ npm run db:prepare
 - `/work-items/[id]/artifacts/new`
 - `/api/github/connect`
 - `/api/github/callback`
+- `/api/github/webhook`
 - `/api/health`
 
 ## Testing focus
@@ -91,6 +102,8 @@ The test suite covers:
 - claim status transitions
 - GitHub connection encryption and OAuth exchange handling
 - bounded GitHub repo import behavior
+- signed GitHub push delivery validation, redelivery deduplication, and
+  proactive refresh coalescing
 - evidence persistence refresh/dedupe behavior
 - artifact eligibility constraints
 - claim regeneration behavior
@@ -102,6 +115,9 @@ The test suite covers:
 ## Notes
 
 - GitHub import is intentionally bounded, and repository research is read-only and limited to repositories attached to the project.
+- Default-branch GitHub pushes proactively start a five-second coalescing
+  window before durable repository refresh; chat still resolves the live head
+  and joins or supersedes that work when freshness is explicitly required.
 - Exact repository excerpts are immutable provenance beneath reviewed Project Facts or Highlights, not peer sources in chat.
 - Safe repository knowledge is auto-applied for private use and marked for retrospective review; sensitive or weakly supported knowledge is quarantined.
 - Project chat, research, review, retrieval, and artifact generation live behind typed service interfaces in `src/services`.

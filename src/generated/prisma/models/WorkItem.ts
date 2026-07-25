@@ -225,6 +225,7 @@ export type WorkItemWhereInput = {
   chatThreads?: Prisma.ChatThreadListRelationFilter
   agentRuns?: Prisma.AgentRunListRelationFilter
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
   repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
   knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
@@ -251,6 +252,7 @@ export type WorkItemOrderByWithRelationInput = {
   chatThreads?: Prisma.ChatThreadOrderByRelationAggregateInput
   agentRuns?: Prisma.AgentRunOrderByRelationAggregateInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunOrderByRelationAggregateInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryOrderByRelationAggregateInput
   repositorySnapshots?: Prisma.RepositorySnapshotOrderByRelationAggregateInput
   knowledgeChanges?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerOrderByRelationAggregateInput
@@ -280,6 +282,7 @@ export type WorkItemWhereUniqueInput = Prisma.AtLeast<{
   chatThreads?: Prisma.ChatThreadListRelationFilter
   agentRuns?: Prisma.AgentRunListRelationFilter
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
   repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
   knowledgeChanges?: Prisma.KnowledgeChangeListRelationFilter
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
@@ -335,6 +338,7 @@ export type WorkItemCreateInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -360,6 +364,7 @@ export type WorkItemUncheckedCreateInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -385,6 +390,7 @@ export type WorkItemUpdateInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -410,6 +416,7 @@ export type WorkItemUncheckedUpdateInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -582,6 +589,20 @@ export type WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput = {
   upsert?: Prisma.WorkItemUpsertWithoutKnowledgeRefreshRunsInput
   connect?: Prisma.WorkItemWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutKnowledgeRefreshRunsInput, Prisma.WorkItemUpdateWithoutKnowledgeRefreshRunsInput>, Prisma.WorkItemUncheckedUpdateWithoutKnowledgeRefreshRunsInput>
+}
+
+export type WorkItemCreateNestedOneWithoutGithubWebhookDeliveriesInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+}
+
+export type WorkItemUpdateOneRequiredWithoutGithubWebhookDeliveriesNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkItemCreateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.WorkItemCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  upsert?: Prisma.WorkItemUpsertWithoutGithubWebhookDeliveriesInput
+  connect?: Prisma.WorkItemWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkItemUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUpdateWithoutGithubWebhookDeliveriesInput>, Prisma.WorkItemUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
 }
 
 export type WorkItemCreateNestedOneWithoutRepositorySnapshotsInput = {
@@ -759,6 +780,7 @@ export type WorkItemCreateWithoutUserInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -783,6 +805,7 @@ export type WorkItemUncheckedCreateWithoutUserInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -848,6 +871,7 @@ export type WorkItemCreateWithoutSourcesInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -872,6 +896,7 @@ export type WorkItemUncheckedCreateWithoutSourcesInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -912,6 +937,7 @@ export type WorkItemUpdateWithoutSourcesInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -936,6 +962,7 @@ export type WorkItemUncheckedUpdateWithoutSourcesInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -960,6 +987,7 @@ export type WorkItemCreateWithoutKnowledgeRefreshRunsInput = {
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -984,6 +1012,7 @@ export type WorkItemUncheckedCreateWithoutKnowledgeRefreshRunsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1024,6 +1053,7 @@ export type WorkItemUpdateWithoutKnowledgeRefreshRunsInput = {
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1048,6 +1078,123 @@ export type WorkItemUncheckedUpdateWithoutKnowledgeRefreshRunsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutWorkItemsInput
+  sources?: Prisma.SourceCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightCreateNestedManyWithoutWorkItemInput
+  projectFacts?: Prisma.ProjectFactCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
+  knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemUncheckedCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  userId: string
+  title: string
+  type: $Enums.WorkItemType
+  description: string
+  startDate?: Date | string | null
+  endDate?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  sources?: Prisma.SourceUncheckedCreateNestedManyWithoutWorkItemInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutWorkItemInput
+  highlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutWorkItemInput
+  projectFacts?: Prisma.ProjectFactUncheckedCreateNestedManyWithoutWorkItemInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutWorkItemInput
+  artifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutWorkItemInput
+  generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
+  chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
+  knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
+}
+
+export type WorkItemCreateOrConnectWithoutGithubWebhookDeliveriesInput = {
+  where: Prisma.WorkItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type WorkItemUpsertWithoutGithubWebhookDeliveriesInput = {
+  update: Prisma.XOR<Prisma.WorkItemUpdateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+  create: Prisma.XOR<Prisma.WorkItemCreateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  where?: Prisma.WorkItemWhereInput
+}
+
+export type WorkItemUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput = {
+  where?: Prisma.WorkItemWhereInput
+  data: Prisma.XOR<Prisma.WorkItemUpdateWithoutGithubWebhookDeliveriesInput, Prisma.WorkItemUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type WorkItemUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutWorkItemsNestedInput
+  sources?: Prisma.SourceUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUpdateManyWithoutWorkItemNestedInput
+  projectFacts?: Prisma.ProjectFactUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
+  knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
+  knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
+}
+
+export type WorkItemUncheckedUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumWorkItemTypeFieldUpdateOperationsInput | $Enums.WorkItemType
+  description?: Prisma.StringFieldUpdateOperationsInput | string
+  startDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  endDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  sources?: Prisma.SourceUncheckedUpdateManyWithoutWorkItemNestedInput
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlights?: Prisma.HighlightUncheckedUpdateManyWithoutWorkItemNestedInput
+  projectFacts?: Prisma.ProjectFactUncheckedUpdateManyWithoutWorkItemNestedInput
+  highlightSuggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutWorkItemNestedInput
+  artifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutWorkItemNestedInput
+  generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1073,6 +1220,7 @@ export type WorkItemCreateWithoutRepositorySnapshotsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
 }
@@ -1097,6 +1245,7 @@ export type WorkItemUncheckedCreateWithoutRepositorySnapshotsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -1137,6 +1286,7 @@ export type WorkItemUpdateWithoutRepositorySnapshotsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
 }
@@ -1161,6 +1311,7 @@ export type WorkItemUncheckedUpdateWithoutRepositorySnapshotsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -1185,6 +1336,7 @@ export type WorkItemCreateWithoutCapabilityLedgerInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
 }
@@ -1209,6 +1361,7 @@ export type WorkItemUncheckedCreateWithoutCapabilityLedgerInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -1249,6 +1402,7 @@ export type WorkItemUpdateWithoutCapabilityLedgerInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
 }
@@ -1273,6 +1427,7 @@ export type WorkItemUncheckedUpdateWithoutCapabilityLedgerInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -1297,6 +1452,7 @@ export type WorkItemCreateWithoutKnowledgeChangesInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
 }
@@ -1321,6 +1477,7 @@ export type WorkItemUncheckedCreateWithoutKnowledgeChangesInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
 }
@@ -1361,6 +1518,7 @@ export type WorkItemUpdateWithoutKnowledgeChangesInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
 }
@@ -1385,6 +1543,7 @@ export type WorkItemUncheckedUpdateWithoutKnowledgeChangesInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
 }
@@ -1408,6 +1567,7 @@ export type WorkItemCreateWithoutEvidenceItemsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1432,6 +1592,7 @@ export type WorkItemUncheckedCreateWithoutEvidenceItemsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1472,6 +1633,7 @@ export type WorkItemUpdateWithoutEvidenceItemsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1496,6 +1658,7 @@ export type WorkItemUncheckedUpdateWithoutEvidenceItemsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1520,6 +1683,7 @@ export type WorkItemCreateWithoutHighlightsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1544,6 +1708,7 @@ export type WorkItemUncheckedCreateWithoutHighlightsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1584,6 +1749,7 @@ export type WorkItemUpdateWithoutHighlightsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1608,6 +1774,7 @@ export type WorkItemUncheckedUpdateWithoutHighlightsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1632,6 +1799,7 @@ export type WorkItemCreateWithoutProjectFactsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1656,6 +1824,7 @@ export type WorkItemUncheckedCreateWithoutProjectFactsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1696,6 +1865,7 @@ export type WorkItemUpdateWithoutProjectFactsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1720,6 +1890,7 @@ export type WorkItemUncheckedUpdateWithoutProjectFactsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1744,6 +1915,7 @@ export type WorkItemCreateWithoutHighlightSuggestionsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1768,6 +1940,7 @@ export type WorkItemUncheckedCreateWithoutHighlightSuggestionsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1808,6 +1981,7 @@ export type WorkItemUpdateWithoutHighlightSuggestionsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1832,6 +2006,7 @@ export type WorkItemUncheckedUpdateWithoutHighlightSuggestionsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1856,6 +2031,7 @@ export type WorkItemCreateWithoutArtifactsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1880,6 +2056,7 @@ export type WorkItemUncheckedCreateWithoutArtifactsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -1920,6 +2097,7 @@ export type WorkItemUpdateWithoutArtifactsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -1944,6 +2122,7 @@ export type WorkItemUncheckedUpdateWithoutArtifactsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -1968,6 +2147,7 @@ export type WorkItemCreateWithoutChatThreadsInput = {
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -1992,6 +2172,7 @@ export type WorkItemUncheckedCreateWithoutChatThreadsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -2032,6 +2213,7 @@ export type WorkItemUpdateWithoutChatThreadsInput = {
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -2056,6 +2238,7 @@ export type WorkItemUncheckedUpdateWithoutChatThreadsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -2080,6 +2263,7 @@ export type WorkItemCreateWithoutAgentRunsInput = {
   generationRuns?: Prisma.GenerationRunCreateNestedManyWithoutWorkItemInput
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -2104,6 +2288,7 @@ export type WorkItemUncheckedCreateWithoutAgentRunsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedCreateNestedManyWithoutWorkItemInput
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -2144,6 +2329,7 @@ export type WorkItemUpdateWithoutAgentRunsInput = {
   generationRuns?: Prisma.GenerationRunUpdateManyWithoutWorkItemNestedInput
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -2168,6 +2354,7 @@ export type WorkItemUncheckedUpdateWithoutAgentRunsInput = {
   generationRuns?: Prisma.GenerationRunUncheckedUpdateManyWithoutWorkItemNestedInput
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -2192,6 +2379,7 @@ export type WorkItemCreateWithoutGenerationRunsInput = {
   chatThreads?: Prisma.ChatThreadCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutWorkItemInput
@@ -2216,6 +2404,7 @@ export type WorkItemUncheckedCreateWithoutGenerationRunsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedCreateNestedManyWithoutWorkItemInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedCreateNestedManyWithoutWorkItemInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutWorkItemInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutWorkItemInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutWorkItemInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutWorkItemInput
@@ -2256,6 +2445,7 @@ export type WorkItemUpdateWithoutGenerationRunsInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -2280,6 +2470,7 @@ export type WorkItemUncheckedUpdateWithoutGenerationRunsInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -2315,6 +2506,7 @@ export type WorkItemUpdateWithoutUserInput = {
   chatThreads?: Prisma.ChatThreadUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutWorkItemNestedInput
@@ -2339,6 +2531,7 @@ export type WorkItemUncheckedUpdateWithoutUserInput = {
   chatThreads?: Prisma.ChatThreadUncheckedUpdateManyWithoutWorkItemNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeRefreshRuns?: Prisma.KnowledgeRefreshRunUncheckedUpdateManyWithoutWorkItemNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutWorkItemNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutWorkItemNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutWorkItemNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutWorkItemNestedInput
@@ -2371,6 +2564,7 @@ export type WorkItemCountOutputType = {
   chatThreads: number
   agentRuns: number
   knowledgeRefreshRuns: number
+  githubWebhookDeliveries: number
   repositorySnapshots: number
   knowledgeChanges: number
   capabilityLedger: number
@@ -2387,6 +2581,7 @@ export type WorkItemCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensio
   chatThreads?: boolean | WorkItemCountOutputTypeCountChatThreadsArgs
   agentRuns?: boolean | WorkItemCountOutputTypeCountAgentRunsArgs
   knowledgeRefreshRuns?: boolean | WorkItemCountOutputTypeCountKnowledgeRefreshRunsArgs
+  githubWebhookDeliveries?: boolean | WorkItemCountOutputTypeCountGithubWebhookDeliveriesArgs
   repositorySnapshots?: boolean | WorkItemCountOutputTypeCountRepositorySnapshotsArgs
   knowledgeChanges?: boolean | WorkItemCountOutputTypeCountKnowledgeChangesArgs
   capabilityLedger?: boolean | WorkItemCountOutputTypeCountCapabilityLedgerArgs
@@ -2475,6 +2670,13 @@ export type WorkItemCountOutputTypeCountKnowledgeRefreshRunsArgs<ExtArgs extends
 /**
  * WorkItemCountOutputType without action
  */
+export type WorkItemCountOutputTypeCountGithubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+}
+
+/**
+ * WorkItemCountOutputType without action
+ */
 export type WorkItemCountOutputTypeCountRepositorySnapshotsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.RepositorySnapshotWhereInput
 }
@@ -2515,6 +2717,7 @@ export type WorkItemSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   chatThreads?: boolean | Prisma.WorkItem$chatThreadsArgs<ExtArgs>
   agentRuns?: boolean | Prisma.WorkItem$agentRunsArgs<ExtArgs>
   knowledgeRefreshRuns?: boolean | Prisma.WorkItem$knowledgeRefreshRunsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.WorkItem$githubWebhookDeliveriesArgs<ExtArgs>
   repositorySnapshots?: boolean | Prisma.WorkItem$repositorySnapshotsArgs<ExtArgs>
   knowledgeChanges?: boolean | Prisma.WorkItem$knowledgeChangesArgs<ExtArgs>
   capabilityLedger?: boolean | Prisma.WorkItem$capabilityLedgerArgs<ExtArgs>
@@ -2572,6 +2775,7 @@ export type WorkItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArg
   chatThreads?: boolean | Prisma.WorkItem$chatThreadsArgs<ExtArgs>
   agentRuns?: boolean | Prisma.WorkItem$agentRunsArgs<ExtArgs>
   knowledgeRefreshRuns?: boolean | Prisma.WorkItem$knowledgeRefreshRunsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.WorkItem$githubWebhookDeliveriesArgs<ExtArgs>
   repositorySnapshots?: boolean | Prisma.WorkItem$repositorySnapshotsArgs<ExtArgs>
   knowledgeChanges?: boolean | Prisma.WorkItem$knowledgeChangesArgs<ExtArgs>
   capabilityLedger?: boolean | Prisma.WorkItem$capabilityLedgerArgs<ExtArgs>
@@ -2598,6 +2802,7 @@ export type $WorkItemPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     chatThreads: Prisma.$ChatThreadPayload<ExtArgs>[]
     agentRuns: Prisma.$AgentRunPayload<ExtArgs>[]
     knowledgeRefreshRuns: Prisma.$KnowledgeRefreshRunPayload<ExtArgs>[]
+    githubWebhookDeliveries: Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>[]
     repositorySnapshots: Prisma.$RepositorySnapshotPayload<ExtArgs>[]
     knowledgeChanges: Prisma.$KnowledgeChangePayload<ExtArgs>[]
     capabilityLedger: Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>[]
@@ -3017,6 +3222,7 @@ export interface Prisma__WorkItemClient<T, Null = never, ExtArgs extends runtime
   chatThreads<T extends Prisma.WorkItem$chatThreadsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$chatThreadsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatThreadPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   agentRuns<T extends Prisma.WorkItem$agentRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$agentRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   knowledgeRefreshRuns<T extends Prisma.WorkItem$knowledgeRefreshRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$knowledgeRefreshRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeRefreshRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  githubWebhookDeliveries<T extends Prisma.WorkItem$githubWebhookDeliveriesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$githubWebhookDeliveriesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   repositorySnapshots<T extends Prisma.WorkItem$repositorySnapshotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$repositorySnapshotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   knowledgeChanges<T extends Prisma.WorkItem$knowledgeChangesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$knowledgeChangesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   capabilityLedger<T extends Prisma.WorkItem$capabilityLedgerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorkItem$capabilityLedgerArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -3696,6 +3902,30 @@ export type WorkItem$knowledgeRefreshRunsArgs<ExtArgs extends runtime.Types.Exte
   take?: number
   skip?: number
   distinct?: Prisma.KnowledgeRefreshRunScalarFieldEnum | Prisma.KnowledgeRefreshRunScalarFieldEnum[]
+}
+
+/**
+ * WorkItem.githubWebhookDeliveries
+ */
+export type WorkItem$githubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the GitHubWebhookDelivery
+   */
+  select?: Prisma.GitHubWebhookDeliverySelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the GitHubWebhookDelivery
+   */
+  omit?: Prisma.GitHubWebhookDeliveryOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.GitHubWebhookDeliveryInclude<ExtArgs> | null
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+  orderBy?: Prisma.GitHubWebhookDeliveryOrderByWithRelationInput | Prisma.GitHubWebhookDeliveryOrderByWithRelationInput[]
+  cursor?: Prisma.GitHubWebhookDeliveryWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.GitHubWebhookDeliveryScalarFieldEnum | Prisma.GitHubWebhookDeliveryScalarFieldEnum[]
 }
 
 /**

@@ -84,7 +84,7 @@ export function policyScopedKnowledgeRefreshIdempotencyKey(baseKey: string) {
 }
 
 export function knowledgeRefreshBaseIdempotencyKey(input: {
-  trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+  trigger: "repository_attach" | "webhook_push" | "scheduled" | "manual" | "chat_freshness" | "backfill";
   requestedKey?: string;
   targets: Array<Pick<RepositoryTargetHead, "sourceId" | "commitSha">>;
 }) {
@@ -94,9 +94,10 @@ export function knowledgeRefreshBaseIdempotencyKey(input: {
       .sort()
       .join("|"),
   );
-  // Attach, scheduled, manual, and chat triggers are all ordinary requests for
-  // the same immutable repository state. Sharing a base key lets the caller
-  // coalesce their active work regardless of which surface won the race.
+  // Attach, webhook, scheduled, manual, and chat triggers are all ordinary
+  // requests for the same immutable repository state. Sharing a base key lets
+  // the caller coalesce their active work regardless of which surface won the
+  // race.
   // Backfills remain explicitly scoped because a knowledge edit may require a
   // forced revalidation even while an ordinary refresh is running.
   if (input.trigger !== "backfill") return `repository_heads:${headsHash}`;
@@ -361,7 +362,7 @@ async function createFileRows(
 export async function startKnowledgeRefresh(input: {
   userId: string;
   workItemId: string;
-  trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+  trigger: "repository_attach" | "webhook_push" | "scheduled" | "manual" | "chat_freshness" | "backfill";
   idempotencyKey?: string;
 }) {
   const workItem = await prisma.workItem.findFirst({

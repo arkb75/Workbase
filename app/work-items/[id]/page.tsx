@@ -130,6 +130,14 @@ function getRepositoryFullName(value: unknown) {
   return typeof repository?.fullName === "string" ? repository.fullName : null;
 }
 
+function getRepositoryRefreshMode(value: unknown) {
+  const metadata = readSourceMetadata(value);
+  const webhook = readSourceMetadata(metadata?.webhook);
+  return webhook?.status === "configured"
+    ? "live" as const
+    : "scheduled" as const;
+}
+
 function buildStatusMessage(params: {
   error?: string;
   result?: string;
@@ -1297,6 +1305,9 @@ export default async function WorkItemDetailPage({
                       visibleSources.map((source) => {
                         const importedAt = getSourceImportedAt(source.metadata);
                         const repositoryFullName = getRepositoryFullName(source.metadata);
+                        const refreshMode = source.type === "github_repo"
+                          ? getRepositoryRefreshMode(source.metadata)
+                          : null;
 
                         return (
                           <div
@@ -1309,6 +1320,11 @@ export default async function WorkItemDetailPage({
                               </Badge>
                               <Badge>{source.label}</Badge>
                               {importedAt ? <Badge>imported {formatDateTime(importedAt)}</Badge> : null}
+                              {refreshMode === "live"
+                                ? <Badge tone="success">live refresh</Badge>
+                                : refreshMode === "scheduled"
+                                  ? <Badge tone="warning">scheduled refresh</Badge>
+                                  : null}
                             </div>
                             <p className="mt-3 line-clamp-3 text-sm leading-6 text-[color:var(--ink-soft)]">
                               {source.rawContent ??

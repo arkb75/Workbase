@@ -127,9 +127,10 @@ describe("knowledge refresh start coalescing", () => {
     expect(prismaMock.knowledgeRefreshRun.upsert).toHaveBeenCalledOnce();
   });
 
-  it("uses one deterministic first-attempt key for attach, manual, scheduled, and chat races", async () => {
+  it("uses one deterministic first-attempt key for attach, webhook, manual, scheduled, and chat races", async () => {
     for (const [trigger, idempotencyKey] of [
       ["repository_attach", "attach:requested"],
+      ["webhook_push", "webhook:requested"],
       ["scheduled", "scheduled:requested"],
       ["manual", "manual:requested"],
       ["chat_freshness", "agent-run:requested"],

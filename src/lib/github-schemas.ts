@@ -34,6 +34,29 @@ export const githubRepositoryDetailSchema = githubRepositorySummarySchema.extend
   visibility: z.string().nullable().optional(),
 });
 
+export const githubRepositoryWebhookSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform((value) => String(value)),
+  name: z.string(),
+  active: z.boolean(),
+  events: z.array(z.string()),
+  config: z.object({
+    url: z.string().url().optional(),
+    content_type: z.string().optional(),
+    insecure_ssl: z.union([z.string(), z.number()]).optional(),
+  }).passthrough(),
+});
+
+export const githubPushWebhookSchema = z.object({
+  ref: z.string().min(1),
+  after: githubObjectIdSchema,
+  deleted: z.boolean().default(false),
+  repository: z.object({
+    id: z.union([z.string(), z.number()]).transform((value) => String(value)),
+    full_name: z.string().min(1),
+    default_branch: z.string().min(1),
+  }),
+});
+
 export const githubContentFileSchema = z.object({
   name: z.string().min(1),
   path: z.string().min(1),

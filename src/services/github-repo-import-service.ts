@@ -14,6 +14,7 @@ import {
   fetchGitHubRepositoryDetail,
   mapRepositorySummary,
 } from "@/src/services/github-client";
+import { configureRepositoryPushWebhook } from "@/src/services/github-webhook-service";
 import { summarizeEvidenceContent } from "@/src/lib/evidence-items";
 
 function toRepositoryJsonValue(repository: {
@@ -180,6 +181,11 @@ export const githubRepoImportService: GitHubRepoImportService = {
           revision,
         },
       },
+    });
+    const webhook = await configureRepositoryPushWebhook({
+      token,
+      owner,
+      repo,
     });
     const importedEvidenceItems = [
       ...(readme?.content
@@ -375,6 +381,7 @@ export const githubRepoImportService: GitHubRepoImportService = {
       importSummary: {
         repository: repositorySummary,
         importedAt,
+        webhook,
         counts: {
           github_readme: readme?.content ? 1 : 0,
           github_commit: commits.length,

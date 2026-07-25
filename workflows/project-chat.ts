@@ -248,6 +248,26 @@ async function terminalKnowledgeRefreshStatus(
     : null;
 }
 
+export function repositoryKnowledgeRefreshDebounceDelay(
+  trigger: string,
+): "5s" | null {
+  // Push bursts commonly contain several commits in quick succession. Give the
+  // generation lock a short window to replace an older head before any
+  // inventory, database promotion, or model work begins. Manual, scheduled,
+  // attach, and chat-triggered runs never pay this delay.
+  return trigger === "webhook_push" ? "5s" : null;
+}
+
+async function knowledgeRefreshTrigger(refreshRunId: string) {
+  "use step";
+  return (
+    await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+      where: { id: refreshRunId },
+      select: { trigger: true },
+    })
+  ).trigger;
+}
+
 function inactiveWorkflowResult(ownership: Exclude<
   AgentRunWorkflowOwnership,
   { status: "owned" }
@@ -1591,6 +1611,10 @@ export async function repositoryKnowledgeRefreshWorkflow(refreshRunId: string) {
         attachedWorkflowId: ownership.attachedWorkflowId,
       };
     }
+    const debounceDelay = repositoryKnowledgeRefreshDebounceDelay(
+      await knowledgeRefreshTrigger(refreshRunId),
+    );
+    if (debounceDelay) await sleep(debounceDelay);
     const beforeReadiness = await terminalKnowledgeRefreshStatus(refreshRunId);
     if (beforeReadiness) {
       return { status: beforeReadiness, replayed: true as const };

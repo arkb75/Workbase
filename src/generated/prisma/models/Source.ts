@@ -214,6 +214,7 @@ export type SourceWhereInput = {
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
 }
 
 export type SourceOrderByWithRelationInput = {
@@ -230,6 +231,7 @@ export type SourceOrderByWithRelationInput = {
   evidenceItems?: Prisma.EvidenceItemOrderByRelationAggregateInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   repositorySnapshots?: Prisma.RepositorySnapshotOrderByRelationAggregateInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryOrderByRelationAggregateInput
 }
 
 export type SourceWhereUniqueInput = Prisma.AtLeast<{
@@ -250,6 +252,7 @@ export type SourceWhereUniqueInput = Prisma.AtLeast<{
   evidenceItems?: Prisma.EvidenceItemListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   repositorySnapshots?: Prisma.RepositorySnapshotListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
 }, "id" | "workItemId_type_externalId">
 
 export type SourceOrderByWithAggregationInput = {
@@ -295,6 +298,7 @@ export type SourceCreateInput = {
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateInput = {
@@ -310,6 +314,7 @@ export type SourceUncheckedCreateInput = {
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUpdateInput = {
@@ -325,6 +330,7 @@ export type SourceUpdateInput = {
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateInput = {
@@ -340,6 +346,7 @@ export type SourceUncheckedUpdateInput = {
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyInput = {
@@ -483,6 +490,20 @@ export type EnumSourceTypeFieldUpdateOperationsInput = {
   set?: $Enums.SourceType
 }
 
+export type SourceCreateNestedOneWithoutGithubWebhookDeliveriesInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  connect?: Prisma.SourceWhereUniqueInput
+}
+
+export type SourceUpdateOneRequiredWithoutGithubWebhookDeliveriesNestedInput = {
+  create?: Prisma.XOR<Prisma.SourceCreateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.SourceCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  upsert?: Prisma.SourceUpsertWithoutGithubWebhookDeliveriesInput
+  connect?: Prisma.SourceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.SourceUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput, Prisma.SourceUpdateWithoutGithubWebhookDeliveriesInput>, Prisma.SourceUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+}
+
 export type SourceCreateNestedOneWithoutRepositorySnapshotsInput = {
   create?: Prisma.XOR<Prisma.SourceCreateWithoutRepositorySnapshotsInput, Prisma.SourceUncheckedCreateWithoutRepositorySnapshotsInput>
   connectOrCreate?: Prisma.SourceCreateOrConnectWithoutRepositorySnapshotsInput
@@ -539,6 +560,7 @@ export type SourceCreateWithoutWorkItemInput = {
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutWorkItemInput = {
@@ -553,6 +575,7 @@ export type SourceUncheckedCreateWithoutWorkItemInput = {
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutWorkItemInput = {
@@ -596,6 +619,82 @@ export type SourceScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"Source"> | Date | string
 }
 
+export type SourceCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
+  evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
+}
+
+export type SourceUncheckedCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  workItemId: string
+  type: $Enums.SourceType
+  label: string
+  externalId?: string | null
+  rawContent?: string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
+  chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
+}
+
+export type SourceCreateOrConnectWithoutGithubWebhookDeliveriesInput = {
+  where: Prisma.SourceWhereUniqueInput
+  create: Prisma.XOR<Prisma.SourceCreateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type SourceUpsertWithoutGithubWebhookDeliveriesInput = {
+  update: Prisma.XOR<Prisma.SourceUpdateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+  create: Prisma.XOR<Prisma.SourceCreateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  where?: Prisma.SourceWhereInput
+}
+
+export type SourceUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput = {
+  where?: Prisma.SourceWhereInput
+  data: Prisma.XOR<Prisma.SourceUpdateWithoutGithubWebhookDeliveriesInput, Prisma.SourceUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type SourceUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
+  evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
+}
+
+export type SourceUncheckedUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.EnumSourceTypeFieldUpdateOperationsInput | $Enums.SourceType
+  label?: Prisma.StringFieldUpdateOperationsInput | string
+  externalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rawContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
+  chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+  repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
+}
+
 export type SourceCreateWithoutRepositorySnapshotsInput = {
   id?: string
   type: $Enums.SourceType
@@ -608,6 +707,7 @@ export type SourceCreateWithoutRepositorySnapshotsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutRepositorySnapshotsInput = {
@@ -622,6 +722,7 @@ export type SourceUncheckedCreateWithoutRepositorySnapshotsInput = {
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutRepositorySnapshotsInput = {
@@ -652,6 +753,7 @@ export type SourceUpdateWithoutRepositorySnapshotsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutRepositorySnapshotsInput = {
@@ -666,6 +768,7 @@ export type SourceUncheckedUpdateWithoutRepositorySnapshotsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateWithoutEvidenceItemsInput = {
@@ -680,6 +783,7 @@ export type SourceCreateWithoutEvidenceItemsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
@@ -694,6 +798,7 @@ export type SourceUncheckedCreateWithoutEvidenceItemsInput = {
   updatedAt?: Date | string
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutEvidenceItemsInput = {
@@ -724,6 +829,7 @@ export type SourceUpdateWithoutEvidenceItemsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
@@ -738,6 +844,7 @@ export type SourceUncheckedUpdateWithoutEvidenceItemsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateWithoutChatCitationsInput = {
@@ -752,6 +859,7 @@ export type SourceCreateWithoutChatCitationsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutSourcesInput
   evidenceItems?: Prisma.EvidenceItemCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutSourceInput
 }
 
 export type SourceUncheckedCreateWithoutChatCitationsInput = {
@@ -766,6 +874,7 @@ export type SourceUncheckedCreateWithoutChatCitationsInput = {
   updatedAt?: Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedCreateNestedManyWithoutSourceInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutSourceInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutSourceInput
 }
 
 export type SourceCreateOrConnectWithoutChatCitationsInput = {
@@ -796,6 +905,7 @@ export type SourceUpdateWithoutChatCitationsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutSourcesNestedInput
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutChatCitationsInput = {
@@ -810,6 +920,7 @@ export type SourceUncheckedUpdateWithoutChatCitationsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceCreateManyWorkItemInput = {
@@ -835,6 +946,7 @@ export type SourceUpdateWithoutWorkItemInput = {
   evidenceItems?: Prisma.EvidenceItemUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateWithoutWorkItemInput = {
@@ -849,6 +961,7 @@ export type SourceUncheckedUpdateWithoutWorkItemInput = {
   evidenceItems?: Prisma.EvidenceItemUncheckedUpdateManyWithoutSourceNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutSourceNestedInput
   repositorySnapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutSourceNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutSourceNestedInput
 }
 
 export type SourceUncheckedUpdateManyWithoutWorkItemInput = {
@@ -871,12 +984,14 @@ export type SourceCountOutputType = {
   evidenceItems: number
   chatCitations: number
   repositorySnapshots: number
+  githubWebhookDeliveries: number
 }
 
 export type SourceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidenceItems?: boolean | SourceCountOutputTypeCountEvidenceItemsArgs
   chatCitations?: boolean | SourceCountOutputTypeCountChatCitationsArgs
   repositorySnapshots?: boolean | SourceCountOutputTypeCountRepositorySnapshotsArgs
+  githubWebhookDeliveries?: boolean | SourceCountOutputTypeCountGithubWebhookDeliveriesArgs
 }
 
 /**
@@ -910,6 +1025,13 @@ export type SourceCountOutputTypeCountRepositorySnapshotsArgs<ExtArgs extends ru
   where?: Prisma.RepositorySnapshotWhereInput
 }
 
+/**
+ * SourceCountOutputType without action
+ */
+export type SourceCountOutputTypeCountGithubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+}
+
 
 export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -925,6 +1047,7 @@ export type SourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
   repositorySnapshots?: boolean | Prisma.Source$repositorySnapshotsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.Source$githubWebhookDeliveriesArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["source"]>
 
@@ -972,6 +1095,7 @@ export type SourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   evidenceItems?: boolean | Prisma.Source$evidenceItemsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Source$chatCitationsArgs<ExtArgs>
   repositorySnapshots?: boolean | Prisma.Source$repositorySnapshotsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.Source$githubWebhookDeliveriesArgs<ExtArgs>
   _count?: boolean | Prisma.SourceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type SourceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -988,6 +1112,7 @@ export type $SourcePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
     evidenceItems: Prisma.$EvidenceItemPayload<ExtArgs>[]
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     repositorySnapshots: Prisma.$RepositorySnapshotPayload<ExtArgs>[]
+    githubWebhookDeliveries: Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1397,6 +1522,7 @@ export interface Prisma__SourceClient<T, Null = never, ExtArgs extends runtime.T
   evidenceItems<T extends Prisma.Source$evidenceItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$evidenceItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatCitations<T extends Prisma.Source$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   repositorySnapshots<T extends Prisma.Source$repositorySnapshotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$repositorySnapshotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  githubWebhookDeliveries<T extends Prisma.Source$githubWebhookDeliveriesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Source$githubWebhookDeliveriesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1905,6 +2031,30 @@ export type Source$repositorySnapshotsArgs<ExtArgs extends runtime.Types.Extensi
   take?: number
   skip?: number
   distinct?: Prisma.RepositorySnapshotScalarFieldEnum | Prisma.RepositorySnapshotScalarFieldEnum[]
+}
+
+/**
+ * Source.githubWebhookDeliveries
+ */
+export type Source$githubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the GitHubWebhookDelivery
+   */
+  select?: Prisma.GitHubWebhookDeliverySelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the GitHubWebhookDelivery
+   */
+  omit?: Prisma.GitHubWebhookDeliveryOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.GitHubWebhookDeliveryInclude<ExtArgs> | null
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+  orderBy?: Prisma.GitHubWebhookDeliveryOrderByWithRelationInput | Prisma.GitHubWebhookDeliveryOrderByWithRelationInput[]
+  cursor?: Prisma.GitHubWebhookDeliveryWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.GitHubWebhookDeliveryScalarFieldEnum | Prisma.GitHubWebhookDeliveryScalarFieldEnum[]
 }
 
 /**
