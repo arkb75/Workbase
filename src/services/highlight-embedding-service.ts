@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "crypto";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import { fromIni } from "@aws-sdk/credential-providers";
 import type { ClaimDraft, ClaimSnapshot, HighlightTagAssignment } from "@/src/domain/types";
 import { Prisma } from "@/src/generated/prisma/client";
+import { createAwsCredentials } from "@/src/lib/aws-credentials";
 import { resolveBedrockEmbeddingConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -59,11 +59,7 @@ function getBedrockEmbeddingClient() {
     const config = resolveBedrockEmbeddingConfig();
     cachedEmbeddingClient = new BedrockRuntimeClient({
       region: config.region,
-      credentials: config.profile
-        ? fromIni({
-            profile: config.profile,
-          })
-        : undefined,
+      credentials: createAwsCredentials(config),
     });
   }
 
