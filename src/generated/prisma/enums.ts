@@ -449,3 +449,14 @@ export const KnowledgeChangeDecision = {
 } as const
 
 export type KnowledgeChangeDecision = (typeof KnowledgeChangeDecision)[keyof typeof KnowledgeChangeDecision]
+
+
+export const EmbeddingIndexStatus = {
+  building: 'building',
+  ready: 'ready',
+  active: 'active',
+  failed: 'failed',
+  retired: 'retired'
+} as const
+
+export type EmbeddingIndexStatus = (typeof EmbeddingIndexStatus)[keyof typeof EmbeddingIndexStatus]

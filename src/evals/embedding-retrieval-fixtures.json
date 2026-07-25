@@ -1,0 +1,85 @@
+{
+  "name": "workbase-real-world-project-fact-retrieval-v1",
+  "baselineThresholds": {
+    "recallAt10": 1,
+    "mrr": 0.8125,
+    "meanLatencyMs": 742
+  },
+  "queries": [
+    {
+      "id": "durable_chat",
+      "query": "How does durable project chat prevent duplicate work and resume safely?",
+      "required": {
+        "projectFacts": [
+          "cmrsq1176009rq0wuow48d8fv"
+        ]
+      }
+    },
+    {
+      "id": "repository_knowledge",
+      "query": "How are repository files analyzed and turned into durable reusable project knowledge?",
+      "required": {
+        "projectFacts": [
+          [
+            "cmrsq14y900a0q0wub9s0xmna",
+            "cmrsp1sff00ggdiwudiffecxg"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "hybrid_retrieval",
+      "query": "How does Workbase combine lexical and vector retrieval while grounding source provenance?",
+      "required": {
+        "projectFacts": [
+          "cmrsq20px00d0q0wu8lckm8us"
+        ]
+      }
+    },
+    {
+      "id": "artifact_metrics",
+      "query": "How does artifact generation avoid inventing unsupported production metrics?",
+      "required": {
+        "projectFacts": [
+          "cmrsq1e7700aoq0wu37bt5qj5"
+        ]
+      }
+    },
+    {
+      "id": "model_runtime",
+      "query": "How does the AI model runtime enforce tool and token budgets and redact credentials?",
+      "required": {
+        "projectFacts": [
+          "cmrsp2m7000jddiwutz2wr5zl"
+        ]
+      }
+    },
+    {
+      "id": "review_successors",
+      "query": "How do review edits preserve immutable successors and refresh embeddings?",
+      "required": {
+        "projectFacts": [
+          "cmrsq1i2j00b5q0wusnaxyw40"
+        ]
+      }
+    },
+    {
+      "id": "github_import",
+      "query": "How is GitHub ingestion bounded and anchored to one project source?",
+      "required": {
+        "projectFacts": [
+          "cms0x95nb00ely6unw7dqo9wm"
+        ]
+      }
+    },
+    {
+      "id": "inline_citations",
+      "query": "How do inline citation ordinals navigate users to evidence?",
+      "required": {
+        "projectFacts": [
+          "cmrva7grd00dz7xunjp1511za"
+        ]
+      }
+    }
+  ]
+}

@@ -326,6 +326,14 @@ enum KnowledgeChangeDecision {
   retired
 }
 
+enum EmbeddingIndexStatus {
+  building
+  ready
+  active
+  failed
+  retired
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String            @unique
@@ -624,7 +632,7 @@ model EvidenceItem {
   highlightEvidence         HighlightEvidence[]
   projectFactEvidence       ProjectFactEvidence[]
   tags                      EvidenceTag[]
-  embedding                 EvidenceEmbedding?
+  embeddings                EvidenceEmbedding[]
   chatCitations             ChatCitation[]
   artifactProvenance        ArtifactEvidenceProvenance[]
   knowledgeChanges          KnowledgeChange[]
@@ -683,7 +691,7 @@ model Highlight {
   supersededByHighlights Highlight[]                   @relation("HighlightSupersession")
   evidence               HighlightEvidence[]
   tags                   HighlightTag[]
-  embedding              HighlightEmbedding?
+  embeddings             HighlightEmbedding[]
   suggestions            HighlightSuggestion[]
   chatCitations          ChatCitation[]
   artifactProvenance     ArtifactHighlightProvenance[]
@@ -698,18 +706,23 @@ model Highlight {
 }
 
 model HighlightEmbedding {
-  id          String                     @id @default(cuid())
-  highlightId String                     @unique
-  modelId     String
-  dimensions  Int
-  inputHash   String
-  inputText   String
-  embedding   Unsupported("vector(512)")
-  highlight   Highlight                  @relation(fields: [highlightId], references: [id], onDelete: Cascade)
-  createdAt   DateTime                   @default(now())
-  updatedAt   DateTime                   @updatedAt
+  id             String                     @id @default(cuid())
+  highlightId    String
+  indexVersionId String
+  modelId        String
+  dimensions     Int
+  inputHash      String
+  inputText      String
+  embedding      Unsupported("vector(512)")
+  inputTokens    Int?
+  costUsd        Decimal?                   @db.Decimal(18, 10)
+  highlight      Highlight                  @relation(fields: [highlightId], references: [id], onDelete: Cascade)
+  indexVersion   EmbeddingIndexVersion      @relation(fields: [indexVersionId], references: [id], onDelete: Restrict)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
 
-  @@index([highlightId])
+  @@unique([highlightId, indexVersionId])
+  @@index([indexVersionId])
 }
 
 model ProjectFact {
@@ -739,7 +752,7 @@ model ProjectFact {
   distinctiveness          Int?
   workItem                 WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   evidence                 ProjectFactEvidence[]
-  embedding                ProjectFactEmbedding?
+  embeddings               ProjectFactEmbedding[]
   chatCitations            ChatCitation[]
   agentRunCandidates       AgentRunCandidate[]
   supersedesProjectFact    ProjectFact?             @relation("ProjectFactSupersession", fields: [supersedesProjectFactId], references: [id], onDelete: SetNull)
@@ -768,33 +781,43 @@ model ProjectFactEvidence {
 }
 
 model ProjectFactEmbedding {
-  id            String                     @id @default(cuid())
-  projectFactId String                     @unique
-  modelId       String
-  dimensions    Int
-  inputHash     String
-  inputText     String
-  embedding     Unsupported("vector(512)")
-  projectFact   ProjectFact                @relation(fields: [projectFactId], references: [id], onDelete: Cascade)
-  createdAt     DateTime                   @default(now())
-  updatedAt     DateTime                   @updatedAt
-
-  @@index([projectFactId])
-}
-
-model EvidenceEmbedding {
   id             String                     @id @default(cuid())
-  evidenceItemId String                     @unique
+  projectFactId  String
+  indexVersionId String
   modelId        String
   dimensions     Int
   inputHash      String
   inputText      String
   embedding      Unsupported("vector(512)")
-  evidenceItem   EvidenceItem               @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  inputTokens    Int?
+  costUsd        Decimal?                   @db.Decimal(18, 10)
+  projectFact    ProjectFact                @relation(fields: [projectFactId], references: [id], onDelete: Cascade)
+  indexVersion   EmbeddingIndexVersion      @relation(fields: [indexVersionId], references: [id], onDelete: Restrict)
   createdAt      DateTime                   @default(now())
   updatedAt      DateTime                   @updatedAt
 
-  @@index([evidenceItemId])
+  @@unique([projectFactId, indexVersionId])
+  @@index([indexVersionId])
+}
+
+model EvidenceEmbedding {
+  id             String                     @id @default(cuid())
+  evidenceItemId String
+  indexVersionId String
+  modelId        String
+  dimensions     Int
+  inputHash      String
+  inputText      String
+  embedding      Unsupported("vector(512)")
+  inputTokens    Int?
+  costUsd        Decimal?                   @db.Decimal(18, 10)
+  evidenceItem   EvidenceItem               @relation(fields: [evidenceItemId], references: [id], onDelete: Cascade)
+  indexVersion   EmbeddingIndexVersion      @relation(fields: [indexVersionId], references: [id], onDelete: Restrict)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@unique([evidenceItemId, indexVersionId])
+  @@index([indexVersionId])
 }
 
 model HighlightSuggestion {
@@ -869,7 +892,7 @@ model Artifact {
   originatingAgentRun   AgentRun?                     @relation(fields: [originatingAgentRunId], references: [id], onDelete: SetNull)
   supersedesArtifact    Artifact?                     @relation("ArtifactSupersession", fields: [supersedesArtifactId], references: [id], onDelete: SetNull)
   supersededByArtifacts Artifact[]                    @relation("ArtifactSupersession")
-  embedding             ArtifactEmbedding?
+  embeddings            ArtifactEmbedding[]
   chatCitations         ChatCitation[]
   highlightProvenance   ArtifactHighlightProvenance[]
   evidenceProvenance    ArtifactEvidenceProvenance[]
@@ -883,18 +906,62 @@ model Artifact {
 }
 
 model ArtifactEmbedding {
-  id         String                     @id @default(cuid())
-  artifactId String                     @unique
-  modelId    String
-  dimensions Int
-  inputHash  String
-  inputText  String
-  embedding  Unsupported("vector(512)")
-  artifact   Artifact                   @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  createdAt  DateTime                   @default(now())
-  updatedAt  DateTime                   @updatedAt
+  id             String                     @id @default(cuid())
+  artifactId     String
+  indexVersionId String
+  modelId        String
+  dimensions     Int
+  inputHash      String
+  inputText      String
+  embedding      Unsupported("vector(512)")
+  inputTokens    Int?
+  costUsd        Decimal?                   @db.Decimal(18, 10)
+  artifact       Artifact                   @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  indexVersion   EmbeddingIndexVersion      @relation(fields: [indexVersionId], references: [id], onDelete: Restrict)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
 
-  @@index([artifactId])
+  @@unique([artifactId, indexVersionId])
+  @@index([indexVersionId])
+}
+
+model EmbeddingIndexVersion {
+  id                    String                  @id @default(cuid())
+  key                   String                  @unique
+  provider              String
+  modelId               String
+  dimensions            Int
+  status                EmbeddingIndexStatus    @default(building)
+  writeEnabled          Boolean                 @default(true)
+  baseActivationEpoch   Int
+  buildStartedAt        DateTime                @default(now())
+  buildCompletedAt      DateTime?
+  reconciledAt          DateTime?
+  activatedAt           DateTime?
+  validation            Json?
+  qualityGatePassed     Boolean                 @default(false)
+  qualityValidatedAt    DateTime?
+  qualityReport         Json?
+  lastError             Json?
+  highlightEmbeddings   HighlightEmbedding[]
+  projectFactEmbeddings ProjectFactEmbedding[]
+  evidenceEmbeddings    EvidenceEmbedding[]
+  artifactEmbeddings    ArtifactEmbedding[]
+  activeControls        EmbeddingIndexControl[] @relation("ActiveEmbeddingIndexVersion")
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([status, writeEnabled])
+}
+
+model EmbeddingIndexControl {
+  id              String                @id
+  activeVersionId String                @unique
+  activationEpoch Int                   @default(0)
+  writeSetEpoch   Int                   @default(0)
+  activeVersion   EmbeddingIndexVersion @relation("ActiveEmbeddingIndexVersion", fields: [activeVersionId], references: [id], onDelete: Restrict)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 }
 
 model ArtifactHighlightProvenance {

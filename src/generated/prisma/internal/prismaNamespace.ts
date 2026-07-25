@@ -407,6 +407,8 @@ export const ModelName = {
   HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
   ArtifactEmbedding: 'ArtifactEmbedding',
+  EmbeddingIndexVersion: 'EmbeddingIndexVersion',
+  EmbeddingIndexControl: 'EmbeddingIndexControl',
   ArtifactHighlightProvenance: 'ArtifactHighlightProvenance',
   ArtifactEvidenceProvenance: 'ArtifactEvidenceProvenance',
   ChatThread: 'ChatThread',
@@ -431,7 +433,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "knowledgeRefreshRun" | "gitHubWebhookDelivery" | "repositorySnapshot" | "repositoryFileSnapshot" | "repositoryCapabilityLedger" | "knowledgeChange" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "knowledgeRefreshRun" | "gitHubWebhookDelivery" | "repositorySnapshot" | "repositoryFileSnapshot" | "repositoryCapabilityLedger" | "knowledgeChange" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "embeddingIndexVersion" | "embeddingIndexControl" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2073,6 +2075,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    EmbeddingIndexVersion: {
+      payload: Prisma.$EmbeddingIndexVersionPayload<ExtArgs>
+      fields: Prisma.EmbeddingIndexVersionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.EmbeddingIndexVersionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.EmbeddingIndexVersionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        findFirst: {
+          args: Prisma.EmbeddingIndexVersionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.EmbeddingIndexVersionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        findMany: {
+          args: Prisma.EmbeddingIndexVersionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>[]
+        }
+        create: {
+          args: Prisma.EmbeddingIndexVersionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        createMany: {
+          args: Prisma.EmbeddingIndexVersionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.EmbeddingIndexVersionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>[]
+        }
+        delete: {
+          args: Prisma.EmbeddingIndexVersionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        update: {
+          args: Prisma.EmbeddingIndexVersionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        deleteMany: {
+          args: Prisma.EmbeddingIndexVersionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.EmbeddingIndexVersionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.EmbeddingIndexVersionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>[]
+        }
+        upsert: {
+          args: Prisma.EmbeddingIndexVersionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexVersionPayload>
+        }
+        aggregate: {
+          args: Prisma.EmbeddingIndexVersionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEmbeddingIndexVersion>
+        }
+        groupBy: {
+          args: Prisma.EmbeddingIndexVersionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EmbeddingIndexVersionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.EmbeddingIndexVersionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EmbeddingIndexVersionCountAggregateOutputType> | number
+        }
+      }
+    }
+    EmbeddingIndexControl: {
+      payload: Prisma.$EmbeddingIndexControlPayload<ExtArgs>
+      fields: Prisma.EmbeddingIndexControlFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.EmbeddingIndexControlFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.EmbeddingIndexControlFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        findFirst: {
+          args: Prisma.EmbeddingIndexControlFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.EmbeddingIndexControlFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        findMany: {
+          args: Prisma.EmbeddingIndexControlFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>[]
+        }
+        create: {
+          args: Prisma.EmbeddingIndexControlCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        createMany: {
+          args: Prisma.EmbeddingIndexControlCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.EmbeddingIndexControlCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>[]
+        }
+        delete: {
+          args: Prisma.EmbeddingIndexControlDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        update: {
+          args: Prisma.EmbeddingIndexControlUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        deleteMany: {
+          args: Prisma.EmbeddingIndexControlDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.EmbeddingIndexControlUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.EmbeddingIndexControlUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>[]
+        }
+        upsert: {
+          args: Prisma.EmbeddingIndexControlUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$EmbeddingIndexControlPayload>
+        }
+        aggregate: {
+          args: Prisma.EmbeddingIndexControlAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateEmbeddingIndexControl>
+        }
+        groupBy: {
+          args: Prisma.EmbeddingIndexControlGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EmbeddingIndexControlGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.EmbeddingIndexControlCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.EmbeddingIndexControlCountAggregateOutputType> | number
+        }
+      }
+    }
     ArtifactHighlightProvenance: {
       payload: Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>
       fields: Prisma.ArtifactHighlightProvenanceFieldRefs
@@ -3067,10 +3217,13 @@ export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof t
 export const HighlightEmbeddingScalarFieldEnum = {
   id: 'id',
   highlightId: 'highlightId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -3124,10 +3277,13 @@ export type ProjectFactEvidenceScalarFieldEnum = (typeof ProjectFactEvidenceScal
 export const ProjectFactEmbeddingScalarFieldEnum = {
   id: 'id',
   projectFactId: 'projectFactId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -3138,10 +3294,13 @@ export type ProjectFactEmbeddingScalarFieldEnum = (typeof ProjectFactEmbeddingSc
 export const EvidenceEmbeddingScalarFieldEnum = {
   id: 'id',
   evidenceItemId: 'evidenceItemId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -3221,15 +3380,55 @@ export type ArtifactScalarFieldEnum = (typeof ArtifactScalarFieldEnum)[keyof typ
 export const ArtifactEmbeddingScalarFieldEnum = {
   id: 'id',
   artifactId: 'artifactId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type ArtifactEmbeddingScalarFieldEnum = (typeof ArtifactEmbeddingScalarFieldEnum)[keyof typeof ArtifactEmbeddingScalarFieldEnum]
+
+
+export const EmbeddingIndexVersionScalarFieldEnum = {
+  id: 'id',
+  key: 'key',
+  provider: 'provider',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  status: 'status',
+  writeEnabled: 'writeEnabled',
+  baseActivationEpoch: 'baseActivationEpoch',
+  buildStartedAt: 'buildStartedAt',
+  buildCompletedAt: 'buildCompletedAt',
+  reconciledAt: 'reconciledAt',
+  activatedAt: 'activatedAt',
+  validation: 'validation',
+  qualityGatePassed: 'qualityGatePassed',
+  qualityValidatedAt: 'qualityValidatedAt',
+  qualityReport: 'qualityReport',
+  lastError: 'lastError',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EmbeddingIndexVersionScalarFieldEnum = (typeof EmbeddingIndexVersionScalarFieldEnum)[keyof typeof EmbeddingIndexVersionScalarFieldEnum]
+
+
+export const EmbeddingIndexControlScalarFieldEnum = {
+  id: 'id',
+  activeVersionId: 'activeVersionId',
+  activationEpoch: 'activationEpoch',
+  writeSetEpoch: 'writeSetEpoch',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EmbeddingIndexControlScalarFieldEnum = (typeof EmbeddingIndexControlScalarFieldEnum)[keyof typeof EmbeddingIndexControlScalarFieldEnum]
 
 
 export const ArtifactHighlightProvenanceScalarFieldEnum = {
@@ -3886,6 +4085,20 @@ export type ListEnumVisibilityLevelFieldRefInput<$PrismaModel> = FieldRefInputTy
 
 
 /**
+ * Reference to a field of type 'Decimal'
+ */
+export type DecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal'>
+
+
+
+/**
+ * Reference to a field of type 'Decimal[]'
+ */
+export type ListDecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal[]'>
+
+
+
+/**
  * Reference to a field of type 'ProjectFactCategory'
  */
 export type EnumProjectFactCategoryFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectFactCategory'>
@@ -3967,6 +4180,20 @@ export type EnumArtifactToneFieldRefInput<$PrismaModel> = FieldRefInputType<$Pri
  */
 export type ListEnumArtifactToneFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ArtifactTone[]'>
     
+
+
+/**
+ * Reference to a field of type 'EmbeddingIndexStatus'
+ */
+export type EnumEmbeddingIndexStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EmbeddingIndexStatus'>
+
+
+
+/**
+ * Reference to a field of type 'EmbeddingIndexStatus[]'
+ */
+export type ListEnumEmbeddingIndexStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EmbeddingIndexStatus[]'>
+
 
 
 /**
@@ -4226,6 +4453,8 @@ export type GlobalOmitConfig = {
   highlightTag?: Prisma.HighlightTagOmit
   artifact?: Prisma.ArtifactOmit
   artifactEmbedding?: Prisma.ArtifactEmbeddingOmit
+  embeddingIndexVersion?: Prisma.EmbeddingIndexVersionOmit
+  embeddingIndexControl?: Prisma.EmbeddingIndexControlOmit
   artifactHighlightProvenance?: Prisma.ArtifactHighlightProvenanceOmit
   artifactEvidenceProvenance?: Prisma.ArtifactEvidenceProvenanceOmit
   chatThread?: Prisma.ChatThreadOmit

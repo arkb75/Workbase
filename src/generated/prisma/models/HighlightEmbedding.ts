@@ -28,19 +28,26 @@ export type AggregateHighlightEmbedding = {
 
 export type HighlightEmbeddingAvgAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type HighlightEmbeddingSumAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type HighlightEmbeddingMinAggregateOutputType = {
   id: string | null
   highlightId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,10 +55,13 @@ export type HighlightEmbeddingMinAggregateOutputType = {
 export type HighlightEmbeddingMaxAggregateOutputType = {
   id: string | null
   highlightId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -59,10 +69,13 @@ export type HighlightEmbeddingMaxAggregateOutputType = {
 export type HighlightEmbeddingCountAggregateOutputType = {
   id: number
   highlightId: number
+  indexVersionId: number
   modelId: number
   dimensions: number
   inputHash: number
   inputText: number
+  inputTokens: number
+  costUsd: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -71,19 +84,26 @@ export type HighlightEmbeddingCountAggregateOutputType = {
 
 export type HighlightEmbeddingAvgAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type HighlightEmbeddingSumAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type HighlightEmbeddingMinAggregateInputType = {
   id?: true
   highlightId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -91,10 +111,13 @@ export type HighlightEmbeddingMinAggregateInputType = {
 export type HighlightEmbeddingMaxAggregateInputType = {
   id?: true
   highlightId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,10 +125,13 @@ export type HighlightEmbeddingMaxAggregateInputType = {
 export type HighlightEmbeddingCountAggregateInputType = {
   id?: true
   highlightId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -200,10 +226,13 @@ export type HighlightEmbeddingGroupByArgs<ExtArgs extends runtime.Types.Extensio
 export type HighlightEmbeddingGroupByOutputType = {
   id: string
   highlightId: string
+  indexVersionId: string
   modelId: string
   dimensions: number
   inputHash: string
   inputText: string
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date
   updatedAt: Date
   _count: HighlightEmbeddingCountAggregateOutputType | null
@@ -234,49 +263,65 @@ export type HighlightEmbeddingWhereInput = {
   NOT?: Prisma.HighlightEmbeddingWhereInput | Prisma.HighlightEmbeddingWhereInput[]
   id?: Prisma.StringFilter<"HighlightEmbedding"> | string
   highlightId?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"HighlightEmbedding"> | string
   modelId?: Prisma.StringFilter<"HighlightEmbedding"> | string
   dimensions?: Prisma.IntFilter<"HighlightEmbedding"> | number
   inputHash?: Prisma.StringFilter<"HighlightEmbedding"> | string
   inputText?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"HighlightEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"HighlightEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
   highlight?: Prisma.XOR<Prisma.HighlightScalarRelationFilter, Prisma.HighlightWhereInput>
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
 }
 
 export type HighlightEmbeddingOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   highlight?: Prisma.HighlightOrderByWithRelationInput
+  indexVersion?: Prisma.EmbeddingIndexVersionOrderByWithRelationInput
 }
 
 export type HighlightEmbeddingWhereUniqueInput = Prisma.AtLeast<{
   id?: string
-  highlightId?: string
+  highlightId_indexVersionId?: Prisma.HighlightEmbeddingHighlightIdIndexVersionIdCompoundUniqueInput
   AND?: Prisma.HighlightEmbeddingWhereInput | Prisma.HighlightEmbeddingWhereInput[]
   OR?: Prisma.HighlightEmbeddingWhereInput[]
   NOT?: Prisma.HighlightEmbeddingWhereInput | Prisma.HighlightEmbeddingWhereInput[]
+  highlightId?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"HighlightEmbedding"> | string
   modelId?: Prisma.StringFilter<"HighlightEmbedding"> | string
   dimensions?: Prisma.IntFilter<"HighlightEmbedding"> | number
   inputHash?: Prisma.StringFilter<"HighlightEmbedding"> | string
   inputText?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"HighlightEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"HighlightEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
   highlight?: Prisma.XOR<Prisma.HighlightScalarRelationFilter, Prisma.HighlightWhereInput>
-}, "id" | "highlightId">
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
+}, "id" | "highlightId_indexVersionId">
 
 export type HighlightEmbeddingOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.HighlightEmbeddingCountOrderByAggregateInput
@@ -292,10 +337,13 @@ export type HighlightEmbeddingScalarWhereWithAggregatesInput = {
   NOT?: Prisma.HighlightEmbeddingScalarWhereWithAggregatesInput | Prisma.HighlightEmbeddingScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
   highlightId?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
+  indexVersionId?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
   modelId?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
   dimensions?: Prisma.IntWithAggregatesFilter<"HighlightEmbedding"> | number
   inputHash?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
   inputText?: Prisma.StringWithAggregatesFilter<"HighlightEmbedding"> | string
+  inputTokens?: Prisma.IntNullableWithAggregatesFilter<"HighlightEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableWithAggregatesFilter<"HighlightEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"HighlightEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"HighlightEmbedding"> | Date | string
 }
@@ -306,18 +354,24 @@ export type HighlightEmbeddingUpdateInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  highlight?: Prisma.HighlightUpdateOneRequiredWithoutEmbeddingNestedInput
+  highlight?: Prisma.HighlightUpdateOneRequiredWithoutEmbeddingsNestedInput
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutHighlightEmbeddingsNestedInput
 }
 
 export type HighlightEmbeddingUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -328,6 +382,8 @@ export type HighlightEmbeddingUpdateManyMutationInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -335,41 +391,62 @@ export type HighlightEmbeddingUpdateManyMutationInput = {
 export type HighlightEmbeddingUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   highlightId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type HighlightEmbeddingNullableScalarRelationFilter = {
-  is?: Prisma.HighlightEmbeddingWhereInput | null
-  isNot?: Prisma.HighlightEmbeddingWhereInput | null
+export type HighlightEmbeddingListRelationFilter = {
+  every?: Prisma.HighlightEmbeddingWhereInput
+  some?: Prisma.HighlightEmbeddingWhereInput
+  none?: Prisma.HighlightEmbeddingWhereInput
+}
+
+export type HighlightEmbeddingOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
+}
+
+export type HighlightEmbeddingHighlightIdIndexVersionIdCompoundUniqueInput = {
+  highlightId: string
+  indexVersionId: string
 }
 
 export type HighlightEmbeddingCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type HighlightEmbeddingAvgOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
 export type HighlightEmbeddingMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -377,43 +454,122 @@ export type HighlightEmbeddingMaxOrderByAggregateInput = {
 export type HighlightEmbeddingMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   highlightId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type HighlightEmbeddingSumOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
-export type HighlightEmbeddingCreateNestedOneWithoutHighlightInput = {
-  connect?: Prisma.HighlightEmbeddingWhereUniqueInput
+export type HighlightEmbeddingCreateNestedManyWithoutHighlightInput = {
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
 }
 
-export type HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput = {
-  connect?: Prisma.HighlightEmbeddingWhereUniqueInput
+export type HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput = {
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
 }
 
-export type HighlightEmbeddingUpdateOneWithoutHighlightNestedInput = {
-  disconnect?: Prisma.HighlightEmbeddingWhereInput | boolean
-  delete?: Prisma.HighlightEmbeddingWhereInput | boolean
-  connect?: Prisma.HighlightEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightEmbeddingUpdateToOneWithWhereWithoutHighlightInput, Prisma.HighlightEmbeddingUpdateWithoutHighlightInput>, Prisma.HighlightEmbeddingUncheckedUpdateWithoutHighlightInput>
+export type HighlightEmbeddingUpdateManyWithoutHighlightNestedInput = {
+  set?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  delete?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  update?: Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutHighlightInput | Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutHighlightInput[]
+  updateMany?: Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutHighlightInput | Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutHighlightInput[]
+  deleteMany?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
 }
 
-export type HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput = {
-  disconnect?: Prisma.HighlightEmbeddingWhereInput | boolean
-  delete?: Prisma.HighlightEmbeddingWhereInput | boolean
-  connect?: Prisma.HighlightEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightEmbeddingUpdateToOneWithWhereWithoutHighlightInput, Prisma.HighlightEmbeddingUpdateWithoutHighlightInput>, Prisma.HighlightEmbeddingUncheckedUpdateWithoutHighlightInput>
+export type HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput = {
+  set?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  delete?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  update?: Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutHighlightInput | Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutHighlightInput[]
+  updateMany?: Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutHighlightInput | Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutHighlightInput[]
+  deleteMany?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
 }
 
-export type HighlightEmbeddingUpdateToOneWithWhereWithoutHighlightInput = {
-  where?: Prisma.HighlightEmbeddingWhereInput
+export type NullableDecimalFieldUpdateOperationsInput = {
+  set?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  increment?: runtime.Decimal | runtime.DecimalJsLike | number | string
+  decrement?: runtime.Decimal | runtime.DecimalJsLike | number | string
+  multiply?: runtime.Decimal | runtime.DecimalJsLike | number | string
+  divide?: runtime.Decimal | runtime.DecimalJsLike | number | string
+}
+
+export type HighlightEmbeddingCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+}
+
+export type HighlightEmbeddingUncheckedCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+}
+
+export type HighlightEmbeddingUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  delete?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  update?: Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
+}
+
+export type HighlightEmbeddingUncheckedUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  delete?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  connect?: Prisma.HighlightEmbeddingWhereUniqueInput | Prisma.HighlightEmbeddingWhereUniqueInput[]
+  update?: Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.HighlightEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.HighlightEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
+}
+
+export type HighlightEmbeddingUpdateWithWhereUniqueWithoutHighlightInput = {
+  where: Prisma.HighlightEmbeddingWhereUniqueInput
   data: Prisma.XOR<Prisma.HighlightEmbeddingUpdateWithoutHighlightInput, Prisma.HighlightEmbeddingUncheckedUpdateWithoutHighlightInput>
+}
+
+export type HighlightEmbeddingUpdateManyWithWhereWithoutHighlightInput = {
+  where: Prisma.HighlightEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.HighlightEmbeddingUpdateManyMutationInput, Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightInput>
+}
+
+export type HighlightEmbeddingScalarWhereInput = {
+  AND?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
+  OR?: Prisma.HighlightEmbeddingScalarWhereInput[]
+  NOT?: Prisma.HighlightEmbeddingScalarWhereInput | Prisma.HighlightEmbeddingScalarWhereInput[]
+  id?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  highlightId?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  modelId?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  dimensions?: Prisma.IntFilter<"HighlightEmbedding"> | number
+  inputHash?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  inputText?: Prisma.StringFilter<"HighlightEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"HighlightEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"HighlightEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"HighlightEmbedding"> | Date | string
+}
+
+export type HighlightEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput = {
+  where: Prisma.HighlightEmbeddingWhereUniqueInput
+  data: Prisma.XOR<Prisma.HighlightEmbeddingUpdateWithoutIndexVersionInput, Prisma.HighlightEmbeddingUncheckedUpdateWithoutIndexVersionInput>
+}
+
+export type HighlightEmbeddingUpdateManyWithWhereWithoutIndexVersionInput = {
+  where: Prisma.HighlightEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.HighlightEmbeddingUpdateManyMutationInput, Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutIndexVersionInput>
 }
 
 export type HighlightEmbeddingUpdateWithoutHighlightInput = {
@@ -422,16 +578,74 @@ export type HighlightEmbeddingUpdateWithoutHighlightInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutHighlightEmbeddingsNestedInput
+}
+
+export type HighlightEmbeddingUncheckedUpdateWithoutHighlightInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type HighlightEmbeddingUncheckedUpdateWithoutHighlightInput = {
+export type HighlightEmbeddingUncheckedUpdateManyWithoutHighlightInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type HighlightEmbeddingUpdateWithoutIndexVersionInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  highlight?: Prisma.HighlightUpdateOneRequiredWithoutEmbeddingsNestedInput
+}
+
+export type HighlightEmbeddingUncheckedUpdateWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  highlightId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type HighlightEmbeddingUncheckedUpdateManyWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  highlightId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -441,59 +655,76 @@ export type HighlightEmbeddingUncheckedUpdateWithoutHighlightInput = {
 export type HighlightEmbeddingSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   highlightId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   highlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["highlightEmbedding"]>
 
 
 export type HighlightEmbeddingSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   highlightId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   highlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["highlightEmbedding"]>
 
 export type HighlightEmbeddingSelectScalar = {
   id?: boolean
   highlightId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type HighlightEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "highlightId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "createdAt" | "updatedAt", ExtArgs["result"]["highlightEmbedding"]>
+export type HighlightEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "highlightId" | "indexVersionId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "inputTokens" | "costUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["highlightEmbedding"]>
 export type HighlightEmbeddingInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   highlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 export type HighlightEmbeddingIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   highlight?: boolean | Prisma.HighlightDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 
 export type $HighlightEmbeddingPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "HighlightEmbedding"
   objects: {
     highlight: Prisma.$HighlightPayload<ExtArgs>
+    indexVersion: Prisma.$EmbeddingIndexVersionPayload<ExtArgs>
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     highlightId: string
+    indexVersionId: string
     modelId: string
     dimensions: number
     inputHash: string
     inputText: string
+    inputTokens: number | null
+    costUsd: runtime.Decimal | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["highlightEmbedding"]>
@@ -820,6 +1051,7 @@ readonly fields: HighlightEmbeddingFieldRefs;
 export interface Prisma__HighlightEmbeddingClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   highlight<T extends Prisma.HighlightDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.HighlightDefaultArgs<ExtArgs>>): Prisma.Prisma__HighlightClient<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  indexVersion<T extends Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>>): Prisma.Prisma__EmbeddingIndexVersionClient<runtime.Types.Result.GetResult<Prisma.$EmbeddingIndexVersionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -851,10 +1083,13 @@ export interface Prisma__HighlightEmbeddingClient<T, Null = never, ExtArgs exten
 export interface HighlightEmbeddingFieldRefs {
   readonly id: Prisma.FieldRef<"HighlightEmbedding", 'String'>
   readonly highlightId: Prisma.FieldRef<"HighlightEmbedding", 'String'>
+  readonly indexVersionId: Prisma.FieldRef<"HighlightEmbedding", 'String'>
   readonly modelId: Prisma.FieldRef<"HighlightEmbedding", 'String'>
   readonly dimensions: Prisma.FieldRef<"HighlightEmbedding", 'Int'>
   readonly inputHash: Prisma.FieldRef<"HighlightEmbedding", 'String'>
   readonly inputText: Prisma.FieldRef<"HighlightEmbedding", 'String'>
+  readonly inputTokens: Prisma.FieldRef<"HighlightEmbedding", 'Int'>
+  readonly costUsd: Prisma.FieldRef<"HighlightEmbedding", 'Decimal'>
   readonly createdAt: Prisma.FieldRef<"HighlightEmbedding", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"HighlightEmbedding", 'DateTime'>
 }

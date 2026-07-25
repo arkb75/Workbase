@@ -347,7 +347,7 @@ export type HighlightWhereInput = {
   supersededByHighlights?: Prisma.HighlightListRelationFilter
   evidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.HighlightTagListRelationFilter
-  embedding?: Prisma.XOR<Prisma.HighlightEmbeddingNullableScalarRelationFilter, Prisma.HighlightEmbeddingWhereInput> | null
+  embeddings?: Prisma.HighlightEmbeddingListRelationFilter
   suggestions?: Prisma.HighlightSuggestionListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
@@ -387,7 +387,7 @@ export type HighlightOrderByWithRelationInput = {
   supersededByHighlights?: Prisma.HighlightOrderByRelationAggregateInput
   evidence?: Prisma.HighlightEvidenceOrderByRelationAggregateInput
   tags?: Prisma.HighlightTagOrderByRelationAggregateInput
-  embedding?: Prisma.HighlightEmbeddingOrderByWithRelationInput
+  embeddings?: Prisma.HighlightEmbeddingOrderByRelationAggregateInput
   suggestions?: Prisma.HighlightSuggestionOrderByRelationAggregateInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceOrderByRelationAggregateInput
@@ -430,7 +430,7 @@ export type HighlightWhereUniqueInput = Prisma.AtLeast<{
   supersededByHighlights?: Prisma.HighlightListRelationFilter
   evidence?: Prisma.HighlightEvidenceListRelationFilter
   tags?: Prisma.HighlightTagListRelationFilter
-  embedding?: Prisma.XOR<Prisma.HighlightEmbeddingNullableScalarRelationFilter, Prisma.HighlightEmbeddingWhereInput> | null
+  embeddings?: Prisma.HighlightEmbeddingListRelationFilter
   suggestions?: Prisma.HighlightSuggestionListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
@@ -532,7 +532,7 @@ export type HighlightCreateInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -570,7 +570,7 @@ export type HighlightUncheckedCreateInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -608,7 +608,7 @@ export type HighlightUpdateInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -646,7 +646,7 @@ export type HighlightUncheckedUpdateInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -974,12 +974,12 @@ export type HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput = 
   deleteMany?: Prisma.HighlightScalarWhereInput | Prisma.HighlightScalarWhereInput[]
 }
 
-export type HighlightUpdateOneRequiredWithoutEmbeddingNestedInput = {
-  create?: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
-  connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutEmbeddingInput
-  upsert?: Prisma.HighlightUpsertWithoutEmbeddingInput
+export type HighlightUpdateOneRequiredWithoutEmbeddingsNestedInput = {
+  create?: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingsInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingsInput>
+  connectOrCreate?: Prisma.HighlightCreateOrConnectWithoutEmbeddingsInput
+  upsert?: Prisma.HighlightUpsertWithoutEmbeddingsInput
   connect?: Prisma.HighlightWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.HighlightUpdateWithoutEmbeddingInput>, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.HighlightUpdateToOneWithWhereWithoutEmbeddingsInput, Prisma.HighlightUpdateWithoutEmbeddingsInput>, Prisma.HighlightUncheckedUpdateWithoutEmbeddingsInput>
 }
 
 export type HighlightCreateNestedOneWithoutSuggestionsInput = {
@@ -1101,7 +1101,7 @@ export type HighlightCreateWithoutWorkItemInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -1138,7 +1138,7 @@ export type HighlightUncheckedCreateWithoutWorkItemInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -1234,7 +1234,7 @@ export type HighlightCreateWithoutKnowledgeChangesInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -1271,7 +1271,7 @@ export type HighlightUncheckedCreateWithoutKnowledgeChangesInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -1324,7 +1324,7 @@ export type HighlightUpdateWithoutKnowledgeChangesInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -1361,7 +1361,7 @@ export type HighlightUncheckedUpdateWithoutKnowledgeChangesInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -1397,7 +1397,7 @@ export type HighlightCreateWithoutSupersededByHighlightsInput = {
   supersedesHighlight?: Prisma.HighlightCreateNestedOneWithoutSupersededByHighlightsInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -1434,7 +1434,7 @@ export type HighlightUncheckedCreateWithoutSupersededByHighlightsInput = {
   updatedAt?: Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -1476,7 +1476,7 @@ export type HighlightCreateWithoutSupersedesHighlightInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -1513,7 +1513,7 @@ export type HighlightUncheckedCreateWithoutSupersedesHighlightInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -1571,7 +1571,7 @@ export type HighlightUpdateWithoutSupersededByHighlightsInput = {
   supersedesHighlight?: Prisma.HighlightUpdateOneWithoutSupersededByHighlightsNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -1608,7 +1608,7 @@ export type HighlightUncheckedUpdateWithoutSupersededByHighlightsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -1632,7 +1632,7 @@ export type HighlightUpdateManyWithWhereWithoutSupersedesHighlightInput = {
   data: Prisma.XOR<Prisma.HighlightUpdateManyMutationInput, Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightInput>
 }
 
-export type HighlightCreateWithoutEmbeddingInput = {
+export type HighlightCreateWithoutEmbeddingsInput = {
   id?: string
   text: string
   summary: string
@@ -1669,7 +1669,7 @@ export type HighlightCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutHighlightInput
 }
 
-export type HighlightUncheckedCreateWithoutEmbeddingInput = {
+export type HighlightUncheckedCreateWithoutEmbeddingsInput = {
   id?: string
   workItemId: string
   text: string
@@ -1706,23 +1706,23 @@ export type HighlightUncheckedCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutHighlightInput
 }
 
-export type HighlightCreateOrConnectWithoutEmbeddingInput = {
+export type HighlightCreateOrConnectWithoutEmbeddingsInput = {
   where: Prisma.HighlightWhereUniqueInput
-  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingsInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingsInput>
 }
 
-export type HighlightUpsertWithoutEmbeddingInput = {
-  update: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
-  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingInput>
+export type HighlightUpsertWithoutEmbeddingsInput = {
+  update: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingsInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingsInput>
+  create: Prisma.XOR<Prisma.HighlightCreateWithoutEmbeddingsInput, Prisma.HighlightUncheckedCreateWithoutEmbeddingsInput>
   where?: Prisma.HighlightWhereInput
 }
 
-export type HighlightUpdateToOneWithWhereWithoutEmbeddingInput = {
+export type HighlightUpdateToOneWithWhereWithoutEmbeddingsInput = {
   where?: Prisma.HighlightWhereInput
-  data: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingInput>
+  data: Prisma.XOR<Prisma.HighlightUpdateWithoutEmbeddingsInput, Prisma.HighlightUncheckedUpdateWithoutEmbeddingsInput>
 }
 
-export type HighlightUpdateWithoutEmbeddingInput = {
+export type HighlightUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   text?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1759,7 +1759,7 @@ export type HighlightUpdateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutHighlightNestedInput
 }
 
-export type HighlightUncheckedUpdateWithoutEmbeddingInput = {
+export type HighlightUncheckedUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.StringFieldUpdateOperationsInput | string
   text?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1826,7 +1826,7 @@ export type HighlightCreateWithoutSuggestionsInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightInput
@@ -1863,7 +1863,7 @@ export type HighlightUncheckedCreateWithoutSuggestionsInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightInput
@@ -1916,7 +1916,7 @@ export type HighlightUpdateWithoutSuggestionsInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightNestedInput
@@ -1953,7 +1953,7 @@ export type HighlightUncheckedUpdateWithoutSuggestionsInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightNestedInput
@@ -1989,7 +1989,7 @@ export type HighlightCreateWithoutEvidenceInput = {
   supersedesHighlight?: Prisma.HighlightCreateNestedOneWithoutSupersededByHighlightsInput
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -2026,7 +2026,7 @@ export type HighlightUncheckedCreateWithoutEvidenceInput = {
   updatedAt?: Date | string
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -2079,7 +2079,7 @@ export type HighlightUpdateWithoutEvidenceInput = {
   supersedesHighlight?: Prisma.HighlightUpdateOneWithoutSupersededByHighlightsNestedInput
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -2116,7 +2116,7 @@ export type HighlightUncheckedUpdateWithoutEvidenceInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2153,7 +2153,7 @@ export type HighlightCreateWithoutTagsInput = {
   supersedesHighlight?: Prisma.HighlightCreateNestedOneWithoutSupersededByHighlightsInput
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -2190,7 +2190,7 @@ export type HighlightUncheckedCreateWithoutTagsInput = {
   updatedAt?: Date | string
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -2243,7 +2243,7 @@ export type HighlightUpdateWithoutTagsInput = {
   supersedesHighlight?: Prisma.HighlightUpdateOneWithoutSupersededByHighlightsNestedInput
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -2280,7 +2280,7 @@ export type HighlightUncheckedUpdateWithoutTagsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2318,7 +2318,7 @@ export type HighlightCreateWithoutArtifactProvenanceInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightInput
@@ -2355,7 +2355,7 @@ export type HighlightUncheckedCreateWithoutArtifactProvenanceInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightInput
@@ -2408,7 +2408,7 @@ export type HighlightUpdateWithoutArtifactProvenanceInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightNestedInput
@@ -2445,7 +2445,7 @@ export type HighlightUncheckedUpdateWithoutArtifactProvenanceInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2482,7 +2482,7 @@ export type HighlightCreateWithoutChatCitationsInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateCreateNestedManyWithoutHighlightInput
@@ -2519,7 +2519,7 @@ export type HighlightUncheckedCreateWithoutChatCitationsInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedCreateNestedManyWithoutHighlightInput
@@ -2572,7 +2572,7 @@ export type HighlightUpdateWithoutChatCitationsInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUpdateManyWithoutHighlightNestedInput
@@ -2609,7 +2609,7 @@ export type HighlightUncheckedUpdateWithoutChatCitationsInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
   agentRunCandidates?: Prisma.AgentRunCandidateUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2646,7 +2646,7 @@ export type HighlightCreateWithoutAgentRunCandidatesInput = {
   supersededByHighlights?: Prisma.HighlightCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutHighlightInput
@@ -2683,7 +2683,7 @@ export type HighlightUncheckedCreateWithoutAgentRunCandidatesInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedCreateNestedManyWithoutSupersedesHighlightInput
   evidence?: Prisma.HighlightEvidenceUncheckedCreateNestedManyWithoutHighlightInput
   tags?: Prisma.HighlightTagUncheckedCreateNestedManyWithoutHighlightInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedCreateNestedOneWithoutHighlightInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedCreateNestedManyWithoutHighlightInput
   suggestions?: Prisma.HighlightSuggestionUncheckedCreateNestedManyWithoutSourceHighlightInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutHighlightInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutHighlightInput
@@ -2736,7 +2736,7 @@ export type HighlightUpdateWithoutAgentRunCandidatesInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -2773,7 +2773,7 @@ export type HighlightUncheckedUpdateWithoutAgentRunCandidatesInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2837,7 +2837,7 @@ export type HighlightUpdateWithoutWorkItemInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -2874,7 +2874,7 @@ export type HighlightUncheckedUpdateWithoutWorkItemInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -2967,7 +2967,7 @@ export type HighlightUpdateWithoutSupersedesHighlightInput = {
   supersededByHighlights?: Prisma.HighlightUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutHighlightNestedInput
@@ -3004,7 +3004,7 @@ export type HighlightUncheckedUpdateWithoutSupersedesHighlightInput = {
   supersededByHighlights?: Prisma.HighlightUncheckedUpdateManyWithoutSupersedesHighlightNestedInput
   evidence?: Prisma.HighlightEvidenceUncheckedUpdateManyWithoutHighlightNestedInput
   tags?: Prisma.HighlightTagUncheckedUpdateManyWithoutHighlightNestedInput
-  embedding?: Prisma.HighlightEmbeddingUncheckedUpdateOneWithoutHighlightNestedInput
+  embeddings?: Prisma.HighlightEmbeddingUncheckedUpdateManyWithoutHighlightNestedInput
   suggestions?: Prisma.HighlightSuggestionUncheckedUpdateManyWithoutSourceHighlightNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutHighlightNestedInput
   artifactProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutHighlightNestedInput
@@ -3049,6 +3049,7 @@ export type HighlightCountOutputType = {
   supersededByHighlights: number
   evidence: number
   tags: number
+  embeddings: number
   suggestions: number
   chatCitations: number
   artifactProvenance: number
@@ -3060,6 +3061,7 @@ export type HighlightCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensi
   supersededByHighlights?: boolean | HighlightCountOutputTypeCountSupersededByHighlightsArgs
   evidence?: boolean | HighlightCountOutputTypeCountEvidenceArgs
   tags?: boolean | HighlightCountOutputTypeCountTagsArgs
+  embeddings?: boolean | HighlightCountOutputTypeCountEmbeddingsArgs
   suggestions?: boolean | HighlightCountOutputTypeCountSuggestionsArgs
   chatCitations?: boolean | HighlightCountOutputTypeCountChatCitationsArgs
   artifactProvenance?: boolean | HighlightCountOutputTypeCountArtifactProvenanceArgs
@@ -3096,6 +3098,13 @@ export type HighlightCountOutputTypeCountEvidenceArgs<ExtArgs extends runtime.Ty
  */
 export type HighlightCountOutputTypeCountTagsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.HighlightTagWhereInput
+}
+
+/**
+ * HighlightCountOutputType without action
+ */
+export type HighlightCountOutputTypeCountEmbeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.HighlightEmbeddingWhereInput
 }
 
 /**
@@ -3166,7 +3175,7 @@ export type HighlightSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   supersededByHighlights?: boolean | Prisma.Highlight$supersededByHighlightsArgs<ExtArgs>
   evidence?: boolean | Prisma.Highlight$evidenceArgs<ExtArgs>
   tags?: boolean | Prisma.Highlight$tagsArgs<ExtArgs>
-  embedding?: boolean | Prisma.Highlight$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.Highlight$embeddingsArgs<ExtArgs>
   suggestions?: boolean | Prisma.Highlight$suggestionsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Highlight$chatCitationsArgs<ExtArgs>
   artifactProvenance?: boolean | Prisma.Highlight$artifactProvenanceArgs<ExtArgs>
@@ -3273,7 +3282,7 @@ export type HighlightInclude<ExtArgs extends runtime.Types.Extensions.InternalAr
   supersededByHighlights?: boolean | Prisma.Highlight$supersededByHighlightsArgs<ExtArgs>
   evidence?: boolean | Prisma.Highlight$evidenceArgs<ExtArgs>
   tags?: boolean | Prisma.Highlight$tagsArgs<ExtArgs>
-  embedding?: boolean | Prisma.Highlight$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.Highlight$embeddingsArgs<ExtArgs>
   suggestions?: boolean | Prisma.Highlight$suggestionsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Highlight$chatCitationsArgs<ExtArgs>
   artifactProvenance?: boolean | Prisma.Highlight$artifactProvenanceArgs<ExtArgs>
@@ -3298,7 +3307,7 @@ export type $HighlightPayload<ExtArgs extends runtime.Types.Extensions.InternalA
     supersededByHighlights: Prisma.$HighlightPayload<ExtArgs>[]
     evidence: Prisma.$HighlightEvidencePayload<ExtArgs>[]
     tags: Prisma.$HighlightTagPayload<ExtArgs>[]
-    embedding: Prisma.$HighlightEmbeddingPayload<ExtArgs> | null
+    embeddings: Prisma.$HighlightEmbeddingPayload<ExtArgs>[]
     suggestions: Prisma.$HighlightSuggestionPayload<ExtArgs>[]
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     artifactProvenance: Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>[]
@@ -3731,7 +3740,7 @@ export interface Prisma__HighlightClient<T, Null = never, ExtArgs extends runtim
   supersededByHighlights<T extends Prisma.Highlight$supersededByHighlightsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$supersededByHighlightsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evidence<T extends Prisma.Highlight$evidenceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$evidenceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEvidencePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tags<T extends Prisma.Highlight$tagsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$tagsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightTagPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  embedding<T extends Prisma.Highlight$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$embeddingArgs<ExtArgs>>): Prisma.Prisma__HighlightEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$HighlightEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  embeddings<T extends Prisma.Highlight$embeddingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$embeddingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightEmbeddingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   suggestions<T extends Prisma.Highlight$suggestionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$suggestionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$HighlightSuggestionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatCitations<T extends Prisma.Highlight$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   artifactProvenance<T extends Prisma.Highlight$artifactProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Highlight$artifactProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -4284,9 +4293,9 @@ export type Highlight$tagsArgs<ExtArgs extends runtime.Types.Extensions.Internal
 }
 
 /**
- * Highlight.embedding
+ * Highlight.embeddings
  */
-export type Highlight$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type Highlight$embeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
    * Select specific fields to fetch from the HighlightEmbedding
    */
@@ -4300,6 +4309,11 @@ export type Highlight$embeddingArgs<ExtArgs extends runtime.Types.Extensions.Int
    */
   include?: Prisma.HighlightEmbeddingInclude<ExtArgs> | null
   where?: Prisma.HighlightEmbeddingWhereInput
+  orderBy?: Prisma.HighlightEmbeddingOrderByWithRelationInput | Prisma.HighlightEmbeddingOrderByWithRelationInput[]
+  cursor?: Prisma.HighlightEmbeddingWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.HighlightEmbeddingScalarFieldEnum | Prisma.HighlightEmbeddingScalarFieldEnum[]
 }
 
 /**

@@ -315,7 +315,7 @@ export type ArtifactWhereInput = {
   originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
   supersedesArtifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
   supersededByArtifacts?: Prisma.ArtifactListRelationFilter
-  embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
+  embeddings?: Prisma.ArtifactEmbeddingListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
@@ -349,7 +349,7 @@ export type ArtifactOrderByWithRelationInput = {
   originatingAgentRun?: Prisma.AgentRunOrderByWithRelationInput
   supersedesArtifact?: Prisma.ArtifactOrderByWithRelationInput
   supersededByArtifacts?: Prisma.ArtifactOrderByRelationAggregateInput
-  embedding?: Prisma.ArtifactEmbeddingOrderByWithRelationInput
+  embeddings?: Prisma.ArtifactEmbeddingOrderByRelationAggregateInput
   chatCitations?: Prisma.ChatCitationOrderByRelationAggregateInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceOrderByRelationAggregateInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceOrderByRelationAggregateInput
@@ -386,7 +386,7 @@ export type ArtifactWhereUniqueInput = Prisma.AtLeast<{
   originatingAgentRun?: Prisma.XOR<Prisma.AgentRunNullableScalarRelationFilter, Prisma.AgentRunWhereInput> | null
   supersedesArtifact?: Prisma.XOR<Prisma.ArtifactNullableScalarRelationFilter, Prisma.ArtifactWhereInput> | null
   supersededByArtifacts?: Prisma.ArtifactListRelationFilter
-  embedding?: Prisma.XOR<Prisma.ArtifactEmbeddingNullableScalarRelationFilter, Prisma.ArtifactEmbeddingWhereInput> | null
+  embeddings?: Prisma.ArtifactEmbeddingListRelationFilter
   chatCitations?: Prisma.ChatCitationListRelationFilter
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceListRelationFilter
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceListRelationFilter
@@ -470,7 +470,7 @@ export type ArtifactCreateInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -500,7 +500,7 @@ export type ArtifactUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -530,7 +530,7 @@ export type ArtifactUpdateInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -560,7 +560,7 @@ export type ArtifactUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -897,12 +897,12 @@ export type ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput = {
   deleteMany?: Prisma.ArtifactScalarWhereInput | Prisma.ArtifactScalarWhereInput[]
 }
 
-export type ArtifactUpdateOneRequiredWithoutEmbeddingNestedInput = {
-  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
-  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutEmbeddingInput
-  upsert?: Prisma.ArtifactUpsertWithoutEmbeddingInput
+export type ArtifactUpdateOneRequiredWithoutEmbeddingsNestedInput = {
+  create?: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingsInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingsInput>
+  connectOrCreate?: Prisma.ArtifactCreateOrConnectWithoutEmbeddingsInput
+  upsert?: Prisma.ArtifactUpsertWithoutEmbeddingsInput
   connect?: Prisma.ArtifactWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutEmbeddingInput, Prisma.ArtifactUpdateWithoutEmbeddingInput>, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactUpdateToOneWithWhereWithoutEmbeddingsInput, Prisma.ArtifactUpdateWithoutEmbeddingsInput>, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingsInput>
 }
 
 export type ArtifactCreateNestedOneWithoutHighlightProvenanceInput = {
@@ -1003,7 +1003,7 @@ export type ArtifactCreateWithoutUserInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -1032,7 +1032,7 @@ export type ArtifactUncheckedCreateWithoutUserInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -1114,7 +1114,7 @@ export type ArtifactCreateWithoutWorkItemInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -1143,7 +1143,7 @@ export type ArtifactUncheckedCreateWithoutWorkItemInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -1199,7 +1199,7 @@ export type ArtifactCreateWithoutKnowledgeChangesInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -1228,7 +1228,7 @@ export type ArtifactUncheckedCreateWithoutKnowledgeChangesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -1273,7 +1273,7 @@ export type ArtifactUpdateWithoutKnowledgeChangesInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -1302,7 +1302,7 @@ export type ArtifactUncheckedUpdateWithoutKnowledgeChangesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -1330,7 +1330,7 @@ export type ArtifactCreateWithoutSupersededByArtifactsInput = {
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -1359,7 +1359,7 @@ export type ArtifactUncheckedCreateWithoutSupersededByArtifactsInput = {
   supersedesArtifactId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -1393,7 +1393,7 @@ export type ArtifactCreateWithoutSupersedesArtifactInput = {
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -1422,7 +1422,7 @@ export type ArtifactUncheckedCreateWithoutSupersedesArtifactInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -1472,7 +1472,7 @@ export type ArtifactUpdateWithoutSupersededByArtifactsInput = {
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -1501,7 +1501,7 @@ export type ArtifactUncheckedUpdateWithoutSupersededByArtifactsInput = {
   supersedesArtifactId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -1524,7 +1524,7 @@ export type ArtifactUpdateManyWithWhereWithoutSupersedesArtifactInput = {
   data: Prisma.XOR<Prisma.ArtifactUpdateManyMutationInput, Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactInput>
 }
 
-export type ArtifactCreateWithoutEmbeddingInput = {
+export type ArtifactCreateWithoutEmbeddingsInput = {
   id?: string
   type: $Enums.ArtifactType
   targetAngle: $Enums.TargetAngle
@@ -1553,7 +1553,7 @@ export type ArtifactCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
 }
 
-export type ArtifactUncheckedCreateWithoutEmbeddingInput = {
+export type ArtifactUncheckedCreateWithoutEmbeddingsInput = {
   id?: string
   userId: string
   workItemId?: string | null
@@ -1582,23 +1582,23 @@ export type ArtifactUncheckedCreateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
 }
 
-export type ArtifactCreateOrConnectWithoutEmbeddingInput = {
+export type ArtifactCreateOrConnectWithoutEmbeddingsInput = {
   where: Prisma.ArtifactWhereUniqueInput
-  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingsInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingsInput>
 }
 
-export type ArtifactUpsertWithoutEmbeddingInput = {
-  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
-  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingInput>
+export type ArtifactUpsertWithoutEmbeddingsInput = {
+  update: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingsInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingsInput>
+  create: Prisma.XOR<Prisma.ArtifactCreateWithoutEmbeddingsInput, Prisma.ArtifactUncheckedCreateWithoutEmbeddingsInput>
   where?: Prisma.ArtifactWhereInput
 }
 
-export type ArtifactUpdateToOneWithWhereWithoutEmbeddingInput = {
+export type ArtifactUpdateToOneWithWhereWithoutEmbeddingsInput = {
   where?: Prisma.ArtifactWhereInput
-  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingInput>
+  data: Prisma.XOR<Prisma.ArtifactUpdateWithoutEmbeddingsInput, Prisma.ArtifactUncheckedUpdateWithoutEmbeddingsInput>
 }
 
-export type ArtifactUpdateWithoutEmbeddingInput = {
+export type ArtifactUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumArtifactTypeFieldUpdateOperationsInput | $Enums.ArtifactType
   targetAngle?: Prisma.EnumTargetAngleFieldUpdateOperationsInput | $Enums.TargetAngle
@@ -1627,7 +1627,7 @@ export type ArtifactUpdateWithoutEmbeddingInput = {
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
 }
 
-export type ArtifactUncheckedUpdateWithoutEmbeddingInput = {
+export type ArtifactUncheckedUpdateWithoutEmbeddingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   userId?: Prisma.StringFieldUpdateOperationsInput | string
   workItemId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1679,7 +1679,7 @@ export type ArtifactCreateWithoutHighlightProvenanceInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
@@ -1708,7 +1708,7 @@ export type ArtifactUncheckedCreateWithoutHighlightProvenanceInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
@@ -1753,7 +1753,7 @@ export type ArtifactUpdateWithoutHighlightProvenanceInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
@@ -1782,7 +1782,7 @@ export type ArtifactUncheckedUpdateWithoutHighlightProvenanceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
@@ -1811,7 +1811,7 @@ export type ArtifactCreateWithoutEvidenceProvenanceInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
@@ -1840,7 +1840,7 @@ export type ArtifactUncheckedCreateWithoutEvidenceProvenanceInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
@@ -1885,7 +1885,7 @@ export type ArtifactUpdateWithoutEvidenceProvenanceInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
@@ -1914,7 +1914,7 @@ export type ArtifactUncheckedUpdateWithoutEvidenceProvenanceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
@@ -1943,7 +1943,7 @@ export type ArtifactCreateWithoutChatCitationsInput = {
   originatingAgentRun?: Prisma.AgentRunCreateNestedOneWithoutArtifactInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeCreateNestedManyWithoutArtifactInput
@@ -1972,7 +1972,7 @@ export type ArtifactUncheckedCreateWithoutChatCitationsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutArtifactInput
@@ -2017,7 +2017,7 @@ export type ArtifactUpdateWithoutChatCitationsInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUpdateManyWithoutArtifactNestedInput
@@ -2046,7 +2046,7 @@ export type ArtifactUncheckedUpdateWithoutChatCitationsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   knowledgeChanges?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutArtifactNestedInput
@@ -2074,7 +2074,7 @@ export type ArtifactCreateWithoutOriginatingAgentRunInput = {
   workItem?: Prisma.WorkItemCreateNestedOneWithoutArtifactsInput
   supersedesArtifact?: Prisma.ArtifactCreateNestedOneWithoutSupersededByArtifactsInput
   supersededByArtifacts?: Prisma.ArtifactCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceCreateNestedManyWithoutArtifactInput
@@ -2103,7 +2103,7 @@ export type ArtifactUncheckedCreateWithoutOriginatingAgentRunInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedCreateNestedManyWithoutSupersedesArtifactInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput
   chatCitations?: Prisma.ChatCitationUncheckedCreateNestedManyWithoutArtifactInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedCreateNestedManyWithoutArtifactInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedCreateNestedManyWithoutArtifactInput
@@ -2148,7 +2148,7 @@ export type ArtifactUpdateWithoutOriginatingAgentRunInput = {
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -2177,7 +2177,7 @@ export type ArtifactUncheckedUpdateWithoutOriginatingAgentRunInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -2229,7 +2229,7 @@ export type ArtifactUpdateWithoutUserInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -2258,7 +2258,7 @@ export type ArtifactUncheckedUpdateWithoutUserInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -2333,7 +2333,7 @@ export type ArtifactUpdateWithoutWorkItemInput = {
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersedesArtifact?: Prisma.ArtifactUpdateOneWithoutSupersededByArtifactsNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -2362,7 +2362,7 @@ export type ArtifactUncheckedUpdateWithoutWorkItemInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -2437,7 +2437,7 @@ export type ArtifactUpdateWithoutSupersedesArtifactInput = {
   workItem?: Prisma.WorkItemUpdateOneWithoutArtifactsNestedInput
   originatingAgentRun?: Prisma.AgentRunUpdateOneWithoutArtifactNestedInput
   supersededByArtifacts?: Prisma.ArtifactUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUpdateManyWithoutArtifactNestedInput
@@ -2466,7 +2466,7 @@ export type ArtifactUncheckedUpdateWithoutSupersedesArtifactInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   supersededByArtifacts?: Prisma.ArtifactUncheckedUpdateManyWithoutSupersedesArtifactNestedInput
-  embedding?: Prisma.ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput
+  embeddings?: Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput
   chatCitations?: Prisma.ChatCitationUncheckedUpdateManyWithoutArtifactNestedInput
   highlightProvenance?: Prisma.ArtifactHighlightProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
   evidenceProvenance?: Prisma.ArtifactEvidenceProvenanceUncheckedUpdateManyWithoutArtifactNestedInput
@@ -2503,6 +2503,7 @@ export type ArtifactUncheckedUpdateManyWithoutSupersedesArtifactInput = {
 
 export type ArtifactCountOutputType = {
   supersededByArtifacts: number
+  embeddings: number
   chatCitations: number
   highlightProvenance: number
   evidenceProvenance: number
@@ -2511,6 +2512,7 @@ export type ArtifactCountOutputType = {
 
 export type ArtifactCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   supersededByArtifacts?: boolean | ArtifactCountOutputTypeCountSupersededByArtifactsArgs
+  embeddings?: boolean | ArtifactCountOutputTypeCountEmbeddingsArgs
   chatCitations?: boolean | ArtifactCountOutputTypeCountChatCitationsArgs
   highlightProvenance?: boolean | ArtifactCountOutputTypeCountHighlightProvenanceArgs
   evidenceProvenance?: boolean | ArtifactCountOutputTypeCountEvidenceProvenanceArgs
@@ -2532,6 +2534,13 @@ export type ArtifactCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Ext
  */
 export type ArtifactCountOutputTypeCountSupersededByArtifactsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.ArtifactWhereInput
+}
+
+/**
+ * ArtifactCountOutputType without action
+ */
+export type ArtifactCountOutputTypeCountEmbeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ArtifactEmbeddingWhereInput
 }
 
 /**
@@ -2590,7 +2599,7 @@ export type ArtifactSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
   supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
   supersededByArtifacts?: boolean | Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>
-  embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.Artifact$embeddingsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
   highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
   evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
@@ -2685,7 +2694,7 @@ export type ArtifactInclude<ExtArgs extends runtime.Types.Extensions.InternalArg
   originatingAgentRun?: boolean | Prisma.Artifact$originatingAgentRunArgs<ExtArgs>
   supersedesArtifact?: boolean | Prisma.Artifact$supersedesArtifactArgs<ExtArgs>
   supersededByArtifacts?: boolean | Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>
-  embedding?: boolean | Prisma.Artifact$embeddingArgs<ExtArgs>
+  embeddings?: boolean | Prisma.Artifact$embeddingsArgs<ExtArgs>
   chatCitations?: boolean | Prisma.Artifact$chatCitationsArgs<ExtArgs>
   highlightProvenance?: boolean | Prisma.Artifact$highlightProvenanceArgs<ExtArgs>
   evidenceProvenance?: boolean | Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>
@@ -2713,7 +2722,7 @@ export type $ArtifactPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     originatingAgentRun: Prisma.$AgentRunPayload<ExtArgs> | null
     supersedesArtifact: Prisma.$ArtifactPayload<ExtArgs> | null
     supersededByArtifacts: Prisma.$ArtifactPayload<ExtArgs>[]
-    embedding: Prisma.$ArtifactEmbeddingPayload<ExtArgs> | null
+    embeddings: Prisma.$ArtifactEmbeddingPayload<ExtArgs>[]
     chatCitations: Prisma.$ChatCitationPayload<ExtArgs>[]
     highlightProvenance: Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>[]
     evidenceProvenance: Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>[]
@@ -3140,7 +3149,7 @@ export interface Prisma__ArtifactClient<T, Null = never, ExtArgs extends runtime
   originatingAgentRun<T extends Prisma.Artifact$originatingAgentRunArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$originatingAgentRunArgs<ExtArgs>>): Prisma.Prisma__AgentRunClient<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   supersedesArtifact<T extends Prisma.Artifact$supersedesArtifactArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$supersedesArtifactArgs<ExtArgs>>): Prisma.Prisma__ArtifactClient<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   supersededByArtifacts<T extends Prisma.Artifact$supersededByArtifactsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$supersededByArtifactsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
-  embedding<T extends Prisma.Artifact$embeddingArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$embeddingArgs<ExtArgs>>): Prisma.Prisma__ArtifactEmbeddingClient<runtime.Types.Result.GetResult<Prisma.$ArtifactEmbeddingPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  embeddings<T extends Prisma.Artifact$embeddingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$embeddingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEmbeddingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatCitations<T extends Prisma.Artifact$chatCitationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$chatCitationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatCitationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   highlightProvenance<T extends Prisma.Artifact$highlightProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$highlightProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactHighlightProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evidenceProvenance<T extends Prisma.Artifact$evidenceProvenanceArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Artifact$evidenceProvenanceArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ArtifactEvidenceProvenancePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -3677,9 +3686,9 @@ export type Artifact$supersededByArtifactsArgs<ExtArgs extends runtime.Types.Ext
 }
 
 /**
- * Artifact.embedding
+ * Artifact.embeddings
  */
-export type Artifact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type Artifact$embeddingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
    * Select specific fields to fetch from the ArtifactEmbedding
    */
@@ -3693,6 +3702,11 @@ export type Artifact$embeddingArgs<ExtArgs extends runtime.Types.Extensions.Inte
    */
   include?: Prisma.ArtifactEmbeddingInclude<ExtArgs> | null
   where?: Prisma.ArtifactEmbeddingWhereInput
+  orderBy?: Prisma.ArtifactEmbeddingOrderByWithRelationInput | Prisma.ArtifactEmbeddingOrderByWithRelationInput[]
+  cursor?: Prisma.ArtifactEmbeddingWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ArtifactEmbeddingScalarFieldEnum | Prisma.ArtifactEmbeddingScalarFieldEnum[]
 }
 
 /**

@@ -133,6 +133,16 @@ export type Artifact = Prisma.ArtifactModel
  */
 export type ArtifactEmbedding = Prisma.ArtifactEmbeddingModel
 /**
+ * Model EmbeddingIndexVersion
+ *
+ */
+export type EmbeddingIndexVersion = Prisma.EmbeddingIndexVersionModel
+/**
+ * Model EmbeddingIndexControl
+ *
+ */
+export type EmbeddingIndexControl = Prisma.EmbeddingIndexControlModel
+/**
  * Model ArtifactHighlightProvenance
  * 
  */

@@ -6,7 +6,11 @@ export type ApplicationReadiness =
   | { ready: true }
   | {
       ready: false;
-      reason: "runtime_schema_mismatch" | "database_schema_out_of_date" | "database_unavailable";
+      reason:
+        | "runtime_schema_mismatch"
+        | "database_schema_out_of_date"
+        | "runtime_configuration_missing"
+        | "database_unavailable";
       message: string;
       recovery: string;
       retryable: boolean;
@@ -45,6 +49,7 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
       client.$queryRaw<Array<{
         agentHarnessReady: boolean;
         repositoryKnowledgeReady: boolean;
+        embeddingIndexReady: boolean;
       }>>(Prisma.sql`
       SELECT
         EXISTS (
@@ -58,15 +63,73 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
         to_regclass('public."KnowledgeRefreshRun"') IS NOT NULL
           AND to_regclass('public."RepositorySnapshot"') IS NOT NULL
           AND to_regclass('public."KnowledgeChange"') IS NOT NULL
-          AND to_regclass('public."GitHubWebhookDelivery"') IS NOT NULL AS "repositoryKnowledgeReady"
+          AND to_regclass('public."GitHubWebhookDelivery"') IS NOT NULL AS "repositoryKnowledgeReady",
+        to_regclass('public."EmbeddingIndexVersion"') IS NOT NULL
+          AND to_regclass('public."EmbeddingIndexControl"') IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'HighlightEmbedding'
+              AND column_name = 'indexVersionId'
+          ) AS "embeddingIndexReady"
       `),
     ]);
-    if (!schema?.agentHarnessReady || !schema.repositoryKnowledgeReady) {
+    if (
+      !schema?.agentHarnessReady ||
+      !schema.repositoryKnowledgeReady ||
+      !schema.embeddingIndexReady
+    ) {
       return {
         ready: false,
         reason: "database_schema_out_of_date",
         message: "Workbase's database migrations are not current.",
         recovery: "Run npm run db:prepare, restart the application, and retry.",
+        retryable: false,
+      };
+    }
+    const runtimeIndexes = await client.$queryRaw<Array<{
+      provider: string;
+      status: string;
+      dimensions: number;
+      isActive: boolean;
+    }>>(Prisma.sql`
+      SELECT
+        version."provider",
+        version."status"::text AS "status",
+        version."dimensions",
+        (version."id" = control."activeVersionId") AS "isActive"
+      FROM "EmbeddingIndexControl" AS control
+      INNER JOIN "EmbeddingIndexVersion" AS version ON
+        version."id" = control."activeVersionId"
+        OR (
+          version."writeEnabled" = true
+          AND version."status" IN ('building', 'ready')
+        )
+      WHERE control."id" = 'default'
+    `);
+    const activeIndex = runtimeIndexes.find((index) => index.isActive);
+    if (activeIndex?.status !== "active" || Number(activeIndex.dimensions) !== 512) {
+      return {
+        ready: false,
+        reason: "database_schema_out_of_date",
+        message: "Workbase's active embedding index is not initialized.",
+        recovery: "Run npm run db:prepare, restore the active embedding index, and retry.",
+        retryable: false,
+      };
+    }
+    const missingCredentialProvider = runtimeIndexes.find(
+      (index) =>
+        index.provider === "openrouter" &&
+        !process.env.OPENROUTER_API_KEY?.trim(),
+    )?.provider;
+    if (missingCredentialProvider) {
+      return {
+        ready: false,
+        reason: "runtime_configuration_missing",
+        message:
+          "A write-enabled OpenRouter embedding index has no API credential.",
+        recovery: "Set OPENROUTER_API_KEY, restart the application, and retry.",
         retryable: false,
       };
     }
