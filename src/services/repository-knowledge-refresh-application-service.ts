@@ -195,7 +195,7 @@ export async function startKnowledgeRefreshWorkflowOnce(input: {
 export async function queueRepositoryKnowledgeRefresh(input: {
   userId: string;
   workItemId: string;
-  trigger: "repository_attach" | "scheduled" | "manual" | "chat_freshness" | "backfill";
+  trigger: "repository_attach" | "webhook_push" | "scheduled" | "manual" | "chat_freshness" | "backfill";
   idempotencyKey?: string;
 }) {
   const refresh = await startKnowledgeRefresh(input);

@@ -170,6 +170,7 @@ async function importGitHubRepositoryIntoWorkItem(input: {
         repository: toRepositorySummaryJsonValue(imported.importSummary.repository),
         importedAt: imported.importSummary.importedAt,
         counts: imported.importSummary.counts,
+        webhook: imported.importSummary.webhook,
         status: "imported",
       },
     },

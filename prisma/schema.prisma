@@ -274,10 +274,19 @@ enum CapabilityCoverageStatus {
 
 enum KnowledgeRefreshTrigger {
   repository_attach
+  webhook_push
   scheduled
   manual
   chat_freshness
   backfill
+}
+
+enum GitHubWebhookDeliveryStatus {
+  received
+  processing
+  queued
+  failed
+  ignored
 }
 
 enum RepositoryFileDisposition {
@@ -334,81 +343,115 @@ model User {
 }
 
 model WorkItem {
-  id                   String                @id @default(cuid())
-  userId               String
-  title                String
-  type                 WorkItemType
-  description          String
-  startDate            DateTime?
-  endDate              DateTime?
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sources              Source[]
-  evidenceItems        EvidenceItem[]
-  highlights           Highlight[]
-  projectFacts         ProjectFact[]
-  highlightSuggestions HighlightSuggestion[]
-  artifacts            Artifact[]
-  generationRuns       GenerationRun[]
-  chatThreads          ChatThread[]
-  agentRuns            AgentRun[]
-  knowledgeRefreshRuns KnowledgeRefreshRun[]
-  repositorySnapshots  RepositorySnapshot[]
-  knowledgeChanges     KnowledgeChange[]
-  capabilityLedger    RepositoryCapabilityLedger[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                      String                       @id @default(cuid())
+  userId                  String
+  title                   String
+  type                    WorkItemType
+  description             String
+  startDate               DateTime?
+  endDate                 DateTime?
+  user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources                 Source[]
+  evidenceItems           EvidenceItem[]
+  highlights              Highlight[]
+  projectFacts            ProjectFact[]
+  highlightSuggestions    HighlightSuggestion[]
+  artifacts               Artifact[]
+  generationRuns          GenerationRun[]
+  chatThreads             ChatThread[]
+  agentRuns               AgentRun[]
+  knowledgeRefreshRuns    KnowledgeRefreshRun[]
+  githubWebhookDeliveries GitHubWebhookDelivery[]
+  repositorySnapshots     RepositorySnapshot[]
+  knowledgeChanges        KnowledgeChange[]
+  capabilityLedger        RepositoryCapabilityLedger[]
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
 }
 
 model Source {
-  id                  String               @id @default(cuid())
-  workItemId          String
-  type                SourceType
-  label               String
-  externalId          String?
-  rawContent          String?
-  metadata            Json?
-  workItem            WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  evidenceItems       EvidenceItem[]
-  chatCitations       ChatCitation[]
-  repositorySnapshots RepositorySnapshot[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  id                      String                  @id @default(cuid())
+  workItemId              String
+  type                    SourceType
+  label                   String
+  externalId              String?
+  rawContent              String?
+  metadata                Json?
+  workItem                WorkItem                @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  evidenceItems           EvidenceItem[]
+  chatCitations           ChatCitation[]
+  repositorySnapshots     RepositorySnapshot[]
+  githubWebhookDeliveries GitHubWebhookDelivery[]
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
 
   @@unique([workItemId, type, externalId])
 }
 
 model KnowledgeRefreshRun {
-  id             String                  @id @default(cuid())
-  workItemId     String
-  workflowId     String?                 @unique
-  idempotencyKey String
-  trigger        KnowledgeRefreshTrigger
-  status         KnowledgeRefreshStatus  @default(queued)
-  qualityStatus  KnowledgeRefreshQuality @default(pending)
-  targetHeads    Json
-  completedHeads Json?
-  coverage       Json?
-  progress       Json?
-  warnings       Json?
-  error          Json?
-  orchestration  Json?
-  budgetUsage    Json?
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  workItem       WorkItem                @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  snapshots      RepositorySnapshot[]
-  changes        KnowledgeChange[]
-  agentRuns      AgentRun[]
-  capabilityLedger RepositoryCapabilityLedger[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id                      String                       @id @default(cuid())
+  workItemId              String
+  workflowId              String?                      @unique
+  idempotencyKey          String
+  trigger                 KnowledgeRefreshTrigger
+  status                  KnowledgeRefreshStatus       @default(queued)
+  qualityStatus           KnowledgeRefreshQuality      @default(pending)
+  targetHeads             Json
+  completedHeads          Json?
+  coverage                Json?
+  progress                Json?
+  warnings                Json?
+  error                   Json?
+  orchestration           Json?
+  budgetUsage             Json?
+  startedAt               DateTime?
+  finishedAt              DateTime?
+  workItem                WorkItem                     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  snapshots               RepositorySnapshot[]
+  changes                 KnowledgeChange[]
+  agentRuns               AgentRun[]
+  githubWebhookDeliveries GitHubWebhookDelivery[]
+  capabilityLedger        RepositoryCapabilityLedger[]
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
 
   @@unique([workItemId, idempotencyKey])
   @@index([workItemId, status, updatedAt])
 }
 
+model GitHubWebhookDelivery {
+  id                  String                      @id @default(cuid())
+  deliveryId          String
+  sourceId            String
+  workItemId          String
+  refreshRunId        String?
+  event               String
+  repositoryId        String
+  repositoryFullName  String
+  ref                 String?
+  afterSha            String?
+  status              GitHubWebhookDeliveryStatus @default(received)
+  attemptCount        Int                         @default(0)
+  error               Json?
+  receivedAt          DateTime                    @default(now())
+  processingStartedAt DateTime?
+  processedAt         DateTime?
+  source              Source                      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  workItem            WorkItem                    @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  refreshRun          KnowledgeRefreshRun?        @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@unique([deliveryId, sourceId])
+  @@index([workItemId, status, createdAt])
+  @@index([status, processingStartedAt])
+  @@index([status, processedAt])
+  @@index([refreshRunId])
+  @@index([repositoryId, receivedAt])
+}
+
 model RepositorySnapshot {
-  id                String                   @id @default(cuid())
+  id                String                       @id @default(cuid())
   workItemId        String
   sourceId          String
   refreshRunId      String?
@@ -417,21 +460,21 @@ model RepositorySnapshot {
   treeSha           String
   committedAt       DateTime?
   resolvedAt        DateTime
-  inventoryComplete Boolean                  @default(false)
-  analysisComplete  Boolean                  @default(false)
-  coverageComplete  Boolean                  @default(false)
+  inventoryComplete Boolean                      @default(false)
+  analysisComplete  Boolean                      @default(false)
+  coverageComplete  Boolean                      @default(false)
   manifestHash      String?
   coverage          Json?
   warnings          Json?
   delta             Json?
-  workItem          WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  source            Source                   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  refreshRun        KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  workItem          WorkItem                     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  source            Source                       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  refreshRun        KnowledgeRefreshRun?         @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
   files             RepositoryFileSnapshot[]
   evidenceItems     EvidenceItem[]
-  capabilityLedger RepositoryCapabilityLedger[]
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  capabilityLedger  RepositoryCapabilityLedger[]
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
 
   @@unique([sourceId, commitSha])
   @@index([workItemId, coverageComplete, resolvedAt])
@@ -439,28 +482,28 @@ model RepositorySnapshot {
 }
 
 model RepositoryFileSnapshot {
-  id              String                    @id @default(cuid())
-  snapshotId      String
-  path            String
-  blobSha         String?
-  sizeBytes       Int?
-  language        String?
-  disposition     RepositoryFileDisposition
-  changeType      RepositoryFileChangeType  @default(added)
-  exclusionReason String?
-  contentHash     String?
-  analyzerVersion String?
-  analysis        Json?
-  analyzedAt      DateTime?
-  semanticStatus          RepositorySemanticStatus @default(not_selected)
+  id                      String                    @id @default(cuid())
+  snapshotId              String
+  path                    String
+  blobSha                 String?
+  sizeBytes               Int?
+  language                String?
+  disposition             RepositoryFileDisposition
+  changeType              RepositoryFileChangeType  @default(added)
+  exclusionReason         String?
+  contentHash             String?
+  analyzerVersion         String?
+  analysis                Json?
+  analyzedAt              DateTime?
+  semanticStatus          RepositorySemanticStatus  @default(not_selected)
   semanticAnalyzerVersion String?
-  semanticRefreshRunId     String?
+  semanticRefreshRunId    String?
   semanticAnalysis        Json?
   semanticDiagnostics     Json?
   semanticAnalyzedAt      DateTime?
-  snapshot        RepositorySnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
+  snapshot                RepositorySnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
 
   @@unique([snapshotId, path])
   @@index([snapshotId, disposition, path])
@@ -470,27 +513,27 @@ model RepositoryFileSnapshot {
 }
 
 model RepositoryCapabilityLedger {
-  id                    String                   @id @default(cuid())
-  workItemId            String
-  snapshotId            String
-  refreshRunId          String?
-  capabilityKey         String
-  label                 String
-  status                CapabilityCoverageStatus
-  priority              Int                      @default(0)
-  representativeFileIds Json
-  staticObservationCount Int                     @default(0)
-  semanticObservationCount Int                   @default(0)
-  producedEntityRefs    Json?
-  gaps                  Json?
-  workerRunIds          Json?
-  analyzerVersion       String
-  policyVersion         String
-  workItem              WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  snapshot              RepositorySnapshot       @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  refreshRun            KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
+  id                       String                   @id @default(cuid())
+  workItemId               String
+  snapshotId               String
+  refreshRunId             String?
+  capabilityKey            String
+  label                    String
+  status                   CapabilityCoverageStatus
+  priority                 Int                      @default(0)
+  representativeFileIds    Json
+  staticObservationCount   Int                      @default(0)
+  semanticObservationCount Int                      @default(0)
+  producedEntityRefs       Json?
+  gaps                     Json?
+  workerRunIds             Json?
+  analyzerVersion          String
+  policyVersion            String
+  workItem                 WorkItem                 @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  snapshot                 RepositorySnapshot       @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  refreshRun               KnowledgeRefreshRun?     @relation(fields: [refreshRunId], references: [id], onDelete: SetNull)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
   @@unique([snapshotId, capabilityKey])
   @@index([workItemId, status, priority])
@@ -962,39 +1005,39 @@ model ChatCitation {
 }
 
 model AgentRun {
-  id                  String              @id @default(cuid())
-  userId              String
-  workItemId          String
-  threadId            String?
-  parentRunId         String?
+  id                    String               @id @default(cuid())
+  userId                String
+  workItemId            String
+  threadId              String?
+  parentRunId           String?
   knowledgeRefreshRunId String?
-  workflowId          String?             @unique
-  idempotencyKey      String
-  kind                AgentRunKind
-  status              AgentRunStatus      @default(queued)
-  request             Json
-  attemptNumber       Int                 @default(0)
-  workflowRecoveryCount Int               @default(0)
-  result              Json?
-  error               Json?
-  harnessVersion      String              @default("v4")
-  environmentSnapshot Json?
-  researchState       Json?
-  provisionalResult   Json?
-  startedAt           DateTime?
-  finishedAt          DateTime?
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workItem            WorkItem            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-  thread              ChatThread?         @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  parentRun           AgentRun?           @relation("AgentRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
-  childRuns           AgentRun[]          @relation("AgentRunHierarchy")
-  knowledgeRefreshRun KnowledgeRefreshRun? @relation(fields: [knowledgeRefreshRunId], references: [id], onDelete: SetNull)
-  messages            ChatMessage[]
-  events              AgentRunEvent[]
-  candidates          AgentRunCandidate[]
-  artifact            Artifact?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  workflowId            String?              @unique
+  idempotencyKey        String
+  kind                  AgentRunKind
+  status                AgentRunStatus       @default(queued)
+  request               Json
+  attemptNumber         Int                  @default(0)
+  workflowRecoveryCount Int                  @default(0)
+  result                Json?
+  error                 Json?
+  harnessVersion        String               @default("v4")
+  environmentSnapshot   Json?
+  researchState         Json?
+  provisionalResult     Json?
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workItem              WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  thread                ChatThread?          @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  parentRun             AgentRun?            @relation("AgentRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns             AgentRun[]           @relation("AgentRunHierarchy")
+  knowledgeRefreshRun   KnowledgeRefreshRun? @relation(fields: [knowledgeRefreshRunId], references: [id], onDelete: SetNull)
+  messages              ChatMessage[]
+  events                AgentRunEvent[]
+  candidates            AgentRunCandidate[]
+  artifact              Artifact?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   @@unique([userId, idempotencyKey])
   @@index([workItemId, status, updatedAt])
@@ -1066,6 +1109,6 @@ model GenerationRun {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
-  @@index([workItemId, kind, createdAt])
   @@unique([workItemId, idempotencyKey])
+  @@index([workItemId, kind, createdAt])
 }

@@ -17,12 +17,16 @@ const githubClientMocks = vi.hoisted(() => ({
   fetchGitHubReleases: vi.fn(),
   mapRepositorySummary: vi.fn(),
 }));
+const configureRepositoryPushWebhookMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/src/lib/prisma", () => ({
   prisma: prismaMock,
 }));
 
 vi.mock("@/src/services/github-client", () => githubClientMocks);
+vi.mock("@/src/services/github-webhook-service", () => ({
+  configureRepositoryPushWebhook: configureRepositoryPushWebhookMock,
+}));
 
 import { githubRepoImportService } from "@/src/services/github-repo-import-service";
 
@@ -149,6 +153,12 @@ describe("githubRepoImportService", () => {
         published_at: "2026-04-03T00:00:00.000Z",
       },
     ]);
+    configureRepositoryPushWebhookMock.mockResolvedValue({
+      status: "configured",
+      hookId: "hook-1",
+      created: true,
+      configuredAt: "2026-04-04T00:00:01.000Z",
+    });
   });
 
   it("upserts the repo source and returns bounded evidence records", async () => {
@@ -170,6 +180,10 @@ describe("githubRepoImportService", () => {
     expect(prismaMock.source.upsert).toHaveBeenCalledTimes(1);
     expect(result.source.externalId).toBe("repo-1");
     expect(result.importSummary.counts.github_issue).toBe(1);
+    expect(result.importSummary.webhook).toMatchObject({
+      status: "configured",
+      hookId: "hook-1",
+    });
     expect(result.importedEvidenceItems.map((item) => item.type)).toEqual([
       "github_readme",
       "github_commit",

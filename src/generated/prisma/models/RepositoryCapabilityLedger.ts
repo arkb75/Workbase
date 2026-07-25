@@ -775,14 +775,6 @@ export type EnumCapabilityCoverageStatusFieldUpdateOperationsInput = {
   set?: $Enums.CapabilityCoverageStatus
 }
 
-export type IntFieldUpdateOperationsInput = {
-  set?: number
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type RepositoryCapabilityLedgerCreateWithoutWorkItemInput = {
   id?: string
   capabilityKey: string

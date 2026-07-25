@@ -388,6 +388,7 @@ export const ModelName = {
   WorkItem: 'WorkItem',
   Source: 'Source',
   KnowledgeRefreshRun: 'KnowledgeRefreshRun',
+  GitHubWebhookDelivery: 'GitHubWebhookDelivery',
   RepositorySnapshot: 'RepositorySnapshot',
   RepositoryFileSnapshot: 'RepositoryFileSnapshot',
   RepositoryCapabilityLedger: 'RepositoryCapabilityLedger',
@@ -430,7 +431,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "workItem" | "source" | "knowledgeRefreshRun" | "repositorySnapshot" | "repositoryFileSnapshot" | "repositoryCapabilityLedger" | "knowledgeChange" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
+    modelProps: "user" | "workItem" | "source" | "knowledgeRefreshRun" | "gitHubWebhookDelivery" | "repositorySnapshot" | "repositoryFileSnapshot" | "repositoryCapabilityLedger" | "knowledgeChange" | "gitHubConnection" | "evidenceItem" | "evidenceTag" | "highlight" | "highlightEmbedding" | "projectFact" | "projectFactEvidence" | "projectFactEmbedding" | "evidenceEmbedding" | "highlightSuggestion" | "highlightEvidence" | "highlightTag" | "artifact" | "artifactEmbedding" | "artifactHighlightProvenance" | "artifactEvidenceProvenance" | "chatThread" | "chatMessage" | "chatCitation" | "agentRun" | "agentRunEvent" | "agentRunCandidate" | "generationRun"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -727,6 +728,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.KnowledgeRefreshRunCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.KnowledgeRefreshRunCountAggregateOutputType> | number
+        }
+      }
+    }
+    GitHubWebhookDelivery: {
+      payload: Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>
+      fields: Prisma.GitHubWebhookDeliveryFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.GitHubWebhookDeliveryFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.GitHubWebhookDeliveryFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        findFirst: {
+          args: Prisma.GitHubWebhookDeliveryFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.GitHubWebhookDeliveryFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        findMany: {
+          args: Prisma.GitHubWebhookDeliveryFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>[]
+        }
+        create: {
+          args: Prisma.GitHubWebhookDeliveryCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        createMany: {
+          args: Prisma.GitHubWebhookDeliveryCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.GitHubWebhookDeliveryCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>[]
+        }
+        delete: {
+          args: Prisma.GitHubWebhookDeliveryDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        update: {
+          args: Prisma.GitHubWebhookDeliveryUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        deleteMany: {
+          args: Prisma.GitHubWebhookDeliveryDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.GitHubWebhookDeliveryUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.GitHubWebhookDeliveryUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>[]
+        }
+        upsert: {
+          args: Prisma.GitHubWebhookDeliveryUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$GitHubWebhookDeliveryPayload>
+        }
+        aggregate: {
+          args: Prisma.GitHubWebhookDeliveryAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateGitHubWebhookDelivery>
+        }
+        groupBy: {
+          args: Prisma.GitHubWebhookDeliveryGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GitHubWebhookDeliveryGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.GitHubWebhookDeliveryCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.GitHubWebhookDeliveryCountAggregateOutputType> | number
         }
       }
     }
@@ -2772,6 +2847,30 @@ export const KnowledgeRefreshRunScalarFieldEnum = {
 export type KnowledgeRefreshRunScalarFieldEnum = (typeof KnowledgeRefreshRunScalarFieldEnum)[keyof typeof KnowledgeRefreshRunScalarFieldEnum]
 
 
+export const GitHubWebhookDeliveryScalarFieldEnum = {
+  id: 'id',
+  deliveryId: 'deliveryId',
+  sourceId: 'sourceId',
+  workItemId: 'workItemId',
+  refreshRunId: 'refreshRunId',
+  event: 'event',
+  repositoryId: 'repositoryId',
+  repositoryFullName: 'repositoryFullName',
+  ref: 'ref',
+  afterSha: 'afterSha',
+  status: 'status',
+  attemptCount: 'attemptCount',
+  error: 'error',
+  receivedAt: 'receivedAt',
+  processingStartedAt: 'processingStartedAt',
+  processedAt: 'processedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GitHubWebhookDeliveryScalarFieldEnum = (typeof GitHubWebhookDeliveryScalarFieldEnum)[keyof typeof GitHubWebhookDeliveryScalarFieldEnum]
+
+
 export const RepositorySnapshotScalarFieldEnum = {
   id: 'id',
   workItemId: 'workItemId',
@@ -3500,9 +3599,16 @@ export type ListEnumKnowledgeRefreshQualityFieldRefInput<$PrismaModel> = FieldRe
 
 
 /**
- * Reference to a field of type 'Boolean'
+ * Reference to a field of type 'GitHubWebhookDeliveryStatus'
  */
-export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+export type EnumGitHubWebhookDeliveryStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GitHubWebhookDeliveryStatus'>
+
+
+
+/**
+ * Reference to a field of type 'GitHubWebhookDeliveryStatus[]'
+ */
+export type ListEnumGitHubWebhookDeliveryStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GitHubWebhookDeliveryStatus[]'>
     
 
 
@@ -3518,6 +3624,13 @@ export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'In
  */
 export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
     
+
+
+/**
+ * Reference to a field of type 'Boolean'
+ */
+export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+
 
 
 /**
@@ -4094,6 +4207,7 @@ export type GlobalOmitConfig = {
   workItem?: Prisma.WorkItemOmit
   source?: Prisma.SourceOmit
   knowledgeRefreshRun?: Prisma.KnowledgeRefreshRunOmit
+  gitHubWebhookDelivery?: Prisma.GitHubWebhookDeliveryOmit
   repositorySnapshot?: Prisma.RepositorySnapshotOmit
   repositoryFileSnapshot?: Prisma.RepositoryFileSnapshotOmit
   repositoryCapabilityLedger?: Prisma.RepositoryCapabilityLedgerOmit

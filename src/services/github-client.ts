@@ -15,6 +15,7 @@ import {
   githubPullRequestSchema,
   githubReleaseSchema,
   githubRepositoryDetailSchema,
+  githubRepositoryWebhookSchema,
   githubRepositorySummarySchema,
 } from "@/src/lib/github-schemas";
 import type { GitHubRepositorySummary } from "@/src/services/types";
@@ -181,6 +182,60 @@ export async function fetchGitHubRepositoryDetail(input: {
     repo,
     repository,
   };
+}
+
+export async function ensureGitHubRepositoryPushWebhook(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  callbackUrl: string;
+  secret: string;
+}) {
+  const owner = encodeURIComponent(input.owner);
+  const repo = encodeURIComponent(input.repo);
+  const hooks = await fetchJson({
+    path: `/repos/${owner}/${repo}/hooks?per_page=100`,
+    token: input.token,
+    schema: z.array(githubRepositoryWebhookSchema),
+  });
+  const existing = hooks.find((hook) =>
+    hook.name === "web" && hook.config.url === input.callbackUrl
+  );
+  const body = JSON.stringify({
+    name: "web",
+    active: true,
+    events: ["push"],
+    config: {
+      url: input.callbackUrl,
+      content_type: "json",
+      insecure_ssl: "0",
+      secret: input.secret,
+    },
+  });
+  if (existing) {
+    const updated = await fetchJson({
+      path: `/repos/${owner}/${repo}/hooks/${encodeURIComponent(existing.id)}`,
+      token: input.token,
+      schema: githubRepositoryWebhookSchema,
+      init: {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body,
+      },
+    });
+    return { hookId: updated.id, created: false };
+  }
+  const created = await fetchJson({
+    path: `/repos/${owner}/${repo}/hooks`,
+    token: input.token,
+    schema: githubRepositoryWebhookSchema,
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    },
+  });
+  return { hookId: created.id, created: true };
 }
 
 export async function fetchGitHubReadme(input: {

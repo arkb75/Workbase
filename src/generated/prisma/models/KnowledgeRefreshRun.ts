@@ -266,6 +266,7 @@ export type KnowledgeRefreshRunWhereInput = {
   snapshots?: Prisma.RepositorySnapshotListRelationFilter
   changes?: Prisma.KnowledgeChangeListRelationFilter
   agentRuns?: Prisma.AgentRunListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }
 
@@ -293,6 +294,7 @@ export type KnowledgeRefreshRunOrderByWithRelationInput = {
   snapshots?: Prisma.RepositorySnapshotOrderByRelationAggregateInput
   changes?: Prisma.KnowledgeChangeOrderByRelationAggregateInput
   agentRuns?: Prisma.AgentRunOrderByRelationAggregateInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryOrderByRelationAggregateInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerOrderByRelationAggregateInput
 }
 
@@ -324,6 +326,7 @@ export type KnowledgeRefreshRunWhereUniqueInput = Prisma.AtLeast<{
   snapshots?: Prisma.RepositorySnapshotListRelationFilter
   changes?: Prisma.KnowledgeChangeListRelationFilter
   agentRuns?: Prisma.AgentRunListRelationFilter
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryListRelationFilter
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerListRelationFilter
 }, "id" | "workflowId" | "workItemId_idempotencyKey">
 
@@ -400,6 +403,7 @@ export type KnowledgeRefreshRunCreateInput = {
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -426,6 +430,7 @@ export type KnowledgeRefreshRunUncheckedCreateInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -452,6 +457,7 @@ export type KnowledgeRefreshRunUpdateInput = {
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -478,6 +484,7 @@ export type KnowledgeRefreshRunUncheckedUpdateInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -670,6 +677,22 @@ export type EnumKnowledgeRefreshQualityFieldUpdateOperationsInput = {
   set?: $Enums.KnowledgeRefreshQuality
 }
 
+export type KnowledgeRefreshRunCreateNestedOneWithoutGithubWebhookDeliveriesInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+}
+
+export type KnowledgeRefreshRunUpdateOneWithoutGithubWebhookDeliveriesNestedInput = {
+  create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutGithubWebhookDeliveriesInput
+  upsert?: Prisma.KnowledgeRefreshRunUpsertWithoutGithubWebhookDeliveriesInput
+  disconnect?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  delete?: Prisma.KnowledgeRefreshRunWhereInput | boolean
+  connect?: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUpdateWithoutGithubWebhookDeliveriesInput>, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+}
+
 export type KnowledgeRefreshRunCreateNestedOneWithoutSnapshotsInput = {
   create?: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutSnapshotsInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutSnapshotsInput>
   connectOrCreate?: Prisma.KnowledgeRefreshRunCreateOrConnectWithoutSnapshotsInput
@@ -756,6 +779,7 @@ export type KnowledgeRefreshRunCreateWithoutWorkItemInput = {
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -781,6 +805,7 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutWorkItemInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -835,6 +860,126 @@ export type KnowledgeRefreshRunScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"KnowledgeRefreshRun"> | Date | string
 }
 
+export type KnowledgeRefreshRunCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
+  snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
+}
+
+export type KnowledgeRefreshRunUncheckedCreateWithoutGithubWebhookDeliveriesInput = {
+  id?: string
+  workItemId: string
+  workflowId?: string | null
+  idempotencyKey: string
+  trigger: $Enums.KnowledgeRefreshTrigger
+  status?: $Enums.KnowledgeRefreshStatus
+  qualityStatus?: $Enums.KnowledgeRefreshQuality
+  targetHeads: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
+  changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
+}
+
+export type KnowledgeRefreshRunCreateOrConnectWithoutGithubWebhookDeliveriesInput = {
+  where: Prisma.KnowledgeRefreshRunWhereUniqueInput
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type KnowledgeRefreshRunUpsertWithoutGithubWebhookDeliveriesInput = {
+  update: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+  create: Prisma.XOR<Prisma.KnowledgeRefreshRunCreateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedCreateWithoutGithubWebhookDeliveriesInput>
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+}
+
+export type KnowledgeRefreshRunUpdateToOneWithWhereWithoutGithubWebhookDeliveriesInput = {
+  where?: Prisma.KnowledgeRefreshRunWhereInput
+  data: Prisma.XOR<Prisma.KnowledgeRefreshRunUpdateWithoutGithubWebhookDeliveriesInput, Prisma.KnowledgeRefreshRunUncheckedUpdateWithoutGithubWebhookDeliveriesInput>
+}
+
+export type KnowledgeRefreshRunUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
+  snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
+}
+
+export type KnowledgeRefreshRunUncheckedUpdateWithoutGithubWebhookDeliveriesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  workItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  workflowId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.StringFieldUpdateOperationsInput | string
+  trigger?: Prisma.EnumKnowledgeRefreshTriggerFieldUpdateOperationsInput | $Enums.KnowledgeRefreshTrigger
+  status?: Prisma.EnumKnowledgeRefreshStatusFieldUpdateOperationsInput | $Enums.KnowledgeRefreshStatus
+  qualityStatus?: Prisma.EnumKnowledgeRefreshQualityFieldUpdateOperationsInput | $Enums.KnowledgeRefreshQuality
+  targetHeads?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  completedHeads?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  coverage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  progress?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  warnings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  orchestration?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  budgetUsage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
+  changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
+}
+
 export type KnowledgeRefreshRunCreateWithoutSnapshotsInput = {
   id?: string
   workflowId?: string | null
@@ -857,6 +1002,7 @@ export type KnowledgeRefreshRunCreateWithoutSnapshotsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -882,6 +1028,7 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutSnapshotsInput = {
   updatedAt?: Date | string
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -923,6 +1070,7 @@ export type KnowledgeRefreshRunUpdateWithoutSnapshotsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -948,6 +1096,7 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutSnapshotsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -974,6 +1123,7 @@ export type KnowledgeRefreshRunCreateWithoutCapabilityLedgerInput = {
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput = {
@@ -999,6 +1149,7 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutCapabilityLedgerInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
 export type KnowledgeRefreshRunCreateOrConnectWithoutCapabilityLedgerInput = {
@@ -1040,6 +1191,7 @@ export type KnowledgeRefreshRunUpdateWithoutCapabilityLedgerInput = {
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput = {
@@ -1065,6 +1217,7 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutCapabilityLedgerInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
 export type KnowledgeRefreshRunCreateWithoutChangesInput = {
@@ -1089,6 +1242,7 @@ export type KnowledgeRefreshRunCreateWithoutChangesInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -1114,6 +1268,7 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutChangesInput = {
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   agentRuns?: Prisma.AgentRunUncheckedCreateNestedManyWithoutKnowledgeRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -1155,6 +1310,7 @@ export type KnowledgeRefreshRunUpdateWithoutChangesInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1180,6 +1336,7 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutChangesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1205,6 +1362,7 @@ export type KnowledgeRefreshRunCreateWithoutAgentRunsInput = {
   workItem: Prisma.WorkItemCreateNestedOneWithoutKnowledgeRefreshRunsInput
   snapshots?: Prisma.RepositorySnapshotCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeCreateNestedManyWithoutRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -1230,6 +1388,7 @@ export type KnowledgeRefreshRunUncheckedCreateWithoutAgentRunsInput = {
   updatedAt?: Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedCreateNestedManyWithoutRefreshRunInput
   changes?: Prisma.KnowledgeChangeUncheckedCreateNestedManyWithoutRefreshRunInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedCreateNestedManyWithoutRefreshRunInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedCreateNestedManyWithoutRefreshRunInput
 }
 
@@ -1271,6 +1430,7 @@ export type KnowledgeRefreshRunUpdateWithoutAgentRunsInput = {
   workItem?: Prisma.WorkItemUpdateOneRequiredWithoutKnowledgeRefreshRunsNestedInput
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1296,6 +1456,7 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutAgentRunsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1342,6 +1503,7 @@ export type KnowledgeRefreshRunUpdateWithoutWorkItemInput = {
   snapshots?: Prisma.RepositorySnapshotUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1367,6 +1529,7 @@ export type KnowledgeRefreshRunUncheckedUpdateWithoutWorkItemInput = {
   snapshots?: Prisma.RepositorySnapshotUncheckedUpdateManyWithoutRefreshRunNestedInput
   changes?: Prisma.KnowledgeChangeUncheckedUpdateManyWithoutRefreshRunNestedInput
   agentRuns?: Prisma.AgentRunUncheckedUpdateManyWithoutKnowledgeRefreshRunNestedInput
+  githubWebhookDeliveries?: Prisma.GitHubWebhookDeliveryUncheckedUpdateManyWithoutRefreshRunNestedInput
   capabilityLedger?: Prisma.RepositoryCapabilityLedgerUncheckedUpdateManyWithoutRefreshRunNestedInput
 }
 
@@ -1400,6 +1563,7 @@ export type KnowledgeRefreshRunCountOutputType = {
   snapshots: number
   changes: number
   agentRuns: number
+  githubWebhookDeliveries: number
   capabilityLedger: number
 }
 
@@ -1407,6 +1571,7 @@ export type KnowledgeRefreshRunCountOutputTypeSelect<ExtArgs extends runtime.Typ
   snapshots?: boolean | KnowledgeRefreshRunCountOutputTypeCountSnapshotsArgs
   changes?: boolean | KnowledgeRefreshRunCountOutputTypeCountChangesArgs
   agentRuns?: boolean | KnowledgeRefreshRunCountOutputTypeCountAgentRunsArgs
+  githubWebhookDeliveries?: boolean | KnowledgeRefreshRunCountOutputTypeCountGithubWebhookDeliveriesArgs
   capabilityLedger?: boolean | KnowledgeRefreshRunCountOutputTypeCountCapabilityLedgerArgs
 }
 
@@ -1444,6 +1609,13 @@ export type KnowledgeRefreshRunCountOutputTypeCountAgentRunsArgs<ExtArgs extends
 /**
  * KnowledgeRefreshRunCountOutputType without action
  */
+export type KnowledgeRefreshRunCountOutputTypeCountGithubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+}
+
+/**
+ * KnowledgeRefreshRunCountOutputType without action
+ */
 export type KnowledgeRefreshRunCountOutputTypeCountCapabilityLedgerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.RepositoryCapabilityLedgerWhereInput
 }
@@ -1473,6 +1645,7 @@ export type KnowledgeRefreshRunSelect<ExtArgs extends runtime.Types.Extensions.I
   snapshots?: boolean | Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>
   changes?: boolean | Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>
   agentRuns?: boolean | Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.KnowledgeRefreshRun$githubWebhookDeliveriesArgs<ExtArgs>
   capabilityLedger?: boolean | Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.KnowledgeRefreshRunCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["knowledgeRefreshRun"]>
@@ -1551,6 +1724,7 @@ export type KnowledgeRefreshRunInclude<ExtArgs extends runtime.Types.Extensions.
   snapshots?: boolean | Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>
   changes?: boolean | Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>
   agentRuns?: boolean | Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>
+  githubWebhookDeliveries?: boolean | Prisma.KnowledgeRefreshRun$githubWebhookDeliveriesArgs<ExtArgs>
   capabilityLedger?: boolean | Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>
   _count?: boolean | Prisma.KnowledgeRefreshRunCountOutputTypeDefaultArgs<ExtArgs>
 }
@@ -1568,6 +1742,7 @@ export type $KnowledgeRefreshRunPayload<ExtArgs extends runtime.Types.Extensions
     snapshots: Prisma.$RepositorySnapshotPayload<ExtArgs>[]
     changes: Prisma.$KnowledgeChangePayload<ExtArgs>[]
     agentRuns: Prisma.$AgentRunPayload<ExtArgs>[]
+    githubWebhookDeliveries: Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>[]
     capabilityLedger: Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -1988,6 +2163,7 @@ export interface Prisma__KnowledgeRefreshRunClient<T, Null = never, ExtArgs exte
   snapshots<T extends Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$snapshotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositorySnapshotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   changes<T extends Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$changesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KnowledgeChangePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   agentRuns<T extends Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$agentRunsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AgentRunPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  githubWebhookDeliveries<T extends Prisma.KnowledgeRefreshRun$githubWebhookDeliveriesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$githubWebhookDeliveriesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$GitHubWebhookDeliveryPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   capabilityLedger<T extends Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.KnowledgeRefreshRun$capabilityLedgerArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RepositoryCapabilityLedgerPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -2507,6 +2683,30 @@ export type KnowledgeRefreshRun$agentRunsArgs<ExtArgs extends runtime.Types.Exte
   take?: number
   skip?: number
   distinct?: Prisma.AgentRunScalarFieldEnum | Prisma.AgentRunScalarFieldEnum[]
+}
+
+/**
+ * KnowledgeRefreshRun.githubWebhookDeliveries
+ */
+export type KnowledgeRefreshRun$githubWebhookDeliveriesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the GitHubWebhookDelivery
+   */
+  select?: Prisma.GitHubWebhookDeliverySelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the GitHubWebhookDelivery
+   */
+  omit?: Prisma.GitHubWebhookDeliveryOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.GitHubWebhookDeliveryInclude<ExtArgs> | null
+  where?: Prisma.GitHubWebhookDeliveryWhereInput
+  orderBy?: Prisma.GitHubWebhookDeliveryOrderByWithRelationInput | Prisma.GitHubWebhookDeliveryOrderByWithRelationInput[]
+  cursor?: Prisma.GitHubWebhookDeliveryWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.GitHubWebhookDeliveryScalarFieldEnum | Prisma.GitHubWebhookDeliveryScalarFieldEnum[]
 }
 
 /**

@@ -55,6 +55,7 @@ export const ModelName = {
   WorkItem: 'WorkItem',
   Source: 'Source',
   KnowledgeRefreshRun: 'KnowledgeRefreshRun',
+  GitHubWebhookDelivery: 'GitHubWebhookDelivery',
   RepositorySnapshot: 'RepositorySnapshot',
   RepositoryFileSnapshot: 'RepositoryFileSnapshot',
   RepositoryCapabilityLedger: 'RepositoryCapabilityLedger',
@@ -167,6 +168,30 @@ export const KnowledgeRefreshRunScalarFieldEnum = {
 } as const
 
 export type KnowledgeRefreshRunScalarFieldEnum = (typeof KnowledgeRefreshRunScalarFieldEnum)[keyof typeof KnowledgeRefreshRunScalarFieldEnum]
+
+
+export const GitHubWebhookDeliveryScalarFieldEnum = {
+  id: 'id',
+  deliveryId: 'deliveryId',
+  sourceId: 'sourceId',
+  workItemId: 'workItemId',
+  refreshRunId: 'refreshRunId',
+  event: 'event',
+  repositoryId: 'repositoryId',
+  repositoryFullName: 'repositoryFullName',
+  ref: 'ref',
+  afterSha: 'afterSha',
+  status: 'status',
+  attemptCount: 'attemptCount',
+  error: 'error',
+  receivedAt: 'receivedAt',
+  processingStartedAt: 'processingStartedAt',
+  processedAt: 'processedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type GitHubWebhookDeliveryScalarFieldEnum = (typeof GitHubWebhookDeliveryScalarFieldEnum)[keyof typeof GitHubWebhookDeliveryScalarFieldEnum]
 
 
 export const RepositorySnapshotScalarFieldEnum = {

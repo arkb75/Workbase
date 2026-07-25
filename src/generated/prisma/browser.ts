@@ -38,6 +38,11 @@ export type Source = Prisma.SourceModel
  */
 export type KnowledgeRefreshRun = Prisma.KnowledgeRefreshRunModel
 /**
+ * Model GitHubWebhookDelivery
+ *
+ */
+export type GitHubWebhookDelivery = Prisma.GitHubWebhookDeliveryModel
+/**
  * Model RepositorySnapshot
  * 
  */

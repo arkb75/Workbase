@@ -378,6 +378,7 @@ export type CapabilityCoverageStatus = (typeof CapabilityCoverageStatus)[keyof t
 
 export const KnowledgeRefreshTrigger = {
   repository_attach: 'repository_attach',
+  webhook_push: 'webhook_push',
   scheduled: 'scheduled',
   manual: 'manual',
   chat_freshness: 'chat_freshness',
@@ -385,6 +386,17 @@ export const KnowledgeRefreshTrigger = {
 } as const
 
 export type KnowledgeRefreshTrigger = (typeof KnowledgeRefreshTrigger)[keyof typeof KnowledgeRefreshTrigger]
+
+
+export const GitHubWebhookDeliveryStatus = {
+  received: 'received',
+  processing: 'processing',
+  queued: 'queued',
+  failed: 'failed',
+  ignored: 'ignored'
+} as const
+
+export type GitHubWebhookDeliveryStatus = (typeof GitHubWebhookDeliveryStatus)[keyof typeof GitHubWebhookDeliveryStatus]
 
 
 export const RepositoryFileDisposition = {

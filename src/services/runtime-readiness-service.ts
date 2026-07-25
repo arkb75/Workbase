@@ -57,7 +57,8 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
         ) AS "agentHarnessReady",
         to_regclass('public."KnowledgeRefreshRun"') IS NOT NULL
           AND to_regclass('public."RepositorySnapshot"') IS NOT NULL
-          AND to_regclass('public."KnowledgeChange"') IS NOT NULL AS "repositoryKnowledgeReady"
+          AND to_regclass('public."KnowledgeChange"') IS NOT NULL
+          AND to_regclass('public."GitHubWebhookDelivery"') IS NOT NULL AS "repositoryKnowledgeReady"
       `),
     ]);
     if (!schema?.agentHarnessReady || !schema.repositoryKnowledgeReady) {

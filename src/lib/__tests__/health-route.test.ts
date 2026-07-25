@@ -11,7 +11,7 @@ import { GET } from "@/app/api/health/route";
 describe("health route database readiness", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("reports the repository knowledge v4 schema as ready", async () => {
+  it("reports the proactive repository knowledge schema as ready", async () => {
     readinessMock.mockResolvedValue({ ready: true });
     const response = await GET();
     expect(response.status).toBe(200);
@@ -19,7 +19,7 @@ describe("health route database readiness", () => {
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "repository-knowledge-v5",
+      schema: "repository-knowledge-v6",
     });
   });
 

@@ -8,7 +8,7 @@ export async function GET() {
       status: "ok",
       product: "Workbase",
       database: "ready",
-      schema: "repository-knowledge-v5",
+      schema: "repository-knowledge-v6",
     });
   }
   return NextResponse.json(
