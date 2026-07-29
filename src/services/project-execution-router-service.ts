@@ -8,7 +8,7 @@ import { runAuditedStructuredGeneration } from "@/src/services/structured-genera
 
 export const PROJECT_EXECUTION_ROUTER_VERSION = "project-execution-router-v2";
 
-const routingSchema = z.object({
+export const routingSchema = z.object({
   mode: z.enum(["memory_only", "targeted_repository_research", "repository_refresh", "clarification", "insufficient_context"]),
   confidence: z.number().min(0).max(1),
   breadth: z.enum(["targeted", "broad", "exhaustive"]),
@@ -18,7 +18,7 @@ const routingSchema = z.object({
   suggestedCapabilityKeys: z.array(z.string().trim().min(2).max(100)),
 });
 
-const routingJsonSchema: JsonSchemaObject = {
+export const routingJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
   required: ["mode", "confidence", "breadth", "rationaleCodes", "objectives", "suggestedWorkerCount", "suggestedCapabilityKeys"],

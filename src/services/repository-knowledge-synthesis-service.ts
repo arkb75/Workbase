@@ -116,12 +116,12 @@ const synthesisJsonShape = synthesisJsonSchema as {
   required: string[];
   properties: Record<string, unknown>;
 };
-const repositorySynthesisSchema = z.object({
+export const repositorySynthesisSchema = z.object({
   subsystems: z.array(synthesisSchema.extend({
     subsystemKey: z.string().trim().min(2).max(100),
   })).min(1).max(8),
 });
-const repositorySynthesisJsonSchema: JsonSchemaObject = {
+export const repositorySynthesisJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
   required: ["subsystems"],
