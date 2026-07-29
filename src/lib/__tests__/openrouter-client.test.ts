@@ -99,6 +99,8 @@ describe("OpenRouterChatCompletionsRuntime", () => {
       order: ["openai"],
     });
     expect(body.usage).toEqual({ include: true });
+    expect(body.max_completion_tokens).toBe(128);
+    expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.response_format).toMatchObject({
@@ -635,6 +637,8 @@ describe("OpenRouterConverseTransport", () => {
     });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+    expect(body.max_completion_tokens).toBe(256);
+    expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(body.reasoning).toEqual({ effort: "high" });
     expect(body.tools[0]).toMatchObject({

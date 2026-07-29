@@ -37,6 +37,18 @@ describe("OpenRouter model configuration", () => {
     );
   });
 
+  it("uses the shared OpenRouter application URL for attribution headers", () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv(
+      "WORKBASE_OPENROUTER_APP_URL",
+      "https://workbase.example/openrouter",
+    );
+    vi.stubEnv("WORKBASE_PUBLIC_URL", "https://workbase.example");
+    expect(resolveOpenRouterConfig("primary_answer").siteUrl).toBe(
+      "https://workbase.example/openrouter",
+    );
+  });
+
   it("fails closed when OpenRouter credentials are absent", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     expect(() => resolveOpenRouterConfig()).toThrow("OPENROUTER_API_KEY");

@@ -138,7 +138,10 @@ export function resolveOpenRouterConfig(
     providerOrder: commaSeparatedValues(
       process.env.WORKBASE_OPENROUTER_PROVIDER_ORDER,
     ),
-    siteUrl: process.env.WORKBASE_PUBLIC_URL?.trim() || undefined,
+    siteUrl:
+      process.env.WORKBASE_OPENROUTER_APP_URL?.trim() ||
+      process.env.WORKBASE_PUBLIC_URL?.trim() ||
+      undefined,
     appName: process.env.WORKBASE_OPENROUTER_APP_NAME?.trim() || "Workbase",
     // Privacy is a runtime invariant rather than a switchable environment
     // preference. Deployments cannot accidentally relax it.

@@ -540,7 +540,11 @@ export class OpenRouterChatCompletionsRuntime
           },
           { role: "user", content: input.userPrompt },
         ],
-        max_tokens: input.maxTokens,
+        // The ZDR-capable Azure endpoints for the selected OpenAI models
+        // advertise max_completion_tokens rather than max_tokens. Sonnet 5
+        // accepts this OpenAI-compatible spelling too, so one parameter keeps
+        // require_parameters strict without excluding every ZDR endpoint.
+        max_completion_tokens: input.maxTokens,
         ...(this.config.sendTemperature
           ? { temperature: input.effort ? 1 : input.temperature }
           : {}),
@@ -834,7 +838,7 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
             : []),
           ...toOpenRouterMessages(input.messages ?? []),
         ],
-        max_tokens: input.inferenceConfig?.maxTokens,
+        max_completion_tokens: input.inferenceConfig?.maxTokens,
         ...(this.config.sendTemperature
           ? {
               temperature: effort
