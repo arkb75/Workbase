@@ -1,6 +1,10 @@
 import { Prisma } from "@/src/generated/prisma/client";
 import { classifyWorkflowFailure } from "@/src/lib/error-message";
 import { prisma } from "@/src/lib/prisma";
+import {
+  resolveTextModelConfig,
+  textModelProfiles,
+} from "@/src/lib/llm-config";
 
 export type ApplicationReadiness =
   | { ready: true }
@@ -10,6 +14,21 @@ export type ApplicationReadiness =
       message: string;
       recovery: string;
       retryable: boolean;
+    };
+
+export type TextRuntimeReadiness =
+  | {
+      ready: true;
+      provider: "bedrock" | "openrouter" | "mock";
+      profiles: Record<string, string>;
+      zeroDataRetention: boolean;
+    }
+  | {
+      ready: false;
+      reason: "llm_configuration_invalid";
+      message: string;
+      recovery: string;
+      retryable: false;
     };
 
 type ReadinessClient = {
@@ -92,4 +111,37 @@ export async function checkApplicationReadiness(client: ReadinessClient = prisma
   }
 }
 
-export const runtimeReadinessService = { check: checkApplicationReadiness };
+export function checkTextRuntimeReadiness(): TextRuntimeReadiness {
+  try {
+    const configs = textModelProfiles.map((profile) => [
+      profile,
+      resolveTextModelConfig(profile),
+    ] as const);
+    const provider = configs[0]![1].provider;
+    return {
+      ready: true,
+      provider,
+      profiles: Object.fromEntries(
+        configs.map(([profile, config]) => [profile, config.modelId]),
+      ),
+      zeroDataRetention: provider === "openrouter",
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      reason: "llm_configuration_invalid",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Workbase's model runtime configuration is invalid.",
+      recovery:
+        "Set WORKBASE_LLM_PROVIDER and the required provider credentials/model configuration, then restart the application.",
+      retryable: false,
+    };
+  }
+}
+
+export const runtimeReadinessService = {
+  check: checkApplicationReadiness,
+  checkTextRuntime: checkTextRuntimeReadiness,
+};

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { z } from "zod";
-import { resolveBedrockConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
   analyzeRepositoryFilesHierarchically,
@@ -1332,7 +1335,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       completedHeads: toInputJson(run.targetHeads),
       warnings: toInputJson({
         ...record(run.warnings),
-        modelId: resolveBedrockConfig().modelId,
+        modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         semanticOrchestrationGaps: orchestrationGaps,
         ...currentKnowledgeRefreshPolicyMetadata(),
       }),

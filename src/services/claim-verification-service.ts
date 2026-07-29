@@ -7,7 +7,10 @@ import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
-import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import {
   claimVerificationExampleOutput,
   claimVerificationJsonSchema,
@@ -20,7 +23,7 @@ import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import { toSentence } from "@/src/lib/utils";
 import type { ClaimVerificationService } from "@/src/services/types";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimVerificationService } from "@/src/services/mock-claim-verification-service";
 
 const MAX_VERIFICATION_BATCH_SIZE = 6;
@@ -115,7 +118,7 @@ function mapSupportingEvidence(source: NormalizedEvidenceItem) {
 
 const bedrockClaimVerificationService: ClaimVerificationService = {
   async verify({ workItem, evidenceItems, highlights }) {
-    const structuredClient = getBedrockStructuredLlmClient();
+    const structuredClient = getStructuredLlmClient("verification");
     const rejectedGuidance = evidenceItems
       .filter(isRejectedGuidanceSource)
       .map((source) => source.body)
@@ -143,8 +146,9 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
     }> = [];
     const verifiedClaims = [...highlights];
     let aggregateTransportMode: string | null = null;
-    let aggregateProvider = "bedrock";
-    let aggregateModelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured";
+    const configuredIdentity = resolveActiveTextModelIdentity("verification");
+    let aggregateProvider: string = configuredIdentity.provider;
+    let aggregateModelId = configuredIdentity.modelId;
     let aggregateEvidenceCount = 0;
 
     try {
@@ -461,8 +465,8 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         workItemId: workItem.id,
         kind: "highlight_verification",
         status: failure?.status ?? "provider_error",
-        provider: "bedrock",
-        modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
+        provider: configuredIdentity.provider,
+        modelId: configuredIdentity.modelId,
         inputSummary: {
           ...baseInputSummary,
           transportMode: failure?.transportMode ?? null,

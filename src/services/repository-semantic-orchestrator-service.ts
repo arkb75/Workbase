@@ -20,7 +20,7 @@ import {
   createStructuredGenerationBudget,
   snapshotStructuredGenerationBudget,
 } from "@/src/lib/bedrock-structured-llm-client";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
@@ -971,9 +971,10 @@ async function planWorkPackages(input: {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
       kind: "capability_synthesis",
+      profile: "routing",
       idempotencyKey: `semantic-plan:${input.refreshRunId}:${REPOSITORY_ORCHESTRATION_POLICY_VERSION}`,
       inputSummary: { refreshRunId: input.refreshRunId, capabilityCount: input.manifest.length, fileCount: allowedIds.size },
-      execute: () => getBedrockStructuredLlmClient().generateStructured({
+      execute: () => getStructuredLlmClient("routing").generateStructured({
         systemPrompt: [
           "You are the bounded repository semantic-research planner.",
           "Partition the supplied capability manifest into one to five independent work packages.",

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 
@@ -41,6 +42,12 @@ function logGenerationEvent(event: string, payload: Record<string, unknown>) {
   );
 }
 
+function rawOutputHash(value: string | null) {
+  return value
+    ? createHash("sha256").update(value).digest("hex")
+    : null;
+}
+
 export async function createGenerationRun(
   data: GenerationRunWriteInput,
 ) {
@@ -65,10 +72,10 @@ export async function createGenerationRun(
     status: run.status,
     provider: run.provider,
     modelId: run.modelId,
-    inputSummary: run.inputSummary,
-    rawOutput: run.rawOutput,
-    parsedOutput: run.parsedOutput,
-    validationErrors: run.validationErrors,
+    rawOutputHash: rawOutputHash(run.rawOutput),
+    rawOutputCharacters: run.rawOutput?.length ?? 0,
+    hasParsedOutput: run.parsedOutput != null,
+    hasValidationErrors: run.validationErrors != null,
     tokenUsage: run.tokenUsage,
     estimatedCostUsd: run.estimatedCostUsd,
   });
@@ -109,7 +116,12 @@ export async function updateGenerationRunResultRefs(
 
   logGenerationEvent("workbase.generation_run.updated", {
     generationRunId: run.id,
-    resultRefs: run.resultRefs,
+    resultRefKeys:
+      run.resultRefs &&
+      typeof run.resultRefs === "object" &&
+      !Array.isArray(run.resultRefs)
+        ? Object.keys(run.resultRefs).sort()
+        : [],
   });
 
   return run;

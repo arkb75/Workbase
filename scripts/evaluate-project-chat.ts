@@ -35,8 +35,12 @@ import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import {
   collectModelTokenUsage,
+  collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
-  estimateBedrockCostUsd,
+  countModelUsageEntries,
+  countModelProviderAttempts,
+  countReportedModelCostEntries,
+  resolveModelCostUsd,
 } from "../src/services/model-usage-service";
 
 const prompt = process.argv.slice(2).join(" ").trim() || "Summarize my strongest accomplishments and make sure your information is up to date";
@@ -291,16 +295,59 @@ async function main() {
     return total + (
       typeof recorded === "number" && Number.isFinite(recorded) && recorded >= 0
         ? Math.floor(recorded)
-        : entry.tokenUsage == null && entry.provider === "bedrock"
+        : entry.tokenUsage == null && entry.provider !== "mock"
           ? 1
           : collectUnknownModelUsageAttempts(entry.tokenUsage)
     );
   }, 0);
-  const usageComplete = generationUnknownUsageAttempts + collectUnknownModelUsageAttempts(conversationUsageValues) === 0;
-  const modelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
+  const provider = process.env.WORKBASE_LLM_PROVIDER ?? "openrouter";
+  const modelId =
+    provider === "openrouter"
+      ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
+        process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+        "openai/gpt-5.6-terra"
+      : process.env.WORKBASE_BEDROCK_MODEL_ID ??
+        "us.anthropic.claude-sonnet-4-6";
+  const openRouterCostComplete =
+    provider !== "openrouter" ||
+    (
+      conversationUsageValues.length === 0 ||
+      countReportedModelCostEntries(conversationUsageValues) ===
+        countModelUsageEntries(conversationUsageValues)
+    ) &&
+    generationRuns.every(
+      (entry) =>
+        entry.provider !== "openrouter" ||
+        record(entry.resultRefs).usageComplete === true,
+    );
+  const usageComplete =
+    generationUnknownUsageAttempts +
+      collectUnknownModelUsageAttempts(conversationUsageValues) ===
+      0 && openRouterCostComplete;
   const measuredCostUsd = generationRuns.reduce((total, entry) => total + (
-    entry.estimatedCostUsd ?? estimateBedrockCostUsd(entry.modelId, collectModelTokenUsage(entry.tokenUsage)) ?? 0
-  ), 0) + (estimateBedrockCostUsd(modelId, conversationUsage) ?? 0);
+    entry.estimatedCostUsd ??
+    (
+      typeof record(entry.resultRefs).knownEstimatedCostUsd === "number"
+        ? record(entry.resultRefs).knownEstimatedCostUsd as number
+        : null
+    ) ??
+    resolveModelCostUsd({
+      provider: entry.provider,
+      modelId: entry.modelId,
+      usage: collectModelTokenUsage(entry.tokenUsage),
+      rawUsage: entry.tokenUsage,
+    }) ??
+    0
+  ), 0) + (
+    collectReportedModelCostUsd(conversationUsageValues) ??
+    resolveModelCostUsd({
+      provider,
+      modelId,
+      usage: conversationUsage,
+      rawUsage: conversationUsageValues,
+    }) ??
+    0
+  );
   const elapsedMs = Date.now() - evaluationStartedMs;
   const completenessPayload = record(completenessEvent?.payload);
   const runtimeCompletenessAudit = parseRuntimeAccomplishmentAudit(completenessPayload);
@@ -544,7 +591,15 @@ async function main() {
         const count = record(entry.resultRefs).auditAttemptCount;
         return total + (typeof count === "number" && Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0);
       }, 0),
-      converseModelCallCount: runEvents.filter((event) => record(event.payload).usage != null).length,
+      converseModelCallCount: conversationUsageValues.reduce<number>(
+        (total, usage) =>
+          total +
+          Math.max(
+            countModelProviderAttempts(usage),
+            collectUnknownModelUsageAttempts(usage),
+          ),
+        0,
+      ),
       usageComplete,
       generationUsage,
       conversationUsage,
@@ -556,6 +611,11 @@ async function main() {
         modelId: entry.modelId,
         tokenUsage: collectModelTokenUsage(entry.tokenUsage),
         estimatedCostUsd: entry.estimatedCostUsd,
+        knownEstimatedCostUsd:
+          typeof record(entry.resultRefs).knownEstimatedCostUsd === "number"
+            ? record(entry.resultRefs).knownEstimatedCostUsd
+            : null,
+        usageComplete: record(entry.resultRefs).usageComplete === true,
         durationMs: typeof record(entry.resultRefs).durationMs === "number" ? record(entry.resultRefs).durationMs : null,
       })),
     },

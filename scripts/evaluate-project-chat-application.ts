@@ -34,13 +34,17 @@ import { persistResearchAgentEvent } from "../src/services/research-event-persis
 import { executeArtifactAttempt } from "../src/services/artifact-workflow-service";
 import {
   collectModelTokenUsage,
+  collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
-  estimateBedrockCostUsd,
+  countModelUsageEntries,
+  countModelProviderAttempts,
+  countReportedModelCostEntries,
+  resolveModelCostUsd,
 } from "../src/services/model-usage-service";
 import { startAgentRunWorkflowOnce } from "../src/services/agent-run-workflow-start-service";
 
 interface CliOptions {
-  provider: "mock" | "bedrock";
+  provider: "mock" | "bedrock" | "openrouter";
   workItemTitle: string;
   scenarioIds: ProjectChatApplicationScenarioId[];
   keepData: boolean;
@@ -75,8 +79,12 @@ function parseArguments(argv: string[]): CliOptions {
     return index >= 0 ? argv[index + 1] : undefined;
   };
   const provider = valueAfter("--provider") ?? "mock";
-  if (provider !== "mock" && provider !== "bedrock") {
-    throw new Error("--provider must be mock or bedrock.");
+  if (
+    provider !== "mock" &&
+    provider !== "bedrock" &&
+    provider !== "openrouter"
+  ) {
+    throw new Error("--provider must be mock, bedrock, or openrouter.");
   }
   const scenarioValue = valueAfter("--scenarios");
   const scenarioIds = scenarioValue
@@ -155,7 +163,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     private readonly input: {
       userId: string;
       mainWorkItemId: string;
-      provider: "mock" | "bedrock";
+      provider: "mock" | "bedrock" | "openrouter";
       keepData: boolean;
     },
   ) {}
@@ -343,9 +351,9 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         : sequence === 2
           ? "Decision adopted: keep raw repository exploration internal and promote only supported findings into durable memory with provenance."
           : sequence === 15
-            ? "Current-runtime question: how does the bounded Bedrock tool loop control a project-chat turn?"
+            ? "Current-runtime question: how does the bounded model tool loop control a project-chat turn?"
             : sequence === 16
-              ? "Current runtime context: the bounded Bedrock loop enforces tool and token limits inside the durable workflow boundary."
+              ? "Current runtime context: the provider-neutral model loop enforces tool and token limits inside the durable workflow boundary."
               : role === "user"
                 ? `Intermediate project question ${Math.ceil(sequence / 2)} asked about repository knowledge and grounded chat.`
                 : `Intermediate answer ${Math.ceil(sequence / 2)} explained that repository analysis becomes reviewed Project Facts with durable provenance.`;
@@ -590,22 +598,76 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       return total + (
         typeof recorded === "number" && Number.isFinite(recorded) && recorded >= 0
           ? Math.floor(recorded)
-        : run.tokenUsage == null && run.provider === "bedrock"
+        : run.tokenUsage == null && run.provider !== "mock"
             ? 1
             : collectUnknownModelUsageAttempts(run.tokenUsage)
       );
     }, 0);
-    const modelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
-    const nonGenerationCost = estimateBedrockCostUsd(modelId, nonGenerationUsage) ?? 0;
+    const modelId =
+      this.input.provider === "openrouter"
+        ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
+          process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+          "openai/gpt-5.6-terra"
+        : process.env.WORKBASE_BEDROCK_MODEL_ID ??
+          "us.anthropic.claude-sonnet-4-6";
+    const nonGenerationRawUsage = [
+      ...eventUsageValues,
+      ...(dossierModelUsage ? [dossierModelUsage] : []),
+    ];
+    const nonGenerationCost =
+      collectReportedModelCostUsd(nonGenerationRawUsage) ??
+      resolveModelCostUsd({
+        provider: this.input.provider,
+        modelId,
+        usage: nonGenerationUsage,
+        rawUsage: nonGenerationRawUsage,
+      }) ??
+      0;
     const generationCost = generationRuns.reduce((total, run) => total + (
-      run.estimatedCostUsd ?? estimateBedrockCostUsd(run.modelId, collectModelTokenUsage(run.tokenUsage)) ?? 0
+      run.estimatedCostUsd ??
+      (
+        typeof record(run.resultRefs).knownEstimatedCostUsd === "number"
+          ? record(run.resultRefs).knownEstimatedCostUsd as number
+          : null
+      ) ??
+      resolveModelCostUsd({
+        provider: run.provider,
+        modelId: run.modelId,
+        usage: collectModelTokenUsage(run.tokenUsage),
+        rawUsage: run.tokenUsage,
+      }) ??
+      0
     ), 0);
+    const openRouterCostComplete =
+      this.input.provider !== "openrouter" ||
+      (
+        countUsageLeaves(nonGenerationRawUsage) === 0 ||
+        countReportedModelCostEntries(nonGenerationRawUsage) ===
+          countModelUsageEntries(nonGenerationRawUsage)
+      ) &&
+      generationRuns.every(
+        (run) => {
+          if (run.provider !== "openrouter") return true;
+          const usageComplete = record(run.resultRefs).usageComplete;
+          return usageComplete === true;
+        },
+      );
     const repository = researchUsage(input.researchState);
     return {
       latencyMs: input.finishedAt.getTime() - input.startedAt.getTime(),
-      modelCalls: eventUsageValues.reduce<number>((total, value) => total + countUsageLeaves(value), 0)
-        + countUsageLeaves(dossierModelUsage)
-        + nonGenerationUnknownUsageAttempts
+      modelCalls: eventUsageValues.reduce<number>(
+        (total, value) =>
+          total +
+          Math.max(
+            countModelProviderAttempts(value),
+            collectUnknownModelUsageAttempts(value),
+          ),
+        0,
+      )
+        + Math.max(
+          countModelProviderAttempts(dossierModelUsage),
+          collectUnknownModelUsageAttempts(dossierModelUsage),
+        )
         + generationRuns.reduce((total, run) => {
           const auditAttemptCount = record(run.resultRefs).auditAttemptCount;
           return total + (
@@ -616,7 +678,10 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         }, 0),
       totalTokens: usage.totalTokens,
       estimatedCostUsd: Number((nonGenerationCost + generationCost).toFixed(6)),
-      usageComplete: nonGenerationUnknownUsageAttempts + generationUnknownUsageAttempts === 0,
+      usageComplete:
+        nonGenerationUnknownUsageAttempts +
+          generationUnknownUsageAttempts ===
+          0 && openRouterCostComplete,
       repositoryTreeLookups: repository.treeLookups,
       repositorySearches: repository.searches,
       repositoryFileReads: repository.fileReads,
@@ -775,7 +840,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         /earlier decision under discussion|decision adopted/i.test(rollingSummary ?? ""),
       rollingSummaryPreservedCitationManifest: /used sources:/i.test(rollingSummary ?? ""),
       historyPreservedCurrentRuntimeContext: history.some((message) =>
-        /current runtime context|bounded Bedrock tool loop/i.test(message.content)
+        /current runtime context|bounded (?:model|provider-neutral) (?:tool )?loop/i.test(message.content)
       ),
       candidate: candidate ? {
         exists: true,

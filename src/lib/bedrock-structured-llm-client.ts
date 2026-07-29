@@ -19,6 +19,16 @@ type NativeStructuredOutputMode = Exclude<
   "text_repair_fallback"
 >;
 
+function isCallerCancellation(error: unknown, signal?: AbortSignal) {
+  if (signal?.aborted) return true;
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    String(error.name) === "AbortError",
+  );
+}
+
 export interface StructuredOutputAttemptRecord {
   mode: StructuredOutputTransportMode;
   phase: StructuredGenerationPhase;
@@ -96,6 +106,12 @@ export interface ConverseTextRuntime {
     temperature: number;
     effort?: "low" | "medium" | "high";
     enablePromptCaching?: boolean;
+    signal?: AbortSignal;
+    /**
+     * Maximum provider HTTP dispatches available to this logical model call.
+     * Fallback runtimes must honor this before issuing another paid request.
+     */
+    maxProviderAttempts?: number;
     structuredOutput?: {
       mode: NativeStructuredOutputMode;
       schemaName: string;
@@ -107,10 +123,18 @@ export interface ConverseTextRuntime {
     structuredData: unknown;
     tokenUsage: JsonValue | null;
     stopReason?: string | null;
+    provider?: string;
+    modelId?: string;
+    requestId?: string | null;
   }>;
 }
 
 export class StructuredOutputError extends Error {
+  readonly providerStatus: number | null;
+  readonly retryable: boolean | null;
+  readonly providerCode: string | null;
+  override readonly cause?: unknown;
+
   constructor(
     message: string,
     public readonly status: GenerationFailureStatus,
@@ -119,8 +143,18 @@ export class StructuredOutputError extends Error {
     public readonly tokenUsage: JsonValue | null,
     public readonly transportMode: StructuredOutputTransportMode | null,
     public readonly attempts: JsonValue | null,
+    options?: {
+      providerStatus?: number | null;
+      retryable?: boolean | null;
+      providerCode?: string | null;
+      cause?: unknown;
+    },
   ) {
     super(message);
+    this.providerStatus = options?.providerStatus ?? null;
+    this.retryable = options?.retryable ?? null;
+    this.providerCode = options?.providerCode ?? null;
+    this.cause = options?.cause;
   }
 }
 
@@ -136,12 +170,169 @@ function normalizeAttemptRecords(attempts: StructuredOutputAttemptRecord[]) {
   return normalizeJsonValue(attempts);
 }
 
-function numericTokenUsage(value: JsonValue | null, key: "inputTokens" | "outputTokens" | "totalTokens") {
+function numericTokenUsage(
+  value: JsonValue | null,
+  key: "inputTokens" | "outputTokens" | "totalTokens",
+) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      depth > 6 ||
+      seen.has(current)
+    ) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const isUsageLeaf = ["inputTokens", "outputTokens", "totalTokens"].some(
+      (usageKey) => typeof record[usageKey] === "number",
+    );
+    if (isUsageLeaf) {
+      const candidate = record[key];
+      if (
+        typeof candidate === "number" &&
+        Number.isFinite(candidate) &&
+        candidate >= 0
+      ) {
+        total += Math.floor(candidate);
+      } else if (key === "totalTokens") {
+        total +=
+          Math.floor(
+            typeof record.inputTokens === "number" &&
+            record.inputTokens >= 0
+              ? record.inputTokens
+              : 0,
+          ) +
+          Math.floor(
+            typeof record.outputTokens === "number" &&
+            record.outputTokens >= 0
+              ? record.outputTokens
+              : 0,
+          );
+      }
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
+function reportedCostIn(value: JsonValue | null) {
+  let total = 0;
+  let observed = false;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      depth > 6 ||
+      seen.has(current)
+    ) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.cost === "number" &&
+      Number.isFinite(record.cost) &&
+      record.cost >= 0
+    ) {
+      total += record.cost;
+      observed = true;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return observed ? total : null;
+}
+
+function unknownUsageAttemptsIn(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-  const candidate = value[key];
-  return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0
-    ? Math.floor(candidate)
+  const candidate = (value as Record<string, unknown>).unknownUsageAttempts;
+  return typeof candidate === "number" &&
+    Number.isInteger(candidate) &&
+    candidate > 0
+    ? candidate
     : 0;
+}
+
+function providerAttemptCountIn(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 1;
+  const candidate = (value as Record<string, unknown>).providerAttemptCount;
+  return typeof candidate === "number" &&
+    Number.isInteger(candidate) &&
+    candidate > 0
+    ? candidate
+    : 1;
+}
+
+function providerErrorAttemptCount(error: unknown) {
+  if (!error || typeof error !== "object") return 1;
+  const candidate = (error as { providerAttemptCount?: unknown })
+    .providerAttemptCount;
+  return typeof candidate === "number" &&
+    Number.isInteger(candidate) &&
+    candidate > 0
+    ? candidate
+    : 1;
+}
+
+function allowsStructuredTransportFallback(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const name = "name" in error ? String(error.name) : "";
+  const status =
+    "status" in error && typeof error.status === "number"
+      ? error.status
+      : null;
+  const message =
+    error instanceof Error ? error.message : String(error);
+  const capabilityLike =
+    /(?:unsupported|not supported|does not support|unavailable|not enabled).{0,100}(?:json schema|response[_ -]?format|structured output|tool|function|parameter)|(?:json schema|response[_ -]?format|structured output|tool|function|parameter).{0,100}(?:unsupported|not supported|unavailable|not enabled)/i.test(
+      message,
+    );
+  return capabilityLike &&
+    (
+      /ValidationException|UnsupportedOperation|NotSupported/i.test(name) ||
+      status === 400 ||
+      status === 404 ||
+      status === 422
+    );
+}
+
+function providerFailureMetadata(error: unknown): JsonValue | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as {
+    failedAttempts?: unknown;
+    unknownUsageAttempts?: unknown;
+    providerAttemptCount?: unknown;
+    tokenUsage?: unknown;
+  };
+  if (!Array.isArray(candidate.failedAttempts)) return null;
+  return normalizeJsonValue({
+    attempts: candidate.tokenUsage == null ? [] : [candidate.tokenUsage],
+    failedAttempts: candidate.failedAttempts,
+    unknownUsageAttempts:
+      typeof candidate.unknownUsageAttempts === "number"
+        ? candidate.unknownUsageAttempts
+        : candidate.failedAttempts.length,
+    providerAttemptCount:
+      typeof candidate.providerAttemptCount === "number"
+        ? candidate.providerAttemptCount
+        : candidate.failedAttempts.length,
+  });
 }
 
 function tokenDensityFloor(value: string) {
@@ -246,6 +437,7 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
     temperature: number;
     effort?: "low" | "medium" | "high";
     enablePromptCaching?: boolean;
+    signal?: AbortSignal;
     structuredOutput?: {
       mode: NativeStructuredOutputMode;
       schemaName: string;
@@ -289,7 +481,8 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
               : input.temperature,
         },
         outputConfig:
-          input.structuredOutput?.mode === "bedrock_json_schema"
+          input.structuredOutput?.mode === "bedrock_json_schema" ||
+          input.structuredOutput?.mode === "json_schema"
             ? {
                 textFormat: {
                   type: "json_schema",
@@ -337,13 +530,20 @@ export class AwsBedrockConverseRuntime implements ConverseTextRuntime {
             }
           : undefined,
       }),
-      { abortSignal: AbortSignal.timeout(requestTimeoutMs) },
+      {
+        abortSignal: input.signal
+          ? AbortSignal.any([input.signal, AbortSignal.timeout(requestTimeoutMs)])
+          : AbortSignal.timeout(requestTimeoutMs),
+      },
     );
 
     return {
       text: readTextFromContent(response.output?.message?.content),
       structuredData: readToolInputFromContent(response.output?.message?.content),
       stopReason: response.stopReason ?? null,
+      provider: "bedrock",
+      modelId: this.config.modelId,
+      requestId: response.$metadata?.requestId ?? null,
       tokenUsage:
         response.usage && typeof response.usage === "object"
           ? (JSON.parse(JSON.stringify(response.usage)) as JsonValue)
@@ -496,10 +696,12 @@ export class BedrockStructuredLlmClient {
   constructor(
     private readonly runtime: ConverseTextRuntime,
     private readonly config: {
-      provider: "bedrock";
-      region: string;
+      provider: string;
+      region?: string | null;
       modelId: string;
+      defaultTransportPreference?: StructuredOutputTransportMode[];
     },
+    private readonly repairRuntime?: ConverseTextRuntime,
   ) {}
 
   static fromConfig(config: {
@@ -516,6 +718,10 @@ export class BedrockStructuredLlmClient {
         modelId: config.modelId,
       },
     );
+  }
+
+  private providerName() {
+    return this.config.provider === "bedrock" ? "Bedrock" : "Model provider";
   }
 
   private validateStructuredValue<T>(
@@ -611,19 +817,21 @@ export class BedrockStructuredLlmClient {
     effort?: "low" | "medium" | "high";
     budget?: StructuredGenerationBudget;
     extraValidation?: (value: T) => string[];
+    signal?: AbortSignal;
   }) {
     const temperature = params.temperature ?? 0;
     const effort = params.effort ?? "high";
-    const transportPreference = params.transportPreference ?? [
-      "bedrock_json_schema",
-      "strict_tool_use",
-      "text_repair_fallback",
-    ];
+    const transportPreference =
+      params.transportPreference ??
+      this.config.defaultTransportPreference ??
+      ["bedrock_json_schema", "strict_tool_use", "text_repair_fallback"];
     const nativeModes = transportPreference.filter(
       (mode): mode is NativeStructuredOutputMode => mode !== "text_repair_fallback",
     );
     const attempts: StructuredOutputAttemptRecord[] = [];
     const observedTokenUsage: JsonValue[] = [];
+    let reportedCostUsd = 0;
+    let hasReportedCost = false;
     let unknownUsageAttempts = 0;
     const tokenUsageSnapshot = (): JsonValue | null => {
       if (!observedTokenUsage.length && !unknownUsageAttempts) return null;
@@ -674,32 +882,102 @@ export class BedrockStructuredLlmClient {
         }
         budget.usage.modelCalls += 1;
         if (phase === "repair") budget.usage.repairPasses += 1;
-        boundedRequest = { ...request, maxTokens: permittedOutputTokens };
+        boundedRequest = {
+          ...request,
+          maxTokens: permittedOutputTokens,
+          maxProviderAttempts:
+            budget.limits.maxModelCalls - budget.usage.modelCalls + 1,
+        };
       }
-      const chargeConservativeUnknownUsage = () => {
+      const chargeConservativeUnknownUsage = (attemptCount = 1) => {
         if (!budget) return;
         const estimatedInputTokens = estimatedInputTokenReserve(boundedRequest);
         const estimatedOutputTokens = boundedRequest.maxTokens;
-        budget.usage.inputTokens += estimatedInputTokens;
-        budget.usage.outputTokens += estimatedOutputTokens;
-        budget.usage.totalTokens += estimatedInputTokens + estimatedOutputTokens;
+        budget.usage.inputTokens += estimatedInputTokens * attemptCount;
+        budget.usage.outputTokens += estimatedOutputTokens * attemptCount;
+        budget.usage.totalTokens +=
+          (estimatedInputTokens + estimatedOutputTokens) * attemptCount;
       };
       let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
       try {
-        response = await this.runtime.converse(boundedRequest);
+        response = await (
+          phase === "repair" && this.repairRuntime
+            ? this.repairRuntime
+            : this.runtime
+        ).converse(boundedRequest);
       } catch (error) {
-        unknownUsageAttempts += 1;
+        if (isCallerCancellation(error, params.signal)) throw error;
+        const providerAttemptCount = providerErrorAttemptCount(error);
+        if (budget && providerAttemptCount > 1) {
+          budget.usage.modelCalls += providerAttemptCount - 1;
+        }
+        const errorTokenUsage =
+          error &&
+          typeof error === "object" &&
+          "tokenUsage" in error
+            ? normalizeJsonValue(error.tokenUsage)
+            : null;
+        const failedAttemptCount =
+          error &&
+          typeof error === "object" &&
+          "unknownUsageAttempts" in error &&
+          typeof error.unknownUsageAttempts === "number"
+            ? Math.max(0, Math.floor(error.unknownUsageAttempts))
+            : errorTokenUsage
+              ? 0
+              : 1;
+        unknownUsageAttempts += failedAttemptCount;
+        const failureMetadata = providerFailureMetadata(error);
+        if (failureMetadata) observedTokenUsage.push(failureMetadata);
         if (budget) {
-          budget.usage.unknownUsageCalls += 1;
+          budget.usage.unknownUsageCalls += failedAttemptCount;
           // A disconnected or malformed provider response may still represent
           // a fully charged request. Consume the request's conservative
           // admission reserve so an unmetered attempt cannot bypass a shared
           // cumulative token ceiling through transport fallback.
-          chargeConservativeUnknownUsage();
+          if (failedAttemptCount) {
+            chargeConservativeUnknownUsage(failedAttemptCount);
+          }
+          if (errorTokenUsage) {
+            const knownInput = numericTokenUsage(
+              errorTokenUsage,
+              "inputTokens",
+            );
+            const knownOutput = numericTokenUsage(
+              errorTokenUsage,
+              "outputTokens",
+            );
+            budget.usage.inputTokens += knownInput;
+            budget.usage.outputTokens += knownOutput;
+            budget.usage.totalTokens +=
+              numericTokenUsage(errorTokenUsage, "totalTokens") ||
+              knownInput + knownOutput;
+          }
         }
         throw error;
       }
-      if (response.tokenUsage) observedTokenUsage.push(response.tokenUsage);
+      const providerAttemptCount = providerAttemptCountIn(
+        response.tokenUsage,
+      );
+      if (budget && providerAttemptCount > 1) {
+        budget.usage.modelCalls += providerAttemptCount - 1;
+      }
+      if (response.tokenUsage) {
+        observedTokenUsage.push(response.tokenUsage);
+        const responseUnknownUsageAttempts = unknownUsageAttemptsIn(
+          response.tokenUsage,
+        );
+        unknownUsageAttempts += responseUnknownUsageAttempts;
+        if (budget && responseUnknownUsageAttempts) {
+          budget.usage.unknownUsageCalls += responseUnknownUsageAttempts;
+          chargeConservativeUnknownUsage(responseUnknownUsageAttempts);
+        }
+        const responseReportedCost = reportedCostIn(response.tokenUsage);
+        if (responseReportedCost != null) {
+          reportedCostUsd += responseReportedCost;
+          hasReportedCost = true;
+        }
+      }
       else unknownUsageAttempts += 1;
       if (!budget) return response;
       const inputTokens = numericTokenUsage(response.tokenUsage, "inputTokens");
@@ -746,6 +1024,7 @@ export class BedrockStructuredLlmClient {
           temperature,
           effort,
           enablePromptCaching: true,
+          signal: params.signal,
           structuredOutput: {
             mode,
             schemaName: params.schemaName,
@@ -755,12 +1034,16 @@ export class BedrockStructuredLlmClient {
         }, "generation");
       } catch (error) {
         if (error instanceof StructuredGenerationBudgetError) throw error;
+        if (isCallerCancellation(error, params.signal)) throw error;
         attempts.push({
           mode,
           phase: "generation",
           status: "provider_error",
           validationErrors: null,
-          errorMessage: error instanceof Error ? error.message : "Bedrock request failed.",
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : `${this.providerName()} request failed.`,
         });
         lastFailure = {
           status: "provider_error",
@@ -770,7 +1053,37 @@ export class BedrockStructuredLlmClient {
           transportMode: mode,
           stopReason: null,
         };
+        if (!allowsStructuredTransportFallback(error)) {
+          throw error;
+        }
         continue;
+      }
+
+      if (
+        response.stopReason === "content_filtered" ||
+        response.stopReason === "guardrail_intervened"
+      ) {
+        attempts.push({
+          mode,
+          phase: "generation",
+          status: "provider_error",
+          validationErrors: null,
+          errorMessage: "The model provider blocked the structured response.",
+          stopReason: response.stopReason,
+        });
+        throw new StructuredOutputError(
+          "The model provider blocked the structured response.",
+          "provider_error",
+          response.text || null,
+          null,
+          tokenUsageSnapshot(),
+          mode,
+          normalizeAttemptRecords(attempts),
+          {
+            retryable: false,
+            providerCode: "response_blocked",
+          },
+        );
       }
 
       const parsed = this.parseStructuredResponse({
@@ -794,10 +1107,13 @@ export class BedrockStructuredLlmClient {
           rawOutput: parsed.rawOutput,
           parsedOutput: parsed.parsedJson,
           tokenUsage: tokenUsageSnapshot(),
-          estimatedCostUsd: null,
-          provider: this.config.provider,
-          modelId: this.config.modelId,
-          region: this.config.region,
+          estimatedCostUsd: unknownUsageAttempts === 0 && hasReportedCost
+            ? Number(reportedCostUsd.toFixed(8))
+            : null,
+          provider: response.provider ?? this.config.provider,
+          modelId: response.modelId ?? this.config.modelId,
+          region: this.config.region ?? null,
+          requestId: response.requestId ?? null,
           transportMode: mode,
           attempts,
         };
@@ -810,7 +1126,7 @@ export class BedrockStructuredLlmClient {
         validationErrors: parsed.validationErrors as JsonValue,
         errorMessage:
           response.stopReason === "max_tokens"
-            ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+            ? `${this.providerName()} stopped at the output-token ceiling before returning complete structured output.`
             : null,
         stopReason: response.stopReason ?? null,
       });
@@ -834,7 +1150,7 @@ export class BedrockStructuredLlmClient {
 
     if (!transportPreference.includes("text_repair_fallback")) {
       throw new StructuredOutputError(
-        "Bedrock output did not satisfy the required structured schema.",
+        `${this.providerName()} output did not satisfy the required structured schema.`,
         lastFailure?.status ?? "provider_error",
         lastFailure?.rawOutput ?? null,
         lastFailure?.validationErrors ?? null,
@@ -852,7 +1168,7 @@ export class BedrockStructuredLlmClient {
 
     if (hitOutputTokenLimit && !repairSource?.rawOutput) {
       throw new StructuredOutputError(
-        "Bedrock reached the output-token ceiling without returning partial structured output that could be repaired.",
+        `${this.providerName()} reached the output-token ceiling without returning partial structured output that could be repaired.`,
         lastFailure?.status ?? "parse_error",
         null,
         lastFailure?.validationErrors ?? null,
@@ -878,19 +1194,26 @@ export class BedrockStructuredLlmClient {
           temperature,
           effort,
           enablePromptCaching: true,
+          signal: params.signal,
         }, "generation");
       } catch (error) {
         if (error instanceof StructuredGenerationBudgetError) throw error;
+        if (isCallerCancellation(error, params.signal)) throw error;
         attempts.push({
           mode: "text_repair_fallback",
           phase: "generation",
           status: "provider_error",
           validationErrors: null,
-          errorMessage: error instanceof Error ? error.message : "Bedrock request failed.",
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : `${this.providerName()} request failed.`,
         });
 
         throw new StructuredOutputError(
-          error instanceof Error ? error.message : "Bedrock request failed.",
+          error instanceof Error
+            ? error.message
+            : `${this.providerName()} request failed.`,
           "provider_error",
           lastFailure?.rawOutput ?? null,
           lastFailure?.validationErrors ?? null,
@@ -925,10 +1248,13 @@ export class BedrockStructuredLlmClient {
         rawOutput: firstAttempt.rawOutput,
         parsedOutput: firstAttempt.parsedJson,
         tokenUsage: tokenUsageSnapshot(),
-        estimatedCostUsd: null,
-        provider: this.config.provider,
-        modelId: this.config.modelId,
-        region: this.config.region,
+        estimatedCostUsd: unknownUsageAttempts === 0 && hasReportedCost
+          ? Number(reportedCostUsd.toFixed(8))
+          : null,
+        provider: firstTextResponse.provider ?? this.config.provider,
+        modelId: firstTextResponse.modelId ?? this.config.modelId,
+        region: this.config.region ?? null,
+        requestId: firstTextResponse.requestId ?? null,
         transportMode: "text_repair_fallback" as const,
         attempts,
       };
@@ -942,7 +1268,7 @@ export class BedrockStructuredLlmClient {
         validationErrors: firstAttempt.validationErrors as JsonValue,
         errorMessage:
           firstTextResponse.stopReason === "max_tokens"
-            ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+            ? `${this.providerName()} stopped at the output-token ceiling before returning complete structured output.`
             : null,
         stopReason: firstTextResponse.stopReason ?? null,
       });
@@ -968,20 +1294,26 @@ export class BedrockStructuredLlmClient {
         temperature: 0,
         effort: "medium",
         enablePromptCaching: true,
+        signal: params.signal,
       }, "repair");
     } catch (error) {
       if (error instanceof StructuredGenerationBudgetError) throw error;
+      if (isCallerCancellation(error, params.signal)) throw error;
       attempts.push({
         mode: "text_repair_fallback",
         phase: "repair",
         status: "provider_error",
         validationErrors: null,
         errorMessage:
-          error instanceof Error ? error.message : "Bedrock repair request failed.",
+          error instanceof Error
+            ? error.message
+            : `${this.providerName()} repair request failed.`,
       });
 
       throw new StructuredOutputError(
-        error instanceof Error ? error.message : "Bedrock repair request failed.",
+        error instanceof Error
+          ? error.message
+          : `${this.providerName()} repair request failed.`,
         "provider_error",
         firstAttempt.rawOutput,
         firstAttempt.validationErrors as JsonValue,
@@ -1021,10 +1353,13 @@ export class BedrockStructuredLlmClient {
         rawOutput: combinedRawOutput,
         parsedOutput: repairedAttempt.parsedJson,
         tokenUsage: tokenUsageSnapshot(),
-        estimatedCostUsd: null,
-        provider: this.config.provider,
-        modelId: this.config.modelId,
-        region: this.config.region,
+        estimatedCostUsd: unknownUsageAttempts === 0 && hasReportedCost
+          ? Number(reportedCostUsd.toFixed(8))
+          : null,
+        provider: repairResponse.provider ?? this.config.provider,
+        modelId: repairResponse.modelId ?? this.config.modelId,
+        region: this.config.region ?? null,
+        requestId: repairResponse.requestId ?? null,
         transportMode: "text_repair_fallback" as const,
         attempts,
       };
@@ -1037,13 +1372,13 @@ export class BedrockStructuredLlmClient {
       validationErrors: repairedAttempt.validationErrors as JsonValue,
       errorMessage:
         repairResponse.stopReason === "max_tokens"
-          ? "Bedrock stopped at the output-token ceiling before returning complete structured output."
+          ? `${this.providerName()} stopped at the output-token ceiling before returning complete structured output.`
           : null,
       stopReason: repairResponse.stopReason ?? null,
     });
 
     throw new StructuredOutputError(
-      "Bedrock output could not be repaired into valid structured JSON.",
+      `${this.providerName()} output could not be repaired into valid structured JSON.`,
       repairedAttempt.status,
       combinedRawOutput,
       repairedAttempt.validationErrors as JsonValue,
@@ -1053,3 +1388,7 @@ export class BedrockStructuredLlmClient {
     );
   }
 }
+
+// Provider-neutral name for new call sites. Keep the historical export so the
+// Bedrock rollback path and its contract tests remain source-compatible.
+export { BedrockStructuredLlmClient as StructuredLlmClient };

@@ -10,7 +10,8 @@ The prototype is built around one hard rule: public Artifacts are generated from
 - TypeScript
 - Tailwind CSS
 - Prisma 7 with Neon/PostgreSQL
-- Bedrock-backed structured generation for claim research, verification, artifact drafting, and evidence clustering
+- Provider-neutral model runtime using OpenRouter strict-ZDR chat completions,
+  role-specific model profiles, and a controlled Bedrock rollback path
 - GitHub OAuth App integration with bounded REST ingestion
 - Vitest for domain tests
 
@@ -40,7 +41,19 @@ cp .env.example .env
 ```
 
 3. Set `DATABASE_URL` and `DIRECT_URL` to your Neon Postgres connection strings in `.env`
-4. Add the GitHub OAuth App and encryption settings from `.env.example`
+4. Add the OpenRouter API key, GitHub OAuth App, and encryption settings from
+   `.env.example`
+
+Validate every unique configured text model (including the cross-family
+fallback) with strict structured output before starting the app:
+
+```bash
+npm run openrouter:preflight
+```
+
+Every OpenRouter request requires zero-data-retention routing and provider
+support for all supplied parameters. `WORKBASE_LLM_PROVIDER=bedrock` plus the
+retained `WORKBASE_BEDROCK_*` values provides the migration rollback switch.
 
 For proactive production refreshes, also set:
 
@@ -80,6 +93,7 @@ npm run lint
 npx tsc --noEmit
 npm run test
 npm run db:prepare
+npm run openrouter:preflight
 ```
 
 ## Included routes

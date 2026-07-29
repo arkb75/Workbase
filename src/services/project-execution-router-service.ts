@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import type { ProjectTurnIntent } from "@/src/services/project-agent-harness";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
@@ -122,6 +122,7 @@ export async function routeProjectExecution(input: {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
       kind: "execution_routing",
+      profile: "routing",
       idempotencyKey: `execution-route:${input.runId}:${PROJECT_EXECUTION_ROUTER_VERSION}`,
       inputSummary: {
         question: input.question.slice(0, 1_000),
@@ -129,7 +130,7 @@ export async function routeProjectExecution(input: {
         memoryHitCount: input.memoryHits.length,
         repositoryCount: input.repositories.length,
       },
-      execute: () => getBedrockStructuredLlmClient().generateStructured({
+      execute: () => getStructuredLlmClient("routing").generateStructured({
         systemPrompt: [
           "You route one Workbase project-chat request within a deterministic safety and budget envelope.",
           "Choose memory when approved current memory is sufficient; targeted research for a bounded code question; refresh for broad or explicitly current repository assessment.",

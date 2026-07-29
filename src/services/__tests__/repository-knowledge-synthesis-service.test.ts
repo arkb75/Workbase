@@ -137,22 +137,23 @@ describe("repository synthesis limit fallback", () => {
 
   it("creates a capability-level AI runtime fact from clause-level semantic observations", () => {
     const result = fallbackSubsystemSynthesis("ai_runtime", [
-      entry("src/lib/bedrock-converse-agent.ts", "BedrockConverseTransport wraps ConverseCommand and returns normalized stopReason and usage metadata."),
-      entry("src/lib/bedrock-converse-agent.ts", "The runtime enforces maxIterations, maxToolCalls, and maxTotalTokens."),
-      entry("src/lib/bedrock-converse-agent.ts", "Sensitive value redaction removes credentials before events are exposed."),
+      entry("src/lib/openrouter-client.ts", "OpenRouter chat and tool-loop transports enforce strict ZDR and required-parameter routing with reported usage cost."),
+      entry("src/services/bedrock-runtime.ts", "Configured OpenRouter profiles are primary while the Bedrock transport remains a controlled rollback."),
+      entry("src/lib/bedrock-converse-agent.ts", "Provider-neutral stop and usage normalization enforces maxIterations, maxToolCalls, and maxTotalTokens."),
+      entry("src/lib/bedrock-converse-agent.ts", "Credential-safe event telemetry removes credentials before events are exposed."),
     ]);
 
     expect(result.facts).toEqual([expect.objectContaining({
-      statement: expect.stringContaining("wraps Bedrock Converse"),
+      statement: expect.stringContaining("supports OpenRouter"),
       confidence: "high",
-      citationIndexes: [1, 2, 3],
+      citationIndexes: [1, 2, 3, 4],
     })]);
     expect(result.highlights).toEqual([
       expect.objectContaining({
-        text: expect.stringContaining("wraps Bedrock Converse"),
+        text: expect.stringContaining("supports OpenRouter"),
         visibility: "private",
         confidence: "high",
-        citationIndexes: [1, 2, 3],
+        citationIndexes: [1, 2, 3, 4],
       }),
     ]);
   });

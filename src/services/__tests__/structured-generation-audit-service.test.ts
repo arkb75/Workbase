@@ -17,6 +17,10 @@ vi.mock("@/src/lib/llm-config", () => ({
     modelId: "us.anthropic.claude-sonnet-4-6-v1:0",
     region: "us-west-2",
   }),
+  resolveActiveTextModelIdentity: () => ({
+    provider: "bedrock",
+    modelId: "us.anthropic.claude-sonnet-4-6-v1:0",
+  }),
 }));
 
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
@@ -239,5 +243,86 @@ describe("structured generation audit usage", () => {
       usageComplete: false,
       knownEstimatedCostUsd: 0.0009,
     }));
+  });
+
+  it("persists actual OpenRouter fallback attribution and carries known lower-bound cost across retries", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-openrouter",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      tokenUsage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+      estimatedCostUsd: null,
+      resultRefs: {
+        auditAttemptCount: 2,
+        unknownUsageAttempts: 1,
+        usageComplete: false,
+        knownEstimatedCostUsd: 0.001,
+      },
+    });
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      profile: "deep_synthesis",
+      idempotencyKey: "openrouter:fallback-retry",
+      inputSummary: { subsystem: "runtime" },
+      execute: async () => ({
+        ...structuredResult(null),
+        provider: "openrouter",
+        modelId: "anthropic/claude-sonnet-5",
+        requestId: "req_fallback",
+        transportMode: "json_schema",
+        tokenUsage: {
+          attempts: [
+            {
+              inputTokens: 20,
+              outputTokens: 5,
+              totalTokens: 25,
+              cost: 0.002,
+              routedProvider: "anthropic",
+            },
+          ],
+          failedAttempts: [
+            {
+              provider: "openrouter",
+              modelId: "openai/gpt-5.6-terra",
+              requestId: "req_primary",
+              httpStatus: 503,
+              retryable: true,
+            },
+          ],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 1,
+        },
+      }),
+    });
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data).toMatchObject({
+      provider: "openrouter",
+      modelId: "anthropic/claude-sonnet-5",
+      estimatedCostUsd: null,
+      resultRefs: expect.objectContaining({
+        profile: "deep_synthesis",
+        configuredModelId: modelId,
+        requestId: "req_fallback",
+        auditAttemptCount: 4,
+        providerAttemptCount: 2,
+        unknownUsageAttempts: 2,
+        usageComplete: false,
+        knownEstimatedCostUsd: 0.003,
+        routedProviders: ["anthropic"],
+        failedProviderAttempts: [
+          expect.objectContaining({
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "req_primary",
+          }),
+        ],
+      }),
+    });
   });
 });

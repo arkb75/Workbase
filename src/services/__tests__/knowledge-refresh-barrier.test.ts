@@ -16,6 +16,10 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 vi.mock("@/src/lib/llm-config", () => ({
   resolveBedrockConfig: () => ({ modelId: "us.anthropic.claude-sonnet-4-6" }),
+  resolveActiveTextModelIdentity: () => ({
+    provider: "bedrock",
+    modelId: "us.anthropic.claude-sonnet-4-6",
+  }),
   resolveWorkbaseLlmProvider: () => "mock",
 }));
 

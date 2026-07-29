@@ -4,7 +4,7 @@ import {
   reviewSnapshotMatchesEntity,
   upsertReviewableKnowledgeChangesInTransaction,
 } from "@/src/services/knowledge-change-service";
-import { resolveBedrockConfig } from "@/src/lib/llm-config";
+import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import { invalidateStaleEvidenceDependentsInTransaction } from "@/src/services/knowledge-dependency-service";
 import {
   knowledgeSimilarity,
@@ -1168,7 +1168,7 @@ export async function reconcileStaleKnowledge(input: {
       });
       const winnerIds = new Set(updated.map((evidence) => evidence.id));
       const winners = staleEvidencePlans.filter((plan) => winnerIds.has(plan.evidence.id));
-      const modelId = resolveBedrockConfig().modelId;
+      const modelId = resolveActiveTextModelIdentity("verification").modelId;
       await upsertReviewableKnowledgeChangesInTransaction(winners.map((plan) => ({
         workItemId: run.workItemId,
         refreshRunId: run.id,

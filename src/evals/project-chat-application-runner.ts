@@ -5,7 +5,7 @@
  * be executed by a driver that creates actual Workbase threads and AgentRuns.
  * The CLI driver lives in `scripts/evaluate-project-chat-application.ts` so it
  * can use a configured database, GitHub connection, and either the mock or
- * Bedrock runtime without making those dependencies part of ordinary tests.
+ * live model runtime without making those dependencies part of ordinary tests.
  */
 
 import {
@@ -216,7 +216,7 @@ export const projectChatApplicationScenarios = [
         "career content|resume|artifact",
         "repository (?:knowledge|refresh|intelligence)|semantic analys",
         "project chat|retriev|ground",
-        "workflow|bedrock|structured generation",
+        "workflow|openrouter|model runtime|structured generation",
       ],
       forbiddenPatterns: [
         "\\b(?:every|all) (?:file|subsystem|capability)\\b",
@@ -439,7 +439,7 @@ export const projectChatApplicationScenarios = [
   {
     id: "durable_runtime_deep_dive",
     title: "Focused technical runtime explanation",
-    question: "Explain how Workbase's Bedrock tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Be technically specific without listing unrelated subsystems.",
+    question: "Explain how Workbase's provider-neutral model tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Be technically specific without listing unrelated subsystems.",
     workspace: "project_memory",
     threadKey: "durable_runtime_deep_dive",
     allowResearch: false,
@@ -454,7 +454,7 @@ export const projectChatApplicationScenarios = [
       minMechanismValueItems: 2,
       minCitedItems: 2,
       format: "markdown",
-      requiredPatterns: ["bedrock|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
+      requiredPatterns: ["openrouter|model (?:tool )?loop|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
       forbiddenPatterns: ["career content product|linkedin experience"],
     },
     envelope: {
@@ -722,7 +722,7 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: [
         "career content|artifact|resume",
         "repository (?:knowledge|refresh|intelligence)|semantic analys",
-        "project chat|retriev|ground|workflow|bedrock",
+        "project chat|retriev|ground|workflow|openrouter|model runtime",
       ],
     },
     envelope: {
@@ -782,7 +782,7 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: [
         "architect|system design|pipeline|repository intelligence",
         "data|provenance|integrity",
-        "bedrock|agent|runtime",
+        "openrouter|bedrock|agent|model runtime",
         "durable|reliab|recover|bound",
       ],
       forbiddenPatterns: ["\\bUI\\b|onboarding|local setup|npm (?:install|run)|Tailwind"],
@@ -902,7 +902,7 @@ export const projectChatApplicationScenarios = [
         "earlier decision",
         "repository discover|reviewed durable|project fact|durable memory",
         "current runtime",
-        "bedrock|tool (?:loop|limit)|token limit",
+        "openrouter|model (?:tool )?loop|tool (?:loop|limit)|token limit",
       ],
     },
     envelope: {
@@ -1323,7 +1323,7 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "rolling summary preserved a used-source manifest", observation.rollingSummaryPreservedCitationManifest, observation.rollingSummaryPreservedCitationManifest, true);
       addCheck(checks, "bounded recent history preserved current runtime context", observation.historyPreservedCurrentRuntimeContext, observation.historyPreservedCurrentRuntimeContext, true);
       addCheck(checks, "long-thread comparison preserves the earlier decision", /repository discover|reviewed durable|project fact|durable memory/i.test(observation.answer), observation.answer, "earlier repository-memory decision");
-      addCheck(checks, "long-thread comparison preserves current runtime context", /current runtime|bedrock|tool (?:loop|limit)|token limit/i.test(observation.answer), observation.answer, "current bounded runtime");
+      addCheck(checks, "long-thread comparison preserves current runtime context", /current runtime|openrouter|model (?:tool )?loop|tool (?:loop|limit)|token limit/i.test(observation.answer), observation.answer, "current bounded runtime");
       {
         const earlierIndex = observation.answer.search(/earlier decision/i);
         const currentIndex = observation.answer.search(/current runtime/i);

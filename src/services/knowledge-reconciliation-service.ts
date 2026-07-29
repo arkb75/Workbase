@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import type { HighlightTagValue } from "@/src/lib/highlight-taxonomy";
-import { resolveBedrockConfig } from "@/src/lib/llm-config";
+import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
@@ -517,7 +517,7 @@ async function recordChange(input: {
     ...input,
     refreshRunId: input.refreshRunId ?? null,
     policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
-    modelId: resolveBedrockConfig().modelId,
+    modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
     idempotencyKey,
   };
   return client
@@ -530,7 +530,7 @@ export function recordContentAddressedRevalidations(
     contentIdentity: string;
   }>,
 ) {
-  const modelId = resolveBedrockConfig().modelId;
+  const modelId = resolveActiveTextModelIdentity("deep_synthesis").modelId;
   return recordAutoResolvedKnowledgeChanges(inputs.map(({ contentIdentity, ...input }) => ({
     ...input,
     policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
@@ -1317,7 +1317,7 @@ async function revalidateExistingKnowledge(input: {
           preservedUserEdit: validatesUserEdit,
         },
         policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
-        modelId: resolveBedrockConfig().modelId,
+        modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         idempotencyKey: `project_fact:content-addressed:${closest.fact.id}:${hash([
           closest.fact.statement,
           entry.commitSha,
@@ -1375,7 +1375,7 @@ async function revalidateExistingKnowledge(input: {
           preservedUserEdit: validatesUserEdit,
         },
         policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
-        modelId: resolveBedrockConfig().modelId,
+        modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         idempotencyKey: `highlight:content-addressed:${closest.highlight.id}:${hash([
           closest.highlight.text,
           entry.commitSha,

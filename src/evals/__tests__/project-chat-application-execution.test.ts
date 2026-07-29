@@ -34,6 +34,17 @@ describe("project-chat application execution", () => {
     })).toBe("durable_workflow");
   });
 
+  it("routes OpenRouter freshness-required general chat through the same durable workflow", () => {
+    expect(projectChatApplicationExecutionMode({
+      provider: "openrouter",
+      scenario: scenario("strongest_accomplishments"),
+    })).toBe("durable_workflow");
+    expect(projectChatApplicationExecutionMode({
+      provider: "openrouter",
+      scenario: scenario("repository_knowledge_data_flow"),
+    })).toBe("durable_workflow");
+  });
+
   it("does not pay the workflow refresh cost for ordinary Bedrock memory answers or isolated research sandboxes", () => {
     expect(projectChatApplicationExecutionMode({
       provider: "bedrock",

@@ -2,9 +2,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   addModelTokenUsage,
   collectModelTokenUsage,
+  collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
+  countModelUsageEntries,
+  countModelProviderAttempts,
+  countReportedModelCostEntries,
   estimateBedrockCostUsd,
   modelTokenUsageJson,
+  resolveModelCostUsd,
 } from "@/src/services/model-usage-service";
 
 const pricingEnvironmentKeys = [
@@ -26,6 +31,23 @@ describe("model usage accounting", () => {
         { usage: { inputTokens: 10, outputTokens: 2 }, unknownUsageAttempts: 0 },
       ],
     })).toBe(1);
+  });
+
+  it("uses explicit provider dispatch counts without double-counting nested attempts", () => {
+    const usage = {
+      attempts: [
+        {
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12,
+          cost: 0.001,
+        },
+      ],
+      providerAttemptCount: 2,
+      unknownUsageAttempts: 1,
+    };
+    expect(countModelProviderAttempts(usage)).toBe(2);
+    expect(collectUnknownModelUsageAttempts(usage)).toBe(1);
   });
 
   it("aggregates nested attempts without double-counting wrapper objects", () => {
@@ -133,5 +155,46 @@ describe("model usage accounting", () => {
     expect(estimateBedrockCostUsd("us.anthropic.claude-sonnet-4-6-v1:0", usage)).toBe(4.35);
     expect(estimateBedrockCostUsd("another-provider.model", usage)).toBeNull();
     expect(estimateBedrockCostUsd("mock", usage)).toBe(0);
+  });
+
+  it("uses authoritative OpenRouter usage.cost across provider attempts", () => {
+    const rawUsage = {
+      attempts: [
+        { inputTokens: 100, outputTokens: 20, totalTokens: 120, cost: 0.0012 },
+        { inputTokens: 30, outputTokens: 5, totalTokens: 35, costUsd: 0.0004 },
+      ],
+    };
+    expect(collectReportedModelCostUsd(rawUsage)).toBe(0.0016);
+    expect(countModelUsageEntries(rawUsage)).toBe(2);
+    expect(countReportedModelCostEntries(rawUsage)).toBe(2);
+    expect(resolveModelCostUsd({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      usage: collectModelTokenUsage(rawUsage),
+      rawUsage,
+    })).toBe(0.0016);
+  });
+
+  it("does not guess OpenRouter cost when usage.cost is unavailable", () => {
+    expect(resolveModelCostUsd({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      usage: collectModelTokenUsage({
+        inputTokens: 100,
+        outputTokens: 20,
+      }),
+    })).toBeNull();
+  });
+
+  it("normalizes reasoning tokens without changing legacy zero-value shapes", () => {
+    expect(collectModelTokenUsage({
+      inputTokens: 20,
+      outputTokens: 10,
+      totalTokens: 30,
+      reasoningTokens: 6,
+    })).toMatchObject({
+      totalTokens: 30,
+      reasoningTokens: 6,
+    });
   });
 });

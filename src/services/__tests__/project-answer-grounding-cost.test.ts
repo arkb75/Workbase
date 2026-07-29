@@ -7,6 +7,7 @@ vi.mock("@/src/lib/llm-config", () => ({
 }));
 vi.mock("@/src/services/bedrock-runtime", () => ({
   getBedrockStructuredLlmClient: () => ({ generateStructured: generateStructuredMock }),
+  getStructuredLlmClient: () => ({ generateStructured: generateStructuredMock }),
 }));
 
 import {
@@ -56,7 +57,7 @@ describe("project answer grounding cost controls", () => {
     expect(request).toMatchObject({
       maxTokens: 4_000,
       effort: "medium",
-      transportPreference: ["bedrock_json_schema"],
+      transportPreference: ["json_schema"],
     });
   });
 

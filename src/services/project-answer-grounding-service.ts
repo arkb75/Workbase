@@ -3,7 +3,7 @@ import type { GroundedAnswerBlock, ProjectResearchDossier } from "@/src/domain/p
 import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
 import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { repositoryFreshnessFromDossier } from "@/src/services/project-research-dossier-service";
 
 const groundingSchema = z.object({
@@ -212,7 +212,7 @@ export function projectAnswerGroundingExecutionOptions(singleAttempt: boolean) {
     };
   }
   return {
-    transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+    transportPreference: ["json_schema"] as StructuredOutputTransportMode[],
     budget: createStructuredGenerationBudget({
       maxModelCalls: 1,
       maxRepairPasses: 0,
@@ -412,7 +412,7 @@ export async function groundProjectAnswer(input: {
     }
     return errors;
   };
-  const result = await getBedrockStructuredLlmClient().generateStructured({
+  const result = await getStructuredLlmClient("verification").generateStructured({
       systemPrompt: [
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
         "Check each factual project claim against only the source entry referenced by a [citation:N] marker in that claim or paragraph.",
