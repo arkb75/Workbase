@@ -410,8 +410,8 @@ const focusedSemanticConcepts = [
     entry: /\b(?:artifact|approved highlights?|bounded research|evidence gap|approval hook|human review|pause\w*.{0,30}resume\w*)\b/i,
   },
   {
-    query: /\b(?:(?:bedrock|tool loop|ai runtime).{0,100}durable workflow|durable workflow.{0,100}(?:bedrock|tool loop|ai runtime))\b/i,
-    entry: /\b(?:bedrock|tool loop|ai runtime|durable workflow|approval hook|pause\w*.{0,30}resume\w*|iteration|tool-call|token (?:limit|budget))\b/i,
+    query: /\b(?:(?:openrouter|bedrock|model (?:runtime|tool loop)|tool loop|ai runtime).{0,100}durable workflow|durable workflow.{0,100}(?:openrouter|bedrock|model (?:runtime|tool loop)|tool loop|ai runtime))\b/i,
+    entry: /\b(?:openrouter|bedrock|model (?:runtime|provider|routing)|tool loop|ai runtime|durable workflow|approval hook|pause\w*.{0,30}resume\w*|iteration|tool-call|token (?:limit|budget))\b/i,
   },
   {
     query: /\b(?:test(?:ing)? strategy|automated tests?|test coverage|regression|evaluation suite)\b/i,
@@ -773,7 +773,7 @@ function priorityThemeCandidatesForFacet(facet: string) {
       "knowledge_review_experience",
     ];
   }
-  if (/\b(?:ai|model|bedrock|runtime|tool loop|tool use|agent control)\b/i.test(facet)) {
+  if (/\b(?:ai|model|openrouter|bedrock|runtime|tool loop|tool use|agent control)\b/i.test(facet)) {
     return ["ai_runtime", "workflow_orchestration", "project_chat_grounding"];
   }
   if (/\b(?:reliab|resilien|recover|retry|durable|fault toleran)\w*/i.test(facet)) {
@@ -980,7 +980,7 @@ export function selectProjectAnswerEditorialThemes(input: {
           input.question,
         )
           ? ["product_and_artifact_generation", "workflow_orchestration"]
-          : /\b(?:(?:bedrock|tool loop|ai runtime).{0,100}durable workflow|durable workflow.{0,100}(?:bedrock|tool loop|ai runtime))\b/i.test(
+          : /\b(?:(?:openrouter|bedrock|model (?:runtime|tool loop)|tool loop|ai runtime).{0,100}durable workflow|durable workflow.{0,100}(?:openrouter|bedrock|model (?:runtime|tool loop)|tool loop|ai runtime))\b/i.test(
               input.question,
             )
             ? ["ai_runtime", "workflow_orchestration"]
@@ -1270,7 +1270,7 @@ const valueByTheme: Record<string, string> = {
   workflow_orchestration:
     "This separates single-turn model limits from the durable human-review boundary, which can pause and resume the larger run.",
   ai_runtime:
-    "This bounds each Bedrock tool loop with observable stop, usage, abort, iteration, tool-call, and token controls.",
+    "This bounds each provider-neutral model tool loop with observable stop, usage, cost, abort, iteration, tool-call, and token controls.",
   retrieval_provenance:
     "This selects relevant reviewed memory while keeping its immutable provenance available for inspection.",
   ingestion_integrations:
@@ -1350,7 +1350,7 @@ export function addSourceBoundedEditorialContext(
       return {
         ...block,
         heading: "Current Runtime — Bound Each Agent Turn",
-        bodyMarkdown: `${block.bodyMarkdown}\n\n**Chronology:** The current runtime applies Bedrock tool-loop and durable-workflow controls when executing the resulting grounded chat turn.`,
+        bodyMarkdown: `${block.bodyMarkdown}\n\n**Chronology:** The current provider-neutral model runtime applies bounded tool-loop and durable-workflow controls when executing the resulting grounded chat turn.`,
       };
     }
     if (

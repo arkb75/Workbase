@@ -82,7 +82,7 @@ export interface ProjectAgentTurnContext {
   runtime: {
     appRevision: string;
     modelId: string;
-    provider: "bedrock" | "mock";
+    provider: "bedrock" | "openrouter" | "mock";
     harnessVersion: string;
     promptVersion: string;
     researchControllerVersion: string;
@@ -232,6 +232,14 @@ export function buildProjectAgentTurnContext(input: {
     versions: [PROJECT_AGENT_HARNESS_VERSION, PROJECT_AGENT_PROMPT_VERSION, PROJECT_RESEARCH_CONTROLLER_VERSION],
   };
   const provider = resolveWorkbaseLlmProvider();
+  const configuredModelId =
+    provider === "openrouter"
+      ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
+        process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+        "openai/gpt-5.6-terra"
+      : provider === "bedrock"
+        ? process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured"
+        : "mock";
 
   return {
     objective: input.question,
@@ -280,7 +288,7 @@ export function buildProjectAgentTurnContext(input: {
     },
     runtime: {
       appRevision: input.appRevision ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? "local",
-      modelId: input.modelId ?? process.env.WORKBASE_BEDROCK_MODEL_ID ?? "mock",
+      modelId: input.modelId ?? configuredModelId,
       provider,
       harnessVersion: PROJECT_AGENT_HARNESS_VERSION,
       promptVersion: PROJECT_AGENT_PROMPT_VERSION,

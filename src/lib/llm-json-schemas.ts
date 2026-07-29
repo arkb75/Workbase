@@ -3,6 +3,7 @@ import type { JsonValue } from "@/src/domain/types";
 export type JsonSchemaObject = Record<string, unknown>;
 
 export const structuredOutputTransportModes = [
+  "json_schema",
   "bedrock_json_schema",
   "strict_tool_use",
   "text_repair_fallback",

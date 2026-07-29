@@ -8,10 +8,9 @@ import type {
   ProjectResearchResult,
 } from "@/src/domain/project-chat";
 import {
-  BedrockConverseAgent,
   type BedrockConverseAgentEvent,
 } from "@/src/lib/bedrock-converse-agent";
-import { resolveBedrockConfig, resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import {
@@ -63,6 +62,7 @@ import {
   repositoryFreshnessFromDossier,
 } from "@/src/services/project-research-dossier-service";
 import { isHighlightWorthyUserContext } from "@/src/services/chat-highlight-candidate-service";
+import { createTextConverseAgent } from "@/src/services/bedrock-runtime";
 
 const freshnessIntentPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
 const liveRepositoryIntentPattern = /(?:\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|look(?:\s+at)?|access)\b.{0,80}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:repo|repository|github|codebase)\b.{0,80}\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|access)\b)|(?:\b(?:inspect|search|read|check|access|compare)\b.{0,100}\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b)/i;
@@ -1668,8 +1668,8 @@ async function executeProjectChatAgent(
       }],
     },
   ];
-  const agent = BedrockConverseAgent.fromConfig({
-    ...resolveBedrockConfig(),
+  const agent = createTextConverseAgent({
+    profile: "primary_answer",
     // The runtime requires a positive limit even though this phase exposes no tools.
     defaultLimits: { maxIterations: 2, maxToolCalls: 1, maxTotalTokens: 60_000 },
   });

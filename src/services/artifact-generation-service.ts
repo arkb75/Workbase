@@ -2,7 +2,10 @@ import type { Prisma } from "@/src/generated/prisma/client";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { createGenerationRun } from "@/src/lib/generation-runs";
 import { artifactGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
-import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import {
   artifactGenerationExampleOutput,
   artifactGenerationJsonSchema,
@@ -13,7 +16,7 @@ import {
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockArtifactGenerationService } from "@/src/services/mock-artifact-generation-service";
 import { deriveArtifactEvidenceItemIds } from "@/src/services/artifact-publication-policy";
 
@@ -65,7 +68,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       );
     }
 
-    const structuredClient = getBedrockStructuredLlmClient();
+    const structuredClient = getStructuredLlmClient("drafting");
     const allowedHighlightIds = new Set(highlights.map((highlight) => highlight.id));
     const allowedEvidenceItemIds = new Set(supportingEvidence.map((item) => item.id));
     const systemPrompt = [
@@ -232,13 +235,14 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       });
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
+      const identity = resolveActiveTextModelIdentity("drafting");
 
       await createGenerationRun({
         workItemId: request.workItemId,
         kind: "artifact_generation",
         status: failure?.status ?? "provider_error",
-        provider: "bedrock",
-        modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
+        provider: identity.provider,
+        modelId: identity.modelId,
         inputSummary: {
           ...baseInputSummary,
           transportMode: failure?.transportMode ?? null,

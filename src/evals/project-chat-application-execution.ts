@@ -1,7 +1,7 @@
 import type { ProjectChatApplicationScenario } from "@/src/evals/project-chat-application-runner";
 import { requiresLiveRepositoryResearch } from "@/src/services/project-chat-agent-service";
 
-export type ProjectChatApplicationProvider = "mock" | "bedrock";
+export type ProjectChatApplicationProvider = "mock" | "bedrock" | "openrouter";
 export type ProjectChatApplicationExecutionMode =
   | "inline_agent"
   | "durable_workflow";
@@ -28,7 +28,7 @@ export function projectChatApplicationExecutionMode(input: {
   scenario: ProjectChatApplicationScenario;
 }): ProjectChatApplicationExecutionMode {
   if (
-    input.provider === "bedrock" &&
+    input.provider !== "mock" &&
     isGeneralProjectChatScenario(input.scenario) &&
     requiresLiveRepositoryResearch(input.scenario.question)
   ) {

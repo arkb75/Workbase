@@ -29,10 +29,8 @@ vi.mock("@/src/lib/llm-config", () => ({
     region: "us-east-1",
   }),
 }));
-vi.mock("@/src/lib/bedrock-converse-agent", () => ({
-  BedrockConverseAgent: {
-    fromConfig: () => ({ run: answerAgentRunMock }),
-  },
+vi.mock("@/src/services/bedrock-runtime", () => ({
+  createTextConverseAgent: () => ({ run: answerAgentRunMock }),
 }));
 vi.mock("@/src/services/project-knowledge-retrieval-service", () => ({
   projectKnowledgeRetrievalService: { retrieve: retrievalMock },

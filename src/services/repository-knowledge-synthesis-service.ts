@@ -4,7 +4,7 @@ import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
   createStructuredGenerationBudget,
   snapshotStructuredGenerationBudget,
@@ -516,19 +516,21 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
       distinctiveness: 4,
     },
     ai_runtime: {
-      statement: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+      statement: "The provider-neutral AI runtime supports OpenRouter chat, structured-output, and tool-loop transports with strict privacy and parameter routing, normalized stop, usage, reasoning, and cost metadata, abort and iteration/tool/token budgets, and credential-safe telemetry, while retaining Bedrock as a controlled rollback path.",
       category: "architecture",
       patterns: [
-        /bedrock-converse-agent.*ConverseCommand.*(?:stopReason|usage)/i,
-        /bedrock-converse-agent.*maxIterations.*maxToolCalls.*maxTotalTokens/i,
-        /bedrock-converse-agent.*(?:redaction|redact).*credential|bedrock-converse-agent.*Sensitive value redaction/i,
+        /openrouter-client.*(?:OpenRouter chat.*tool-loop|strict (?:ZDR|OpenRouter privacy).*(?:required-parameter|parameter routing)|reported usage cost)/i,
+        /bedrock-runtime.*(?:configured OpenRouter profiles|OpenRouter).*(?:Bedrock transport|rollback)/i,
+        /bedrock-converse-agent.*(?:provider-neutral stop and usage normalization|normalize\w*.*(?:stop|usage)|maxIterations.*maxToolCalls.*maxTotalTokens)/i,
+        /bedrock-converse-agent.*(?:credential-safe event telemetry|redaction|redact).*credential|bedrock-converse-agent.*Sensitive value redaction/i,
       ],
       signalKeys: [
-        "ai_runtime.converse_metadata",
+        "ai_runtime.openrouter_transport",
+        "ai_runtime.provider_routing",
         "ai_runtime.execution_budgets",
         "ai_runtime.credential_redaction",
       ],
-      minimumMatches: 3,
+      minimumMatches: 4,
       productImportance: 5,
       implementationBreadth: 4,
       technicalDifficulty: 5,
@@ -994,13 +996,14 @@ async function synthesizeSubsystemSet(input: {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
       kind: "capability_synthesis",
+      profile: "deep_synthesis",
       idempotencyKey: `${input.refreshRunId}:capability-synthesis:${input.subsystems.map((entry) => entry.subsystemKey).sort().join(",")}`,
       inputSummary: {
         refreshRunId: input.refreshRunId,
         subsystemKeys: input.subsystems.map((entry) => entry.subsystemKey),
         notebookEntries: input.subsystems.reduce((total, entry) => total + entry.notebook.length, 0),
       },
-      execute: () => getBedrockStructuredLlmClient().generateStructured({
+      execute: () => getStructuredLlmClient("deep_synthesis").generateStructured({
         systemPrompt: [
           "You reduce a complete, commit-pinned repository notebook into durable technical Project Facts and only genuinely career-relevant Highlights.",
           "Return exactly one result for every supplied subsystemKey and copy each key exactly.",
@@ -1024,12 +1027,12 @@ async function synthesizeSubsystemSet(input: {
         jsonSchema: repositorySynthesisJsonSchema,
         // Two subsystems can legitimately return several 500–1,000 character
         // records plus schema overhead. A 3.5K ceiling repeatedly truncated valid
-        // Sonnet responses into unparsable JSON and unnecessarily forced the
+        // long-form model responses into unparsable JSON and unnecessarily forced the
         // deterministic recovery path.
         maxTokens: 8_000,
         temperature: 0,
         effort: "high",
-        transportPreference: ["bedrock_json_schema", "strict_tool_use", "text_repair_fallback"],
+        transportPreference: ["json_schema", "strict_tool_use", "text_repair_fallback"],
         repairStrategy: "repair_last_failure",
         budget: input.budget,
         extraValidation: (value) => {

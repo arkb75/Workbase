@@ -15,7 +15,7 @@ import {
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
   buildProjectFactEmbeddingText,
   upsertProjectFactEmbedding,
@@ -352,7 +352,7 @@ async function extractFacts(input: {
     };
   }
 
-  const result = await getBedrockStructuredLlmClient().generateStructured({
+  const result = await getStructuredLlmClient("code_extraction").generateStructured({
     systemPrompt: [
       "You extract reviewable technical project facts from immutable repository excerpts.",
       "Each fact must be directly supported by its cited excerpts and must not claim user ownership or production impact.",
@@ -385,7 +385,7 @@ async function extractFacts(input: {
     maxTokens: 4_000,
     temperature: 0,
     effort: "medium",
-    transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+    transportPreference: ["json_schema"] as StructuredOutputTransportMode[],
     budget: createStructuredGenerationBudget({
       maxModelCalls: 1,
       maxRepairPasses: 0,

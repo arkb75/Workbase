@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 const verificationSchema = z.object({
   eligible: z.boolean(),
@@ -46,7 +47,12 @@ export async function verifyKnowledgeForPublicUse(input: {
   ownershipClarity: "unclear" | "partial" | "clear";
   sensitivityFlag: boolean;
   evidence: Array<{ title: string; excerpt: string; commitSha?: string | null }>;
+  audit?: {
+    workItemId: string;
+    idempotencyKey: string;
+  };
 }) {
+  const { audit, ...verificationInput } = input;
   const deterministicReasons: string[] = [];
   if (input.sensitivityFlag) deterministicReasons.push("The item is marked sensitive.");
   if (input.confidence === "low") deterministicReasons.push("The item has low confidence.");
@@ -61,7 +67,7 @@ export async function verifyKnowledgeForPublicUse(input: {
     return { eligible: true, correctedText: input.text, reasons: [], claimChecks: [{ claim: input.text, verdict: "entailed" as const, evidenceIndexes: [1] }], tokenUsage: null };
   }
   try {
-    const result = await getBedrockStructuredLlmClient().generateStructured({
+    const execute = () => getStructuredLlmClient("verification").generateStructured({
       systemPrompt: [
         "You are a fail-closed public career-content verifier.",
         "Approve only when every material claim in the text and summary is fully entailed by exact evidence, personal ownership is explicitly supported, scope is not broadened, and no sensitive information is exposed.",
@@ -69,7 +75,7 @@ export async function verifyKnowledgeForPublicUse(input: {
         "Configurable defaults and conditional behavior must not be described as universal guarantees.",
         "If a narrow correction would make the item eligible, return correctedText; otherwise return null. Any uncertain verdict makes eligible false.",
       ].join(" "),
-      userPrompt: JSON.stringify(input),
+      userPrompt: JSON.stringify(verificationInput),
       schema: verificationSchema,
       schemaName: "public_knowledge_verification",
       schemaDescription: "Fail-closed entailment, ownership, sensitivity, and scope verification for public career content.",
@@ -78,6 +84,20 @@ export async function verifyKnowledgeForPublicUse(input: {
       temperature: 0,
       effort: "high",
     });
+    const result = audit
+      ? await runAuditedStructuredGeneration({
+          workItemId: audit.workItemId,
+          kind: "highlight_verification",
+          profile: "verification",
+          idempotencyKey: audit.idempotencyKey,
+          inputSummary: {
+            evidenceCount: input.evidence.length,
+            textCharacters: input.text.length,
+            summaryCharacters: input.summary.length,
+          },
+          execute,
+        })
+      : await execute();
     const eligible = result.data.eligible && result.data.claimChecks.every((check) => check.verdict === "entailed");
     return { ...result.data, eligible, tokenUsage: result.tokenUsage };
   } catch (error) {
@@ -137,7 +157,12 @@ export async function verifyArtifactForPublicUse(input: {
     sensitivityFlag?: boolean;
     publicSafetyStatus?: string | null;
   }>;
+  audit?: {
+    workItemId: string;
+    idempotencyKey: string;
+  };
 }) {
+  const { audit, ...verificationInput } = input;
   if (!input.sources.length) {
     return { eligible: false, correctedContent: null, reasons: ["The artifact has no eligible supporting sources."], claims: [], tokenUsage: null };
   }
@@ -148,14 +173,14 @@ export async function verifyArtifactForPublicUse(input: {
     return { eligible: true, correctedContent: input.content, reasons: [], claims: [{ claim: input.content, verdict: "entailed" as const, sourceIndexes: [1] }], tokenUsage: null };
   }
   try {
-    const result = await getBedrockStructuredLlmClient().generateStructured({
+    const execute = () => getStructuredLlmClient("verification").generateStructured({
       systemPrompt: [
         "You are the final fail-closed verifier for a public career artifact.",
         "Every material technical, ownership, scope, outcome, and impact claim must be fully entailed by the supplied approved sources.",
         "Remove or narrowly correct unsupported claims without adding facts. Never convert project implementation into personal ownership unless a source explicitly supports ownership.",
         "Any sensitive, partially entailed, unsupported, ownership-gap, or scope-overclaim verdict makes eligible false unless correctedContent removes the problem and every remaining claim is entailed.",
       ].join(" "),
-      userPrompt: JSON.stringify(input),
+      userPrompt: JSON.stringify(verificationInput),
       schema: artifactVerificationSchema,
       schemaName: "public_artifact_verification",
       schemaDescription: "Fail-closed claim-level verification of a public career artifact.",
@@ -164,6 +189,19 @@ export async function verifyArtifactForPublicUse(input: {
       temperature: 0,
       effort: "high",
     });
+    const result = audit
+      ? await runAuditedStructuredGeneration({
+          workItemId: audit.workItemId,
+          kind: "artifact_generation",
+          profile: "verification",
+          idempotencyKey: audit.idempotencyKey,
+          inputSummary: {
+            sourceCount: input.sources.length,
+            contentCharacters: input.content.length,
+          },
+          execute,
+        })
+      : await execute();
     const eligible = result.data.eligible && result.data.claims.every((claim) => claim.verdict === "entailed");
     return { ...result.data, eligible, tokenUsage: result.tokenUsage };
   } catch (error) {

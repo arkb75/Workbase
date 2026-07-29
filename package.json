@@ -23,7 +23,8 @@
     "eval:project-chat:application": "tsx --env-file=.env scripts/evaluate-project-chat-application.ts",
     "eval:embeddings": "tsx --env-file=.env scripts/evaluate-embedding-index.ts",
     "test:eval": "vitest run src/evals/__tests__",
-    "bedrock:preflight": "tsx scripts/bedrock-preflight.ts"
+    "bedrock:preflight": "tsx scripts/bedrock-preflight.ts",
+    "openrouter:preflight": "tsx --env-file=.env scripts/openrouter-preflight.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1024.0",

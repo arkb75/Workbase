@@ -33,8 +33,47 @@ export interface ClassifiedWorkflowFailure {
   retryable: boolean;
 }
 
+function providerFailureSemantics(value: unknown, seen = new Set<unknown>()): {
+  status: number | null;
+  retryable: boolean | null;
+  code: string | null;
+} | null {
+  if (
+    !value ||
+    (typeof value !== "object" && typeof value !== "function") ||
+    seen.has(value)
+  ) {
+    return null;
+  }
+  seen.add(value);
+  const record = value as Record<string, unknown>;
+  const status =
+    typeof record.providerStatus === "number"
+      ? record.providerStatus
+      : typeof record.status === "number"
+        ? record.status
+        : null;
+  const retryable =
+    typeof record.retryable === "boolean" ? record.retryable : null;
+  const code =
+    typeof record.providerCode === "string"
+      ? record.providerCode
+      : typeof record.code === "string"
+        ? record.code
+        : null;
+  if (status != null || retryable != null || code != null) {
+    return { status, retryable, code };
+  }
+  for (const key of ["cause", "error", "reason", "details"]) {
+    const nested = providerFailureSemantics(record[key], seen);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 export function classifyWorkflowFailure(error: unknown): ClassifiedWorkflowFailure {
   const raw = errorMessageFromUnknown(error);
+  const providerFailure = providerFailureSemantics(error);
   if (/database_schema_out_of_date|database migrations?.{0,40}out of date/i.test(raw)) {
     return {
       code: "database_schema_out_of_date",
@@ -62,6 +101,39 @@ export function classifyWorkflowFailure(error: unknown): ClassifiedWorkflowFailu
     };
   }
   if (
+    providerFailure &&
+    (
+      providerFailure.retryable === false ||
+      providerFailure.code === "response_blocked" ||
+      providerFailure.code === "model_capability_error" ||
+      providerFailure.status === 400 ||
+      providerFailure.status === 401 ||
+      providerFailure.status === 402 ||
+      providerFailure.status === 403 ||
+      providerFailure.status === 404 ||
+      providerFailure.status === 422
+    )
+  ) {
+    return {
+      code: "model_provider_unavailable",
+      message:
+        providerFailure.code === "response_blocked"
+          ? "The model provider blocked this response."
+          : "The configured model provider rejected this request.",
+      recovery:
+        providerFailure.code === "response_blocked"
+          ? "Revise the request or review the project content-policy constraints before trying again."
+          : "Check model access, billing, provider routing, and required capabilities before retrying.",
+      retryable: false,
+    };
+  }
+  if (
+    providerFailure?.retryable === true ||
+    providerFailure?.status === 408 ||
+    providerFailure?.status === 409 ||
+    providerFailure?.status === 425 ||
+    providerFailure?.status === 429 ||
+    (providerFailure?.status != null && providerFailure.status >= 500) ||
     /\b(?:ThrottlingException|ServiceUnavailableException|ModelTimeoutException|ModelErrorException|ValidationException)\b|bedrock.{0,80}(?:timed out|unavailable|throttl|failed)|(?:model|provider) request (?:timed out|failed)|model provider did not complete/i.test(raw)
   ) {
     return {

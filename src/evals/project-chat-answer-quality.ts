@@ -80,7 +80,7 @@ const readerThemePatterns: Record<ProjectChatReaderTheme, readonly RegExp[]> = {
     /approv|reconcil|supersed|stale|quarantin|human[- ]in[- ]the[- ]loop/i,
   ],
   durable_ai_platform: [
-    /bedrock|structured generation|schema[- ]constrained|tool use/i,
+    /openrouter|bedrock|model provider|structured generation|schema[- ]constrained|tool use/i,
     /durable workflow|workflow orchestrat|retry[- ]safe|progress event/i,
   ],
   engineering_foundation: [

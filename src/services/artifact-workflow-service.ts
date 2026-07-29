@@ -305,6 +305,10 @@ async function persistArtifact(input: {
     // provenance beneath those Highlights and never expands what the Artifact
     // is allowed to claim.
     sources: buildPublicArtifactVerificationSources(highlights),
+    audit: {
+      workItemId: input.workItemId,
+      idempotencyKey: `public-artifact-verification:${input.runId}`,
+    },
   });
   const persistedContent = publicVerification.eligible && publicVerification.correctedContent
     ? publicVerification.correctedContent
@@ -553,7 +557,10 @@ async function generateCandidateBatch(input: {
       })
     : [];
   const drafts = [] as Array<(typeof verified)[number] & { autoSafe: boolean; publicVerified: boolean }>;
-  for (const draft of filterDuplicateClaimDrafts(verified, existingHighlights).slice(0, 4)) {
+  for (const [draftIndex, draft] of filterDuplicateClaimDrafts(
+    verified,
+    existingHighlights,
+  ).slice(0, 4).entries()) {
     const autoSafe = draft.verificationStatus === "approved" && !draft.sensitivityFlag && draft.confidence !== "low";
     const publicVerification = autoSafe
       ? await publicKnowledgeVerificationService.verify({
@@ -566,6 +573,11 @@ async function generateCandidateBatch(input: {
             title: reference.title ?? reference.sourceLabel,
             excerpt: reference.excerpt,
           })),
+          audit: {
+            workItemId: input.workItemId,
+            idempotencyKey:
+              `public-highlight-verification:${input.runId}:${draftIndex}`,
+          },
         })
       : { eligible: false, correctedText: null, reasons: ["The candidate failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
     drafts.push({

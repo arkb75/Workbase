@@ -14,7 +14,10 @@ import {
   highlightGenerationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { batchHighlightGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
-import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import {
@@ -22,7 +25,7 @@ import {
   buildResearchSourceCatalog,
   normalizeResearchDrafts,
 } from "@/src/services/claim-research-shared";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimResearchService } from "@/src/services/mock-claim-research-service";
 import type { HighlightGenerationService } from "@/src/services/types";
 
@@ -108,7 +111,7 @@ function buildBatchInputSummary(params: {
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
   async generate({ workItem, evidenceItems, existingHighlights, artifactRequest }) {
-    const structuredClient = getBedrockStructuredLlmClient();
+    const structuredClient = getStructuredLlmClient("drafting");
     const rejectedHighlightGuidance = buildRejectedGuidance(evidenceItems);
     const batches = buildEvidenceBatches(evidenceItems);
     const generationRunIds: string[] = [];
@@ -306,13 +309,14 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         highlights.push(...drafts);
       } catch (error) {
         const failure = error instanceof StructuredOutputError ? error : null;
+        const identity = resolveActiveTextModelIdentity("drafting");
 
         await createGenerationRun({
           workItemId: workItem.id,
           kind: "highlight_generation",
           status: failure?.status ?? "provider_error",
-          provider: "bedrock",
-          modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
+          provider: identity.provider,
+          modelId: identity.modelId,
           inputSummary: {
             ...baseInputSummary,
             transportMode: failure?.transportMode ?? null,
