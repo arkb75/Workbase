@@ -281,6 +281,7 @@ function profileForAuditedKind(kind: AuditedGenerationKind): TextModelProfile {
 
 export async function runAuditedStructuredGeneration<TResult extends StructuredResult>(input: {
   workItemId?: string;
+  agentRunId?: string;
   kind: AuditedGenerationKind;
   idempotencyKey?: string;
   profile?: TextModelProfile;
@@ -348,6 +349,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
           resultRefs: json({
+            ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
             transportMode: result.transportMode,
             profile: input.profile ?? profileForAuditedKind(input.kind),
             configuredModelId: config!.modelId,
@@ -395,6 +397,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
           resultRefs: json({
+            ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
             transportMode: structured?.transportMode ?? null,
             profile: input.profile ?? profileForAuditedKind(input.kind),
             configuredModelId: config!.modelId,

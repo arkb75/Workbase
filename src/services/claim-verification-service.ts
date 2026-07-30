@@ -5,7 +5,10 @@ import type {
 } from "@/src/domain/types";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
-import { createGenerationRun } from "@/src/lib/generation-runs";
+import {
+  createGenerationRun,
+  generationRunFailureTokenUsage,
+} from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import {
   resolveActiveTextModelIdentity,
@@ -20,7 +23,10 @@ import {
   claimVerificationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+} from "@/src/lib/bedrock-structured-llm-client";
 import { toSentence } from "@/src/lib/utils";
 import type { ClaimVerificationService } from "@/src/services/types";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
@@ -117,7 +123,7 @@ function mapSupportingEvidence(source: NormalizedEvidenceItem) {
 }
 
 const bedrockClaimVerificationService: ClaimVerificationService = {
-  async verify({ workItem, evidenceItems, highlights }) {
+  async verify({ workItem, evidenceItems, highlights, agentRunId }) {
     const structuredClient = getStructuredLlmClient("verification");
     const rejectedGuidance = evidenceItems
       .filter(isRejectedGuidanceSource)
@@ -426,7 +432,10 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
           results: aggregateParsedResults,
         } as Prisma.InputJsonValue,
         validationErrors: null,
-        resultRefs: null,
+        resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          configuredModelId: configuredIdentity.modelId,
+        },
         tokenUsage: {
           batches: aggregateTokenUsage,
         } as Prisma.InputJsonValue,
@@ -439,6 +448,8 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
       });
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
+      const admissionFailure =
+        error instanceof StructuredGenerationBudgetError;
       const baseInputSummary = buildVerificationInputSummary({
         workItemId: workItem.id,
         workItemTitle: workItem.title,
@@ -479,8 +490,14 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         parsedOutput: null,
         validationErrors:
           (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
-        resultRefs: null,
-        tokenUsage: (failure?.tokenUsage as Prisma.InputJsonValue | null) ?? null,
+        resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          configuredModelId: configuredIdentity.modelId,
+          ...(admissionFailure ? { admissionFailure: true } : {}),
+        },
+        tokenUsage:
+          (failure?.tokenUsage as Prisma.InputJsonValue | null) ??
+          (admissionFailure ? null : generationRunFailureTokenUsage(error)),
         estimatedCostUsd: null,
       });
 

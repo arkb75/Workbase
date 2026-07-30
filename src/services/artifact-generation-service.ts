@@ -1,6 +1,9 @@
 import type { Prisma } from "@/src/generated/prisma/client";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
-import { createGenerationRun } from "@/src/lib/generation-runs";
+import {
+  createGenerationRun,
+  generationRunFailureTokenUsage,
+} from "@/src/lib/generation-runs";
 import { artifactGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import {
   resolveActiveTextModelIdentity,
@@ -14,7 +17,10 @@ import {
   artifactGenerationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+} from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockArtifactGenerationService } from "@/src/services/mock-artifact-generation-service";
@@ -61,7 +67,7 @@ function buildArtifactContentInstructions(
 }
 
 const bedrockArtifactGenerationService: ArtifactGenerationService = {
-  async generate({ request, highlights, supportingEvidence }) {
+  async generate({ request, highlights, supportingEvidence, agentRunId }) {
     if (!highlights.length) {
       throw new Error(
         "No approved highlights match the current artifact visibility and sensitivity rules.",
@@ -69,6 +75,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
     }
 
     const structuredClient = getStructuredLlmClient("drafting");
+    const configuredIdentity = resolveActiveTextModelIdentity("drafting");
     const allowedHighlightIds = new Set(highlights.map((highlight) => highlight.id));
     const allowedEvidenceItemIds = new Set(supportingEvidence.map((item) => item.id));
     const systemPrompt = [
@@ -222,6 +229,8 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
         resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          configuredModelId: configuredIdentity.modelId,
           usedHighlightIds: artifact.usedHighlightIds,
           supportingEvidenceItemIds: artifact.supportingEvidenceItemIds,
         } as Prisma.InputJsonValue,
@@ -235,14 +244,15 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       });
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
-      const identity = resolveActiveTextModelIdentity("drafting");
+      const admissionFailure =
+        error instanceof StructuredGenerationBudgetError;
 
       await createGenerationRun({
         workItemId: request.workItemId,
         kind: "artifact_generation",
         status: failure?.status ?? "provider_error",
-        provider: identity.provider,
-        modelId: identity.modelId,
+        provider: configuredIdentity.provider,
+        modelId: configuredIdentity.modelId,
         inputSummary: {
           ...baseInputSummary,
           transportMode: failure?.transportMode ?? null,
@@ -255,8 +265,14 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         parsedOutput: null,
         validationErrors:
           (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
-        resultRefs: null,
-        tokenUsage: (failure?.tokenUsage as Prisma.InputJsonValue | null) ?? null,
+        resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          configuredModelId: configuredIdentity.modelId,
+          ...(admissionFailure ? { admissionFailure: true } : {}),
+        },
+        tokenUsage:
+          (failure?.tokenUsage as Prisma.InputJsonValue | null) ??
+          (admissionFailure ? null : generationRunFailureTokenUsage(error)),
         estimatedCostUsd: null,
       });
 

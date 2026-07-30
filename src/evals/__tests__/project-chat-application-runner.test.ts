@@ -15,6 +15,17 @@ const zeroMetrics: ProjectChatApplicationMetrics = {
   totalTokens: 0,
   estimatedCostUsd: 0,
   usageComplete: true,
+  modelAttribution: {
+    providers: [],
+    configuredModelIds: [],
+    actualModelIds: [],
+    routedProviders: [],
+    requestIds: [],
+    failedModelIds: [],
+    providerAttempts: 0,
+    failedProviderAttempts: 0,
+    fallbackUsed: false,
+  },
   repositoryTreeLookups: 0,
   repositorySearches: 0,
   repositoryFileReads: 0,
@@ -437,6 +448,65 @@ describe("project-chat application scenario runner", () => {
     expect(suite.results.find((result) => result.scenario.id === "conversation_follow_up")?.observation.historyMessageCount).toBe(2);
     expect(suite.results.find((result) => result.scenario.id === "prior_turn_provenance")?.observation.historyMessageCount).toBe(4);
     expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("aggregates secret-safe model attribution and fallback contamination", async () => {
+    let index = 0;
+    const suite = await runProjectChatApplicationScenarios({
+      scenarioIds: ["design_tradeoffs", "testing_strategy"],
+      driver: {
+        async run(scenario) {
+          const observation = successfulObservation(scenario, 0);
+          const fallback = index++ === 1;
+          return {
+            ...observation,
+            metrics: {
+              ...observation.metrics,
+              modelCalls: 1,
+              totalTokens: 100,
+              estimatedCostUsd: 0.001,
+              modelAttribution: {
+                providers: ["openrouter"],
+                configuredModelIds: ["openai/gpt-5.6-terra"],
+                actualModelIds: [
+                  fallback
+                    ? "anthropic/claude-sonnet-5"
+                    : "openai/gpt-5.6-terra",
+                ],
+                routedProviders: [fallback ? "anthropic" : "openai"],
+                requestIds: [`request-${index}`],
+                failedModelIds: fallback ? ["openai/gpt-5.6-terra"] : [],
+                providerAttempts: 1,
+                failedProviderAttempts: fallback ? 1 : 0,
+                fallbackUsed: fallback,
+              },
+            },
+          };
+        },
+        async cleanup() {},
+      },
+    });
+
+    expect(suite.aggregate).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 200,
+      estimatedCostUsd: 0.002,
+      usageComplete: true,
+      modelAttribution: {
+        providers: ["openrouter"],
+        configuredModelIds: ["openai/gpt-5.6-terra"],
+        actualModelIds: [
+          "anthropic/claude-sonnet-5",
+          "openai/gpt-5.6-terra",
+        ],
+        routedProviders: ["anthropic", "openai"],
+        requestIds: ["request-1", "request-2"],
+        failedModelIds: ["openai/gpt-5.6-terra"],
+        providerAttempts: 2,
+        failedProviderAttempts: 1,
+        fallbackUsed: true,
+      },
+    });
   });
 
   it("fails inconsistent zero-call telemetry and repository work on a memory path", () => {

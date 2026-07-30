@@ -12,6 +12,7 @@ import {
   StructuredGenerationBudgetError,
   StructuredOutputError,
 } from "@/src/lib/bedrock-structured-llm-client";
+import { generationRunFailureTokenUsage } from "@/src/lib/generation-runs";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -420,7 +421,10 @@ async function extractFacts(input: {
 }
 
 function failedExtractionAttemptUsage(error: unknown, phase: string) {
-  const usage = error instanceof StructuredOutputError ? error.tokenUsage : null;
+  const usage =
+    error instanceof StructuredOutputError
+      ? error.tokenUsage
+      : generationRunFailureTokenUsage(error);
   return {
     phase,
     usage,

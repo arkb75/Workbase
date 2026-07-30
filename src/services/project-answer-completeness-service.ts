@@ -817,6 +817,7 @@ export async function completeGroundedAccomplishmentAnswer(input: {
     });
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
+      agentRunId: input.runId,
       kind: "answer_completeness_audit",
       profile: "deep_synthesis",
       idempotencyKey: `answer-completeness:${input.runId}`,

@@ -66,6 +66,7 @@ export async function persistResearchAgentEvent(
     payload:
       event.type === "model_call_completed"
         ? {
+            modelEvent: event.type,
             iteration: event.iteration,
             stopReason: event.stopReason,
             durationMs: event.durationMs,
@@ -79,6 +80,7 @@ export async function persistResearchAgentEvent(
           }
         : event.type === "model_call_failed"
           ? {
+              modelEvent: event.type,
               iteration: event.iteration,
               durationMs: event.durationMs,
               provider: event.provider,
@@ -91,7 +93,7 @@ export async function persistResearchAgentEvent(
               usage: event.usage,
               aggregateUsage: event.aggregateUsage,
             }
-        : { iteration: event.iteration },
+        : { modelEvent: event.type, iteration: event.iteration },
     isUserVisible: false,
   });
 }

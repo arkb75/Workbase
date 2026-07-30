@@ -10,6 +10,11 @@ import {
   projectChatTurnWorkflowReference,
 } from "../src/evals/project-chat-application-execution";
 import {
+  calculateApplicationModelMetrics,
+  collectReferencedGenerationRunIds,
+  selectScenarioGenerationRuns,
+} from "../src/evals/project-chat-application-metrics";
+import {
   type ProjectChatApplicationDriver,
   type ProjectChatApplicationMetrics,
   type ProjectChatApplicationObservation,
@@ -32,15 +37,6 @@ import { proposeHighlightFromChatContext } from "../src/services/chat-highlight-
 import { runProjectChatAgent, type ProjectChatHistoryMessage } from "../src/services/project-chat-agent-service";
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import { executeArtifactAttempt } from "../src/services/artifact-workflow-service";
-import {
-  collectModelTokenUsage,
-  collectReportedModelCostUsd,
-  collectUnknownModelUsageAttempts,
-  countModelUsageEntries,
-  countModelProviderAttempts,
-  countReportedModelCostEntries,
-  resolveModelCostUsd,
-} from "../src/services/model-usage-service";
 import { startAgentRunWorkflowOnce } from "../src/services/agent-run-workflow-start-service";
 
 interface CliOptions {
@@ -114,15 +110,6 @@ function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
-}
-
-function countUsageLeaves(value: unknown, seen = new WeakSet<object>()): number {
-  if (!value || typeof value !== "object" || seen.has(value)) return 0;
-  seen.add(value);
-  if (Array.isArray(value)) return value.reduce((total, entry) => total + countUsageLeaves(entry, seen), 0);
-  const entry = value as Record<string, unknown>;
-  if (["inputTokens", "outputTokens", "totalTokens"].some((key) => typeof entry[key] === "number")) return 1;
-  return Object.values(entry).reduce<number>((total, nested) => total + countUsageLeaves(nested, seen), 0);
 }
 
 function researchUsage(value: unknown) {
@@ -551,58 +538,45 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     workItemId: string;
     startedAt: Date;
     finishedAt: Date;
-    events: Array<{ payload: unknown }>;
+    events: Array<{ id: string; message: string | null; payload: unknown }>;
+    result: unknown;
     researchState: unknown;
+    refreshRunId: string | null;
   }): Promise<ProjectChatApplicationMetrics> {
     const candidateGenerationRuns = await prisma.generationRun.findMany({
       where: {
         workItemId: input.workItemId,
-        createdAt: { gte: input.startedAt, lte: input.finishedAt },
+        updatedAt: { gte: input.startedAt, lte: input.finishedAt },
       },
       select: {
+        id: true,
+        status: true,
         provider: true,
         modelId: true,
         idempotencyKey: true,
         tokenUsage: true,
         estimatedCostUsd: true,
         resultRefs: true,
+        updatedAt: true,
       },
     });
-    const refreshRunId = typeof record(input.researchState).refreshRunId === "string"
-      ? record(input.researchState).refreshRunId as string
-      : null;
-    const generationRuns = candidateGenerationRuns.filter((run) => {
-      const refs = record(run.resultRefs);
-      if (refs.agentRunId === input.runId) return true;
-      if (run.idempotencyKey?.includes(input.runId)) return true;
-      return Boolean(refreshRunId && run.idempotencyKey?.includes(refreshRunId));
-    });
-    const eventUsageValues: unknown[] = input.events.flatMap((event) => {
-      const usage = record(event.payload).usage;
-      return usage ? [usage] : [];
+    const researchRefreshRunId =
+      typeof record(input.researchState).refreshRunId === "string"
+        ? record(input.researchState).refreshRunId as string
+        : null;
+    const refreshRunId = input.refreshRunId ?? researchRefreshRunId;
+    const generationRuns = selectScenarioGenerationRuns({
+      generationRuns: candidateGenerationRuns,
+      runId: input.runId,
+      refreshRunId,
+      referencedGenerationRunIds: collectReferencedGenerationRunIds(
+        input.result,
+        input.researchState,
+      ),
+      startedAt: input.startedAt,
+      finishedAt: input.finishedAt,
     });
     const dossierModelUsage = record(input.researchState).modelUsage;
-    const nonGenerationUsage = collectModelTokenUsage([
-      ...eventUsageValues,
-      ...(dossierModelUsage ? [dossierModelUsage] : []),
-    ]);
-    const generationUsage = collectModelTokenUsage(generationRuns.map((run) => run.tokenUsage));
-    const usage = collectModelTokenUsage([nonGenerationUsage, generationUsage]);
-    const nonGenerationUnknownUsageAttempts = collectUnknownModelUsageAttempts([
-      ...eventUsageValues,
-      ...(dossierModelUsage ? [dossierModelUsage] : []),
-    ]);
-    const generationUnknownUsageAttempts = generationRuns.reduce((total, run) => {
-      const refs = record(run.resultRefs);
-      const recorded = refs.unknownUsageAttempts;
-      return total + (
-        typeof recorded === "number" && Number.isFinite(recorded) && recorded >= 0
-          ? Math.floor(recorded)
-        : run.tokenUsage == null && run.provider !== "mock"
-            ? 1
-            : collectUnknownModelUsageAttempts(run.tokenUsage)
-      );
-    }, 0);
     const modelId =
       this.input.provider === "openrouter"
         ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
@@ -610,78 +584,17 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
           "openai/gpt-5.6-terra"
         : process.env.WORKBASE_BEDROCK_MODEL_ID ??
           "us.anthropic.claude-sonnet-4-6";
-    const nonGenerationRawUsage = [
-      ...eventUsageValues,
-      ...(dossierModelUsage ? [dossierModelUsage] : []),
-    ];
-    const nonGenerationCost =
-      collectReportedModelCostUsd(nonGenerationRawUsage) ??
-      resolveModelCostUsd({
-        provider: this.input.provider,
-        modelId,
-        usage: nonGenerationUsage,
-        rawUsage: nonGenerationRawUsage,
-      }) ??
-      0;
-    const generationCost = generationRuns.reduce((total, run) => total + (
-      run.estimatedCostUsd ??
-      (
-        typeof record(run.resultRefs).knownEstimatedCostUsd === "number"
-          ? record(run.resultRefs).knownEstimatedCostUsd as number
-          : null
-      ) ??
-      resolveModelCostUsd({
-        provider: run.provider,
-        modelId: run.modelId,
-        usage: collectModelTokenUsage(run.tokenUsage),
-        rawUsage: run.tokenUsage,
-      }) ??
-      0
-    ), 0);
-    const openRouterCostComplete =
-      this.input.provider !== "openrouter" ||
-      (
-        countUsageLeaves(nonGenerationRawUsage) === 0 ||
-        countReportedModelCostEntries(nonGenerationRawUsage) ===
-          countModelUsageEntries(nonGenerationRawUsage)
-      ) &&
-      generationRuns.every(
-        (run) => {
-          if (run.provider !== "openrouter") return true;
-          const usageComplete = record(run.resultRefs).usageComplete;
-          return usageComplete === true;
-        },
-      );
+    const modelMetrics = calculateApplicationModelMetrics({
+      provider: this.input.provider,
+      modelId,
+      events: input.events,
+      dossierModelUsage,
+      generationRuns,
+    });
     const repository = researchUsage(input.researchState);
     return {
       latencyMs: input.finishedAt.getTime() - input.startedAt.getTime(),
-      modelCalls: eventUsageValues.reduce<number>(
-        (total, value) =>
-          total +
-          Math.max(
-            countModelProviderAttempts(value),
-            collectUnknownModelUsageAttempts(value),
-          ),
-        0,
-      )
-        + Math.max(
-          countModelProviderAttempts(dossierModelUsage),
-          collectUnknownModelUsageAttempts(dossierModelUsage),
-        )
-        + generationRuns.reduce((total, run) => {
-          const auditAttemptCount = record(run.resultRefs).auditAttemptCount;
-          return total + (
-            typeof auditAttemptCount === "number" && Number.isFinite(auditAttemptCount) && auditAttemptCount >= 0
-              ? Math.floor(auditAttemptCount)
-              : countUsageLeaves(run.tokenUsage)
-          );
-        }, 0),
-      totalTokens: usage.totalTokens,
-      estimatedCostUsd: Number((nonGenerationCost + generationCost).toFixed(6)),
-      usageComplete:
-        nonGenerationUnknownUsageAttempts +
-          generationUnknownUsageAttempts ===
-          0 && openRouterCostComplete,
+      ...modelMetrics,
       repositoryTreeLookups: repository.treeLookups,
       repositorySearches: repository.searches,
       repositoryFileReads: repository.fileReads,
@@ -786,7 +699,13 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       }),
       prisma.agentRunEvent.findMany({
         where: { agentRunId: run.id },
-        select: { type: true, toolName: true, payload: true },
+        select: {
+          id: true,
+          type: true,
+          toolName: true,
+          message: true,
+          payload: true,
+        },
         orderBy: { sequence: "asc" },
       }),
       prisma.agentRunCandidate.findFirst({
@@ -805,7 +724,9 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       startedAt,
       finishedAt,
       events,
+      result: storedRun.result,
       researchState: storedRun.researchState,
+      refreshRunId: storedRun.knowledgeRefreshRunId,
     });
     if (executionMode === "durable_workflow") {
       outcome = applicationOutcomeFromAgentRunStatus(storedRun.status);

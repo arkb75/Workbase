@@ -271,7 +271,15 @@ describe("artifact cancellation during public verification", () => {
       batchNumber: 1,
     })).rejects.toThrow("artifact run is no longer active");
 
+    expect(mocks.buildArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      agentRunId: "run-1",
+    }));
     expect(mocks.verifyArtifact).toHaveBeenCalledOnce();
+    expect(mocks.verifyArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      audit: expect.objectContaining({
+        agentRunId: "run-1",
+      }),
+    }));
     expect(mocks.upsertArtifact).not.toHaveBeenCalled();
     expect(mocks.completeRun).not.toHaveBeenCalled();
     expect(mocks.failRun).not.toHaveBeenCalled();

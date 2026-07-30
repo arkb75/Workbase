@@ -204,7 +204,13 @@ async function getLexicalRanks(params: {
 }
 
 export const highlightRetrievalService: HighlightRetrievalService = {
-  async retrieve({ workItem, request, highlights, evidenceItems }) {
+  async retrieve({
+    workItem,
+    request,
+    highlights,
+    evidenceItems,
+    agentRunId,
+  }) {
     const allowedVisibilities = publicArtifactVisibilityRules[request.type];
     const eligibleHighlights = highlights.filter(
       (highlight) =>
@@ -236,6 +242,7 @@ export const highlightRetrievalService: HighlightRetrievalService = {
         } as Prisma.InputJsonValue,
         validationErrors: null,
         resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
           usedHighlightIds: [],
           supportingEvidenceItemIds: [],
         } as Prisma.InputJsonValue,
@@ -306,6 +313,7 @@ export const highlightRetrievalService: HighlightRetrievalService = {
       } as Prisma.InputJsonValue,
       validationErrors: null,
       resultRefs: {
+        ...(agentRunId ? { agentRunId } : {}),
         usedHighlightIds: rankedHighlights.map((highlight) => highlight.id),
         supportingEvidenceItemIds: supportingEvidence.map((item) => item.id),
       } as Prisma.InputJsonValue,

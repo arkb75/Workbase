@@ -107,6 +107,18 @@ export interface ProjectChatApplicationArtifactObservation {
   usedEvidenceCount: number;
 }
 
+export interface ProjectChatApplicationModelAttribution {
+  providers: string[];
+  configuredModelIds: string[];
+  actualModelIds: string[];
+  routedProviders: string[];
+  requestIds: string[];
+  failedModelIds: string[];
+  providerAttempts: number;
+  failedProviderAttempts: number;
+  fallbackUsed: boolean;
+}
+
 export interface ProjectChatApplicationMetrics {
   latencyMs: number;
   modelCalls: number;
@@ -114,6 +126,8 @@ export interface ProjectChatApplicationMetrics {
   estimatedCostUsd: number;
   /** False means at least one provider attempt returned no usage metadata. */
   usageComplete: boolean;
+  /** Secret-safe provider evidence used to reject wrong-model/fallback runs. */
+  modelAttribution: ProjectChatApplicationModelAttribution;
   repositoryTreeLookups: number;
   repositorySearches: number;
   repositoryFileReads: number;
@@ -1484,6 +1498,60 @@ export async function runProjectChatApplicationScenarios(input: {
       modelCalls: total.modelCalls + result.observation.metrics.modelCalls,
       totalTokens: total.totalTokens + result.observation.metrics.totalTokens,
       estimatedCostUsd: Number((total.estimatedCostUsd + result.observation.metrics.estimatedCostUsd).toFixed(6)),
-    }), { latencyMs: 0, modelCalls: 0, totalTokens: 0, estimatedCostUsd: 0 }),
+      usageComplete:
+        total.usageComplete && result.observation.metrics.usageComplete,
+      modelAttribution: {
+        providers: Array.from(new Set([
+          ...total.modelAttribution.providers,
+          ...result.observation.metrics.modelAttribution.providers,
+        ])).sort(),
+        configuredModelIds: Array.from(new Set([
+          ...total.modelAttribution.configuredModelIds,
+          ...result.observation.metrics.modelAttribution.configuredModelIds,
+        ])).sort(),
+        actualModelIds: Array.from(new Set([
+          ...total.modelAttribution.actualModelIds,
+          ...result.observation.metrics.modelAttribution.actualModelIds,
+        ])).sort(),
+        routedProviders: Array.from(new Set([
+          ...total.modelAttribution.routedProviders,
+          ...result.observation.metrics.modelAttribution.routedProviders,
+        ])).sort(),
+        requestIds: Array.from(new Set([
+          ...total.modelAttribution.requestIds,
+          ...result.observation.metrics.modelAttribution.requestIds,
+        ])).sort(),
+        failedModelIds: Array.from(new Set([
+          ...total.modelAttribution.failedModelIds,
+          ...result.observation.metrics.modelAttribution.failedModelIds,
+        ])).sort(),
+        providerAttempts:
+          total.modelAttribution.providerAttempts +
+          result.observation.metrics.modelAttribution.providerAttempts,
+        failedProviderAttempts:
+          total.modelAttribution.failedProviderAttempts +
+          result.observation.metrics.modelAttribution.failedProviderAttempts,
+        fallbackUsed:
+          total.modelAttribution.fallbackUsed ||
+          result.observation.metrics.modelAttribution.fallbackUsed,
+      },
+    }), {
+      latencyMs: 0,
+      modelCalls: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      usageComplete: true,
+      modelAttribution: {
+        providers: [] as string[],
+        configuredModelIds: [] as string[],
+        actualModelIds: [] as string[],
+        routedProviders: [] as string[],
+        requestIds: [] as string[],
+        failedModelIds: [] as string[],
+        providerAttempts: 0,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+      },
+    }),
   };
 }

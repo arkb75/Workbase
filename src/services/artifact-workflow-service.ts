@@ -308,6 +308,7 @@ async function persistArtifact(input: {
     audit: {
       workItemId: input.workItemId,
       idempotencyKey: `public-artifact-verification:${input.runId}`,
+      agentRunId: input.runId,
     },
   });
   const persistedContent = publicVerification.eligible && publicVerification.correctedContent
@@ -542,6 +543,7 @@ async function generateCandidateBatch(input: {
         workItem,
         evidenceItems: normalizedEvidence,
         existingHighlights,
+        agentRunId: input.runId,
         artifactRequest: {
           userId: input.userId,
           workItemId: input.workItemId,
@@ -554,6 +556,7 @@ async function generateCandidateBatch(input: {
         workItem,
         evidenceItems: normalizedEvidence,
         highlights: generated.highlights,
+        agentRunId: input.runId,
       })
     : [];
   const drafts = [] as Array<(typeof verified)[number] & { autoSafe: boolean; publicVerified: boolean }>;
@@ -577,6 +580,7 @@ async function generateCandidateBatch(input: {
             workItemId: input.workItemId,
             idempotencyKey:
               `public-highlight-verification:${input.runId}:${draftIndex}`,
+            agentRunId: input.runId,
           },
         })
       : { eligible: false, correctedText: null, reasons: ["The candidate failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
@@ -1024,6 +1028,7 @@ export async function executeArtifactAttempt(input: {
 
   const context = await loadArtifactContext(run.userId, run.workItemId);
   const artifactResult = await buildArtifactFromApprovedClaims({
+    agentRunId: run.id,
     request: {
       userId: run.userId,
       workItemId: run.workItemId,
