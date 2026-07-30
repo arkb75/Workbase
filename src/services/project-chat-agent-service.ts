@@ -74,7 +74,7 @@ const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.
 const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
 const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
 const semanticAnswerVerificationIntentPattern =
-  /(?:\b(?:assess|evaluate|critique|compare(?:d|s|ing)?|comparison|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between|trade[- ]?offs?|recommend|should|risk|weakness|limitation|implication|pros?\s+and\s+cons?|why is|why does|how good|how well)\b|\bvs\.(?=\s|$))/i;
+  /(?:\b(?:assess|evaluate|critique|compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between|trade[- ]?offs?|recommend|should|risk|weakness|limitation|implication|pros?\s+and\s+cons?|why is|why does|how good|how well)\b|\bvs\.(?=\s|$))/i;
 const MAX_EDITORIAL_CITATIONS = 16;
 
 export function supportsDeterministicAccomplishmentFormat(question: string) {

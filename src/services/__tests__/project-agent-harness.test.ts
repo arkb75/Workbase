@@ -67,6 +67,7 @@ describe("project agent harness", () => {
     "Compare repository knowledge refresh with targeted repository research.",
     "How does the repository refresh scheduler differ from incremental ingestion?",
     "Explain the trade-off between a codebase refresh and a targeted search.",
+    "Refresh rate in the repository pipeline versus targeted research latency.",
   ])("keeps conceptual refresh comparisons on approved memory: %s", (question) => {
     expect(routeProjectTurn({
       question,
