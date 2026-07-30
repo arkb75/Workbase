@@ -199,6 +199,9 @@ describe("application evaluator model telemetry", () => {
     expect(metrics.totalTokens).toBe(60);
     expect(metrics.estimatedCostUsd).toBe(0.0006);
     expect(metrics.usageComplete).toBe(false);
+    expect(
+      metrics.modelAttribution.profiles.unattributed.configuredRoutingMatched,
+    ).toBe(false);
   });
 
   it("keeps deterministic dossier phases at zero calls", () => {
@@ -228,6 +231,42 @@ describe("application evaluator model telemetry", () => {
         providerAttempts: 0,
         failedProviderAttempts: 0,
         fallbackUsed: false,
+      },
+    });
+  });
+
+  it("keeps an explicitly invoked dossier phase visible when usage is missing", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [{
+        phase: "project_fact_extraction",
+        profile: "code_extraction",
+        provider: "openrouter",
+        configuredModelId: "openai/gpt-5.4-mini",
+        modelInvoked: true,
+        fallbackUsed: false,
+        usage: null,
+      }],
+      events: [],
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      usageComplete: false,
+      modelAttribution: {
+        providerAttempts: 1,
+        failedProviderAttempts: 1,
+        fallbackUsed: false,
+        profiles: {
+          code_extraction: {
+            providerAttempts: 1,
+            usageComplete: false,
+          },
+        },
       },
     });
   });
@@ -353,9 +392,307 @@ describe("application evaluator model telemetry", () => {
       providerAttempts: 2,
       failedProviderAttempts: 1,
       fallbackUsed: true,
+      profiles: {
+        unattributed: {
+          providers: ["openrouter"],
+          configuredModelIds: ["openai/gpt-5.6-terra"],
+          expectedModelIds: ["openai/gpt-5.6-terra"],
+          actualModelIds: ["anthropic/claude-sonnet-5"],
+          providerAttempts: 2,
+          failedProviderAttempts: 1,
+          totalTokens: 120,
+          estimatedCostUsd: 0.002,
+          usageComplete: false,
+          fallbackUsed: true,
+          configuredRoutingMatched: false,
+        },
+      },
     });
     expect(metrics.usageComplete).toBe(false);
     expect(metrics.estimatedCostUsd).toBe(0.002);
+  });
+
+  it("propagates a stored editorial fallback even on a complete zero-call path", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [],
+      storedResult: {
+        status: "answered",
+        fallbackUsed: true,
+      },
+      expectedModelIdsByProfile: {
+        primary_answer: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      usageComplete: true,
+      modelAttribution: {
+        fallbackUsed: true,
+        profiles: {
+          primary_answer: {
+            providerAttempts: 0,
+            fallbackUsed: true,
+            configuredRoutingMatched: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("propagates execution-router fallback from its stored tool event", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [{
+        id: "route-result",
+        message: null,
+        toolName: "route_project_execution",
+        payload: {
+          mode: "memory_answer",
+          fallbackUsed: true,
+        },
+      }],
+      storedResult: {
+        status: "answered",
+        fallbackUsed: false,
+      },
+    });
+
+    expect(metrics.modelAttribution).toMatchObject({
+      fallbackUsed: true,
+      profiles: {
+        routing: {
+          providerAttempts: 0,
+          fallbackUsed: true,
+        },
+      },
+    });
+  });
+
+  it("does not confuse inactive verifier fallback telemetry with a used fallback", () => {
+    const input = {
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [{
+        id: "verification-result",
+        message: null,
+        toolName: "verify_project_answer",
+        payload: {
+          verifier: { status: "success" },
+          fallback: {
+            attempted: false,
+            candidateBlockCount: 0,
+            acceptedBlockCount: 0,
+          },
+        },
+      }],
+    };
+
+    expect(
+      calculateApplicationModelMetrics(input).modelAttribution.fallbackUsed,
+    ).toBe(false);
+    expect(calculateApplicationModelMetrics({
+      ...input,
+      events: [{
+        ...input.events[0],
+        payload: {
+          verifier: { status: "failed" },
+          fallback: {
+            attempted: true,
+            candidateBlockCount: 2,
+            acceptedBlockCount: 0,
+          },
+        },
+      }],
+    }).modelAttribution).toMatchObject({
+      fallbackUsed: true,
+      profiles: {
+        primary_answer: {
+          fallbackUsed: true,
+        },
+      },
+    });
+  });
+
+  it("detects a fully metered dossier model fallback across every actual model", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [{
+        phase: "planning",
+        profile: "routing",
+        provider: "openrouter",
+        configuredModelId: "openai/gpt-5.4-nano",
+        modelInvoked: true,
+        usage: {
+          attempts: [
+            {
+              inputTokens: 20,
+              outputTokens: 5,
+              totalTokens: 25,
+              cost: 0.00001,
+              requestId: "request-primary",
+              modelId: "openai/gpt-5.4-nano",
+              routedProvider: "openai",
+            },
+            {
+              inputTokens: 30,
+              outputTokens: 10,
+              totalTokens: 40,
+              cost: 0.0002,
+              requestId: "request-fallback",
+              modelId: "anthropic/claude-sonnet-5",
+              routedProvider: "anthropic",
+            },
+          ],
+          failedAttempts: [{
+            provider: "openrouter",
+            modelId: "openai/gpt-5.4-nano",
+            requestId: "request-primary",
+            httpStatus: 503,
+          }],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+        },
+      }],
+      events: [],
+      expectedModelIdsByProfile: {
+        routing: "openai/gpt-5.4-nano",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 65,
+      estimatedCostUsd: 0.00021,
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 2,
+        failedProviderAttempts: 1,
+        fallbackUsed: true,
+        profiles: {
+          routing: {
+            configuredModelIds: ["openai/gpt-5.4-nano"],
+            expectedModelIds: ["openai/gpt-5.4-nano"],
+            actualModelIds: [
+              "anthropic/claude-sonnet-5",
+              "openai/gpt-5.4-nano",
+            ],
+            providerAttempts: 2,
+            failedProviderAttempts: 1,
+            usageComplete: true,
+            fallbackUsed: true,
+            configuredRoutingMatched: false,
+          },
+        },
+      },
+    });
+    expect(metrics.modelAttribution.failedProviderAttempts).toBeLessThanOrEqual(
+      metrics.modelAttribution.providerAttempts,
+    );
+  });
+
+  it("flags a swapped profile even when its reported configured and actual model agree", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [{
+        phase: "planning",
+        profile: "routing",
+        provider: "openrouter",
+        configuredModelId: "anthropic/claude-sonnet-5",
+        modelInvoked: true,
+        usage: {
+          inputTokens: 20,
+          outputTokens: 5,
+          totalTokens: 25,
+          cost: 0.0001,
+          requestId: "request-misrouted",
+          modelId: "anthropic/claude-sonnet-5",
+          providerAttemptCount: 1,
+        },
+      }],
+      events: [],
+      expectedModelIdsByProfile: {
+        routing: "openai/gpt-5.4-nano",
+      },
+    });
+
+    expect(metrics.usageComplete).toBe(true);
+    expect(metrics.modelAttribution.fallbackUsed).toBe(false);
+    expect(metrics.modelAttribution.profiles.routing).toMatchObject({
+      configuredModelIds: ["anthropic/claude-sonnet-5"],
+      expectedModelIds: ["openai/gpt-5.4-nano"],
+      actualModelIds: ["anthropic/claude-sonnet-5"],
+      configuredRoutingMatched: false,
+    });
+  });
+
+  it("deduplicates a real nested OpenRouter fallback failure shape", () => {
+    const primaryFailure = {
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-nano",
+      requestId: "request-primary",
+      httpStatus: 503,
+    };
+    const fallbackFailure = {
+      provider: "openrouter",
+      modelId: "anthropic/claude-sonnet-5",
+      requestId: "request-fallback",
+      httpStatus: 429,
+    };
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        status: "provider_error",
+        modelId: "openai/gpt-5.4-nano",
+        tokenUsage: {
+          attempts: [{
+            attempts: [],
+            failedAttempts: [primaryFailure, fallbackFailure],
+            providerAttemptCount: 2,
+            unknownUsageAttempts: 2,
+          }],
+          failedAttempts: [primaryFailure, fallbackFailure],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 2,
+        },
+        estimatedCostUsd: null,
+        resultRefs: {
+          agentRunId: "agent-1",
+          profile: "routing",
+          configuredModelId: "openai/gpt-5.4-nano",
+          auditAttemptCount: 2,
+          unknownUsageAttempts: 2,
+          usageComplete: false,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+    });
+
+    expect(metrics.modelAttribution).toMatchObject({
+      providerAttempts: 2,
+      failedProviderAttempts: 2,
+      fallbackUsed: true,
+    });
+    expect(metrics.modelAttribution.failedProviderAttempts).toBeLessThanOrEqual(
+      metrics.modelAttribution.providerAttempts,
+    );
   });
 
   it("does not turn deterministic generation bookkeeping into a model call", () => {

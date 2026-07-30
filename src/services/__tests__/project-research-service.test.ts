@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   source: { findMany: vi.fn() },
@@ -14,6 +14,8 @@ const searchMock = vi.hoisted(() => vi.fn());
 const readFileMock = vi.hoisted(() => vi.fn());
 const startMock = vi.hoisted(() => vi.fn());
 const appendEventMock = vi.hoisted(() => vi.fn());
+const generateStructuredMock = vi.hoisted(() => vi.fn());
+const modelProvider = vi.hoisted(() => ({ value: "mock" }));
 const usage = vi.hoisted(() => ({ treeLookups: 0, searches: 0, fileReads: 0, visibleBytes: 0 }));
 const representativePaths = [
   "README.md",
@@ -54,6 +56,16 @@ function fileReadResult(path: string) {
 }
 
 vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
+vi.mock("@/src/lib/llm-config", () => ({
+  resolveWorkbaseLlmProvider: () => modelProvider.value,
+  resolveActiveTextModelIdentity: (profile: string) => ({
+    provider: modelProvider.value,
+    modelId: `test-${profile}`,
+  }),
+}));
+vi.mock("@/src/services/bedrock-runtime", () => ({
+  getStructuredLlmClient: () => ({ generateStructured: generateStructuredMock }),
+}));
 vi.mock("@/src/services/project-knowledge-retrieval-service", () => ({
   projectKnowledgeRetrievalService: { retrieve: retrievalMock },
 }));
@@ -81,6 +93,7 @@ vi.mock("@/src/services/github-repository-exploration-service", () => ({
 }));
 
 import { GitHubRepositoryExplorationError } from "@/src/services/github-repository-exploration-service";
+import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-llm-client";
 import {
   classifyRepositoryResearchScope,
   deterministicResearchQueries,
@@ -93,6 +106,7 @@ import {
 describe("deterministic project research controller", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    modelProvider.value = "mock";
     Object.assign(usage, { treeLookups: 0, searches: 0, fileReads: 0, visibleBytes: 0 });
     prismaMock.source.findMany.mockResolvedValue([
       { id: "source-1", label: "workbase/demo", updatedAt: new Date("2026-07-10T18:00:00.000Z") },
@@ -166,12 +180,18 @@ describe("deterministic project research controller", () => {
       activeProjectFactIds: ["fact-1", "fact-2"],
       coverageGaps: [],
       tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
     });
     prismaMock.agentRunCandidate.findMany.mockResolvedValue([
       { ordinal: 1, projectFact: { id: "fact-1", statement: "The chat service uses a deterministic intent router.", category: "architecture", confidence: "high" } },
       { ordinal: 2, projectFact: { id: "fact-2", statement: "Repository reads are pinned to an immutable commit.", category: "behavior", confidence: "high" } },
     ]);
     prismaMock.projectFact.findMany.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    delete process.env.WORKBASE_RESEARCH_SELECTOR_MODE;
   });
 
   it("uses deterministic planning for exact code and control-flow questions", () => {
@@ -287,12 +307,107 @@ describe("deterministic project research controller", () => {
     expect(factCandidateMock).toHaveBeenCalledWith(expect.objectContaining({ maxFacts: 4 }));
   });
 
+  it("persists planning recovery separately from deterministic no-model selection", async () => {
+    modelProvider.value = "bedrock";
+    generateStructuredMock.mockRejectedValueOnce(new StructuredGenerationBudgetError(
+      "token_budget_exhausted",
+      "The response crossed its token budget after dispatch.",
+      {
+        modelCalls: 1,
+        repairPasses: 0,
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
+        unknownUsageCalls: 0,
+      },
+    ));
+
+    await researchProject({
+      runId: "run-planning-recovery",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question: "Explain how the product decides which context matters.",
+      purpose: "answer_question",
+    });
+
+    const finalState = prismaMock.agentRun.updateMany.mock.calls
+      .map(([input]) => input.data.researchState)
+      .findLast((state) => state?.phase === "finalizing");
+    expect(finalState?.modelUsage).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        phase: "planning",
+        modelInvoked: true,
+        fallbackUsed: true,
+      }),
+      expect.objectContaining({
+        phase: "file_selection",
+        modelInvoked: false,
+        fallbackUsed: false,
+      }),
+    ]));
+  });
+
+  it("persists model file-selection recovery and candidate extraction provenance", async () => {
+    modelProvider.value = "bedrock";
+    process.env.WORKBASE_RESEARCH_SELECTOR_MODE = "model";
+    generateStructuredMock
+      .mockResolvedValueOnce({
+        data: {
+          coverageTargets: ["request path", "data boundary"],
+          searches: [],
+        },
+        tokenUsage: null,
+      })
+      .mockRejectedValueOnce(new Error("selector provider disconnected"));
+    factCandidateMock.mockResolvedValueOnce({
+      candidateIds: ["candidate-1", "candidate-2"],
+      activeProjectFactIds: ["fact-1", "fact-2"],
+      coverageGaps: [],
+      tokenUsage: null,
+      modelInvoked: true,
+      fallbackUsed: true,
+    });
+
+    await researchProject({
+      runId: "run-selection-recovery",
+      userId: "user-1",
+      workItemId: "work-item-1",
+      question: "Explain how the product decides which context matters.",
+      purpose: "answer_question",
+    });
+
+    const finalState = prismaMock.agentRun.updateMany.mock.calls
+      .map(([input]) => input.data.researchState)
+      .findLast((state) => state?.phase === "finalizing");
+    expect(finalState?.modelUsage).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        phase: "planning",
+        modelInvoked: true,
+        fallbackUsed: false,
+        usage: null,
+      }),
+      expect.objectContaining({
+        phase: "file_selection",
+        modelInvoked: true,
+        fallbackUsed: true,
+      }),
+      expect.objectContaining({
+        phase: "project_fact_extraction",
+        modelInvoked: true,
+        fallbackUsed: true,
+        usage: null,
+      }),
+    ]));
+  });
+
   it("answers from a canonical fact reused by another run without creating a new review candidate", async () => {
     factCandidateMock.mockResolvedValue({
       candidateIds: [],
       activeProjectFactIds: ["fact-reused"],
       coverageGaps: [],
       tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
     });
     prismaMock.agentRunCandidate.findMany.mockResolvedValue([]);
     prismaMock.projectFact.findMany.mockResolvedValue([{
@@ -376,6 +491,8 @@ describe("deterministic project research controller", () => {
       activeProjectFactIds: ["fact-1", "fact-2"],
       coverageGaps: ["The inspected excerpts did not establish a retry or backoff policy."],
       tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
     });
 
     const result = await researchProject({

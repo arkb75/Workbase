@@ -171,6 +171,7 @@ export type BedrockConverseAgentEvent =
       type: "model_call_started";
       iteration: number;
       messageCount: number;
+      profile?: string;
     }
   | {
       type: "model_call_completed";
@@ -184,6 +185,7 @@ export type BedrockConverseAgentEvent =
       routedProvider?: string | null;
       modelId?: string;
       costUsd?: number | null;
+      profile?: string;
     }
   | {
       type: "model_call_failed";
@@ -198,6 +200,7 @@ export type BedrockConverseAgentEvent =
       providerStatus: number | null;
       retryable: boolean | null;
       providerCode: string | null;
+      profile?: string;
     }
   | {
       type: "tool_call_started";
@@ -870,6 +873,7 @@ export class BedrockConverseAgent {
       modelId: string;
       defaultLimits?: Partial<BedrockConverseAgentLimits>;
       providerLabel?: string;
+      modelProfile?: string;
     },
   ) {
     if (!config.modelId.trim()) {
@@ -964,6 +968,9 @@ export class BedrockConverseAgent {
         type: "model_call_started",
         iteration: iterations,
         messageCount: messages.length,
+        ...(this.config.modelProfile
+          ? { profile: this.config.modelProfile }
+          : {}),
       });
 
       let response: BedrockConverseTransportResponse;
@@ -1111,6 +1118,9 @@ export class BedrockConverseAgent {
             typeof providerFailure?.code === "string"
               ? providerFailure.code
               : null,
+          ...(this.config.modelProfile
+            ? { profile: this.config.modelProfile }
+            : {}),
         });
         const providerName = getProviderErrorName(error);
         const providerMessage = getProviderErrorMessage(error);
@@ -1195,6 +1205,9 @@ export class BedrockConverseAgent {
           : {}),
         ...(response.modelId ? { modelId: response.modelId } : {}),
         ...(response.costUsd != null ? { costUsd: response.costUsd } : {}),
+        ...(this.config.modelProfile
+          ? { profile: this.config.modelProfile }
+          : {}),
       });
 
       if (aggregateUsage.totalTokens > limits.maxTotalTokens) {

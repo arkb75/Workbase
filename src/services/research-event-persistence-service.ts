@@ -74,6 +74,7 @@ export async function persistResearchAgentEvent(
             provider: event.provider ?? null,
             routedProvider: event.routedProvider ?? null,
             modelId: event.modelId ?? null,
+            profile: event.profile ?? null,
             costUsd: event.costUsd ?? null,
             usage: event.usage,
             aggregateUsage: event.aggregateUsage,
@@ -85,6 +86,7 @@ export async function persistResearchAgentEvent(
               durationMs: event.durationMs,
               provider: event.provider,
               modelId: event.modelId,
+              profile: event.profile ?? null,
               requestIds: event.requestIds,
               routedProviders: event.routedProviders,
               providerStatus: event.providerStatus,
@@ -93,7 +95,11 @@ export async function persistResearchAgentEvent(
               usage: event.usage,
               aggregateUsage: event.aggregateUsage,
             }
-        : { modelEvent: event.type, iteration: event.iteration },
+        : {
+            modelEvent: event.type,
+            iteration: event.iteration,
+            profile: event.profile ?? null,
+          },
     isUserVisible: false,
   });
 }

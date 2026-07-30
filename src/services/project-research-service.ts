@@ -13,7 +13,10 @@ import {
   StructuredGenerationBudgetError,
   StructuredOutputError,
 } from "@/src/lib/bedrock-structured-llm-client";
-import { generationRunFailureTokenUsage } from "@/src/lib/generation-runs";
+import {
+  generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
+} from "@/src/lib/generation-runs";
 import {
   resolveActiveTextModelIdentity,
   resolveWorkbaseLlmProvider,
@@ -640,6 +643,7 @@ function failedResearchModelUsage(error: unknown, phase: string) {
     error instanceof StructuredOutputError
       ? error.tokenUsage
       : generationRunFailureTokenUsage(error);
+  const admissionFailure = isStructuredGenerationAdmissionFailure(error);
   return {
     phase,
     usage,
@@ -648,7 +652,7 @@ function failedResearchModelUsage(error: unknown, phase: string) {
       : error instanceof StructuredGenerationBudgetError
         ? error.code
         : "failed",
-    unknownUsageAttempts: usage || error instanceof StructuredGenerationBudgetError ? 0 : 1,
+    unknownUsageAttempts: usage || admissionFailure ? 0 : 1,
   };
 }
 
@@ -657,6 +661,7 @@ function researchModelUsage(input: {
   profile: TextModelProfile;
   usage: unknown;
   modelInvoked: boolean;
+  fallbackUsed: boolean;
 }) {
   const configured = resolveActiveTextModelIdentity(input.profile);
   return {
@@ -665,6 +670,7 @@ function researchModelUsage(input: {
     provider: configured.provider,
     configuredModelId: configured.modelId,
     modelInvoked: input.modelInvoked,
+    fallbackUsed: input.fallbackUsed,
     usage: input.usage,
   };
 }
@@ -688,6 +694,7 @@ async function createResearchPlan(input: {
   ) return {
     ...defaultPlan(input.question, input.entries, input.scope),
     modelInvoked: false,
+    fallbackUsed: false,
   };
   try {
     const result = await getStructuredLlmClient("routing").generateStructured({
@@ -733,12 +740,14 @@ async function createResearchPlan(input: {
       searches: result.data.searches.filter((search) => allowedSources.has(search.sourceId)).slice(0, 2),
       tokenUsage: result.tokenUsage,
       modelInvoked: true,
+      fallbackUsed: false,
     };
   } catch (error) {
     return {
       ...defaultPlan(input.question, input.entries, input.scope),
       tokenUsage: failedResearchModelUsage(error, "planning"),
-      modelInvoked: !(error instanceof StructuredGenerationBudgetError),
+      modelInvoked: !isStructuredGenerationAdmissionFailure(error),
+      fallbackUsed: true,
     };
   }
 }
@@ -775,6 +784,7 @@ async function selectFiles(input: {
       unresolvedTargets: [] as string[],
       tokenUsage: null,
       modelInvoked: false,
+      fallbackUsed: false,
     };
   }
   try {
@@ -809,12 +819,14 @@ async function selectFiles(input: {
     const handles = Array.from(new Set(result.data.files.map((file) => file.handle)))
       .filter((handle) => allowed.has(handle))
       .slice(0, targetCount);
+    const fallbackUsed = handles.length === 0;
     return {
       handles: handles.length ? handles : ranked.slice(0, targetCount).map((candidate) => candidate.handle),
       reasons: Object.fromEntries(result.data.files.map((file) => [file.handle, file.reason])),
       unresolvedTargets: result.data.unresolvedTargets,
       tokenUsage: result.tokenUsage,
       modelInvoked: true,
+      fallbackUsed,
     };
   } catch (error) {
     return {
@@ -822,7 +834,8 @@ async function selectFiles(input: {
       reasons: Object.fromEntries(ranked.slice(0, targetCount).map((candidate) => [candidate.handle, "Fallback request relevance score."])),
       unresolvedTargets: [] as string[],
       tokenUsage: failedResearchModelUsage(error, "file_selection"),
-      modelInvoked: !(error instanceof StructuredGenerationBudgetError),
+      modelInvoked: !isStructuredGenerationAdmissionFailure(error),
+      fallbackUsed: true,
     };
   }
 }
@@ -1168,7 +1181,8 @@ async function resumeProjectFactExtractionFromNotebook(input: {
           phase: "project_fact_extraction_from_saved_notebook",
           profile: "code_extraction",
           usage: candidates.tokenUsage,
-          modelInvoked: candidates.tokenUsage != null,
+          modelInvoked: candidates.modelInvoked,
+          fallbackUsed: candidates.fallbackUsed,
         }),
       ],
       candidateIds: candidates.candidateIds,
@@ -1371,6 +1385,7 @@ export async function researchProject(
     profile: "routing",
     usage: plan.tokenUsage,
     modelInvoked: plan.modelInvoked,
+    fallbackUsed: plan.fallbackUsed,
   })];
   const coverage: ResearchCoverage = {
     planned: plan.coverageTargets,
@@ -1448,6 +1463,7 @@ export async function researchProject(
         unresolvedTargets: [] as string[],
         tokenUsage: null,
         modelInvoked: false,
+        fallbackUsed: false,
       }
     : await selectFiles({ question, coverageTargets: plan.coverageTargets, candidates: pathCandidates });
   if (researchScope !== "bounded_comprehensive") {
@@ -1456,6 +1472,7 @@ export async function researchProject(
       profile: "routing",
       usage: selection.tokenUsage,
       modelInvoked: selection.modelInvoked,
+      fallbackUsed: selection.fallbackUsed,
     }));
   }
   const candidateByHandle = new Map(pathCandidates.map((candidate) => [candidate.handle, candidate]));
@@ -1674,7 +1691,8 @@ export async function researchProject(
       phase: "project_fact_extraction",
       profile: "code_extraction",
       usage: candidates.tokenUsage,
-      modelInvoked: candidates.tokenUsage != null,
+      modelInvoked: candidates.modelInvoked,
+      fallbackUsed: candidates.fallbackUsed,
     }));
     coverage.uninspected.push(...candidates.coverageGaps.filter((gap) => !coverage.uninspected.includes(gap)));
     partial ||= candidates.coverageGaps.length > 0;

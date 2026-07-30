@@ -3,6 +3,10 @@ import { Prisma } from "../src/generated/prisma/client";
 import { start } from "workflow/api";
 import { getWorld } from "workflow/runtime";
 import { ensureDemoUser } from "../src/lib/demo-user";
+import {
+  resolveActiveTextModelIdentity,
+  textModelProfiles,
+} from "../src/lib/llm-config";
 import { prisma } from "../src/lib/prisma";
 import {
   executeProjectChatApplicationTurn,
@@ -538,7 +542,12 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     workItemId: string;
     startedAt: Date;
     finishedAt: Date;
-    events: Array<{ id: string; message: string | null; payload: unknown }>;
+    events: Array<{
+      id: string;
+      message: string | null;
+      toolName?: string | null;
+      payload: unknown;
+    }>;
     result: unknown;
     researchState: unknown;
     refreshRunId: string | null;
@@ -590,6 +599,13 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       events: input.events,
       dossierModelUsage,
       generationRuns,
+      storedResult: input.result,
+      expectedModelIdsByProfile: Object.fromEntries(
+        textModelProfiles.map((profile) => [
+          profile,
+          resolveActiveTextModelIdentity(profile).modelId,
+        ]),
+      ),
     });
     const repository = researchUsage(input.researchState);
     return {

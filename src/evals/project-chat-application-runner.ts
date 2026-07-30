@@ -117,6 +117,19 @@ export interface ProjectChatApplicationModelAttribution {
   providerAttempts: number;
   failedProviderAttempts: number;
   fallbackUsed: boolean;
+  profiles: Record<string, {
+    providers: string[];
+    configuredModelIds: string[];
+    expectedModelIds: string[];
+    actualModelIds: string[];
+    providerAttempts: number;
+    failedProviderAttempts: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    usageComplete: boolean;
+    fallbackUsed: boolean;
+    configuredRoutingMatched: boolean;
+  }>;
 }
 
 export interface ProjectChatApplicationMetrics {
@@ -1172,6 +1185,37 @@ function checkPerformance(
     observation.metrics.usageComplete,
     true,
   );
+  addCheck(
+    checks,
+    "live model execution used no fallback",
+    !observation.metrics.modelAttribution.fallbackUsed,
+    observation.metrics.modelAttribution.fallbackUsed,
+    false,
+  );
+  addCheck(
+    checks,
+    "failed provider attempts do not exceed total attempts",
+    observation.metrics.modelAttribution.failedProviderAttempts <=
+      observation.metrics.modelAttribution.providerAttempts,
+    observation.metrics.modelAttribution.failedProviderAttempts,
+    observation.metrics.modelAttribution.providerAttempts,
+  );
+  const misroutedProfiles = Object.entries(
+    observation.metrics.modelAttribution.profiles,
+  )
+    .filter(([, profile]) =>
+      profile.providerAttempts > 0 &&
+      !profile.configuredRoutingMatched
+    )
+    .map(([profile]) => profile)
+    .sort();
+  addCheck(
+    checks,
+    "observed model profiles match configured routing",
+    misroutedProfiles.length === 0,
+    misroutedProfiles.join(", ") || "all matched",
+    "all matched",
+  );
   if (observation.metrics.modelCalls === 0) {
     addCheck(checks, "zero-call telemetry is internally consistent", observation.metrics.totalTokens === 0 && observation.metrics.estimatedCostUsd === 0,
       `${observation.metrics.totalTokens} tokens / $${observation.metrics.estimatedCostUsd}`, "0 tokens / $0");
@@ -1459,6 +1503,61 @@ export function evaluateProjectChatApplicationObservation(
   return { scenario, observation, passed: checks.every((check) => check.passed), checks };
 }
 
+function mergeProfileAttribution(
+  left: ProjectChatApplicationModelAttribution["profiles"],
+  right: ProjectChatApplicationModelAttribution["profiles"],
+) {
+  return Object.fromEntries(
+    Array.from(new Set([
+      ...Object.keys(left),
+      ...Object.keys(right),
+    ])).sort().map((profile) => {
+      const entries = [left[profile], right[profile]].filter(
+        (entry): entry is NonNullable<typeof entry> => entry != null,
+      );
+      const providerAttempts = entries.reduce(
+        (total, entry) => total + entry.providerAttempts,
+        0,
+      );
+      return [profile, {
+        providers: Array.from(new Set(
+          entries.flatMap((entry) => entry.providers),
+        )).sort(),
+        configuredModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.configuredModelIds),
+        )).sort(),
+        expectedModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.expectedModelIds),
+        )).sort(),
+        actualModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.actualModelIds),
+        )).sort(),
+        providerAttempts,
+        failedProviderAttempts: Math.min(
+          providerAttempts,
+          entries.reduce(
+            (total, entry) => total + entry.failedProviderAttempts,
+            0,
+          ),
+        ),
+        totalTokens: entries.reduce(
+          (total, entry) => total + entry.totalTokens,
+          0,
+        ),
+        estimatedCostUsd: Number(entries.reduce(
+          (total, entry) => total + entry.estimatedCostUsd,
+          0,
+        ).toFixed(6)),
+        usageComplete: entries.every((entry) => entry.usageComplete),
+        fallbackUsed: entries.some((entry) => entry.fallbackUsed),
+        configuredRoutingMatched: entries.every(
+          (entry) => entry.configuredRoutingMatched,
+        ),
+      }];
+    }),
+  );
+}
+
 export async function runProjectChatApplicationScenarios(input: {
   driver: ProjectChatApplicationDriver;
   scenarioIds?: readonly ProjectChatApplicationScenarioId[];
@@ -1534,6 +1633,10 @@ export async function runProjectChatApplicationScenarios(input: {
         fallbackUsed:
           total.modelAttribution.fallbackUsed ||
           result.observation.metrics.modelAttribution.fallbackUsed,
+        profiles: mergeProfileAttribution(
+          total.modelAttribution.profiles,
+          result.observation.metrics.modelAttribution.profiles,
+        ),
       },
     }), {
       latencyMs: 0,
@@ -1551,6 +1654,7 @@ export async function runProjectChatApplicationScenarios(input: {
         providerAttempts: 0,
         failedProviderAttempts: 0,
         fallbackUsed: false,
+        profiles: {},
       },
     }),
   };

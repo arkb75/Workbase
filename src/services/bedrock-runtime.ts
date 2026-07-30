@@ -115,6 +115,7 @@ export function createTextConverseAgent(input: {
       modelId: config.modelId,
       defaultLimits: input.defaultLimits,
       providerLabel: "OpenRouter",
+      modelProfile: profile,
     });
   }
   if (provider === "bedrock") {
@@ -127,6 +128,7 @@ export function createTextConverseAgent(input: {
       {
         modelId: config.modelId,
         defaultLimits: input.defaultLimits,
+        modelProfile: profile,
       },
     );
   }
