@@ -283,6 +283,7 @@ function measureUsageUnit(input: {
   rawUsage: unknown;
   attributionMetadata?: unknown;
   invocationExpected: boolean;
+  modelIdentityObserved?: boolean;
   terminalFailure?: boolean;
   explicitFallbackUsed?: boolean;
   attemptCount?: number | null;
@@ -335,7 +336,13 @@ function measureUsageUnit(input: {
   const configuredModelId =
     input.configuredModelId?.trim() || input.modelId.trim();
   const actualModelIds = new Set([
-    ...(modelCalls > 0 && input.modelId.trim() ? [input.modelId.trim()] : []),
+    ...(
+      modelCalls > 0 &&
+      input.modelIdentityObserved === true &&
+      input.modelId.trim()
+        ? [input.modelId.trim()]
+        : []
+    ),
     ...rawAttribution.actualModelIds,
     ...metadataAttribution.actualModelIds,
   ]);
@@ -470,6 +477,9 @@ function eventUsageUnits(input: {
       rawUsage,
       attributionMetadata: payload,
       invocationExpected: true,
+      modelIdentityObserved:
+        provider.toLowerCase() !== "openrouter" ||
+        typeof payload.modelId === "string",
       terminalFailure: kind === "model_call_failed",
     }));
   }
@@ -489,6 +499,7 @@ function eventUsageUnits(input: {
       rawUsage: null,
       attributionMetadata: event.payload,
       invocationExpected: true,
+      modelIdentityObserved: input.provider.toLowerCase() !== "openrouter",
       terminalFailure: true,
     }));
   }
@@ -512,15 +523,16 @@ function dossierUsageUnits(input: {
     const modelId =
       attribution.actualModelIds[0] ??
       configuredModelId;
+    const provider =
+      typeof wrapper.provider === "string"
+        ? wrapper.provider
+        : input.provider;
     return measureUsageUnit({
       identity:
         requestIdentity(entry) ??
         `research-model-usage:${index}:${typeof wrapper.phase === "string" ? wrapper.phase : "unknown"}`,
       profile: profileName(wrapper.profile),
-      provider:
-        typeof wrapper.provider === "string"
-          ? wrapper.provider
-          : input.provider,
+      provider,
       modelId,
       configuredModelId,
       rawUsage,
@@ -529,6 +541,9 @@ function dossierUsageUnits(input: {
         typeof wrapper.modelInvoked === "boolean"
           ? wrapper.modelInvoked
           : rawUsage != null,
+      modelIdentityObserved:
+        provider.toLowerCase() !== "openrouter" ||
+        attribution.actualModelIds.length > 0,
       explicitFallbackUsed: containsFallbackSignal(entry),
     });
   });
@@ -560,6 +575,9 @@ function generationUsageUnits(generationRuns: ApplicationGenerationRun[]) {
       rawUsage: run.tokenUsage,
       attributionMetadata: run.resultRefs,
       invocationExpected: isModelProvider(run.provider) && !admissionFailure,
+      modelIdentityObserved:
+        run.provider.toLowerCase() !== "openrouter" ||
+        run.status === "success",
       terminalFailure:
         run.status === "provider_error" && !admissionFailure,
       explicitFallbackUsed: refs.fallbackUsed === true,
