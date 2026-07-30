@@ -299,7 +299,14 @@ function allowsStructuredTransportFallback(error: unknown) {
       : null;
   const message =
     error instanceof Error ? error.message : String(error);
+  const declaredCapability =
+    "capability" in error && typeof error.capability === "string"
+      ? error.capability
+      : null;
   const capabilityLike =
+    declaredCapability === "structured_output" ||
+    declaredCapability === "tool_use" ||
+    declaredCapability === "parameters" ||
     /(?:unsupported|not supported|does not support|unavailable|not enabled).{0,100}(?:json schema|response[_ -]?format|structured output|tool|function|parameter)|(?:json schema|response[_ -]?format|structured output|tool|function|parameter).{0,100}(?:unsupported|not supported|unavailable|not enabled)/i.test(
       message,
     );

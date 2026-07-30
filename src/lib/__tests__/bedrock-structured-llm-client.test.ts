@@ -9,6 +9,7 @@ import {
   StructuredGenerationBudgetError,
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
+import { OpenRouterRequestError } from "@/src/lib/openrouter-client";
 
 function makeClient(responses: Array<{
   text?: string;
@@ -247,6 +248,38 @@ describe("BedrockStructuredLlmClient", () => {
       attempts: [{ inputTokens: 10, outputTokens: 20, totalTokens: 30 }],
       unknownUsageAttempts: 1,
     });
+  });
+
+  it("uses a sanitized OpenRouter capability category for structured fallback", async () => {
+    const capabilityError = new OpenRouterRequestError(
+      "OpenRouter rejected this request's parameters or state.",
+      400,
+      false,
+      null,
+      { capability: "structured_output" },
+    );
+    const { client, calls } = makeClient([
+      capabilityError,
+      { structuredData: { ok: true } },
+    ]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema", "strict_tool_use"],
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(result.transportMode).toBe("strict_tool_use");
+    expect(calls.map((call) => call.structuredOutput?.mode)).toEqual([
+      "bedrock_json_schema",
+      "strict_tool_use",
+    ]);
   });
 
   it("uses schema-aware repair only after native structured modes fail", async () => {

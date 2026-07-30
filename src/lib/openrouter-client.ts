@@ -64,6 +64,13 @@ interface OpenRouterResponse {
   };
 }
 
+export type OpenRouterCapabilityFailure =
+  | "chat_completions"
+  | "parameters"
+  | "reasoning"
+  | "structured_output"
+  | "tool_use";
+
 export class OpenRouterRequestError extends Error {
   constructor(
     message: string,
@@ -80,6 +87,7 @@ export class OpenRouterRequestError extends Error {
       retryAfter?: string | null;
       tokenUsage?: JsonValue | null;
       partialContent?: string | null;
+      capability?: OpenRouterCapabilityFailure | null;
     },
   ) {
     super(message, options);
@@ -92,6 +100,7 @@ export class OpenRouterRequestError extends Error {
     this.retryAfter = options?.retryAfter ?? null;
     this.tokenUsage = options?.tokenUsage ?? null;
     this.partialContent = options?.partialContent ?? null;
+    this.capability = options?.capability ?? null;
   }
 
   readonly failedAttempts: JsonValue[];
@@ -102,6 +111,7 @@ export class OpenRouterRequestError extends Error {
   readonly retryAfter: string | null;
   readonly tokenUsage: JsonValue | null;
   readonly partialContent: string | null;
+  readonly capability: OpenRouterCapabilityFailure | null;
 }
 
 export function isRetryableModelProviderError(
@@ -264,11 +274,19 @@ function retryableHttpStatus(status: number) {
   );
 }
 
+const sensitiveExternalValuePattern =
+  /https?:\/\/|openrouter\.ai|sk-or-|(?:api[_ -]?key|key|workspace)(?:[_:=/-]|$)/i;
+
+function containsSensitiveExternalValue(value: string) {
+  return sensitiveExternalValuePattern.test(value);
+}
+
 function safeExternalRequestId(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 &&
       trimmed.length <= 200 &&
+      !containsSensitiveExternalValue(trimmed) &&
       /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)
     ? trimmed
     : null;
@@ -279,6 +297,7 @@ function safeExternalCode(value: unknown) {
   const trimmed = String(value).trim();
   return trimmed.length > 0 &&
       trimmed.length <= 80 &&
+      !containsSensitiveExternalValue(trimmed) &&
       /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)
     ? trimmed
     : null;
@@ -286,9 +305,16 @@ function safeExternalCode(value: unknown) {
 
 function safeRetryAfter(value: string | null) {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed.length > 40) return null;
+  if (
+    !trimmed ||
+    trimmed.length > 40 ||
+    containsSensitiveExternalValue(trimmed)
+  ) {
+    return null;
+  }
   if (/^\d{1,8}$/.test(trimmed)) return trimmed;
-  return Number.isNaN(Date.parse(trimmed)) ? null : trimmed;
+  const timestamp = Date.parse(trimmed);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toUTCString();
 }
 
 function safeExternalModelId(value: unknown, fallback: string) {
@@ -297,6 +323,7 @@ function safeExternalModelId(value: unknown, fallback: string) {
   return trimmed.length > 0 &&
       trimmed.length <= 200 &&
       !trimmed.includes("://") &&
+      !containsSensitiveExternalValue(trimmed) &&
       /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(trimmed)
     ? trimmed
     : fallback;
@@ -307,18 +334,50 @@ function safeExternalProvider(value: unknown) {
   const trimmed = value.trim();
   return trimmed.length > 0 &&
       trimmed.length <= 100 &&
+      !containsSensitiveExternalValue(trimmed) &&
       /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(trimmed)
     ? trimmed
     : null;
 }
 
-function errorMetadataType(metadata: unknown) {
+function rawErrorMetadataType(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return null;
   }
-  return safeExternalCode(
-    (metadata as Record<string, unknown>).error_type,
-  );
+  const value = (metadata as Record<string, unknown>).error_type;
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 500)
+    : null;
+}
+
+function classifyCapabilityFailure(input: {
+  status: number | null;
+  errorType: string | null;
+  providerMessage: string;
+}): OpenRouterCapabilityFailure | null {
+  if (
+    input.status !== 400 &&
+    input.status !== 404 &&
+    input.status !== 422
+  ) {
+    return null;
+  }
+  const text = `${input.errorType ?? ""} ${input.providerMessage}`;
+  const unsupported =
+    /unsupported|not supported|does not support|unavailable|not enabled|no endpoints?.{0,80}(?:support|available)/i.test(
+      text,
+    );
+  if (!unsupported) return null;
+  if (/json[_ -]?schema|response[_ -]?format|structured[_ -]?output/i.test(text)) {
+    return "structured_output";
+  }
+  if (/\btool|function[_ -]?(?:call|use)?/i.test(text)) return "tool_use";
+  if (/\breasoning\b/i.test(text)) return "reasoning";
+  if (/\bparameters?\b/i.test(text)) return "parameters";
+  if (/\bchat\b|\bcompletions?\b|\bconverse\b/i.test(text)) {
+    return "chat_completions";
+  }
+  return null;
 }
 
 function numericErrorStatus(code: number | string | undefined) {
@@ -350,6 +409,7 @@ function safeOpenRouterErrorMessage(input: {
   status: number | null;
   errorType: string | null;
   providerMessage: string;
+  capability: OpenRouterCapabilityFailure | null;
 }) {
   const classificationText =
     `${input.errorType ?? ""} ${input.providerMessage}`;
@@ -378,6 +438,21 @@ function safeOpenRouterErrorMessage(input: {
   }
   if (input.status === 408) {
     return "OpenRouter timed out while processing this request.";
+  }
+  if (input.capability === "structured_output") {
+    return "The selected OpenRouter endpoint does not support the requested structured output capability.";
+  }
+  if (input.capability === "tool_use") {
+    return "The selected OpenRouter endpoint does not support the requested tool-use capability.";
+  }
+  if (input.capability === "reasoning") {
+    return "The selected OpenRouter endpoint does not support the requested reasoning capability.";
+  }
+  if (input.capability === "parameters") {
+    return "The selected OpenRouter endpoint does not support one or more required parameters.";
+  }
+  if (input.capability === "chat_completions") {
+    return "The selected OpenRouter endpoint does not support the requested chat-completions capability.";
   }
   if (input.status != null && input.status >= 500) {
     return "OpenRouter or the selected model provider is temporarily unavailable.";
@@ -473,19 +548,26 @@ async function sendOpenRouterRequest(input: {
     const providerMessage =
       parsed.error?.message?.trim() ||
       `OpenRouter returned HTTP ${response.status}.`;
-    const errorType = errorMetadataType(parsed.error?.metadata);
+    const rawErrorType = rawErrorMetadataType(parsed.error?.metadata);
+    const errorType = safeExternalCode(rawErrorType);
     const payloadStatus = numericErrorStatus(parsed.error?.code);
     const status = response.ok ? payloadStatus : response.status;
+    const capability = classifyCapabilityFailure({
+      status,
+      errorType: rawErrorType,
+      providerMessage,
+    });
     throw new OpenRouterRequestError(
       safeOpenRouterErrorMessage({
         status,
-        errorType,
+        errorType: rawErrorType,
         providerMessage,
+        capability,
       }),
       status,
       retryableOpenRouterError({
         status,
-        errorType,
+        errorType: rawErrorType,
         message: providerMessage,
       }),
       requestId,
@@ -495,7 +577,7 @@ async function sendOpenRouterRequest(input: {
         retryAfter: safeRetryAfter(response.headers.get("retry-after")),
         tokenUsage: responseUsage,
         unknownUsageAttempts: responseUsage ? 0 : 1,
-        partialContent: responseText(parsed.choices?.[0]?.message?.content),
+        capability,
       },
     );
   }
@@ -518,16 +600,27 @@ async function sendOpenRouterRequest(input: {
     const providerMessage =
       choice.error?.message?.trim() ||
       "OpenRouter reported a provider error for the completion choice.";
-    const errorType = errorMetadataType(choice.error?.metadata);
+    const rawErrorType = rawErrorMetadataType(choice.error?.metadata);
+    const errorType = safeExternalCode(rawErrorType);
     const status = numericErrorStatus(choice.error?.code);
+    const capability = classifyCapabilityFailure({
+      status,
+      errorType: rawErrorType,
+      providerMessage,
+    });
     throw new OpenRouterRequestError(
       safeOpenRouterErrorMessage({
         status,
-        errorType,
+        errorType: rawErrorType,
         providerMessage,
+        capability,
       }),
       status,
-      retryableOpenRouterError({ status, errorType, message: providerMessage }),
+      retryableOpenRouterError({
+        status,
+        errorType: rawErrorType,
+        message: providerMessage,
+      }),
       requestId,
       {
         code: safeExternalCode(choice.error?.code) ?? "choice_error",
@@ -536,6 +629,7 @@ async function sendOpenRouterRequest(input: {
         tokenUsage: responseUsage,
         unknownUsageAttempts: responseUsage ? 0 : 1,
         partialContent: responseText(choice.message?.content),
+        capability,
       },
     );
   }

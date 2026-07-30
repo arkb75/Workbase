@@ -261,6 +261,68 @@ describe("OpenRouterChatCompletionsRuntime", () => {
     expect(String(failure)).not.toContain("sk-or-");
   });
 
+  it("retains only a typed capability signal from unsafe provider metadata", async () => {
+    const runtime = new OpenRouterChatCompletionsRuntime(
+      config(),
+      undefined,
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "JSON schema is not supported. Inspect key_sensitive at https://openrouter.ai/settings/keys/key_sensitive.",
+              code: "workspace_private",
+              metadata: { error_type: "key_sensitive" },
+            },
+            choices: [{
+              message: {
+                content:
+                  "provider diagnostic key_sensitive https://openrouter.ai/settings/keys/key_sensitive",
+              },
+            }],
+          }),
+          {
+            status: 400,
+            headers: {
+              "x-request-id": "sk-or-v1-sensitive",
+              "retry-after": "key_sensitive 29 Jul 2026",
+            },
+          },
+        ),
+      ),
+    );
+
+    let failure: unknown;
+    try {
+      await runtime.converse({
+        systemPrompt: "test",
+        userPrompt: "test",
+        maxTokens: 16,
+        temperature: 0,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      message:
+        "The selected OpenRouter endpoint does not support the requested structured output capability.",
+      status: 400,
+      retryable: false,
+      requestId: null,
+      code: null,
+      errorType: null,
+      retryAfter: null,
+      partialContent: null,
+      capability: "structured_output",
+    });
+    const serialized = `${String(failure)} ${JSON.stringify(failure)}`;
+    expect(serialized).not.toContain("key_sensitive");
+    expect(serialized).not.toContain("workspace_private");
+    expect(serialized).not.toContain("openrouter.ai");
+    expect(serialized).not.toContain("sk-or-");
+  });
+
   it("normalizes HTTP-200 choice errors with partial billed usage", async () => {
     const runtime = new OpenRouterChatCompletionsRuntime(
       config(),

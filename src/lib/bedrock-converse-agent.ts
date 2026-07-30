@@ -766,6 +766,13 @@ function getProviderErrorMessage(error: unknown) {
 function isModelCapabilityError(error: unknown) {
   const name = getProviderErrorName(error);
   const message = getProviderErrorMessage(error);
+  const declaredCapability =
+    error &&
+      typeof error === "object" &&
+      "capability" in error &&
+      typeof error.capability === "string"
+      ? error.capability
+      : null;
   const status =
     error &&
     typeof error === "object" &&
@@ -789,6 +796,7 @@ function isModelCapabilityError(error: unknown) {
   }
 
   return (
+    declaredCapability !== null ||
     /(?:does not|doesn't|not|isn't|unsupported|unavailable).{0,80}(?:support|available|enabled).{0,80}(?:chat|completion|converse|tool|function|parameter|response format|reasoning)/i.test(
       message,
     ) ||

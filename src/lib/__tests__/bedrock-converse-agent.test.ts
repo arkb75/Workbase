@@ -570,9 +570,12 @@ describe("BedrockConverseAgent", () => {
         error.message.includes("AccessDeniedException"),
     );
 
-    const openRouterCapabilityError = Object.assign(
-      new Error("The selected provider does not support required tool parameters."),
-      { name: "OpenRouterRequestError", status: 400 },
+    const openRouterCapabilityError = new OpenRouterRequestError(
+      "OpenRouter rejected this request's parameters or state.",
+      400,
+      false,
+      null,
+      { capability: "tool_use" },
     );
     const openRouterTransport = new FakeTransport([openRouterCapabilityError]);
     const openRouterAgent = new BedrockConverseAgent(openRouterTransport, {
