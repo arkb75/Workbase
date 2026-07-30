@@ -693,20 +693,10 @@ export async function verifyProjectAnswerWithRecovery(input: {
     };
   }
 
-  // Verifier and exact-recovery paths share the same source-bounded
-  // presentation layer. This keeps assessment inferences explicit and carries
-  // user-named comparison sides through provider rewriting and fallback.
-  if (
-    selection.profile.kind === "comparison" ||
-    (
-      selection.profile.kind === "assessment" &&
-      !finalBlocks.some((block) =>
-        /\b(?:assessment|strength|risk|limitation|constraint|trade[- ]?off)\b/i.test(
-          `${block.heading ?? ""} ${block.bodyMarkdown}`,
-        )
-      )
-    )
-  ) {
+  // Exact recovery may preserve ordering and user-visible comparison labels,
+  // but it cannot append canned analytical claims after the verifier failed.
+  // Assessment prose must either survive entailment or fail closed upstream.
+  if (selection.profile.kind === "comparison") {
     finalBlocks = addSourceBoundedEditorialContext(finalBlocks, selection);
   }
 

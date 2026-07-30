@@ -114,6 +114,8 @@ describe("project chat repository intent", () => {
   it.each([
     "Refresh the repository before answering.",
     "Please run a repository knowledge refresh, then compare the approaches.",
+    "Refresh knowledge from the repository before answering.",
+    "Please refresh Workbase repository knowledge.",
     "Can you check the codebase for the newest implementation?",
   ])("requires live repository work for an explicit action: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(true);
@@ -130,6 +132,11 @@ describe("project chat repository intent", () => {
   it.each([
     "Assess the architecture and its trade-offs.",
     "Compare repository refresh with targeted research.",
+    "Contrast repository refresh and targeted research.",
+    "Repository refresh vs. targeted research.",
+    "Give me a comparison of repository refresh and targeted research.",
+    "How does repository refresh compare with targeted research?",
+    "Explain the differences between repository refresh and targeted research.",
     "What should we change, and what risks matter most?",
   ])("retains semantic verification for analytical judgment: %s", (question) => {
     expect(projectAnswerGroundingModeForQuestion(question)).toBe("hybrid");

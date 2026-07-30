@@ -126,7 +126,7 @@ describe("project answer verification recovery", () => {
     expect(result.telemetry.requestedBlockCountSatisfied).toBe(true);
   });
 
-  it("preserves explicit strength, limitation, and trade-off analysis in exact assessment recovery", async () => {
+  it("does not append canned analysis after exact assessment recovery", async () => {
     const question =
       "Assess the architecture's three most important strengths, limitations, and trade-offs.";
     const selection = selectProjectAnswerEditorialThemes({
@@ -145,11 +145,15 @@ describe("project answer verification recovery", () => {
 
     expect(result.status).toBe("answered");
     if (result.status !== "answered") return;
-    expect(result.finalized.markdown).toContain(
+    expect(result.finalized.markdown).not.toContain(
       "Assessment (inference from the cited design)",
     );
-    expect(result.finalized.markdown).toMatch(/strength and trade-off/i);
-    expect(result.finalized.markdown).toMatch(/limitation|risk/i);
+    expect(result.finalized.markdown).not.toMatch(/strength and trade-off/i);
+    for (const block of result.blocks) {
+      expect(threeEntries.map((candidate) => candidate.content)).toContain(
+        block.bodyMarkdown,
+      );
+    }
     expect(result.finalized.markdown).toMatch(/\[citation:[1-3]\]/);
   });
 
