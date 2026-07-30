@@ -212,6 +212,49 @@ export function countReportedModelCostEntries(value: unknown) {
   return total;
 }
 
+/**
+ * Counts provider attempts whose authoritative cost was returned by the
+ * provider. Normalized aggregate usage can declare costedAttemptCount; older
+ * usage shapes are counted from cost-bearing leaves.
+ */
+export function countCostedModelProviderAttempts(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const explicit = finiteTokenCount(record.costedAttemptCount);
+    if (explicit > 0) {
+      total += explicit;
+      return;
+    }
+    const reportedCost =
+      typeof record.cost === "number"
+        ? record.cost
+        : typeof record.costUsd === "number"
+          ? record.costUsd
+          : null;
+    if (
+      typeof reportedCost === "number" &&
+      Number.isFinite(reportedCost) &&
+      reportedCost >= 0
+    ) {
+      total += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
 export function addModelTokenUsage(
   ...values: ModelTokenUsageTotals[]
 ): ModelTokenUsageTotals {

@@ -4,6 +4,7 @@ import {
   collectModelTokenUsage,
   collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
+  countCostedModelProviderAttempts,
   countModelUsageEntries,
   countModelProviderAttempts,
   countReportedModelCostEntries,
@@ -165,6 +166,7 @@ describe("model usage accounting", () => {
       ],
     };
     expect(collectReportedModelCostUsd(rawUsage)).toBe(0.0016);
+    expect(countCostedModelProviderAttempts(rawUsage)).toBe(2);
     expect(countModelUsageEntries(rawUsage)).toBe(2);
     expect(countReportedModelCostEntries(rawUsage)).toBe(2);
     expect(resolveModelCostUsd({
@@ -173,6 +175,16 @@ describe("model usage accounting", () => {
       usage: collectModelTokenUsage(rawUsage),
       rawUsage,
     })).toBe(0.0016);
+  });
+
+  it("uses an explicit costed-attempt aggregate without recounting nested detail", () => {
+    expect(countCostedModelProviderAttempts({
+      costedAttemptCount: 2,
+      attempts: [
+        { inputTokens: 100, outputTokens: 20, cost: 0.0012 },
+        { inputTokens: 30, outputTokens: 5, cost: 0.0004 },
+      ],
+    })).toBe(2);
   });
 
   it("does not guess OpenRouter cost when usage.cost is unavailable", () => {

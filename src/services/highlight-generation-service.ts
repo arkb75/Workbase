@@ -4,7 +4,10 @@ import type {
   NormalizedEvidenceItem,
   WorkItemSnapshot,
 } from "@/src/domain/types";
-import { createGenerationRun } from "@/src/lib/generation-runs";
+import {
+  createGenerationRun,
+  generationRunFailureTokenUsage,
+} from "@/src/lib/generation-runs";
 import {
   buildHighlightGenerationJsonSchema,
   highlightGenerationExampleOutput,
@@ -19,7 +22,10 @@ import {
   resolveWorkbaseLlmProvider,
 } from "@/src/lib/llm-config";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  StructuredGenerationBudgetError,
+  StructuredOutputError,
+} from "@/src/lib/bedrock-structured-llm-client";
 import {
   buildRepairEvidenceRefHints,
   buildResearchSourceCatalog,
@@ -110,8 +116,15 @@ function buildBatchInputSummary(params: {
 }
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
-  async generate({ workItem, evidenceItems, existingHighlights, artifactRequest }) {
+  async generate({
+    workItem,
+    evidenceItems,
+    existingHighlights,
+    artifactRequest,
+    agentRunId,
+  }) {
     const structuredClient = getStructuredLlmClient("drafting");
+    const configuredIdentity = resolveActiveTextModelIdentity("drafting");
     const rejectedHighlightGuidance = buildRejectedGuidance(evidenceItems);
     const batches = buildEvidenceBatches(evidenceItems);
     const generationRunIds: string[] = [];
@@ -298,6 +311,8 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
           validationErrors: null,
           resultRefs: {
+            ...(agentRunId ? { agentRunId } : {}),
+            configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
             generatedHighlightCount: drafts.length,
           } as Prisma.InputJsonValue,
@@ -309,14 +324,15 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         highlights.push(...drafts);
       } catch (error) {
         const failure = error instanceof StructuredOutputError ? error : null;
-        const identity = resolveActiveTextModelIdentity("drafting");
+        const admissionFailure =
+          error instanceof StructuredGenerationBudgetError;
 
         await createGenerationRun({
           workItemId: workItem.id,
           kind: "highlight_generation",
           status: failure?.status ?? "provider_error",
-          provider: identity.provider,
-          modelId: identity.modelId,
+          provider: configuredIdentity.provider,
+          modelId: configuredIdentity.modelId,
           inputSummary: {
             ...baseInputSummary,
             transportMode: failure?.transportMode ?? null,
@@ -330,9 +346,14 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           validationErrors:
             (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
           resultRefs: {
+            ...(agentRunId ? { agentRunId } : {}),
+            configuredModelId: configuredIdentity.modelId,
+            ...(admissionFailure ? { admissionFailure: true } : {}),
             batchKey: batch.batchKey,
           } as Prisma.InputJsonValue,
-          tokenUsage: (failure?.tokenUsage as Prisma.InputJsonValue | null) ?? null,
+          tokenUsage:
+            (failure?.tokenUsage as Prisma.InputJsonValue | null) ??
+            (admissionFailure ? null : generationRunFailureTokenUsage(error)),
           estimatedCostUsd: null,
         });
 

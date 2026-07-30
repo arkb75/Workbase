@@ -182,6 +182,7 @@ export async function buildIncrementalClaimGenerationDrafts(params: {
 
 export async function buildArtifactFromApprovedClaims(params: {
   request: ArtifactRequest;
+  agentRunId?: string;
   highlights: ClaimSnapshot[];
   evidenceItems: EvidenceItemSnapshot[];
   workItem: WorkItemSnapshot;
@@ -196,6 +197,7 @@ export async function buildArtifactFromApprovedClaims(params: {
     request: params.request,
     highlights: params.highlights,
     evidenceItems: params.evidenceItems,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
 
   const artifactHighlights = retrieval.highlights;
@@ -214,6 +216,7 @@ export async function buildArtifactFromApprovedClaims(params: {
     request: params.request,
     highlights: artifactHighlights,
     supportingEvidence,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
   const generationRun = readGenerationRunMetadata(artifactDraft);
 

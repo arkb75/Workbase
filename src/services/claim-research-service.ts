@@ -8,6 +8,7 @@ export const claimResearchService: ClaimResearchService = {
       evidenceItems: input.evidenceItems,
       existingHighlights: input.existingHighlights ?? [],
       artifactRequest: input.artifactRequest,
+      ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
     });
 
     return {

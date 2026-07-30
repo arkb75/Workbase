@@ -66,6 +66,7 @@ describe("structured generation audit usage", () => {
 
     await runAuditedStructuredGeneration({
       workItemId: "work-item-1",
+      agentRunId: "agent-run-1",
       kind: "semantic_extraction",
       idempotencyKey: "semantic:retry",
       inputSummary: { path: "src/service.ts" },
@@ -88,6 +89,7 @@ describe("structured generation audit usage", () => {
     });
     expect(data.estimatedCostUsd).toBe(0.00105);
     expect(data.resultRefs).toEqual(expect.objectContaining({
+      agentRunId: "agent-run-1",
       auditAttemptCount: 2,
       unknownUsageAttempts: 0,
       usageComplete: true,

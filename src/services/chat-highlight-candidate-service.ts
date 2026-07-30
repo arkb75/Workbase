@@ -447,6 +447,7 @@ export async function proposeHighlightFromChatContext(input: {
     },
     evidenceItems: normalizedEvidence,
     existingHighlights,
+    agentRunId: input.agentRunId,
   });
     const verified = await claimVerificationService.verify({
     workItem: {
@@ -460,6 +461,7 @@ export async function proposeHighlightFromChatContext(input: {
     },
     evidenceItems: normalizedEvidence,
     highlights: generated.highlights,
+    agentRunId: input.agentRunId,
   });
     const draft = verified[0];
 
@@ -482,6 +484,7 @@ export async function proposeHighlightFromChatContext(input: {
           workItemId: input.workItemId,
           idempotencyKey:
             `public-chat-highlight-verification:${input.messageId}`,
+          agentRunId: input.agentRunId,
         },
       })
       : { eligible: false, correctedText: null, reasons: dlp.categories.length ? ["The user statement contained suspected secret material and was redacted."] : ["The generated Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null };

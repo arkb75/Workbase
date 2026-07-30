@@ -121,6 +121,7 @@ export async function routeProjectExecution(input: {
   try {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
+      agentRunId: input.runId,
       kind: "execution_routing",
       profile: "routing",
       idempotencyKey: `execution-route:${input.runId}:${PROJECT_EXECUTION_ROUTER_VERSION}`,

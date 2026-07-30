@@ -50,6 +50,7 @@ export async function verifyKnowledgeForPublicUse(input: {
   audit?: {
     workItemId: string;
     idempotencyKey: string;
+    agentRunId?: string;
   };
 }) {
   const { audit, ...verificationInput } = input;
@@ -87,6 +88,7 @@ export async function verifyKnowledgeForPublicUse(input: {
     const result = audit
       ? await runAuditedStructuredGeneration({
           workItemId: audit.workItemId,
+          ...(audit.agentRunId ? { agentRunId: audit.agentRunId } : {}),
           kind: "highlight_verification",
           profile: "verification",
           idempotencyKey: audit.idempotencyKey,
@@ -160,6 +162,7 @@ export async function verifyArtifactForPublicUse(input: {
   audit?: {
     workItemId: string;
     idempotencyKey: string;
+    agentRunId?: string;
   };
 }) {
   const { audit, ...verificationInput } = input;
@@ -192,6 +195,7 @@ export async function verifyArtifactForPublicUse(input: {
     const result = audit
       ? await runAuditedStructuredGeneration({
           workItemId: audit.workItemId,
+          ...(audit.agentRunId ? { agentRunId: audit.agentRunId } : {}),
           kind: "artifact_generation",
           profile: "verification",
           idempotencyKey: audit.idempotencyKey,

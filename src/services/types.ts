@@ -41,6 +41,7 @@ export interface HighlightGenerationService {
     evidenceItems: NormalizedEvidenceItem[];
     existingHighlights: HighlightSnapshot[];
     artifactRequest?: ArtifactRequest;
+    agentRunId?: string;
   }): Promise<ClaimResearchResult>;
 }
 
@@ -50,6 +51,7 @@ export interface ClaimResearchService {
     evidenceItems: NormalizedEvidenceItem[];
     existingHighlights?: HighlightSnapshot[];
     artifactRequest?: ArtifactRequest;
+    agentRunId?: string;
   }): Promise<ClaimResearchResult>;
 }
 
@@ -58,6 +60,7 @@ export interface ClaimVerificationService {
     workItem: WorkItemSnapshot;
     evidenceItems: NormalizedEvidenceItem[];
     highlights: HighlightDraft[];
+    agentRunId?: string;
   }): Promise<HighlightDraft[]>;
 }
 
@@ -67,6 +70,7 @@ export interface HighlightRetrievalService {
     request: ArtifactRequest;
     highlights: HighlightSnapshot[];
     evidenceItems: EvidenceItemSnapshot[];
+    agentRunId?: string;
   }): Promise<{
     highlights: HighlightSnapshot[];
     supportingEvidence: EvidenceItemSnapshot[];
@@ -85,6 +89,7 @@ export interface ArtifactGenerationService {
     request: ArtifactRequest;
     highlights: HighlightSnapshot[];
     supportingEvidence: EvidenceItemSnapshot[];
+    agentRunId?: string;
   }): Promise<GeneratedArtifact>;
 }
 
