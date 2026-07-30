@@ -9,9 +9,10 @@ import {
   finalizeGroundedAnswer,
 } from "@/src/services/chat-citation-service";
 import {
-  addSourceBoundedEditorialAnalysis,
+  addSourceBoundedEditorialContext,
   buildExactSourceEditorialFallbackBlocks,
   selectProjectAnswerEditorialThemes,
+  type ProjectAnswerComparisonContext,
   type ProjectAnswerEditorialSelection,
 } from "@/src/services/project-answer-editorial-service";
 import {
@@ -520,6 +521,7 @@ export async function verifyProjectAnswerWithRecovery(input: {
   verifier?: GroundingVerifier;
   forceExactFallback?: boolean;
   verificationMode?: ProjectAnswerGroundingMode;
+  comparisonContext?: ProjectAnswerComparisonContext;
 }): Promise<ProjectAnswerRecoveryResult> {
   const maxCitations = Math.max(1, Math.min(20, input.maxCitations ?? 20));
   const verifier = input.verifier ?? groundProjectAnswer;
@@ -548,6 +550,11 @@ export async function verifyProjectAnswerWithRecovery(input: {
         requiredBlockCount,
         singleAttempt: true,
         verificationMode: input.verificationMode,
+        requestContext: {
+          question: input.question,
+          comparisonContract: selection.profile.comparisonContract,
+          conversation: input.comparisonContext ?? null,
+        },
       });
       verifierReturnedBlockCount = verified.blocks.length;
       verifierIssueCount = verified.issues.length;
@@ -686,20 +693,21 @@ export async function verifyProjectAnswerWithRecovery(input: {
     };
   }
 
-  // Exact recovery must not silently turn an assessment into a capability
-  // inventory. The factual premises remain source-exact; this helper appends
-  // only explicitly labelled, subsystem-specific inferences from those cited
-  // premises. It is the same bounded path used by deterministic assessment
-  // synthesis and never invents a new project fact.
+  // Verifier and exact-recovery paths share the same source-bounded
+  // presentation layer. This keeps assessment inferences explicit and carries
+  // user-named comparison sides through provider rewriting and fallback.
   if (
-    selection.profile.kind === "assessment" &&
-    !finalBlocks.some((block) =>
-      /\b(?:assessment|strength|risk|limitation|constraint|trade[- ]?off)\b/i.test(
-        `${block.heading ?? ""} ${block.bodyMarkdown}`,
+    selection.profile.kind === "comparison" ||
+    (
+      selection.profile.kind === "assessment" &&
+      !finalBlocks.some((block) =>
+        /\b(?:assessment|strength|risk|limitation|constraint|trade[- ]?off)\b/i.test(
+          `${block.heading ?? ""} ${block.bodyMarkdown}`,
+        )
       )
     )
   ) {
-    finalBlocks = addSourceBoundedEditorialAnalysis(finalBlocks, selection);
+    finalBlocks = addSourceBoundedEditorialContext(finalBlocks, selection);
   }
 
   const countSatisfied = requestedCountSatisfied(finalBlocks.length, requiredBlockCount);

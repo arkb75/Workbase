@@ -492,4 +492,61 @@ describe("project answer verification recovery", () => {
     expect(result.finalized.citations).toEqual([citation(1)]);
     expect(result.finalized.markdown).not.toContain("citation:2");
   });
+
+  it("preserves arbitrary comparison order and passes compact request context to the verifier", async () => {
+    const question =
+      "Contrast batch imports with streaming updates in terms of latency, failure recovery, and operational complexity.";
+    const entries = [
+      entry(1, "module:batch_imports", {
+        title: "Batch imports",
+        content:
+          "Batch imports use bounded jobs to reduce latency overhead and retry failed batches, with an operational coordination trade-off.",
+      }),
+      entry(2, "module:streaming_updates", {
+        title: "Streaming updates",
+        content:
+          "Streaming updates process events continuously for lower latency and isolate failure recovery, with a consumer coordination trade-off.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({ question, entries });
+    const verifier = verifierReturning([
+      {
+        heading: "Internal streaming theme",
+        bodyMarkdown: entries[1]!.content,
+        citationIndexes: [2],
+      },
+      {
+        heading: "Internal batch theme",
+        bodyMarkdown: entries[0]!.content,
+        citationIndexes: [1],
+      },
+    ]);
+    const result = await verifyProjectAnswerWithRecovery({
+      question,
+      draftAnswer: `${entries[0]!.content} [citation:1]\n\n${entries[1]!.content} [citation:2]`,
+      entries,
+      catalog: [citation(1), citation(2)],
+      selection,
+      verifier,
+      comparisonContext: {
+        priorUserObjective: "Choose an update strategy.",
+      },
+    });
+
+    expect(result.status).toBe("answered");
+    if (result.status !== "answered") return;
+    expect(result.blocks.map((block) => block.heading)).toEqual([
+      "Batch imports",
+      "Streaming updates",
+    ]);
+    expect(verifier).toHaveBeenCalledWith(expect.objectContaining({
+      requestContext: {
+        question,
+        comparisonContract: selection.profile.comparisonContract,
+        conversation: {
+          priorUserObjective: "Choose an update strategy.",
+        },
+      },
+    }));
+  });
 });

@@ -324,4 +324,34 @@ describe("project chat agent failure recovery", () => {
       }),
     }));
   });
+
+  it("fails closed when exact recovery cannot preserve both referential comparison sides", async () => {
+    answerAgentRunMock.mockRejectedValue(
+      providerFailure("TimeoutError", "answer model unavailable"),
+    );
+
+    const result = await runProjectChatAgent({
+      ...input,
+      question: "Compare that earlier decision with the current runtime.",
+      rollingSummary:
+        "Earlier decision: repository discoveries become reviewed durable memory before ordinary chat reuses them.",
+      history: [{
+        id: "assistant-current",
+        role: "assistant",
+        content:
+          "Current runtime context: the provider-neutral model loop enforces tool and token limits.",
+        citations: [],
+      }],
+    });
+
+    expect(result.status).toBe("insufficient_context");
+    if (result.status === "artifact_requested") {
+      throw new Error("Unexpected artifact request");
+    }
+    expect(result.answer).toContain(
+      "does not preserve both named sides",
+    );
+    expect(result.citations).toEqual([]);
+    expect(result.groundedClaims).toEqual([]);
+  });
 });

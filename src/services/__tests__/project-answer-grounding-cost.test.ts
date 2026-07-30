@@ -61,6 +61,92 @@ describe("project answer grounding cost controls", () => {
     });
   });
 
+  it("gives the verifier a compact comparison question, contract, and conversation anchors", async () => {
+    generateStructuredMock.mockResolvedValue({
+      data: {
+        blocks: [{
+          heading: "Current runtime",
+          bodyMarkdown: "The bounded model loop enforces tool limits.",
+          citationIndexes: [1],
+        }],
+        issues: [],
+      },
+      tokenUsage: { inputTokens: 100, outputTokens: 20 },
+    });
+    const comparisonContract = {
+      subjects: [
+        {
+          label: "that earlier decision",
+          heading: "Earlier decision",
+          temporalRole: "earlier" as const,
+          resolvedAnchor: "Earlier decision: reviewed durable memory.",
+        },
+        {
+          label: "the current runtime",
+          heading: "Current runtime",
+          temporalRole: "current" as const,
+          resolvedAnchor: "Current runtime: provider-neutral bounded model loop.",
+        },
+      ] as const,
+      requestedDimensions: ["failure recovery"],
+    };
+
+    await groundProjectAnswer({
+      answer: "The bounded model loop always enforces tool limits. [citation:1]",
+      citationCount: 1,
+      entries: [{
+        kind: "project_fact",
+        authority: "verified_project_fact",
+        title: "Bounded model loop",
+        content: "The bounded model loop enforces configured tool limits.",
+        currentRun: true,
+        citationIndexes: [1],
+        supportingSources: [],
+      }],
+      requestContext: {
+        question: "Compare that earlier decision with the current runtime.",
+        comparisonContract: {
+          subjects: [...comparisonContract.subjects],
+          requestedDimensions: comparisonContract.requestedDimensions,
+        },
+        conversation: {
+          rollingSummary: "A much larger transcript is intentionally not replayed.",
+        },
+      },
+    });
+
+    const request = generateStructuredMock.mock.calls[0]![0];
+    const payload = JSON.parse(request.userPrompt) as {
+      requestContext: {
+        question: string;
+        comparisonContract: typeof comparisonContract;
+        conversationAnchors: Array<{ label: string; anchor: string }>;
+      };
+    };
+    expect(payload.requestContext.question).toBe(
+      "Compare that earlier decision with the current runtime.",
+    );
+    expect(payload.requestContext.comparisonContract.subjects.map((subject) => subject.label)).toEqual([
+      "that earlier decision",
+      "the current runtime",
+    ]);
+    expect(payload.requestContext.conversationAnchors).toEqual([
+      {
+        label: "that earlier decision",
+        temporalRole: "earlier",
+        anchor: "Earlier decision: reviewed durable memory.",
+      },
+      {
+        label: "the current runtime",
+        temporalRole: "current",
+        anchor: "Current runtime: provider-neutral bounded model loop.",
+      },
+    ]);
+    expect(request.systemPrompt).toContain(
+      "preserve its two user-named subjects",
+    );
+  });
+
   it("does not mistake topical overlap for support of novel infrastructure claims", () => {
     const result = evaluateDeterministicAnswerGrounding({
       answer: "Redis and Kubernetes provide durable workflow retries. [citation:1]",

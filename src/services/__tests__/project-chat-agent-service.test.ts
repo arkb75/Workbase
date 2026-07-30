@@ -104,6 +104,22 @@ describe("project chat repository intent", () => {
   });
 
   it.each([
+    "Compare repository knowledge refresh with targeted repository research.",
+    "How does the repository refresh scheduler differ from incremental ingestion?",
+    "Explain the trade-off between a codebase refresh and a targeted search.",
+  ])("treats a conceptual refresh mention as memory-backed analysis: %s", (question) => {
+    expect(requiresLiveRepositoryResearch(question)).toBe(false);
+  });
+
+  it.each([
+    "Refresh the repository before answering.",
+    "Please run a repository knowledge refresh, then compare the approaches.",
+    "Can you check the codebase for the newest implementation?",
+  ])("requires live repository work for an explicit action: %s", (question) => {
+    expect(requiresLiveRepositoryResearch(question)).toBe(true);
+  });
+
+  it.each([
     "Summarize my strongest accomplishments and make sure your information is up to date.",
     "How does the repository refresh work?",
     "Give me exactly four implementation highlights.",
@@ -264,6 +280,23 @@ describe("project chat repository intent", () => {
       currentQuestion: "Explain the database schema.",
       history: [{ id: "assistant-1", role: "assistant", content: "Unrelated prior answer.", citations: [] }],
     })).toBe("Explain the database schema.");
+  });
+
+  it("uses a bounded rolling summary only for a referential retrieval question", () => {
+    const summary =
+      "Earlier decision: batch imports remain the default because they simplify replay and failure recovery.";
+    const referential = buildContextualRetrievalQuery({
+      currentQuestion: "Compare that earlier decision with the current streaming approach.",
+      rollingSummary: summary,
+    });
+    const independent = buildContextualRetrievalQuery({
+      currentQuestion: "Explain the database schema.",
+      rollingSummary: summary,
+    });
+
+    expect(referential).toContain(`Older conversation summary: ${summary}`);
+    expect(referential.length).toBeLessThanOrEqual(4_000);
+    expect(independent).toBe("Explain the database schema.");
   });
 
   it("preserves only the latest bounded real messages and their compact citation manifests", () => {
