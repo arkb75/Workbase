@@ -977,8 +977,12 @@ export async function activateEmbeddingIndex(input: {
       `Embedding index "${input.key}" changed after reconciliation; backfill, reconcile, and re-run the quality gate.`,
     );
   }
-  const { activated: _activated, ...activation } = result;
-  return activation;
+  return {
+    previousActiveVersionId: result.previousActiveVersionId,
+    activeVersionId: result.activeVersionId,
+    activationEpoch: result.activationEpoch,
+    report: result.report,
+  };
 }
 
 export async function disableEmbeddingIndexWrites(input: { key: string }) {
