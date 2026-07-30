@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
+import {
+  hasExplicitLiveRepositoryAction,
+  hasExplicitRepositoryRefreshAction,
+} from "@/src/services/repository-research-intent-service";
 
 export const PROJECT_AGENT_HARNESS_VERSION = "v4";
 export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v4.0";
@@ -92,7 +96,6 @@ export interface ProjectAgentTurnContext {
 
 const freshnessPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
 const repositoryPattern = /\b(?:repo|repository|github|source code|codebase)\b/i;
-const inspectPattern = /\b(?:inspect|search|read|check|look at|access|pull|refresh|scan|explore)\b/i;
 const comprehensivePattern = /\b(?:comprehensive|everything|entire|whole|thorough|all (?:the )?files|across (?:the )?repo)\b/i;
 const broadSynthesisPattern = /\b(?:summarize|summary|overview|strongest|accomplishments?|achievements?|whole project|project-wide|across the project)\b/i;
 const provenancePattern =
@@ -149,7 +152,13 @@ export function routeProjectTurn(input: {
   allowResearch?: boolean;
 }): ProjectTurnIntent {
   const question = input.question.trim();
-  const freshness = freshnessPattern.test(question) ? "required" : "none";
+  const explicitRepositoryAction = hasExplicitLiveRepositoryAction(question);
+  const explicitRepositoryRefresh =
+    hasExplicitRepositoryRefreshAction(question);
+  const freshness =
+    freshnessPattern.test(question) || explicitRepositoryRefresh
+      ? "required"
+      : "none";
   const coverage = comprehensivePattern.test(question)
     ? "bounded_comprehensive"
     : broadSynthesisPattern.test(question)
@@ -166,7 +175,9 @@ export function routeProjectTurn(input: {
     return { kind: "candidate_review", freshness: "none", coverage: "targeted", deliverable: "Resolve an explicitly identified candidate review.", references: [...input.pendingCandidateIds], confidence: 0.9, reason: "Review language was used while candidates are pending." };
   }
 
-  const explicitRepositoryResearch = repositoryPattern.test(question) && (inspectPattern.test(question) || freshness === "required");
+  const explicitRepositoryResearch =
+    explicitRepositoryAction ||
+    (repositoryPattern.test(question) && freshness === "required");
   const unsupportedCodeQuestion = codePattern.test(question) && !hasRelevantHighAuthorityMemory(question, input.memoryHits);
   if (input.allowResearch !== false && (explicitRepositoryResearch || freshness === "required" || unsupportedCodeQuestion)) {
     return {

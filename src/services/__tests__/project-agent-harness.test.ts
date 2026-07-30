@@ -63,6 +63,32 @@ describe("project agent harness", () => {
     });
   });
 
+  it.each([
+    "Compare repository knowledge refresh with targeted repository research.",
+    "How does the repository refresh scheduler differ from incremental ingestion?",
+    "Explain the trade-off between a codebase refresh and a targeted search.",
+  ])("keeps conceptual refresh comparisons on approved memory: %s", (question) => {
+    expect(routeProjectTurn({
+      question,
+      memoryHits: [approvedFact],
+      allowResearch: true,
+    }).kind).toBe("direct_answer");
+  });
+
+  it.each([
+    "Refresh knowledge from the repository before answering.",
+    "Please refresh Workbase repository knowledge.",
+  ])("routes an explicit knowledge-refresh action as fresh repository work: %s", (question) => {
+    expect(routeProjectTurn({
+      question,
+      memoryHits: [approvedFact],
+      allowResearch: true,
+    })).toMatchObject({
+      kind: "repository_research",
+      freshness: "required",
+    });
+  });
+
   it("routes provenance questions without repository research", () => {
     expect(routeProjectTurn({
       question: "Did you inspect the repo in your previous answer?",

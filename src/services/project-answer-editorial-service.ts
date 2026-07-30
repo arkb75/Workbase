@@ -98,6 +98,14 @@ export interface ProjectAnswerEditorialTheme {
   score: number;
 }
 
+export interface ProjectAnswerComparisonBinding {
+  subjectIndex: 0 | 1;
+  themeKey: string;
+  /** Entry indexes whose exact text establishes this side and every requested dimension. */
+  evidenceEntryIndexes: number[];
+  supportedDimensions: string[];
+}
+
 export interface ProjectAnswerEditorialSelection {
   profile: ProjectAnswerEditorialProfile;
   rankedEntries: RankedEditorialEntry[];
@@ -106,6 +114,10 @@ export interface ProjectAnswerEditorialSelection {
   omittedThemes: ProjectAnswerEditorialTheme[];
   highPriorityMembers: RankedEditorialEntry[];
   ownershipCitationIndexes: number[];
+  comparisonBindings: [
+    ProjectAnswerComparisonBinding,
+    ProjectAnswerComparisonBinding,
+  ] | null;
 }
 
 export interface ProjectAnswerEditorialQualityAudit {
@@ -179,6 +191,9 @@ const assessmentPattern =
 const comparisonPattern =
   /\b(?:compared? (?:with|to)|whereas|while|versus|vs\.?|difference|trade[- ]?off|both|unlike|respectively)\b/i;
 
+const comparisonIntentPattern =
+  /(?:\b(?:compare(?:d|s|ing)?|comparison|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\bvs\.(?=\s|$))/i;
+
 const genericVerificationErrorPattern =
   /\b(?:the answer could not be verified against its sources|could not be verified against (?:its|the) sources|grounding verifier returned no supported|citation integrity failed|durable agent run failed unexpectedly|durable agent run failed without)\b/i;
 
@@ -230,7 +245,7 @@ function explicitItemCount(question: string) {
 }
 
 function classifyKind(question: string): ProjectAnswerEditorialKind {
-  if (/\b(?:compare|comparison|contrast|versus|vs\.?|difference between)\b/i.test(question)) {
+  if (comparisonIntentPattern.test(question)) {
     return "comparison";
   }
   if (/\b(?:strengths?(?: and weaknesses?)?|weaknesses?|risks?|maturity|gaps?|limitations?|trade[- ]?offs?|design decisions?|assess(?:ment)?|evaluate|critique|what should .*improve)\b/i.test(question)) {
@@ -297,7 +312,12 @@ const comparisonPresentationSuffixPattern =
 function cleanComparisonSubject(value: string) {
   return value
     .replace(comparisonPresentationSuffixPattern, "")
+    .replace(
+      /^(?:please\s+)?(?:give|show|explain|describe|provide|write|make)\s+(?:me\s+)?(?:a\s+)?/i,
+      "",
+    )
     .replace(/^[\s"'“”‘’`]+|[\s"'“”‘’`,;:]+$/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 180);
@@ -352,6 +372,10 @@ function extractComparisonSubjects(question: string): [string, string] | null {
     "(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\\b|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)";
   const patterns = [
     new RegExp(
+      `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+compare\\s+(?:with|to|against)\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
       `\\b(?:compare|contrast)\\s+(.+?)\\s+(?:with|to|against|versus|vs\\.?)\\s+(.+?)${terminal}`,
       "i",
     ),
@@ -361,6 +385,14 @@ function extractComparisonSubjects(question: string): [string, string] | null {
     ),
     new RegExp(
       `\\b(?:compare|contrast)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\b(?:a|the)?\\s*comparison\\s+(?:of|between)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `(?:^|[.!?]\\s+)(.+?)\\s+(?:versus|vs\\.?)\\s+(.+?)${terminal}`,
       "i",
     ),
   ];
@@ -1049,80 +1081,270 @@ const comparisonSubjectStopWords = new Set([
   "system",
 ]);
 
-function comparisonThemeText(theme: ProjectAnswerEditorialTheme) {
+function comparisonMemberText(member: RankedEditorialEntry) {
   return [
-    theme.label,
-    ...theme.subsystemKeys,
-    ...theme.members.flatMap((member) => [
-      member.entry.title,
-      member.entry.content,
-      member.entry.subsystemKey ?? "",
-    ]),
+    member.entry.title,
+    member.entry.content,
+    member.entry.subsystemKey ?? "",
   ].join(" ");
 }
 
-function comparisonSubjectThemeScore(
+function comparisonSubjectMemberScore(
   subject: ProjectAnswerComparisonSubject,
-  theme: ProjectAnswerEditorialTheme,
+  member: RankedEditorialEntry,
 ) {
+  const labelTerms = tokens(subject.label, comparisonSubjectStopWords);
+  const anchorTerms = tokens(subject.resolvedAnchor ?? "", comparisonSubjectStopWords);
+  const evidenceText = comparisonMemberText(member);
+  const evidenceTerms = tokens(evidenceText, comparisonSubjectStopWords);
+  const labelOverlap = Array.from(labelTerms).filter((term) =>
+    evidenceTerms.has(term)
+  ).length;
+  const anchorOverlap = Array.from(anchorTerms).filter((term) =>
+    evidenceTerms.has(term)
+  ).length;
   const subjectText = [subject.label, subject.resolvedAnchor].filter(Boolean).join(" ");
-  const subjectTerms = tokens(subjectText, comparisonSubjectStopWords);
-  const themeText = comparisonThemeText(theme);
-  const themeTerms = tokens(themeText, comparisonSubjectStopWords);
-  const lexicalOverlap = Array.from(subjectTerms).filter((term) =>
-    themeTerms.has(term)
-  ).length;
   const semanticMatches = focusedSemanticConcepts.filter((concept) =>
-    concept.query.test(subjectText) && concept.entry.test(themeText)
+    concept.query.test(subjectText) && concept.entry.test(evidenceText)
   ).length;
-  const phraseMatch = theme.members.some((member) =>
-    member.entry.content.toLowerCase().includes(subject.label.toLowerCase()) ||
-    member.entry.title.toLowerCase().includes(subject.label.toLowerCase())
-  );
+  const normalizedLabel = subject.label.toLowerCase();
+  const phraseMatch =
+    !referentialComparisonSubjectPattern.test(subject.label) &&
+    (
+      member.entry.content.toLowerCase().includes(normalizedLabel) ||
+      member.entry.title.toLowerCase().includes(normalizedLabel)
+    );
   const temporalMatch =
     subject.temporalRole === "current"
       ? Number(
-          theme.members.some((member) => member.entry.currentRun) &&
-          /\b(?:current|runtime|execution|now|latest)\b/i.test(themeText),
+          member.entry.currentRun &&
+          /\b(?:current|runtime|execution|now|latest)\b/i.test(evidenceText),
         )
       : subject.temporalRole === "earlier"
         ? Number(
             /\b(?:earlier|prior|previous|decision|admit|reviewed|durable memory|provenance)\b/i.test(
-              themeText,
+              evidenceText,
             ),
           )
         : 0;
-  return lexicalOverlap * 8 +
+  return labelOverlap * 10 +
+    anchorOverlap * 4 +
     semanticMatches * 12 +
     Number(phraseMatch) * 20 +
     temporalMatch * 5;
 }
 
-function comparisonPriorityThemeKeys(
+function comparisonDimensionSupported(dimension: string, evidenceText: string) {
+  const dimensionTerms = Array.from(tokens(dimension, comparisonDimensionStopWords));
+  if (!dimensionTerms.length) return false;
+  const evidenceTerms = tokens(evidenceText, comparisonDimensionStopWords);
+  const overlap = dimensionTerms.filter((term) => evidenceTerms.has(term)).length;
+  if (overlap >= Math.max(1, Math.ceil(dimensionTerms.length * 0.5))) {
+    return true;
+  }
+  const semanticDimensions = [
+    {
+      dimension: /\b(?:latency|delay|speed|throughput|performance)\b/i,
+      evidence: /\b(?:latency|delay|speed|throughput|performance|response time|fast(?:er)?)\b/i,
+    },
+    {
+      dimension: /\b(?:failure|recovery|resilien|retry|fault tolerance)\w*/i,
+      evidence: /\b(?:failure|recover|resilien|retry|replay|resume|fault toleran)\w*/i,
+    },
+    {
+      dimension: /\b(?:cost|price|spend|expense)\w*/i,
+      evidence: /\b(?:cost|price|spend|expense|billing|token usage)\w*/i,
+    },
+    {
+      dimension: /\b(?:complexity|operations?|maintenance|operability)\b/i,
+      evidence: /\b(?:complexity|operations?|maintenance|operability|coordination|overhead)\b/i,
+    },
+    {
+      dimension: /\b(?:security|privacy|authorization|access)\b/i,
+      evidence: /\b(?:security|privacy|authorization|permission|access|credential|secret)\w*/i,
+    },
+  ];
+  return semanticDimensions.some((concept) =>
+    concept.dimension.test(dimension) && concept.evidence.test(evidenceText)
+  );
+}
+
+const comparisonNegationPattern =
+  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b/i;
+
+/**
+ * Detects contradictions without binding the policy to a particular provider
+ * or subsystem. Current and stale sources are resolved before this check; two
+ * equally current statements with the same subject but opposite polarity or
+ * incompatible measurements make the side unsafe to synthesize.
+ */
+function comparisonEvidenceContradicts(left: string, right: string) {
+  const leftTerms = tokens(left, comparisonSubjectStopWords);
+  const rightTerms = tokens(right, comparisonSubjectStopWords);
+  const shared = Array.from(leftTerms).filter((term) => rightTerms.has(term));
+  const sharedEnough =
+    shared.length >= 3 &&
+    shared.length / Math.max(1, Math.min(leftTerms.size, rightTerms.size)) >= 0.35;
+  if (!sharedEnough) return false;
+  if (comparisonNegationPattern.test(left) !== comparisonNegationPattern.test(right)) {
+    return true;
+  }
+  const numbers = (value: string) =>
+    Array.from(value.matchAll(/\b\d+(?:\.\d+)?(?:%|ms|s|x)?\b/gi))
+      .map((match) => match[0]!.toLowerCase());
+  const leftNumbers = numbers(left);
+  const rightNumbers = numbers(right);
+  return leftNumbers.length > 0 &&
+    rightNumbers.length > 0 &&
+    !leftNumbers.some((value) => rightNumbers.includes(value));
+}
+
+function comparisonThemeBindingCandidate(
+  subject: ProjectAnswerComparisonSubject,
+  subjectIndex: 0 | 1,
+  requestedDimensions: readonly string[],
+  theme: ProjectAnswerEditorialTheme,
+) {
+  const scored = theme.members
+    .map((member) => ({
+      member,
+      score: comparisonSubjectMemberScore(subject, member),
+    }))
+    .filter((candidate) => candidate.score > 0);
+  if (!scored.length) return null;
+  // A current fact is authoritative over an older memory item. Conversation
+  // anchors help resolve "that decision" or "the current runtime", but never
+  // override the source chronology or supply factual support themselves.
+  const current = scored.filter((candidate) => candidate.member.entry.currentRun);
+  if (subject.temporalRole === "current" && !current.length) return null;
+  const authoritative = current.length ? current : scored;
+  for (let left = 0; left < authoritative.length; left += 1) {
+    for (let right = left + 1; right < authoritative.length; right += 1) {
+      if (
+        comparisonEvidenceContradicts(
+          comparisonMemberText(authoritative[left]!.member),
+          comparisonMemberText(authoritative[right]!.member),
+        )
+      ) {
+        return null;
+      }
+    }
+  }
+  const ordered = authoritative.sort((left, right) =>
+    right.score - left.score ||
+    right.member.score - left.member.score ||
+    left.member.entryIndex - right.member.entryIndex
+  );
+  const selected = [ordered[0]!];
+  for (const dimension of requestedDimensions) {
+    if (selected.some((candidate) =>
+      comparisonDimensionSupported(dimension, comparisonMemberText(candidate.member))
+    )) {
+      continue;
+    }
+    const supporting = ordered.find((candidate) =>
+      comparisonDimensionSupported(dimension, comparisonMemberText(candidate.member))
+    );
+    if (!supporting) return null;
+    if (!selected.includes(supporting)) selected.push(supporting);
+  }
+  const evidenceText = selected.map((candidate) =>
+    comparisonMemberText(candidate.member)
+  ).join(" ");
+  const supportedDimensions = requestedDimensions.filter((dimension) =>
+    comparisonDimensionSupported(dimension, evidenceText)
+  );
+  if (
+    supportedDimensions.length !== requestedDimensions.length ||
+    selected.length > 3
+  ) {
+    return null;
+  }
+  return {
+    binding: {
+      subjectIndex,
+      themeKey: theme.key,
+      evidenceEntryIndexes: selected.map((candidate) => candidate.member.entryIndex),
+      supportedDimensions,
+    } satisfies ProjectAnswerComparisonBinding,
+    score: selected.reduce((total, candidate) => total + candidate.score, 0) +
+      theme.score * 0.01,
+  };
+}
+
+function groundedComparisonBindings(
   profile: ProjectAnswerEditorialProfile,
   themes: readonly ProjectAnswerEditorialTheme[],
 ) {
   const contract = profile.comparisonContract;
-  if (!contract) return [];
-  const available = [...themes];
-  const selected: string[] = [];
-  for (const subject of contract.subjects) {
-    const ranked = available
-      .map((theme) => ({
-        theme,
-        score: comparisonSubjectThemeScore(subject, theme),
+  if (!contract) return null;
+  const first = themes.flatMap((theme) => {
+    const candidate = comparisonThemeBindingCandidate(
+      contract.subjects[0],
+      0,
+      contract.requestedDimensions,
+      theme,
+    );
+    return candidate ? [{ ...candidate, theme }] : [];
+  });
+  const second = themes.flatMap((theme) => {
+    const candidate = comparisonThemeBindingCandidate(
+      contract.subjects[1],
+      1,
+      contract.requestedDimensions,
+      theme,
+    );
+    return candidate ? [{ ...candidate, theme }] : [];
+  });
+  const pairs = first.flatMap((left) =>
+    second
+      .filter((right) => right.theme.key !== left.theme.key)
+      .map((right) => ({
+        left,
+        right,
+        score: left.score + right.score,
       }))
-      .sort((left, right) =>
-        right.score - left.score ||
-        right.theme.score - left.theme.score ||
-        left.theme.label.localeCompare(right.theme.label)
-      );
-    const best = ranked[0];
-    if (!best || best.score <= 0) continue;
-    selected.push(best.theme.key);
-    available.splice(available.indexOf(best.theme), 1);
+  ).sort((left, right) =>
+    right.score - left.score ||
+    left.left.theme.label.localeCompare(right.left.theme.label) ||
+    left.right.theme.label.localeCompare(right.right.theme.label)
+  );
+  const best = pairs[0];
+  if (!best) return null;
+  return [
+    best.left.binding,
+    best.right.binding,
+  ] satisfies [
+    ProjectAnswerComparisonBinding,
+    ProjectAnswerComparisonBinding,
+  ];
+}
+
+function comparisonPriorityThemeKeys(
+  bindings: ProjectAnswerEditorialSelection["comparisonBindings"],
+) {
+  if (!bindings) return [];
+  return bindings.map((binding) => binding.themeKey);
+}
+
+export function hasGroundedProjectAnswerComparison(
+  selection: Pick<
+    ProjectAnswerEditorialSelection,
+    "profile" | "selectedThemes" | "comparisonBindings"
+  >,
+) {
+  if (selection.profile.kind !== "comparison") return true;
+  if (!selection.profile.comparisonContract || !selection.comparisonBindings) {
+    return false;
   }
-  return selected;
+  return selection.selectedThemes.length === 2 &&
+    selection.comparisonBindings.every((binding, index) =>
+      binding.subjectIndex === index &&
+      selection.selectedThemes[index]?.key === binding.themeKey &&
+      binding.supportedDimensions.length ===
+        selection.profile.comparisonContract!.requestedDimensions.length &&
+      binding.evidenceEntryIndexes.length > 0
+    );
 }
 
 export function selectProjectAnswerEditorialThemes(input: {
@@ -1253,9 +1475,10 @@ export function selectProjectAnswerEditorialThemes(input: {
         )
       )
     : themes;
-  const comparisonPriorityKeys = profile.kind === "comparison"
-    ? comparisonPriorityThemeKeys(profile, themes)
-    : [];
+  const comparisonBindings = profile.kind === "comparison"
+    ? groundedComparisonBindings(profile, themes)
+    : null;
+  const comparisonPriorityKeys = comparisonPriorityThemeKeys(comparisonBindings);
   const focusedPriorityKeys = profile.kind === "focused"
     ? (
         /\b(?:(?:artifact|highlight).{0,80}(?:fallback|insufficient|evidence gap)|approved highlights?.{0,60}insufficient)\b/i.test(
@@ -1383,11 +1606,16 @@ export function selectProjectAnswerEditorialThemes(input: {
         ...eligibleThemes.filter((theme) => !priorityKeys.includes(theme.key)),
       ]
     : eligibleThemes;
-  const selectableThemes = orderedEligibleThemes.length
-    ? orderedEligibleThemes
-    : profile.kind === "focused" && !profile.comprehensive
-      ? []
-      : themes.slice(0, 1);
+  const selectableThemes = profile.kind === "comparison"
+    ? comparisonPriorityKeys.flatMap((key) => {
+        const theme = themes.find((candidate) => candidate.key === key);
+        return theme ? [theme] : [];
+      })
+    : orderedEligibleThemes.length
+      ? orderedEligibleThemes
+      : profile.kind === "focused" && !profile.comprehensive
+        ? []
+        : themes.slice(0, 1);
   const availableCount = Math.min(profile.targetItemCount.maximum, selectableThemes.length);
   const requestedCount = Math.min(
     availableCount,
@@ -1414,6 +1642,7 @@ export function selectProjectAnswerEditorialThemes(input: {
     omittedThemes: themes.filter((theme) => !selectedThemes.includes(theme)),
     highPriorityMembers,
     ownershipCitationIndexes,
+    comparisonBindings,
   };
 }
 
@@ -1434,15 +1663,24 @@ export function buildExactSourceEditorialFallbackBlocks(
   options: { maxMembersPerTheme?: number; maxCitationsPerBlock?: number } = {},
 ): GroundedAnswerBlock[] {
   const defaultMemberLimit =
-    selection.profile.kind === "focused" && selection.selectedThemes.length > 1
+    selection.profile.kind === "comparison"
+      ? 3
+      : selection.profile.kind === "focused" && selection.selectedThemes.length > 1
       ? 1
       : 2;
   const maxMembers = Math.max(
     1,
     Math.min(3, options.maxMembersPerTheme ?? defaultMemberLimit),
   );
-  const maxCitations = Math.max(1, Math.min(6, options.maxCitationsPerBlock ?? 4));
-  return selection.selectedThemes.flatMap((theme) => {
+  const maxCitations = Math.max(
+    1,
+    Math.min(
+      6,
+      options.maxCitationsPerBlock ??
+        (selection.profile.kind === "comparison" ? 6 : 4),
+    ),
+  );
+  return selection.selectedThemes.flatMap((theme, themeIndex) => {
     const themeMemberLimit =
       theme.key === "product_and_artifact_generation" &&
       /\b(?:(?:artifact|highlight).{0,80}(?:fallback|insufficient|evidence gap)|approved highlights?.{0,60}insufficient)\b/i.test(
@@ -1452,7 +1690,20 @@ export function buildExactSourceEditorialFallbackBlocks(
         : maxMembers;
     const members: RankedEditorialEntry[] = [];
     const usedCitations = new Set<number>();
-    const exactCandidates = theme.representativeMembers;
+    const comparisonBinding = selection.comparisonBindings?.[themeIndex];
+    const boundEntryIndexes = new Set(
+      comparisonBinding?.themeKey === theme.key
+        ? comparisonBinding.evidenceEntryIndexes
+        : [],
+    );
+    const exactCandidates = boundEntryIndexes.size
+      ? [
+          ...theme.members.filter((member) => boundEntryIndexes.has(member.entryIndex)),
+          ...theme.representativeMembers.filter((member) =>
+            !boundEntryIndexes.has(member.entryIndex)
+          ),
+        ]
+      : theme.representativeMembers;
     for (const candidate of exactCandidates) {
       if (members.length >= themeMemberLimit) break;
       const citationIndexes = uniqueValidCitationIndexes(candidate.entry.citationIndexes);
@@ -1575,28 +1826,14 @@ export function addSourceBoundedEditorialContext(
     return addSourceBoundedEditorialAnalysis(blocks, selection);
   }
   if (selection.profile.kind === "comparison") {
+    if (!hasGroundedProjectAnswerComparison(selection)) return [];
     const contract = selection.profile.comparisonContract;
-    return blocks.map((block, index) => {
-      const theme = selection.selectedThemes[index];
-      const subject = contract?.subjects[index];
-      const value = theme ? valueByTheme[theme.key] : null;
-      const additions = [
-        value &&
-          !block.bodyMarkdown.toLowerCase().includes(value.toLowerCase())
-          ? `**Source-bounded comparison:** ${value}`
-          : null,
-        subject?.temporalRole
-          ? `**Temporal role:** This is the ${subject.temporalRole} side named by the request.`
-          : null,
-      ].filter((addition): addition is string => Boolean(addition));
-      return {
-        ...block,
-        heading: subject?.heading ?? block.heading,
-        bodyMarkdown: additions.length
-          ? `${block.bodyMarkdown}\n\n${additions.join("\n\n")}`
-          : block.bodyMarkdown,
-      };
-    });
+    // Exact recovery may reorder and relabel cited source material, but it
+    // must not append canned comparison claims after semantic verification.
+    return blocks.map((block, index) => ({
+      ...block,
+      heading: contract?.subjects[index]?.heading ?? block.heading,
+    }));
   }
   const contextualized = blocks.map((block, index) => {
     const theme = selection.selectedThemes[index];
@@ -1683,22 +1920,8 @@ export function buildProjectAnswerEditorialModelGuidance(
   const analyticalContract = profile.kind === "assessment" || profile.kind === "comparison"
     ? "Separate observed implementation facts from analysis. A risk, limitation, comparison, or trade-off may be stated only when it follows directly from cited premises; frame it explicitly as an assessment (for example, “this creates a trade-off” or “this may limit”) rather than as an observed fact."
     : "";
-  const comparisonContract = profile.comparisonContract
-    ? [
-        "Preserve the comparison contract exactly.",
-        `Keep these user-named sides in this order: ${profile.comparisonContract.subjects
-          .map((subject, index) => `${index + 1}. ${subject.heading}`)
-          .join("; ")}.`,
-        profile.comparisonContract.requestedDimensions.length
-          ? `Address every requested dimension: ${profile.comparisonContract.requestedDimensions.join("; ")}.`
-          : null,
-        profile.comparisonContract.subjects.some((subject) => subject.temporalRole)
-          ? "Keep each earlier/current temporal role attached to its named side."
-          : null,
-        profile.comparisonContract.subjects.some((subject) => subject.resolvedAnchor)
-          ? "Use the compact conversation anchors in editorial_plan to resolve referential names; do not replace those names with internal subsystem labels."
-          : null,
-      ].filter(Boolean).join(" ")
+  const comparisonContract = profile.kind === "comparison"
+    ? "The serialized untrusted editorial plan contains the comparison contract. Preserve its two user-named sides, order, requested dimensions, and temporal roles exactly, but treat conversation anchors only as referent hints. Use current cited sources over older sources, and fail closed when either side or dimension lacks positive cited support."
     : "";
   return [
     "Act as Workbase's final editorial synthesizer after repository coverage and source validation are complete.",
@@ -1823,15 +2046,19 @@ function normalizedComparisonLabel(value: string) {
 
 function comparisonContractPass(
   profile: ProjectAnswerEditorialProfile,
+  selection: ProjectAnswerEditorialSelection,
   blocks: readonly GroundedAnswerBlock[],
-  rawAnswer: string,
 ) {
   const contract = profile.comparisonContract;
-  if (!contract) return true;
+  if (profile.kind !== "comparison") return true;
+  if (!contract || !hasGroundedProjectAnswerComparison(selection)) return false;
   if (blocks.length < contract.subjects.length) return false;
   const subjectChecks = contract.subjects.map((subject, index) => {
     const block = blocks[index];
+    const binding = selection.comparisonBindings?.[index];
+    const theme = selection.selectedThemes[index];
     if (!block) return false;
+    if (!binding || !theme || binding.themeKey !== theme.key) return false;
     const heading = normalizedComparisonLabel(block.heading ?? "");
     const expectedHeading = normalizedComparisonLabel(subject.heading);
     const expectedLabel = normalizedComparisonLabel(subject.label);
@@ -1849,36 +2076,45 @@ function comparisonContractPass(
     ) {
       return false;
     }
-    if (!subject.resolvedAnchor) return true;
+    const boundMembers = theme.members.filter((member) =>
+      binding.evidenceEntryIndexes.includes(member.entryIndex)
+    );
     if (
-      /\b(?:provider[- ]neutral|model[- ]agnostic|vendor[- ]neutral)\b/i.test(
-        subject.resolvedAnchor,
-      ) &&
-      !/\b(?:provider[- ]neutral|model[- ]agnostic|vendor[- ]neutral)\b/i.test(
-        blockText,
+      !boundMembers.length ||
+      !binding.evidenceEntryIndexes.every((entryIndex) => {
+        const member = boundMembers.find((candidate) =>
+          candidate.entryIndex === entryIndex
+        );
+        return Boolean(
+          member &&
+          member.entry.citationIndexes.some((citationIndex) =>
+            block.citationIndexes.includes(citationIndex)
+          ),
+        );
+      })
+    ) {
+      return false;
+    }
+    const citedEvidence = boundMembers
+      .filter((member) => member.entry.citationIndexes.some((citationIndex) =>
+        block.citationIndexes.includes(citationIndex)
+      ))
+      .map(comparisonMemberText)
+      .join(" ");
+    if (!citedEvidence) return false;
+    if (
+      boundMembers.every((member) =>
+        comparisonSubjectMemberScore(subject, member) <= 0
       )
     ) {
       return false;
     }
-    const anchorTerms = Array.from(tokens(
-      subject.resolvedAnchor,
-      comparisonSubjectStopWords,
-    )).filter((term) =>
-      term.length <= 40 && !/^([a-z0-9])\1{7,}$/i.test(term)
+    return contract.requestedDimensions.every((dimension) =>
+      comparisonDimensionSupported(dimension, citedEvidence) &&
+      comparisonDimensionSupported(dimension, blockText)
     );
-    if (!anchorTerms.length) return true;
-    const blockTerms = tokens(blockText, comparisonSubjectStopWords);
-    const overlap = anchorTerms.filter((term) => blockTerms.has(term)).length;
-    return overlap >= Math.min(2, Math.max(1, Math.ceil(anchorTerms.length * 0.2)));
   });
-  const dimensionChecks = contract.requestedDimensions.map((dimension) => {
-    const terms = Array.from(tokens(dimension, comparisonDimensionStopWords));
-    if (!terms.length) return true;
-    const answerTerms = tokens(rawAnswer, comparisonDimensionStopWords);
-    const overlap = terms.filter((term) => answerTerms.has(term)).length;
-    return overlap >= Math.min(2, Math.max(1, Math.ceil(terms.length * 0.35)));
-  });
-  return subjectChecks.every(Boolean) && dimensionChecks.every(Boolean);
+  return subjectChecks.every(Boolean);
 }
 
 export function auditProjectAnswerEditorialQuality(input: {
@@ -1915,10 +2151,15 @@ export function auditProjectAnswerEditorialQuality(input: {
     mechanismBlockCount / input.blocks.length >= depthRatios.mechanism;
   const value = input.blocks.length > 0 &&
     valueBlockCount / input.blocks.length >= depthRatios.value;
+  const comparisonContract = comparisonContractPass(
+    input.profile,
+    input.selection,
+    input.blocks,
+  );
   const analysis = input.profile.kind === "assessment"
     ? assessmentPattern.test(rawAnswer)
     : input.profile.kind === "comparison"
-      ? comparisonPattern.test(rawAnswer)
+      ? comparisonPattern.test(rawAnswer) || comparisonContract
       : true;
   const depth = mechanism && value;
   const redundantBlockPairs: Array<[number, number]> = [];
@@ -1959,11 +2200,6 @@ export function auditProjectAnswerEditorialQuality(input: {
   );
   const lowLevelDetail = input.profile.kind === "focused" || lowLevelDetailBlocks.length === 0;
   const genericVerificationErrorFree = !genericVerificationErrorPattern.test(rawAnswer);
-  const comparisonContract = comparisonContractPass(
-    input.profile,
-    input.blocks,
-    rawAnswer,
-  );
   const checks = {
     format: formatPass(input.profile, input.blocks, rawAnswer),
     itemCount,
