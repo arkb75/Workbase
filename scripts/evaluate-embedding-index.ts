@@ -1,10 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
+import {
+  evaluateEmbeddingIndexQualityGate,
+  type EmbeddingQualityGateMode,
+} from "@/src/evals/embedding-index-quality-gate";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import {
   recordEmbeddingQualityGate,
   resolveActiveEmbeddingIndex,
-  resolveEmbeddingIndexByKey,
+  resolveEmbeddingQualityValidationContext,
 } from "@/src/services/embedding-index-service";
 import { rankProjectKnowledgeForIndex } from "@/src/services/knowledge-embedding-service";
 
@@ -48,6 +52,18 @@ type QueryReport = {
   requiredSourceLoss: string[];
 };
 
+function usage() {
+  return `
+Usage:
+  npm run eval:embeddings -- --fixture FIXTURE --baseline-only [--output REPORT]
+  npm run eval:embeddings -- --fixture FIXTURE --candidate KEY [--mode promotion|rollback] [--record] [--output REPORT]
+
+Modes:
+  promotion  Require the candidate to meet or exceed both the active index and historical fixture thresholds (default).
+  rollback   Re-gate a ready, reconciled rollback index against historical fixture thresholds without losing sources found by the active index.
+`.trim();
+}
+
 function option(name: string) {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
@@ -56,6 +72,14 @@ function option(name: string) {
 function requiredOption(name: string) {
   const value = option(name);
   if (!value) throw new Error(`--${name} is required.`);
+  return value;
+}
+
+function qualityGateMode(): EmbeddingQualityGateMode {
+  const value = option("mode") ?? "promotion";
+  if (value !== "promotion" && value !== "rollback") {
+    throw new Error('--mode must be "promotion" or "rollback".');
+  }
   return value;
 }
 
@@ -215,7 +239,12 @@ function percentile95(values: number[]) {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    console.info(usage());
+    return;
+  }
   const fixturePath = requiredOption("fixture");
+  const mode = qualityGateMode();
   const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as Fixture;
   if (!fixture.queries?.length) {
     throw new Error("Embedding fixture must include at least one query.");
@@ -233,8 +262,11 @@ async function main() {
     );
   }
   const workItemId = await validateFixtureSources(fixture);
-  const active = await resolveActiveEmbeddingIndex();
   if (process.argv.includes("--baseline-only")) {
+    if (mode !== "promotion") {
+      throw new Error("--baseline-only cannot be combined with --mode rollback.");
+    }
+    const active = await resolveActiveEmbeddingIndex();
     const queries = [];
     for (const query of fixture.queries) {
       const result = await rankProjectKnowledgeForIndex({
@@ -286,8 +318,21 @@ async function main() {
     return;
   }
   const candidateKey = requiredOption("candidate");
-  const candidate = await resolveEmbeddingIndexByKey(candidateKey);
+  const {
+    active,
+    candidate,
+    validationFence,
+  } = await resolveEmbeddingQualityValidationContext(candidateKey);
   if (candidate.id === active.id) throw new Error("Candidate is already the active index.");
+  if (
+    candidate.status !== "ready" ||
+    validationFence.candidateReconciledAt === null ||
+    candidate.baseActivationEpoch !== validationFence.activationEpoch
+  ) {
+    throw new Error(
+      `Embedding index "${candidate.key}" must be ready and reconciled to the current active epoch before quality validation.`,
+    );
+  }
 
   const queryReports: QueryReport[] = [];
   for (const query of fixture.queries) {
@@ -354,18 +399,25 @@ async function main() {
         : null,
     };
   };
-  const passed =
-    candidateRecallAt10 + Number.EPSILON >= Math.max(
-      baselineRecallAt10,
-      fixture.baselineThresholds?.recallAt10 ?? 0,
-    ) &&
-    candidateMrr + Number.EPSILON >= Math.max(
-      baselineMrr,
-      fixture.baselineThresholds?.mrr ?? 0,
-    ) &&
-    requiredSourceLoss === 0;
+  const gate = evaluateEmbeddingIndexQualityGate({
+    mode,
+    activeRecallAt10: baselineRecallAt10,
+    activeMrr: baselineMrr,
+    candidateRecallAt10,
+    candidateMrr,
+    historicalRecallAt10: fixture.baselineThresholds.recallAt10,
+    historicalMrr: fixture.baselineThresholds.mrr,
+    requiredSourceLoss,
+    candidateStatus: candidate.status,
+    candidateReconciledAt: validationFence.candidateReconciledAt,
+    candidateBaseActivationEpoch: candidate.baseActivationEpoch,
+    activeActivationEpoch: validationFence.activationEpoch,
+  });
   const report = {
-    kind: "embedding_index_comparison",
+    kind: mode === "rollback"
+      ? "embedding_index_rollback_validation"
+      : "embedding_index_comparison",
+    validationMode: mode,
     fixture: fixture.name ?? fixturePath,
     recordedAt: new Date().toISOString(),
     workItemId,
@@ -375,19 +427,13 @@ async function main() {
       provider: candidate.provider,
       modelId: candidate.modelId,
     },
+    validationFence,
     thresholds: {
-      recallAt10Minimum: Math.max(
-        baselineRecallAt10,
-        fixture.baselineThresholds?.recallAt10 ?? 0,
-      ),
-      mrrMinimum: Math.max(
-        baselineMrr,
-        fixture.baselineThresholds?.mrr ?? 0,
-      ),
-      requiredSourceLossMustBeZero: true,
+      ...gate.thresholds,
       historicalBaselineMeanLatencyMs:
         fixture.baselineThresholds?.meanLatencyMs ?? null,
     },
+    checks: gate.checks,
     aggregate: {
       baselineRecallAt10,
       candidateRecallAt10,
@@ -397,7 +443,7 @@ async function main() {
       baselineTelemetry: latencySummary("baseline"),
       candidateTelemetry: latencySummary("candidate"),
     },
-    passed,
+    passed: gate.passed,
     queries: queryReports,
   };
   const outputPath = option("output");
@@ -405,12 +451,13 @@ async function main() {
   if (process.argv.includes("--record")) {
     await recordEmbeddingQualityGate({
       key: candidate.key,
-      passed,
+      passed: gate.passed,
       report,
+      expectedValidationFence: validationFence,
     });
   }
   console.info(JSON.stringify(report, null, 2));
-  if (!passed) process.exitCode = 1;
+  if (!gate.passed) process.exitCode = 1;
 }
 
 main()
