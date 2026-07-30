@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/src/lib/prisma";
 import {
   activateEmbeddingIndex,
+  assertEmbeddingQualityValidationFence,
   backfillEmbeddingIndex,
   disableEmbeddingIndexWrites,
   listEmbeddingIndexes,
@@ -50,7 +51,7 @@ Usage:
   npm run db:embedding-index -- register [--provider openrouter] [--model openai/text-embedding-3-small] [--key KEY] [--challenger]
   npm run db:embedding-index -- backfill --key KEY [--batch-size 100] [--concurrency 4]
   npm run db:embedding-index -- reconcile --key KEY
-  npm run db:embedding-index -- record-quality --key KEY --report report.json [--passed true|false]
+  npm run db:embedding-index -- record-quality --key KEY --report report.json
   npm run db:embedding-index -- activate --key KEY --expected-epoch N
   npm run db:embedding-index -- rollback --key PREVIOUS_KEY --expected-epoch N
   npm run db:embedding-index -- disable-writes --key KEY
@@ -99,21 +100,17 @@ async function main() {
   if (command === "record-quality") {
     const report = JSON.parse(
       await readFile(requiredOption("report"), "utf8"),
-    ) as { passed?: unknown };
-    const explicit = option("passed");
-    const passed = explicit === undefined
-      ? report.passed === true
-      : explicit === "true"
-        ? true
-        : explicit === "false"
-          ? false
-          : (() => {
-              throw new Error("--passed must be true or false.");
-            })();
+    ) as { passed?: unknown; validationFence?: unknown };
+    if (typeof report.passed !== "boolean") {
+      throw new Error("Embedding quality report must include a boolean passed result.");
+    }
     console.info(json(await recordEmbeddingQualityGate({
       key: requiredOption("key"),
-      passed,
+      passed: report.passed,
       report,
+      expectedValidationFence: assertEmbeddingQualityValidationFence(
+        report.validationFence,
+      ),
     })));
     return;
   }

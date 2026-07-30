@@ -13,6 +13,7 @@ import {
   EmbeddingWriteFenceChangedError,
   persistBackfillEmbeddingRecord,
   reconcileEmbeddingIndex,
+  recordEmbeddingIndexShadowFailure,
   recordEmbeddingQualityGate,
   registerEmbeddingIndexCandidate,
   resolveEmbeddingWriteSet,
@@ -29,6 +30,7 @@ const active = {
   writeEnabled: true,
   baseActivationEpoch: 0,
   qualityGatePassed: true,
+  reconciledAt: new Date("2026-07-29T10:00:00.000Z"),
   activationEpoch: 2,
   writeSetEpoch: 4,
   isActive: true,
@@ -42,6 +44,7 @@ const candidate = {
   modelId: "openai/text-embedding-3-small",
   status: "building" as const,
   qualityGatePassed: false,
+  reconciledAt: null,
   isActive: false,
 };
 
@@ -176,31 +179,117 @@ describe("versioned embedding index lifecycle", () => {
     expect(invalidation).toContain('"qualityReport" = NULL');
   });
 
+  it("invalidates reconciliation when a shadow write leaves a corpus gap", async () => {
+    await recordEmbeddingIndexShadowFailure({
+      indexVersionId: candidate.id,
+      phase: "generation",
+      error: new Error("provider unavailable"),
+    });
+
+    const invalidation = prismaMock.$executeRaw.mock.calls[0][0].join("");
+    expect(invalidation).toContain('"status" = \'building\'');
+    expect(invalidation).toContain('"qualityGatePassed" = false');
+    expect(invalidation).toContain('"reconciledAt" = NULL');
+    expect(invalidation).toContain('"validation" = NULL');
+  });
+
   it("records quality only after a candidate is ready and reconciled", async () => {
     prismaMock.$queryRaw
       .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{
+        activeVersionId: active.id,
+        activationEpoch: 2,
+        writeSetEpoch: 4,
+      }])
       .mockResolvedValueOnce([candidate]);
 
+    const unreconciledFence = {
+      activeVersionId: active.id,
+      candidateVersionId: candidate.id,
+      activationEpoch: 2,
+      writeSetEpoch: 4,
+      candidateReconciledAt: null,
+    };
     await expect(recordEmbeddingQualityGate({
       key: candidate.key,
       passed: true,
-      report: { recallAt10: 1 },
+      report: {
+        passed: true,
+        validationFence: unreconciledFence,
+      },
+      expectedValidationFence: unreconciledFence,
     })).rejects.toThrow("ready and reconciled");
     expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
 
+    const reconciledAt = new Date("2026-07-29T11:00:00.000Z");
     prismaMock.$queryRaw.mockReset()
       .mockResolvedValueOnce([{ locked: 1 }])
       .mockResolvedValueOnce([{
+        activeVersionId: active.id,
+        activationEpoch: 2,
+        writeSetEpoch: 4,
+      }])
+      .mockResolvedValueOnce([{
         ...candidate,
         status: "ready",
+        baseActivationEpoch: 2,
+        reconciledAt,
       }]);
 
+    const validationFence = {
+      activeVersionId: active.id,
+      candidateVersionId: candidate.id,
+      activationEpoch: 2,
+      writeSetEpoch: 4,
+      candidateReconciledAt: reconciledAt.toISOString(),
+    };
     await expect(recordEmbeddingQualityGate({
       key: candidate.key,
       passed: true,
-      report: { recallAt10: 1 },
+      report: {
+        passed: true,
+        validationFence,
+      },
+      expectedValidationFence: validationFence,
     })).resolves.toMatchObject({ qualityGatePassed: true });
     expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a late quality report after the candidate is reconciled again", async () => {
+    const firstReconciliation = new Date("2026-07-29T11:00:00.000Z");
+    const secondReconciliation = new Date("2026-07-29T11:05:00.000Z");
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{
+        activeVersionId: active.id,
+        activationEpoch: 2,
+        writeSetEpoch: 5,
+      }])
+      .mockResolvedValueOnce([{
+        ...candidate,
+        status: "ready",
+        baseActivationEpoch: 2,
+        reconciledAt: secondReconciliation,
+      }]);
+
+    const staleFence = {
+      activeVersionId: active.id,
+      candidateVersionId: candidate.id,
+      activationEpoch: 2,
+      writeSetEpoch: 4,
+      candidateReconciledAt: firstReconciliation.toISOString(),
+    };
+    await expect(recordEmbeddingQualityGate({
+      key: candidate.key,
+      passed: true,
+      report: {
+        kind: "embedding_index_comparison",
+        passed: true,
+        validationFence: staleFence,
+      },
+      expectedValidationFence: staleFence,
+    })).rejects.toThrow("changed during quality validation");
+    expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("will not activate a candidate before its quality gate passes", async () => {

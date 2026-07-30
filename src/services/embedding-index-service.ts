@@ -18,6 +18,18 @@ export type EmbeddingIndexVersion = EmbeddingIndexIdentity & {
   writeEnabled: boolean;
   baseActivationEpoch: number;
   qualityGatePassed?: boolean;
+  reconciledAt?: Date | null;
+};
+
+export type EmbeddingQualityValidationFence = {
+  activeVersionId: string;
+  candidateVersionId: string;
+  activationEpoch: number;
+  writeSetEpoch: number;
+  // Corpus invalidation clears reconciledAt, while each reconciliation also
+  // advances writeSetEpoch. Together they fence both transitions without a
+  // separate mutable validation-token column.
+  candidateReconciledAt: string | null;
 };
 
 export type EmbeddingWriteSet = {
@@ -43,6 +55,7 @@ type IndexRow = {
   writeEnabled: boolean;
   baseActivationEpoch: number;
   qualityGatePassed?: boolean;
+  reconciledAt?: Date | null;
   activationEpoch?: number;
   writeSetEpoch?: number;
   isActive?: boolean;
@@ -71,6 +84,7 @@ function toIndexVersion(row: IndexRow): EmbeddingIndexVersion {
     writeEnabled: row.writeEnabled,
     baseActivationEpoch: Number(row.baseActivationEpoch),
     qualityGatePassed: row.qualityGatePassed,
+    reconciledAt: row.reconciledAt,
   };
 }
 
@@ -88,6 +102,7 @@ export async function resolveEmbeddingWriteSet(
       version."writeEnabled",
       version."baseActivationEpoch",
       version."qualityGatePassed",
+      version."reconciledAt",
       control."activationEpoch",
       control."writeSetEpoch",
       (version."id" = control."activeVersionId") AS "isActive"
@@ -299,8 +314,15 @@ export async function recordEmbeddingIndexShadowFailure(input: {
       errorName,
       recordedAt: new Date().toISOString(),
     })} AS jsonb),
+        "status" = 'building',
+        "qualityGatePassed" = false,
+        "qualityValidatedAt" = NULL,
+        "qualityReport" = NULL,
+        "reconciledAt" = NULL,
+        "validation" = NULL,
         "updatedAt" = CURRENT_TIMESTAMP
     WHERE "id" = ${input.indexVersionId}
+      AND "status" IN ('building', 'ready')
   `;
 }
 
@@ -430,7 +452,7 @@ export async function registerEmbeddingIndexCandidate(input: {
       SELECT
         "id", "key", "provider", "modelId", "dimensions",
         "status"::text AS "status", "writeEnabled", "baseActivationEpoch",
-        "qualityGatePassed"
+        "qualityGatePassed", "reconciledAt"
       FROM "EmbeddingIndexVersion"
       WHERE "key" = ${requested.key}
       FOR UPDATE
@@ -503,7 +525,7 @@ async function findIndexByKey(
     SELECT
       "id", "key", "provider", "modelId", "dimensions",
       "status"::text AS "status", "writeEnabled", "baseActivationEpoch",
-      "qualityGatePassed"
+      "qualityGatePassed", "reconciledAt"
     FROM "EmbeddingIndexVersion"
     WHERE "key" = ${key}
     ${lockClause}
@@ -514,6 +536,74 @@ async function findIndexByKey(
 
 export function resolveEmbeddingIndexByKey(key: string) {
   return findIndexByKey(prisma, key);
+}
+
+function serializeReconciliationTimestamp(value: Date | null | undefined) {
+  return value ? value.toISOString() : null;
+}
+
+export function assertEmbeddingQualityValidationFence(
+  value: unknown,
+): EmbeddingQualityValidationFence {
+  if (!value || typeof value !== "object") {
+    throw new Error("Embedding quality report is missing its validation fence.");
+  }
+  const candidate = value as Partial<EmbeddingQualityValidationFence>;
+  const validTimestamp =
+    candidate.candidateReconciledAt === null ||
+    (
+      typeof candidate.candidateReconciledAt === "string" &&
+      !Number.isNaN(Date.parse(candidate.candidateReconciledAt))
+    );
+  if (
+    typeof candidate.activeVersionId !== "string" ||
+    !candidate.activeVersionId ||
+    typeof candidate.candidateVersionId !== "string" ||
+    !candidate.candidateVersionId ||
+    !Number.isInteger(candidate.activationEpoch) ||
+    Number(candidate.activationEpoch) < 0 ||
+    !Number.isInteger(candidate.writeSetEpoch) ||
+    Number(candidate.writeSetEpoch) < 0 ||
+    !validTimestamp
+  ) {
+    throw new Error("Embedding quality report has an invalid validation fence.");
+  }
+  return candidate as EmbeddingQualityValidationFence;
+}
+
+function embeddingQualityValidationFencesMatch(
+  left: EmbeddingQualityValidationFence,
+  right: EmbeddingQualityValidationFence,
+) {
+  return (
+    left.activeVersionId === right.activeVersionId &&
+    left.candidateVersionId === right.candidateVersionId &&
+    left.activationEpoch === right.activationEpoch &&
+    left.writeSetEpoch === right.writeSetEpoch &&
+    left.candidateReconciledAt === right.candidateReconciledAt
+  );
+}
+
+export async function resolveEmbeddingQualityValidationContext(key: string) {
+  return prisma.$transaction(async (tx) => {
+    const writeSet = await resolveEmbeddingWriteSet(tx);
+    const candidate = await findIndexByKey(tx, key);
+    return {
+      active: writeSet.active,
+      candidate,
+      validationFence: {
+        activeVersionId: writeSet.active.id,
+        candidateVersionId: candidate.id,
+        activationEpoch: writeSet.activationEpoch,
+        writeSetEpoch: writeSet.writeSetEpoch,
+        candidateReconciledAt: serializeReconciliationTimestamp(
+          candidate.reconciledAt,
+        ),
+      } satisfies EmbeddingQualityValidationFence,
+    };
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+  });
 }
 
 type BackfillRow = { entityId: string; inputText: string };
@@ -858,12 +948,66 @@ export async function recordEmbeddingQualityGate(input: {
   key: string;
   passed: boolean;
   report: unknown;
+  expectedValidationFence: EmbeddingQualityValidationFence;
 }) {
   JSON.stringify(input.report);
+  const expectedFence = assertEmbeddingQualityValidationFence(
+    input.expectedValidationFence,
+  );
+  if (!input.report || typeof input.report !== "object") {
+    throw new Error("Embedding quality report must be an object.");
+  }
+  const report = input.report as {
+    passed?: unknown;
+    validationFence?: unknown;
+  };
+  if (report.passed !== input.passed) {
+    throw new Error(
+      "Embedding quality report result does not match the recorded result.",
+    );
+  }
+  const reportFence = assertEmbeddingQualityValidationFence(
+    report.validationFence,
+  );
+  if (!embeddingQualityValidationFencesMatch(reportFence, expectedFence)) {
+    throw new Error(
+      "Embedding quality report validation fence does not match the expected fence.",
+    );
+  }
   return prisma.$transaction(async (tx) => {
     await lockEmbeddingIndexAdministration(tx);
+    const controls = await tx.$queryRaw<Array<{
+      activeVersionId: string;
+      activationEpoch: number;
+      writeSetEpoch: number;
+    }>>`
+      SELECT "activeVersionId", "activationEpoch", "writeSetEpoch"
+      FROM "EmbeddingIndexControl"
+      WHERE "id" = 'default'
+      FOR UPDATE
+    `;
+    const control = controls[0];
+    if (!control) throw new Error("EmbeddingIndexControl is missing.");
     const target = await findIndexByKey(tx, input.key, true);
-    if (target.status !== "ready") {
+    const currentFence: EmbeddingQualityValidationFence = {
+      activeVersionId: control.activeVersionId,
+      candidateVersionId: target.id,
+      activationEpoch: Number(control.activationEpoch),
+      writeSetEpoch: Number(control.writeSetEpoch),
+      candidateReconciledAt: serializeReconciliationTimestamp(
+        target.reconciledAt,
+      ),
+    };
+    if (!embeddingQualityValidationFencesMatch(currentFence, expectedFence)) {
+      throw new Error(
+        `Embedding index "${input.key}" changed during quality validation; reconcile and re-run the quality gate.`,
+      );
+    }
+    if (
+      target.status !== "ready" ||
+      currentFence.candidateReconciledAt === null ||
+      target.baseActivationEpoch !== currentFence.activationEpoch
+    ) {
       throw new Error(
         `Embedding index "${input.key}" must be ready and reconciled before recording its quality gate.`,
       );
