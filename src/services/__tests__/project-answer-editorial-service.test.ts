@@ -110,6 +110,59 @@ describe("project answer editorial profiles", () => {
     });
   });
 
+  it("preserves arbitrary comparison subjects, order, and requested dimensions", () => {
+    const profile = classifyProjectAnswerEditorialProfile(
+      "Contrast batch imports with streaming updates in terms of latency, failure recovery, and operational complexity.",
+    );
+
+    expect(profile.comparisonContract).toEqual({
+      subjects: [
+        {
+          label: "batch imports",
+          heading: "Batch imports",
+          temporalRole: null,
+          resolvedAnchor: null,
+        },
+        {
+          label: "streaming updates",
+          heading: "Streaming updates",
+          temporalRole: null,
+          resolvedAnchor: null,
+        },
+      ],
+      requestedDimensions: [
+        "latency",
+        "failure recovery",
+        "operational complexity",
+      ],
+    });
+  });
+
+  it("resolves referential comparison sides from bounded conversation anchors", () => {
+    const profile = classifyProjectAnswerEditorialProfile(
+      "Compare that earlier decision with the current runtime.",
+      {
+        rollingSummary:
+          "Earlier decision: admit repository discoveries into reviewed durable memory with provenance. A previously current runtime used a provider-specific loop.",
+        priorAssistantAnswer:
+          "Current runtime context: a provider-neutral model loop enforces tool and token limits.",
+      },
+    );
+
+    expect(profile.comparisonContract?.subjects).toMatchObject([
+      {
+        label: "that earlier decision",
+        temporalRole: "earlier",
+        resolvedAnchor: expect.stringMatching(/repository discoveries/i),
+      },
+      {
+        label: "the current runtime",
+        temporalRole: "current",
+        resolvedAnchor: expect.stringMatching(/provider-neutral model loop/i),
+      },
+    ]);
+  });
+
   it.each([
     ["Explain the project in two concise paragraphs.", 2, "paragraphs"],
     ["What are the three most important design tradeoffs?", 3, "headings"],
@@ -651,12 +704,12 @@ describe("project answer editorial ranking and grouping", () => {
       buildExactSourceEditorialFallbackBlocks(selection),
       selection,
     );
-    expect(blocks.map((block) => block.heading)).toEqual(expect.arrayContaining([
-      "Repository Knowledge Refresh",
-      "Targeted Repository Research",
-    ]));
+    expect(blocks.map((block) => block.heading)).toEqual([
+      "Repository knowledge refresh",
+      "Targeted repository research",
+    ]);
     expect(blocks.map((block) => block.bodyMarkdown).join("\n")).toMatch(
-      /trusted durable memory/i,
+      /durable memory/i,
     );
   });
 
@@ -690,10 +743,86 @@ describe("project answer editorial ranking and grouping", () => {
       selection,
     );
     expect(blocks.map((block) => block.heading)).toEqual([
-      "Earlier Decision — Admit Discoveries into Durable Memory",
-      "Current Runtime — Bound Each Agent Turn",
+      "Earlier decision",
+      "Current runtime",
     ]);
     expect(blocks[1]?.bodyMarkdown).toMatch(/Bedrock tool loop|token limits/i);
+  });
+
+  it("maps unrelated comparison subjects to evidence in user order without internal labels", () => {
+    const question =
+      "Contrast batch imports with streaming updates in terms of latency, failure recovery, and operational complexity.";
+    const entries = [
+      entry(1, "module:batch_imports", {
+        title: "Batch imports",
+        content:
+          "Batch imports use bounded jobs to reduce per-record latency overhead and retry a failed batch, with the operational trade-off of queue coordination complexity.",
+      }),
+      entry(2, "module:streaming_updates", {
+        title: "Streaming updates",
+        content:
+          "Streaming updates process records continuously for lower event latency and isolate failure recovery per event, with the operational trade-off of consumer coordination complexity.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({ question, entries });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+    const audit = auditProjectAnswerEditorialQuality({
+      profile: selection.profile,
+      selection,
+      blocks,
+    });
+
+    expect(selection.selectedThemes.map((theme) => theme.key)).toEqual([
+      "module:batch_imports",
+      "module:streaming_updates",
+    ]);
+    expect(blocks.map((block) => block.heading)).toEqual([
+      "Batch imports",
+      "Streaming updates",
+    ]);
+    expect(audit.checks.comparisonContract).toBe(true);
+  });
+
+  it("rejects stale provider-specific recovery that drops a provider-neutral current anchor", () => {
+    const question = "Compare that earlier decision with the current runtime.";
+    const profile = classifyProjectAnswerEditorialProfile(question, {
+      rollingSummary:
+        "Earlier decision: repository discoveries become reviewed durable memory before reuse.",
+      priorAssistantAnswer:
+        "Current runtime context: the provider-neutral model loop enforces tool and token limits.",
+    });
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      profile,
+      entries: [
+        entry(1, "project_chat_grounding", {
+          content:
+            "Repository discoveries become reviewed durable memory with provenance before project chat reuses them.",
+        }),
+        entry(2, "ai_runtime", {
+          content:
+            "The Bedrock tool loop enforces tool and token limits for each model turn.",
+        }),
+      ],
+    });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+    const audit = auditProjectAnswerEditorialQuality({
+      profile,
+      selection,
+      blocks,
+    });
+
+    expect(blocks.map((block) => block.heading)).toEqual([
+      "Earlier decision",
+      "Current runtime",
+    ]);
+    expect(audit.checks.comparisonContract).toBe(false);
   });
 });
 
@@ -812,6 +941,7 @@ describe("project answer editorial output contracts", () => {
       nonredundant: true,
       lowLevelDetail: true,
       genericVerificationErrorFree: true,
+      comparisonContract: true,
     });
   });
 

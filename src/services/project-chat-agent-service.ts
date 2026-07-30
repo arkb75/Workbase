@@ -47,6 +47,7 @@ import {
   buildProjectAnswerEditorialModelGuidance,
   classifyProjectAnswerEditorialProfile,
   selectProjectAnswerEditorialThemes,
+  type ProjectAnswerComparisonContext,
   type ProjectAnswerEditorialProfile,
   type ProjectAnswerEditorialSelection,
 } from "@/src/services/project-answer-editorial-service";
@@ -65,7 +66,10 @@ import { isHighlightWorthyUserContext } from "@/src/services/chat-highlight-cand
 import { createTextConverseAgent } from "@/src/services/bedrock-runtime";
 
 const freshnessIntentPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
-const liveRepositoryIntentPattern = /(?:\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|look(?:\s+at)?|access)\b.{0,80}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:repo|repository|github|codebase)\b.{0,80}\b(?:latest|recent|newest|live|up[- ]to[- ]date|pull|refresh|inspect|search|read|check|access)\b)|(?:\b(?:inspect|search|read|check|access|compare)\b.{0,100}\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b)/i;
+const repositoryFreshnessScopePattern =
+  /(?:\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|current through|as of)\b.{0,100}\b(?:commit|repo|repository|github|codebase|source code|implementation)\b)|(?:\b(?:commit|repo|repository|github|codebase|source code|implementation)\b.{0,100}\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b)/i;
+const explicitLiveRepositoryActionPattern =
+  /(?:\b(?:please\s+)?(?:pull|inspect|search|read|check|access|look(?:\s+at)?)\b.{0,100}\b(?:repo|repository|github|codebase)\b)|(?:\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:pull|refresh|inspect|search|read|check|access|look(?:\s+at)?)\b.{0,100}\b(?:repo|repository|github|codebase)\b)|(?:\brefresh\b(?:\s+(?:the|this|my|our))?\s+(?:repo|repository|codebase|repository knowledge)\b)|(?:\b(?:run|start|perform|trigger)\b.{0,50}\b(?:repo|repository|codebase)(?:\s+knowledge)?\s+refresh\b)|(?:\b(?:inspect|search|read|check|access|compare)\b.{0,100}\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b)/i;
 const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.{0,80}\b(?:accomplishments?|achievements?|contributions?|work|features?)\b|\b(?:summari[sz]e|assess|rank)\b.{0,100}\b(?:accomplishments?|achievements?|contributions?)\b/i;
 const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
 const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
@@ -225,8 +229,9 @@ export function requiresLiveRepositoryResearch(question: string) {
     allowResearch: false,
   });
   if (controlPlaneIntent.kind === "prior_turn_provenance") return false;
-  if (liveRepositoryIntentPattern.test(question)) return true;
+  if (explicitLiveRepositoryActionPattern.test(question)) return true;
   if (!freshnessIntentPattern.test(question)) return false;
+  if (repositoryFreshnessScopePattern.test(question)) return true;
   // Freshness words often refer to conversation or review state rather than
   // repository-backed product state. Do not pay for a full repository refresh
   // for "my recent answer" or "current candidate status."
@@ -289,11 +294,13 @@ const contextualFollowUpPattern =
 export function buildContextualRetrievalQuery(input: {
   currentQuestion: string;
   history?: ProjectChatHistoryMessage[];
+  rollingSummary?: string | null;
 }) {
   if (!contextualFollowUpPattern.test(input.currentQuestion)) return input.currentQuestion;
   const priorUser = input.history?.filter((message) => message.role === "user").at(-1);
   const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
-  if (!priorUser && !priorAssistant) return input.currentQuestion;
+  const rollingSummary = input.rollingSummary?.replace(/\s+/g, " ").trim().slice(0, 1_800);
+  if (!priorUser && !priorAssistant && !rollingSummary) return input.currentQuestion;
   const citationManifest = priorAssistant?.citations.slice(0, 8).map((citation) => ({
     type: citation.kind,
     title: citation.label.slice(0, 180),
@@ -302,8 +309,22 @@ export function buildContextualRetrievalQuery(input: {
     `Current question: ${input.currentQuestion}`,
     priorUser ? `Prior user objective: ${priorUser.content.slice(0, 700)}` : null,
     priorAssistant ? `Prior assistant answer: ${priorAssistant.content.slice(0, 1_800)}` : null,
+    rollingSummary ? `Older conversation summary: ${rollingSummary}` : null,
     citationManifest?.length ? `Prior used sources: ${JSON.stringify(citationManifest)}` : null,
   ].filter(Boolean).join("\n").slice(0, 4_000);
+}
+
+function projectAnswerComparisonContext(input: {
+  history?: ProjectChatHistoryMessage[];
+  rollingSummary?: string | null;
+}): ProjectAnswerComparisonContext {
+  const priorUser = input.history?.filter((message) => message.role === "user").at(-1);
+  const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
+  return {
+    rollingSummary: input.rollingSummary?.replace(/\s+/g, " ").trim().slice(0, 3_000) ?? null,
+    priorUserObjective: priorUser?.content.replace(/\s+/g, " ").trim().slice(0, 1_000) ?? null,
+    priorAssistantAnswer: priorAssistant?.content.replace(/\s+/g, " ").trim().slice(0, 2_000) ?? null,
+  };
 }
 
 export function selectProjectChatHistory(messages: ProjectChatHistoryMessage[]) {
@@ -785,6 +806,7 @@ function editorialPlanForPrompt(selection: ProjectAnswerEditorialSelection) {
       comprehensive: selection.profile.comprehensive,
       targetItemCount: selection.profile.targetItemCount,
       focusTerms: selection.profile.focusTerms,
+      comparisonContract: selection.profile.comparisonContract,
     },
     selectedThemes: selection.selectedThemes.map((theme, index) => ({
       rank: index + 1,
@@ -1242,7 +1264,7 @@ async function executeProjectChatAgent(
   if (
     earlyIntent.kind === "repository_research" &&
     !capabilityInputs.repositories.length &&
-    liveRepositoryIntentPattern.test(input.question)
+    requiresLiveRepositoryResearch(input.question)
   ) {
     const answer = "I cannot inspect that repository because this project has no attached, authorized repository source. Attach the repository to this project before requesting code research.";
     return {
@@ -1255,13 +1277,18 @@ async function executeProjectChatAgent(
       freshness: null,
     };
   }
-  const editorialProfile = classifyProjectAnswerEditorialProfile(input.question);
+  const comparisonContext = projectAnswerComparisonContext(input);
+  const editorialProfile = classifyProjectAnswerEditorialProfile(
+    input.question,
+    comparisonContext,
+  );
   const memory = await projectKnowledgeRetrievalService.retrieve({
     userId: input.userId,
     workItemId: input.workItemId,
     query: buildContextualRetrievalQuery({
       currentQuestion: input.question,
       history: input.history,
+      rollingSummary: input.rollingSummary,
     }),
     purpose: "private_chat",
     preferredProjectFactIds: capabilityInputs.currentRunProjectFactIds,
@@ -1736,6 +1763,7 @@ async function executeProjectChatAgent(
       },
       maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
       verificationMode: projectAnswerGroundingModeForQuestion(input.question),
+      comparisonContext,
     });
     let quality = recovered.status === "answered"
       ? auditProjectAnswerEditorialQuality({
@@ -1748,21 +1776,7 @@ async function executeProjectChatAgent(
           ),
         })
       : null;
-    const requiresEditorialFallback = Boolean(
-      quality &&
-      (
-        !quality.checks.itemCount ||
-        !quality.checks.format ||
-        !quality.checks.prioritization ||
-        !quality.checks.depth ||
-        !quality.checks.mechanism ||
-        !quality.checks.value ||
-        !quality.checks.analysis ||
-        !quality.checks.nonredundant ||
-        !quality.checks.lowLevelDetail ||
-        !quality.checks.genericVerificationErrorFree
-      ),
-    );
+    const requiresEditorialFallback = Boolean(quality && !quality.passed);
     if (requiresEditorialFallback) {
       const exact = await verifyProjectAnswerWithRecovery({
         question: input.question,
@@ -1778,9 +1792,10 @@ async function executeProjectChatAgent(
         },
         maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
         forceExactFallback: true,
+        comparisonContext,
       });
+      recovered = exact;
       if (exact.status === "answered") {
-        recovered = exact;
         quality = auditProjectAnswerEditorialQuality({
           profile: editorialProfile,
           selection: editorialSelection,
@@ -1790,6 +1805,8 @@ async function executeProjectChatAgent(
             editorialProfile,
           ),
         });
+      } else {
+        quality = null;
       }
     }
     await appendAgentRunEvent({
@@ -1818,6 +1835,28 @@ async function executeProjectChatAgent(
           citations: [],
           dossier: capabilityInputs.researchDossier,
           warnings: recovered.warnings,
+        }),
+      };
+    }
+    if (!quality?.passed) {
+      const answer = [
+        "I found approved project memory for parts of this request, but the source-exact recovery could not satisfy the full answer contract without weakening the requested framing.",
+        editorialProfile.kind === "comparison"
+          ? "The available support does not preserve both named sides, their requested order and dimensions, and any earlier/current context."
+          : "The available support does not preserve the requested format, depth, and source-backed prioritization.",
+      ].join(" ");
+      return {
+        status: "insufficient_context",
+        answer,
+        citations: [],
+        citationPolicy: "none",
+        groundedClaims: [],
+        freshness: completeRefreshFreshness(capabilityInputs.knowledgeRefresh),
+        research: directResearchResult({
+          answer: "",
+          citations: [],
+          dossier: capabilityInputs.researchDossier,
+          warnings: [...recovered.warnings, answer],
         }),
       };
     }
@@ -1860,6 +1899,7 @@ async function executeProjectChatAgent(
       },
       maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
       forceExactFallback: true,
+      comparisonContext,
     });
     await appendAgentRunEvent({
       runId: input.runId,
@@ -1874,6 +1914,37 @@ async function executeProjectChatAgent(
       isUserVisible: false,
     }).catch(() => null);
     if (recovered.status === "answered") {
+      const quality = auditProjectAnswerEditorialQuality({
+        profile: editorialProfile,
+        selection: editorialSelection,
+        blocks: recovered.blocks,
+        rawAnswer: applyProjectAnswerEditorialPresentation(
+          recovered.finalized.markdown,
+          editorialProfile,
+        ),
+      });
+      if (!quality.passed) {
+        const answer = [
+          "The answer model was unavailable, and the source-exact recovery could not satisfy the full answer contract without weakening the requested framing.",
+          editorialProfile.kind === "comparison"
+            ? "The available support does not preserve both named sides, their requested order and dimensions, and any earlier/current context."
+            : "The available support does not preserve the requested format, depth, and source-backed prioritization.",
+        ].join(" ");
+        return {
+          status: "insufficient_context",
+          answer,
+          citations: [],
+          citationPolicy: "none",
+          groundedClaims: [],
+          freshness,
+          research: directResearchResult({
+            answer: "",
+            citations: [],
+            dossier: capabilityInputs.researchDossier,
+            warnings: [...recovered.warnings, answer],
+          }),
+        };
+      }
       const presented = presentFinalizedAnswer(recovered.finalized, editorialProfile);
       return {
         status: "answered",
