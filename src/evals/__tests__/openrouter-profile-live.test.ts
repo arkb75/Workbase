@@ -338,6 +338,56 @@ describe("OpenRouter profile live evaluation report", () => {
     expect(report.scenarios.every((scenario) => scenario.passed)).toBe(true);
   });
 
+  it("rejects an authoritative model that differs from the configured profile", () => {
+    const observations = validObservations();
+    const routing = observations.find(
+      (observation) => observation.id === "routing",
+    )!;
+    routing.usage = liveUsage("routing", {
+      modelId: "openai/unexpected-routing-model",
+    });
+
+    const report = buildReport(observations);
+    const scenario = report.scenarios.find(
+      (entry) => entry.id === "routing",
+    )!;
+
+    expect(scenario.telemetry).toMatchObject({
+      actualModelIds: ["openai/unexpected-routing-model"],
+      usageComplete: true,
+      fallbackUsed: false,
+    });
+    expect(scenario.passed).toBe(false);
+    expect(scenario.checks).toContainEqual({
+      id: "actual_model_matches_configured_profile",
+      passed: false,
+    });
+    expect(report.passed).toBe(false);
+  });
+
+  it("rejects an invoked profile whose authoritative model identity is missing", () => {
+    const observations = validObservations();
+    const drafting = observations.find(
+      (observation) => observation.id === "drafting",
+    )!;
+    drafting.usage = liveUsage("drafting", {
+      modelId: undefined,
+    });
+
+    const report = buildReport(observations);
+    const scenario = report.scenarios.find(
+      (entry) => entry.id === "drafting",
+    )!;
+
+    expect(scenario.telemetry.providerAttempts).toBe(1);
+    expect(scenario.telemetry.actualModelIds).toEqual([]);
+    expect(scenario.passed).toBe(false);
+    expect(scenario.checks).toContainEqual({
+      id: "actual_model_matches_configured_profile",
+      passed: false,
+    });
+  });
+
   it.each<{
     id: OpenRouterProfileScenarioId;
     unsafeValue: unknown;

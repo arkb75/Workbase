@@ -892,10 +892,22 @@ export function buildOpenRouterProfileEvaluationReport(input: {
     const reportedFailure = observation.failure
       ? allowlistedFailure(observation.failure)
       : undefined;
+    const configuredModelId =
+      safeModelId(config.configuredModelId) ?? "invalid/model-id";
+    const actualModelMatchesConfiguredProfile =
+      telemetry.providerAttempts > 0 &&
+      telemetry.actualModelIds.length > 0 &&
+      telemetry.actualModelIds.every(
+        (modelId) => modelId === configuredModelId,
+      );
     const checks = [
       check("runtime_succeeded", reportedFailure == null),
       ...scenarioQualityChecks(observation.id, observation.value),
       check("usage_telemetry_is_complete", telemetry.usageComplete),
+      check(
+        "actual_model_matches_configured_profile",
+        actualModelMatchesConfiguredProfile,
+      ),
       check(
         "no_failed_or_fallback_provider_attempts",
         telemetry.failedProviderAttempts === 0 && !telemetry.fallbackUsed,
