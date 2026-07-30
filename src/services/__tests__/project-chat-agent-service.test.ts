@@ -107,6 +107,7 @@ describe("project chat repository intent", () => {
     "Compare repository knowledge refresh with targeted repository research.",
     "How does the repository refresh scheduler differ from incremental ingestion?",
     "Explain the trade-off between a codebase refresh and a targeted search.",
+    "Refresh rate in the repository pipeline versus targeted research latency.",
   ])("treats a conceptual refresh mention as memory-backed analysis: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(false);
   });
@@ -133,9 +134,11 @@ describe("project chat repository intent", () => {
     "Assess the architecture and its trade-offs.",
     "Compare repository refresh with targeted research.",
     "Contrast repository refresh and targeted research.",
+    "Comparing repository refresh with targeted research.",
     "Repository refresh vs. targeted research.",
     "Give me a comparison of repository refresh and targeted research.",
     "How does repository refresh compare with targeted research?",
+    "How do repository refresh and targeted research compare?",
     "Explain the differences between repository refresh and targeted research.",
     "What should we change, and what risks matter most?",
   ])("retains semantic verification for analytical judgment: %s", (question) => {

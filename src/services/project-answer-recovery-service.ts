@@ -275,21 +275,30 @@ interface PlannedRecoveryTheme {
 }
 
 function plannedRecoveryThemes(selection?: ProjectAnswerEditorialSelection) {
-  return (selection?.selectedThemes ?? []).map((theme, order) => ({
-    key: theme.key,
-    label: theme.label,
-    order,
-    citationIndexes: new Set(
-      theme.members.flatMap((member) => member.entry.citationIndexes),
-    ),
-    semanticText: [
-      theme.label,
-      ...theme.representativeMembers.flatMap((member) => [
-        member.entry.title,
-        member.entry.content,
-      ]),
-    ].join(" "),
-  } satisfies PlannedRecoveryTheme));
+  return (selection?.selectedThemes ?? []).map((theme, order) => {
+    const binding = selection?.comparisonBindings?.[order];
+    const members =
+      binding?.themeKey === theme.key
+        ? theme.members.filter((member) =>
+            binding.evidenceEntryIndexes.includes(member.entryIndex)
+          )
+        : theme.members;
+    return {
+      key: binding ? `${theme.key}:comparison-side-${order + 1}` : theme.key,
+      label: theme.label,
+      order,
+      citationIndexes: new Set(
+        members.flatMap((member) => member.entry.citationIndexes),
+      ),
+      semanticText: [
+        theme.label,
+        ...members.flatMap((member) => [
+          member.entry.title,
+          member.entry.content,
+        ]),
+      ].join(" "),
+    } satisfies PlannedRecoveryTheme;
+  });
 }
 
 function matchingPlannedTheme(

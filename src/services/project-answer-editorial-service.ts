@@ -192,7 +192,7 @@ const comparisonPattern =
   /\b(?:compared? (?:with|to)|whereas|while|versus|vs\.?|difference|trade[- ]?off|both|unlike|respectively)\b/i;
 
 const comparisonIntentPattern =
-  /(?:\b(?:compare(?:d|s|ing)?|comparison|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\bvs\.(?=\s|$))/i;
+  /(?:\b(?:compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\bvs\.(?=\s|$))/i;
 
 const genericVerificationErrorPattern =
   /\b(?:the answer could not be verified against its sources|could not be verified against (?:its|the) sources|grounding verifier returned no supported|citation integrity failed|durable agent run failed unexpectedly|durable agent run failed without)\b/i;
@@ -355,11 +355,28 @@ function splitComparisonDimensions(value: string | undefined) {
   )).slice(0, 6);
 }
 
-function extractComparisonDimensions(question: string) {
+function extractComparisonDimensions(
+  question: string,
+  subjects: [string, string] | null,
+) {
   const explicitLens = question.match(
     /\b(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
   );
   if (explicitLens?.[1]) return splitComparisonDimensions(explicitLens[1]);
+  if (subjects) {
+    const normalizedQuestion = question.replace(/\s+/g, " ").trim();
+    const normalizedSecond = subjects[1].replace(/\s+/g, " ").trim();
+    const secondIndex = normalizedQuestion.toLowerCase().lastIndexOf(
+      normalizedSecond.toLowerCase(),
+    );
+    if (secondIndex >= 0) {
+      const suffix = normalizedQuestion.slice(secondIndex + normalizedSecond.length);
+      const bareOnLens = suffix.match(
+        /^\s+on\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
+      );
+      if (bareOnLens?.[1]) return splitComparisonDimensions(bareOnLens[1]);
+    }
+  }
   const followUpInstruction = question.match(
     /(?:^|[.!?]\s+)\b(?:explain|cover|include|address)\s+(.+?)(?=[.!?]|$)/i,
   );
@@ -369,14 +386,18 @@ function extractComparisonDimensions(question: string) {
 function extractComparisonSubjects(question: string): [string, string] | null {
   const normalized = question.replace(/\s+/g, " ").trim();
   const terminal =
-    "(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\\b|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)";
+    "(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of|on)\\b|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)";
   const patterns = [
+    new RegExp(
+      `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+and\\s+(.+?)\\s+compare${terminal}`,
+      "i",
+    ),
     new RegExp(
       `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+compare\\s+(?:with|to|against)\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
-      `\\b(?:compare|contrast)\\s+(.+?)\\s+(?:with|to|against|versus|vs\\.?)\\s+(.+?)${terminal}`,
+      `\\b(?:compare|compared|comparing|contrast|contrasted|contrasting)\\s+(.+?)\\s+(?:with|to|against|versus|vs\\.?)\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
@@ -384,7 +405,7 @@ function extractComparisonSubjects(question: string): [string, string] | null {
       "i",
     ),
     new RegExp(
-      `\\b(?:compare|contrast)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      `\\b(?:compare|compared|comparing|contrast|contrasted|contrasting)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
@@ -501,7 +522,7 @@ export function deriveProjectAnswerComparisonContract(
         resolvedAnchor: resolveComparisonAnchor(label, temporalRole, context),
       };
     }) as ProjectAnswerComparisonContract["subjects"],
-    requestedDimensions: extractComparisonDimensions(question),
+    requestedDimensions: extractComparisonDimensions(question, subjects),
   };
 }
 
@@ -1089,6 +1110,52 @@ function comparisonMemberText(member: RankedEditorialEntry) {
   ].join(" ");
 }
 
+const comparisonSubjectAliasGroups = [
+  ["repo", "repository", "github", "codebase"],
+  ["research", "exploration", "investigation", "search"],
+  ["target", "bound", "focus", "specific"],
+  ["refresh", "update", "reconcile", "synchronize", "sync"],
+  ["import", "ingestion", "ingest"],
+  ["batch", "bulk"],
+  ["stream", "continuous", "continuously"],
+] as const;
+
+function normalizedComparisonPhrase(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function comparisonSubjectTermSupported(
+  term: string,
+  evidenceTerms: ReadonlySet<string>,
+) {
+  if (evidenceTerms.has(term)) return true;
+  const aliases = comparisonSubjectAliasGroups.find((group) =>
+    group.some((alias) => alias === term)
+  );
+  return Boolean(aliases?.some((alias) => evidenceTerms.has(stem(alias))));
+}
+
+function explicitComparisonSubjectSupported(
+  subject: ProjectAnswerComparisonSubject,
+  evidenceText: string,
+) {
+  if (referentialComparisonSubjectPattern.test(subject.label)) return true;
+  const normalizedLabel = normalizedComparisonPhrase(subject.label);
+  const normalizedEvidence = normalizedComparisonPhrase(evidenceText);
+  if (
+    normalizedLabel &&
+    ` ${normalizedEvidence} `.includes(` ${normalizedLabel} `)
+  ) {
+    return true;
+  }
+  const labelTerms = Array.from(tokens(subject.label, comparisonSubjectStopWords));
+  if (!labelTerms.length) return false;
+  const evidenceTerms = tokens(evidenceText, comparisonSubjectStopWords);
+  return labelTerms.every((term) =>
+    comparisonSubjectTermSupported(term, evidenceTerms)
+  );
+}
+
 function comparisonSubjectMemberScore(
   subject: ProjectAnswerComparisonSubject,
   member: RankedEditorialEntry,
@@ -1096,6 +1163,7 @@ function comparisonSubjectMemberScore(
   const labelTerms = tokens(subject.label, comparisonSubjectStopWords);
   const anchorTerms = tokens(subject.resolvedAnchor ?? "", comparisonSubjectStopWords);
   const evidenceText = comparisonMemberText(member);
+  if (!explicitComparisonSubjectSupported(subject, evidenceText)) return 0;
   const evidenceTerms = tokens(evidenceText, comparisonSubjectStopWords);
   const labelOverlap = Array.from(labelTerms).filter((term) =>
     evidenceTerms.has(term)
@@ -1170,7 +1238,116 @@ function comparisonDimensionSupported(dimension: string, evidenceText: string) {
 }
 
 const comparisonNegationPattern =
-  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b/i;
+  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b/i;
+
+const comparisonContradictionStopWords = new Set([
+  ...comparisonSubjectStopWords,
+  "across",
+  "after",
+  "before",
+  "during",
+  "each",
+  "enforce",
+  "enforces",
+  "entry",
+  "fact",
+  "handle",
+  "handles",
+  "item",
+  "module",
+  "process",
+  "processes",
+  "project",
+  "source",
+  "support",
+  "supports",
+  "use",
+  "uses",
+]);
+
+function comparisonSentences(value: string) {
+  return value
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function negatedComparisonClauses(value: string) {
+  return comparisonSentences(value).flatMap((sentence) =>
+    Array.from(sentence.matchAll(
+      /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+    )).flatMap((match) => {
+      const terms = tokens(match[1] ?? "", comparisonContradictionStopWords);
+      return terms.size ? [{ terms, sentence }] : [];
+    })
+  );
+}
+
+function positiveComparisonTerms(value: string) {
+  const withoutNegatedClauses = value.replace(
+    /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+    " ",
+  );
+  return tokens(withoutNegatedClauses, comparisonContradictionStopWords);
+}
+
+function negationContradiction(left: string, right: string) {
+  const rightPositive = positiveComparisonTerms(right);
+  return negatedComparisonClauses(left).some(({ terms }) => {
+    const overlap = Array.from(terms).filter((term) =>
+      rightPositive.has(term)
+    ).length;
+    return overlap >= Math.max(1, Math.ceil(terms.size * 0.6));
+  });
+}
+
+interface ComparisonNumericClaim {
+  value: string;
+  metricTerms: Set<string>;
+  sentenceTerms: Set<string>;
+}
+
+function comparisonNumericClaims(value: string): ComparisonNumericClaim[] {
+  return comparisonSentences(value).flatMap((sentence) => {
+    const words = sentence.toLowerCase().match(/[a-z]+|\d+(?:\.\d+)?%?/g) ?? [];
+    return words.flatMap((word, index) => {
+      if (!/^\d/.test(word)) return [];
+      const following = words
+        .slice(index + 1, index + 3)
+        .filter((candidate) => /^[a-z]/.test(candidate));
+      const preceding = words
+        .slice(Math.max(0, index - 3), index)
+        .filter((candidate) =>
+          /^[a-z]/.test(candidate) &&
+          !/^(?:a|an|at|by|for|in|is|of|on|the|to)$/.test(candidate)
+        );
+      const metricSource = following.length ? following : preceding.slice(-2);
+      return [{
+        value: word,
+        metricTerms: tokens(
+          metricSource.join(" "),
+          comparisonContradictionStopWords,
+        ),
+        sentenceTerms: tokens(sentence, comparisonContradictionStopWords),
+      }];
+    });
+  });
+}
+
+function numericComparisonContradiction(left: string, right: string) {
+  return comparisonNumericClaims(left).some((leftClaim) =>
+    comparisonNumericClaims(right).some((rightClaim) => {
+      if (leftClaim.value === rightClaim.value) return false;
+      const metricOverlap = Array.from(leftClaim.metricTerms).filter((term) =>
+        rightClaim.metricTerms.has(term)
+      ).length;
+      const sentenceOverlap = Array.from(leftClaim.sentenceTerms).filter((term) =>
+        rightClaim.sentenceTerms.has(term)
+      ).length;
+      return metricOverlap > 0 && sentenceOverlap >= 2;
+    })
+  );
+}
 
 /**
  * Detects contradictions without binding the policy to a particular provider
@@ -1186,17 +1363,44 @@ function comparisonEvidenceContradicts(left: string, right: string) {
     shared.length >= 3 &&
     shared.length / Math.max(1, Math.min(leftTerms.size, rightTerms.size)) >= 0.35;
   if (!sharedEnough) return false;
-  if (comparisonNegationPattern.test(left) !== comparisonNegationPattern.test(right)) {
+  if (
+    comparisonNegationPattern.test(left) !== comparisonNegationPattern.test(right) &&
+    (
+      negationContradiction(left, right) ||
+      negationContradiction(right, left)
+    )
+  ) {
     return true;
   }
-  const numbers = (value: string) =>
-    Array.from(value.matchAll(/\b\d+(?:\.\d+)?(?:%|ms|s|x)?\b/gi))
-      .map((match) => match[0]!.toLowerCase());
-  const leftNumbers = numbers(left);
-  const rightNumbers = numbers(right);
-  return leftNumbers.length > 0 &&
-    rightNumbers.length > 0 &&
-    !leftNumbers.some((value) => rightNumbers.includes(value));
+  return numericComparisonContradiction(left, right);
+}
+
+function authoritativeLogicalComparisonSubjectEntries(
+  subject: ProjectAnswerComparisonSubject,
+  themes: readonly ProjectAnswerEditorialTheme[],
+) {
+  const matches = Array.from(new Map(
+    themes
+      .flatMap((theme) => theme.members)
+      .filter((member) => comparisonSubjectMemberScore(subject, member) > 0)
+      .map((member) => [member.entryIndex, member] as const),
+  ).values());
+  const current = matches.filter((member) => member.entry.currentRun);
+  if (subject.temporalRole === "current" && !current.length) return null;
+  const authoritative = current.length ? current : matches;
+  for (let left = 0; left < authoritative.length; left += 1) {
+    for (let right = left + 1; right < authoritative.length; right += 1) {
+      if (
+        comparisonEvidenceContradicts(
+          comparisonMemberText(authoritative[left]!),
+          comparisonMemberText(authoritative[right]!),
+        )
+      ) {
+        return null;
+      }
+    }
+  }
+  return new Set(authoritative.map((member) => member.entryIndex));
 }
 
 function comparisonThemeBindingCandidate(
@@ -1204,13 +1408,17 @@ function comparisonThemeBindingCandidate(
   subjectIndex: 0 | 1,
   requestedDimensions: readonly string[],
   theme: ProjectAnswerEditorialTheme,
+  authoritativeEntryIndexes: ReadonlySet<number>,
 ) {
   const scored = theme.members
     .map((member) => ({
       member,
       score: comparisonSubjectMemberScore(subject, member),
     }))
-    .filter((candidate) => candidate.score > 0);
+    .filter((candidate) =>
+      candidate.score > 0 &&
+      authoritativeEntryIndexes.has(candidate.member.entryIndex)
+    );
   if (!scored.length) return null;
   // A current fact is authoritative over an older memory item. Conversation
   // anchors help resolve "that decision" or "the current runtime", but never
@@ -1269,7 +1477,30 @@ function comparisonThemeBindingCandidate(
     } satisfies ProjectAnswerComparisonBinding,
     score: selected.reduce((total, candidate) => total + candidate.score, 0) +
       theme.score * 0.01,
+    current: current.length > 0,
+    evidenceText,
   };
+}
+
+function reconcileLogicalComparisonSubject<T extends {
+  current: boolean;
+  evidenceText: string;
+}>(candidates: T[]) {
+  const current = candidates.filter((candidate) => candidate.current);
+  const authoritative = current.length ? current : candidates;
+  for (let left = 0; left < authoritative.length; left += 1) {
+    for (let right = left + 1; right < authoritative.length; right += 1) {
+      if (
+        comparisonEvidenceContradicts(
+          authoritative[left]!.evidenceText,
+          authoritative[right]!.evidenceText,
+        )
+      ) {
+        return null;
+      }
+    }
+  }
+  return authoritative;
 }
 
 function groundedComparisonBindings(
@@ -1278,27 +1509,46 @@ function groundedComparisonBindings(
 ) {
   const contract = profile.comparisonContract;
   if (!contract) return null;
-  const first = themes.flatMap((theme) => {
+  const firstAuthoritative = authoritativeLogicalComparisonSubjectEntries(
+    contract.subjects[0],
+    themes,
+  );
+  const secondAuthoritative = authoritativeLogicalComparisonSubjectEntries(
+    contract.subjects[1],
+    themes,
+  );
+  if (!firstAuthoritative?.size || !secondAuthoritative?.size) return null;
+  const firstCandidates = themes.flatMap((theme) => {
     const candidate = comparisonThemeBindingCandidate(
       contract.subjects[0],
       0,
       contract.requestedDimensions,
       theme,
+      firstAuthoritative,
     );
     return candidate ? [{ ...candidate, theme }] : [];
   });
-  const second = themes.flatMap((theme) => {
+  const secondCandidates = themes.flatMap((theme) => {
     const candidate = comparisonThemeBindingCandidate(
       contract.subjects[1],
       1,
       contract.requestedDimensions,
       theme,
+      secondAuthoritative,
     );
     return candidate ? [{ ...candidate, theme }] : [];
   });
+  const first = reconcileLogicalComparisonSubject(firstCandidates);
+  const second = reconcileLogicalComparisonSubject(secondCandidates);
+  if (!first || !second) return null;
   const pairs = first.flatMap((left) =>
     second
-      .filter((right) => right.theme.key !== left.theme.key)
+      .filter((right) =>
+        right.theme.key !== left.theme.key ||
+        !right.binding.evidenceEntryIndexes.some((entryIndex) =>
+          left.binding.evidenceEntryIndexes.includes(entryIndex)
+        )
+      )
       .map((right) => ({
         left,
         right,
