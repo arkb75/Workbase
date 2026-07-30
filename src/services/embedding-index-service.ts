@@ -153,18 +153,45 @@ function embeddingCostValue(embedding: GeneratedEmbedding) {
     : embedding.usage.costUsd.toFixed(10);
 }
 
+async function invalidateChangedCandidateQualityGate(input: {
+  client: Pick<Prisma.TransactionClient, "$executeRaw">;
+  indexVersionId: string;
+}) {
+  await input.client.$executeRaw`
+    UPDATE "EmbeddingIndexVersion"
+    SET "status" = 'building',
+        "qualityGatePassed" = false,
+        "qualityValidatedAt" = NULL,
+        "qualityReport" = NULL,
+        "reconciledAt" = NULL,
+        "validation" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.indexVersionId}
+      AND "status" IN ('building', 'ready')
+      AND (
+        "status" = 'ready'
+        OR "qualityGatePassed" = true
+        OR "qualityValidatedAt" IS NOT NULL
+        OR "qualityReport" IS NOT NULL
+        OR "reconciledAt" IS NOT NULL
+        OR "validation" IS NOT NULL
+      )
+  `;
+}
+
 export async function upsertVersionedEmbeddingRecord(input: {
   client: Pick<Prisma.TransactionClient, "$executeRaw">;
   kind: EmbeddingEntityKind;
   entityId: string;
   embedding: GeneratedEmbedding;
+  invalidateCandidateQualityGate?: boolean;
 }) {
   const vectorLiteral = vectorToSqlLiteral(input.embedding.vector);
   const inputTokens = input.embedding.usage.inputTokens;
   const costUsd = embeddingCostValue(input.embedding);
 
   if (input.kind === "highlight") {
-    return input.client.$executeRaw`
+    const result = await input.client.$executeRaw`
       INSERT INTO "HighlightEmbedding"
         ("id", "highlightId", "indexVersionId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "inputTokens", "costUsd", "createdAt", "updatedAt")
       VALUES
@@ -179,9 +206,16 @@ export async function upsertVersionedEmbeddingRecord(input: {
         "costUsd" = EXCLUDED."costUsd",
         "updatedAt" = CURRENT_TIMESTAMP
     `;
+    if (input.invalidateCandidateQualityGate) {
+      await invalidateChangedCandidateQualityGate({
+        client: input.client,
+        indexVersionId: input.embedding.id,
+      });
+    }
+    return result;
   }
   if (input.kind === "projectFact") {
-    return input.client.$executeRaw`
+    const result = await input.client.$executeRaw`
       INSERT INTO "ProjectFactEmbedding"
         ("id", "projectFactId", "indexVersionId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "inputTokens", "costUsd", "createdAt", "updatedAt")
       VALUES
@@ -196,9 +230,16 @@ export async function upsertVersionedEmbeddingRecord(input: {
         "costUsd" = EXCLUDED."costUsd",
         "updatedAt" = CURRENT_TIMESTAMP
     `;
+    if (input.invalidateCandidateQualityGate) {
+      await invalidateChangedCandidateQualityGate({
+        client: input.client,
+        indexVersionId: input.embedding.id,
+      });
+    }
+    return result;
   }
   if (input.kind === "evidence") {
-    return input.client.$executeRaw`
+    const result = await input.client.$executeRaw`
       INSERT INTO "EvidenceEmbedding"
         ("id", "evidenceItemId", "indexVersionId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "inputTokens", "costUsd", "createdAt", "updatedAt")
       VALUES
@@ -213,8 +254,15 @@ export async function upsertVersionedEmbeddingRecord(input: {
         "costUsd" = EXCLUDED."costUsd",
         "updatedAt" = CURRENT_TIMESTAMP
     `;
+    if (input.invalidateCandidateQualityGate) {
+      await invalidateChangedCandidateQualityGate({
+        client: input.client,
+        indexVersionId: input.embedding.id,
+      });
+    }
+    return result;
   }
-  return input.client.$executeRaw`
+  const result = await input.client.$executeRaw`
     INSERT INTO "ArtifactEmbedding"
       ("id", "artifactId", "indexVersionId", "modelId", "dimensions", "inputHash", "inputText", "embedding", "inputTokens", "costUsd", "createdAt", "updatedAt")
     VALUES
@@ -229,6 +277,13 @@ export async function upsertVersionedEmbeddingRecord(input: {
       "costUsd" = EXCLUDED."costUsd",
       "updatedAt" = CURRENT_TIMESTAMP
   `;
+  if (input.invalidateCandidateQualityGate) {
+    await invalidateChangedCandidateQualityGate({
+      client: input.client,
+      indexVersionId: input.embedding.id,
+    });
+  }
+  return result;
 }
 
 export async function recordEmbeddingIndexShadowFailure(input: {
@@ -261,8 +316,11 @@ export async function persistVersionedEmbeddingBatch(input: {
   const shadowEmbeddings = input.embeddings.filter(
     (embedding) => embedding.id !== input.writeSet.active.id,
   );
-  const persistOne = (embedding: GeneratedEmbedding) =>
-    runFencedEmbeddingWrite({
+  const persistOne = (embedding: GeneratedEmbedding) => {
+    const target = input.writeSet.targets.find(
+      (version) => version.id === embedding.id,
+    );
+    return runFencedEmbeddingWrite({
       expectedWriteSetEpoch: input.writeSet.writeSetEpoch,
       write: (client) =>
         upsertVersionedEmbeddingRecord({
@@ -270,8 +328,15 @@ export async function persistVersionedEmbeddingBatch(input: {
           kind: input.kind,
           entityId: input.entityId,
           embedding,
+          invalidateCandidateQualityGate:
+            target?.status !== "active" &&
+            (
+              target?.status === "ready" ||
+              target?.qualityGatePassed === true
+            ),
         }),
     });
+  };
 
   // The active vector is availability-critical and is always committed first.
   // Shadow writes are independent; a candidate outage leaves a reconciliation
@@ -306,6 +371,9 @@ export function persistBackfillEmbeddingRecord(input: {
       `Embedding index "${input.target.key}" is not in the fenced write set.`,
     );
   }
+  const fencedTarget = input.writeSet.targets.find(
+    (target) => target.id === input.target.id,
+  )!;
   return runFencedEmbeddingWrite({
     expectedWriteSetEpoch: input.writeSet.writeSetEpoch,
     write: (client) =>
@@ -314,6 +382,12 @@ export function persistBackfillEmbeddingRecord(input: {
         kind: input.kind,
         entityId: input.entityId,
         embedding: input.embedding,
+        invalidateCandidateQualityGate:
+          fencedTarget.status !== "active" &&
+          (
+            fencedTarget.status === "ready" ||
+            fencedTarget.qualityGatePassed === true
+          ),
       }),
   });
 }
@@ -764,8 +838,17 @@ export async function reconcileEmbeddingIndex(input: { key: string }) {
           "baseActivationEpoch" = ${control.activationEpoch},
           "reconciledAt" = CURRENT_TIMESTAMP,
           "validation" = CAST(${JSON.stringify(report)} AS jsonb),
+          "qualityGatePassed" = false,
+          "qualityValidatedAt" = NULL,
+          "qualityReport" = NULL,
           "updatedAt" = CURRENT_TIMESTAMP
       WHERE "id" = ${target.id}
+    `;
+    await tx.$executeRaw`
+      UPDATE "EmbeddingIndexControl"
+      SET "writeSetEpoch" = "writeSetEpoch" + 1,
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = 'default'
     `;
     return report;
   });
@@ -780,9 +863,9 @@ export async function recordEmbeddingQualityGate(input: {
   return prisma.$transaction(async (tx) => {
     await lockEmbeddingIndexAdministration(tx);
     const target = await findIndexByKey(tx, input.key, true);
-    if (target.status === "active" || target.status === "retired" || target.status === "failed") {
+    if (target.status !== "ready") {
       throw new Error(
-        `Cannot record a candidate quality gate while index "${input.key}" is ${target.status}.`,
+        `Embedding index "${input.key}" must be ready and reconciled before recording its quality gate.`,
       );
     }
     await tx.$executeRaw`
@@ -801,7 +884,7 @@ export async function activateEmbeddingIndex(input: {
   key: string;
   expectedActivationEpoch: number;
 }) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockEmbeddingIndexAdministration(tx);
     const controls = await tx.$queryRaw<Array<{
       activeVersionId: string;
@@ -844,14 +927,15 @@ export async function activateEmbeddingIndex(input: {
       await tx.$executeRaw`
         UPDATE "EmbeddingIndexVersion"
         SET "status" = 'building',
+            "qualityGatePassed" = false,
+            "qualityValidatedAt" = NULL,
+            "qualityReport" = NULL,
             "validation" = CAST(${JSON.stringify(report)} AS jsonb),
             "reconciledAt" = CURRENT_TIMESTAMP,
             "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${target.id}
       `;
-      throw new Error(
-        `Embedding index "${input.key}" changed after reconciliation; backfill and reconcile again.`,
-      );
+      return { activated: false as const };
     }
 
     await tx.$executeRaw`
@@ -879,6 +963,7 @@ export async function activateEmbeddingIndex(input: {
       WHERE "id" = 'default'
     `;
     return {
+      activated: true as const,
       previousActiveVersionId: control.activeVersionId,
       activeVersionId: target.id,
       activationEpoch: Number(control.activationEpoch) + 1,
@@ -887,6 +972,13 @@ export async function activateEmbeddingIndex(input: {
   }, {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
   });
+  if (!result.activated) {
+    throw new Error(
+      `Embedding index "${input.key}" changed after reconciliation; backfill, reconcile, and re-run the quality gate.`,
+    );
+  }
+  const { activated: _activated, ...activation } = result;
+  return activation;
 }
 
 export async function disableEmbeddingIndexWrites(input: { key: string }) {

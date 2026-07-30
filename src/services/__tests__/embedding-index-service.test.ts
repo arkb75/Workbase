@@ -13,6 +13,7 @@ import {
   EmbeddingWriteFenceChangedError,
   persistBackfillEmbeddingRecord,
   reconcileEmbeddingIndex,
+  recordEmbeddingQualityGate,
   registerEmbeddingIndexCandidate,
   resolveEmbeddingWriteSet,
   runFencedEmbeddingWrite,
@@ -136,6 +137,72 @@ describe("versioned embedding index lifecycle", () => {
     expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
   });
 
+  it("invalidates a ready candidate's quality gate when backfill changes its corpus", async () => {
+    const readyCandidate = {
+      ...candidate,
+      status: "ready" as const,
+      qualityGatePassed: true,
+    };
+    prismaMock.$queryRaw.mockResolvedValue([{ writeSetEpoch: 4 }]);
+
+    await persistBackfillEmbeddingRecord({
+      writeSet: {
+        active,
+        targets: [active, readyCandidate],
+        activationEpoch: 2,
+        writeSetEpoch: 4,
+      },
+      target: readyCandidate,
+      kind: "projectFact",
+      entityId: "fact-1",
+      embedding: {
+        id: readyCandidate.id,
+        key: readyCandidate.key,
+        provider: "openrouter",
+        modelId: readyCandidate.modelId,
+        dimensions: 512,
+        inputHash: "new-hash",
+        inputText: "changed candidate corpus",
+        vector: Array.from({ length: 512 }, () => 0),
+        usage: { inputTokens: 3, totalTokens: 3, costUsd: 0.000001 },
+      },
+    });
+
+    expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(2);
+    const invalidation = prismaMock.$executeRaw.mock.calls[1][0].join("");
+    expect(invalidation).toContain('"status" = \'building\'');
+    expect(invalidation).toContain('"qualityGatePassed" = false');
+    expect(invalidation).toContain('"qualityValidatedAt" = NULL');
+    expect(invalidation).toContain('"qualityReport" = NULL');
+  });
+
+  it("records quality only after a candidate is ready and reconciled", async () => {
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([candidate]);
+
+    await expect(recordEmbeddingQualityGate({
+      key: candidate.key,
+      passed: true,
+      report: { recallAt10: 1 },
+    })).rejects.toThrow("ready and reconciled");
+    expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+
+    prismaMock.$queryRaw.mockReset()
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{
+        ...candidate,
+        status: "ready",
+      }]);
+
+    await expect(recordEmbeddingQualityGate({
+      key: candidate.key,
+      passed: true,
+      report: { recallAt10: 1 },
+    })).resolves.toMatchObject({ qualityGatePassed: true });
+    expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
+  });
+
   it("will not activate a candidate before its quality gate passes", async () => {
     prismaMock.$queryRaw
       .mockResolvedValueOnce([{ locked: 1 }])
@@ -173,9 +240,15 @@ describe("versioned embedding index lifecycle", () => {
     const result = await reconcileEmbeddingIndex({ key: candidate.key });
 
     expect(result).toMatchObject({ complete: true, activationEpoch: 2 });
-    expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
+    expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(2);
     expect(prismaMock.$executeRaw.mock.calls[0][0].join("")).toContain(
       '"status" = ',
+    );
+    expect(prismaMock.$executeRaw.mock.calls[0][0].join("")).toContain(
+      '"qualityGatePassed" = false',
+    );
+    expect(prismaMock.$executeRaw.mock.calls[1][0].join("")).toContain(
+      '"writeSetEpoch" = "writeSetEpoch" + 1',
     );
   });
 
@@ -231,6 +304,9 @@ describe("versioned embedding index lifecycle", () => {
       expectedActivationEpoch: 2,
     })).rejects.toThrow("changed after reconciliation");
     expect(prismaMock.$executeRaw).toHaveBeenCalledOnce();
+    const invalidation = prismaMock.$executeRaw.mock.calls[0][0].join("");
+    expect(invalidation).toContain('"status" = \'building\'');
+    expect(invalidation).toContain('"qualityGatePassed" = false');
   });
 
   it("atomically activates a fully gated version and leaves the previous index rollback-eligible", async () => {
