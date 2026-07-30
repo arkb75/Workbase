@@ -197,10 +197,68 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         temperature: 0,
       }),
     ).rejects.toMatchObject({
+      message: "OpenRouter rate-limited this request.",
       status: 429,
       retryable: true,
       requestId: "req_header_1",
     });
+  });
+
+  it("does not expose provider billing URLs or key identifiers", async () => {
+    const providerMessage =
+      "Insufficient credits. Manage key sk-or-v1-sensitive at https://openrouter.ai/settings/keys/key_sensitive?workspace=ws_private";
+    const runtime = new OpenRouterChatCompletionsRuntime(
+      config(),
+      undefined,
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: providerMessage,
+              code: 402,
+              metadata: {
+                error_type:
+                  "billing_error https://openrouter.ai/settings/keys/key_sensitive",
+              },
+            },
+          }),
+          {
+            status: 402,
+            headers: {
+              "x-request-id":
+                "https://openrouter.ai/settings/keys/key_sensitive",
+              "retry-after": "https://openrouter.ai/settings/credits",
+            },
+          },
+        ),
+      ),
+    );
+
+    let failure: unknown;
+    try {
+      await runtime.converse({
+        systemPrompt: "test",
+        userPrompt: "test",
+        maxTokens: 16,
+        temperature: 0,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OpenRouterRequestError);
+    expect(failure).toMatchObject({
+      message: "OpenRouter account credits are insufficient for this request.",
+      status: 402,
+      retryable: false,
+      requestId: null,
+      code: "402",
+      errorType: null,
+      retryAfter: null,
+    });
+    expect(JSON.stringify(failure)).not.toContain("key_sensitive");
+    expect(String(failure)).not.toContain("openrouter.ai");
+    expect(String(failure)).not.toContain("sk-or-");
   });
 
   it("normalizes HTTP-200 choice errors with partial billed usage", async () => {

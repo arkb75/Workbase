@@ -264,12 +264,61 @@ function retryableHttpStatus(status: number) {
   );
 }
 
+function safeExternalRequestId(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 &&
+      trimmed.length <= 200 &&
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
+function safeExternalCode(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 &&
+      trimmed.length <= 80 &&
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
+function safeRetryAfter(value: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length > 40) return null;
+  if (/^\d{1,8}$/.test(trimmed)) return trimmed;
+  return Number.isNaN(Date.parse(trimmed)) ? null : trimmed;
+}
+
+function safeExternalModelId(value: unknown, fallback: string) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 &&
+      trimmed.length <= 200 &&
+      !trimmed.includes("://") &&
+      /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(trimmed)
+    ? trimmed
+    : fallback;
+}
+
+function safeExternalProvider(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 &&
+      trimmed.length <= 100 &&
+      /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
 function errorMetadataType(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return null;
   }
-  const value = (metadata as Record<string, unknown>).error_type;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  return safeExternalCode(
+    (metadata as Record<string, unknown>).error_type,
+  );
 }
 
 function numericErrorStatus(code: number | string | undefined) {
@@ -297,6 +346,50 @@ function retryableOpenRouterError(input: {
   );
 }
 
+function safeOpenRouterErrorMessage(input: {
+  status: number | null;
+  errorType: string | null;
+  providerMessage: string;
+}) {
+  const classificationText =
+    `${input.errorType ?? ""} ${input.providerMessage}`;
+  if (
+    /refusal|content[_ -]?(?:policy|filter|moderation)|safety/i.test(
+      classificationText,
+    )
+  ) {
+    return "OpenRouter blocked this response because of a content or safety policy.";
+  }
+  if (
+    input.status === 402 ||
+    /payment|billing|credit/i.test(classificationText)
+  ) {
+    return "OpenRouter account credits are insufficient for this request.";
+  }
+  if (
+    input.status === 401 ||
+    input.status === 403 ||
+    /auth|permission|forbidden/i.test(classificationText)
+  ) {
+    return "OpenRouter authentication or access was rejected.";
+  }
+  if (input.status === 429) {
+    return "OpenRouter rate-limited this request.";
+  }
+  if (input.status === 408) {
+    return "OpenRouter timed out while processing this request.";
+  }
+  if (input.status != null && input.status >= 500) {
+    return "OpenRouter or the selected model provider is temporarily unavailable.";
+  }
+  if (input.status === 400 || input.status === 409 || input.status === 422) {
+    return "OpenRouter rejected this request's parameters or state.";
+  }
+  return input.status == null
+    ? "OpenRouter could not complete this request."
+    : `OpenRouter could not complete this request (HTTP ${input.status}).`;
+}
+
 async function parseResponseBody(
   response: Response,
   signal?: AbortSignal,
@@ -307,12 +400,10 @@ async function parseResponseBody(
   } catch (error) {
     if (signal?.aborted) throw error;
     throw new OpenRouterRequestError(
-      `OpenRouter response body could not be read: ${
-        error instanceof Error ? error.message : "connection closed"
-      }`,
+      "OpenRouter response body could not be read.",
       response.status,
       true,
-      response.headers.get("x-request-id"),
+      safeExternalRequestId(response.headers.get("x-request-id")),
       { cause: error },
     );
   }
@@ -324,7 +415,7 @@ async function parseResponseBody(
       `OpenRouter returned a non-JSON response (HTTP ${response.status}).`,
       response.status,
       retryableHttpStatus(response.status),
-      response.headers.get("x-request-id"),
+      safeExternalRequestId(response.headers.get("x-request-id")),
     );
   }
 }
@@ -358,9 +449,7 @@ async function sendOpenRouterRequest(input: {
     // it into an infrastructure failure that can spend money on another model.
     if (input.signal?.aborted) throw error;
     throw new OpenRouterRequestError(
-      `OpenRouter request failed before a response was received: ${
-        error instanceof Error ? error.message : "network error"
-      }`,
+      "OpenRouter request failed before a response was received.",
       null,
       true,
       null,
@@ -369,11 +458,12 @@ async function sendOpenRouterRequest(input: {
   }
 
   const parsed = await parseResponseBody(response, input.signal);
-  const requestId =
+  const requestId = safeExternalRequestId(
     response.headers.get("x-request-id") ||
-    (typeof parsed.id === "string" ? parsed.id : null);
-  const responseModelId = parsed.model?.trim() || input.modelId;
-  const routedProvider = parsed.provider?.trim() || null;
+    (typeof parsed.id === "string" ? parsed.id : null),
+  );
+  const responseModelId = safeExternalModelId(parsed.model, input.modelId);
+  const routedProvider = safeExternalProvider(parsed.provider);
   const responseUsage = normalizeUsage(parsed.usage, {
     requestId,
     modelId: responseModelId,
@@ -387,7 +477,11 @@ async function sendOpenRouterRequest(input: {
     const payloadStatus = numericErrorStatus(parsed.error?.code);
     const status = response.ok ? payloadStatus : response.status;
     throw new OpenRouterRequestError(
-      providerMessage,
+      safeOpenRouterErrorMessage({
+        status,
+        errorType,
+        providerMessage,
+      }),
       status,
       retryableOpenRouterError({
         status,
@@ -396,11 +490,9 @@ async function sendOpenRouterRequest(input: {
       }),
       requestId,
       {
-        code: parsed.error?.code == null
-          ? null
-          : String(parsed.error.code),
+        code: safeExternalCode(parsed.error?.code),
         errorType,
-        retryAfter: response.headers.get("retry-after"),
+        retryAfter: safeRetryAfter(response.headers.get("retry-after")),
         tokenUsage: responseUsage,
         unknownUsageAttempts: responseUsage ? 0 : 1,
         partialContent: responseText(parsed.choices?.[0]?.message?.content),
@@ -415,7 +507,7 @@ async function sendOpenRouterRequest(input: {
       requestId,
       {
         code: "no_completion_choices",
-        retryAfter: response.headers.get("retry-after"),
+        retryAfter: safeRetryAfter(response.headers.get("retry-after")),
         tokenUsage: responseUsage,
         unknownUsageAttempts: responseUsage ? 0 : 1,
       },
@@ -429,16 +521,18 @@ async function sendOpenRouterRequest(input: {
     const errorType = errorMetadataType(choice.error?.metadata);
     const status = numericErrorStatus(choice.error?.code);
     throw new OpenRouterRequestError(
-      providerMessage,
+      safeOpenRouterErrorMessage({
+        status,
+        errorType,
+        providerMessage,
+      }),
       status,
       retryableOpenRouterError({ status, errorType, message: providerMessage }),
       requestId,
       {
-        code: choice.error?.code == null
-          ? "choice_error"
-          : String(choice.error.code),
+        code: safeExternalCode(choice.error?.code) ?? "choice_error",
         errorType,
-        retryAfter: response.headers.get("retry-after"),
+        retryAfter: safeRetryAfter(response.headers.get("retry-after")),
         tokenUsage: responseUsage,
         unknownUsageAttempts: responseUsage ? 0 : 1,
         partialContent: responseText(choice.message?.content),
@@ -449,12 +543,8 @@ async function sendOpenRouterRequest(input: {
     choice.message?.refusal != null ||
     choice.finish_reason === "content_filter"
   ) {
-    const refusal =
-      typeof choice.message?.refusal === "string"
-        ? choice.message.refusal
-        : "The model blocked this response for safety or content-policy reasons.";
     throw new OpenRouterRequestError(
-      refusal,
+      "OpenRouter blocked this response because of a content or safety policy.",
       null,
       false,
       requestId,
