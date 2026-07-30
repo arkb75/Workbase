@@ -9,6 +9,12 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn(),
   },
 }));
+const activeIdentityMock = vi.hoisted(() => ({
+  value: {
+    provider: "bedrock",
+    modelId: "us.anthropic.claude-sonnet-4-6-v1:0",
+  },
+}));
 
 vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 vi.mock("@/src/lib/llm-config", () => ({
@@ -17,10 +23,7 @@ vi.mock("@/src/lib/llm-config", () => ({
     modelId: "us.anthropic.claude-sonnet-4-6-v1:0",
     region: "us-west-2",
   }),
-  resolveActiveTextModelIdentity: () => ({
-    provider: "bedrock",
-    modelId: "us.anthropic.claude-sonnet-4-6-v1:0",
-  }),
+  resolveActiveTextModelIdentity: () => activeIdentityMock.value,
 }));
 
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
@@ -43,6 +46,10 @@ function structuredResult(tokenUsage: JsonValue | null) {
 describe("structured generation audit usage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    activeIdentityMock.value = {
+      provider: "bedrock",
+      modelId,
+    };
     prismaMock.generationRun.update.mockResolvedValue({});
   });
 
@@ -205,6 +212,60 @@ describe("structured generation audit usage", () => {
       unknownUsageAttempts: 0,
       usageComplete: true,
       admissionFailure: true,
+      budgetCode: "token_budget_exhausted",
+    }));
+  });
+
+  it("retains charged usage when the provider response exceeds the token budget", async () => {
+    activeIdentityMock.value = {
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+    };
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-post-response-budget",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      tokenUsage: null,
+      resultRefs: null,
+    });
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "semantic_extraction",
+      idempotencyKey: "semantic:post-response-budget",
+      inputSummary: { path: "src/large-service.ts" },
+      execute: async () => {
+        throw new StructuredGenerationBudgetError(
+          "token_budget_exhausted",
+          "The provider response crossed the cumulative token ceiling.",
+          {
+            modelCalls: 1,
+            repairPasses: 0,
+            inputTokens: 120,
+            outputTokens: 30,
+            totalTokens: 150,
+            unknownUsageCalls: 0,
+          },
+        );
+      },
+    })).rejects.toThrow("crossed the cumulative token ceiling");
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.tokenUsage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+    });
+    expect(data.estimatedCostUsd).toBeNull();
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditAttemptCount: 1,
+      providerAttemptCount: 1,
+      unknownUsageAttempts: 0,
+      usageComplete: false,
+      knownEstimatedCostUsd: null,
+      admissionFailure: false,
       budgetCode: "token_budget_exhausted",
     }));
   });

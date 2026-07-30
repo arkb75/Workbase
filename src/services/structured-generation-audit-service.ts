@@ -7,6 +7,10 @@ import {
 } from "@/src/lib/bedrock-structured-llm-client";
 import { sanitizeBedrockConverseEventValue } from "@/src/lib/bedrock-converse-agent";
 import {
+  generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
+} from "@/src/lib/generation-runs";
+import {
   resolveActiveTextModelIdentity,
   type TextModelProfile,
 } from "@/src/lib/llm-config";
@@ -372,9 +376,12 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
   } catch (error) {
     if (run) {
       const structured = error instanceof StructuredOutputError ? error : null;
-      const admissionFailure = error instanceof StructuredGenerationBudgetError;
+      const admissionFailure =
+        isStructuredGenerationAdmissionFailure(error);
       const failureTokenUsage =
-        structured?.tokenUsage ?? providerErrorUsage(error);
+        structured?.tokenUsage ??
+        generationRunFailureTokenUsage(error) ??
+        providerErrorUsage(error);
       const auditUsage = cumulativeAuditUsage({
         priorTokenUsage: run.tokenUsage,
         priorResultRefs: run.resultRefs,
@@ -413,7 +420,10 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             usageComplete: auditUsage.usageComplete,
             knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
             admissionFailure,
-            budgetCode: admissionFailure ? error.code : null,
+            budgetCode:
+              error instanceof StructuredGenerationBudgetError
+                ? error.code
+                : null,
           }),
         },
       });

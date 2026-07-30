@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
+import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-llm-client";
 import { prisma } from "@/src/lib/prisma";
 import {
   collectModelTokenUsage,
@@ -72,6 +73,26 @@ function jsonValue(value: unknown): Prisma.InputJsonValue | null {
   }
 }
 
+function nonNegativeInteger(value: unknown) {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+/**
+ * A structured-generation budget error is an admission failure only when no
+ * provider dispatch has occurred. The same error class is also used after a
+ * charged response pushes the cumulative token total over its ceiling.
+ */
+export function isStructuredGenerationAdmissionFailure(error: unknown) {
+  return (
+    error instanceof StructuredGenerationBudgetError &&
+    error.usage.modelCalls === 0
+  );
+}
+
 function isModelProvider(provider: string) {
   return !["", "mock", "workbase", "deterministic"].includes(
     provider.trim().toLowerCase(),
@@ -81,7 +102,6 @@ function isModelProvider(provider: string) {
 function generationRunMetering(data: GenerationRunWriteInput) {
   const finalStatus = data.status !== "queued" && data.status !== "running";
   const modelProvider = isModelProvider(data.provider);
-  const admissionFailure = record(data.resultRefs).admissionFailure === true;
   const usageEntryCount = countModelUsageEntries(data.tokenUsage);
   const explicitUnknownUsageAttempts =
     collectUnknownModelUsageAttempts(data.tokenUsage);
@@ -89,6 +109,10 @@ function generationRunMetering(data: GenerationRunWriteInput) {
     countModelProviderAttempts(data.tokenUsage),
     explicitUnknownUsageAttempts,
   );
+  const admissionFailure =
+    record(data.resultRefs).admissionFailure === true &&
+    providerAttemptCount === 0 &&
+    usageEntryCount === 0;
   let unknownUsageAttempts = explicitUnknownUsageAttempts;
   if (
     modelProvider &&
@@ -146,24 +170,87 @@ function generationRunMetering(data: GenerationRunWriteInput) {
 export function generationRunFailureTokenUsage(
   error: unknown,
 ): Prisma.InputJsonValue | null {
+  if (error instanceof StructuredGenerationBudgetError) {
+    if (isStructuredGenerationAdmissionFailure(error)) return null;
+    const usage = error.usage;
+    return {
+      attempts: [{
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens: usage.totalTokens,
+      }],
+      failedAttempts: [],
+      providerAttemptCount: usage.modelCalls,
+      unknownUsageAttempts: usage.unknownUsageCalls,
+      budgetCode: error.code,
+    };
+  }
+
   const candidate = record(error);
   const tokenUsage = jsonValue(candidate.tokenUsage);
-  const failedAttempts = jsonValue(candidate.failedAttempts);
+  const tokenUsageRecord = record(tokenUsage);
+  const tokenUsageIsAggregate =
+    ![
+      "inputTokens",
+      "outputTokens",
+      "totalTokens",
+      "cacheReadInputTokens",
+      "cacheWriteInputTokens",
+    ].some((key) => typeof tokenUsageRecord[key] === "number") &&
+    (
+      Array.isArray(tokenUsageRecord.attempts) ||
+      Array.isArray(tokenUsageRecord.failedAttempts)
+    );
+  const attempts = tokenUsageIsAggregate
+    ? Array.isArray(tokenUsageRecord.attempts)
+      ? tokenUsageRecord.attempts
+          .map((attempt) => jsonValue(attempt))
+          .filter((attempt): attempt is Prisma.InputJsonValue => attempt != null)
+      : []
+    : tokenUsage == null
+      ? []
+      : [tokenUsage];
+  const failedAttempts = [
+    ...(tokenUsageIsAggregate && Array.isArray(tokenUsageRecord.failedAttempts)
+      ? tokenUsageRecord.failedAttempts
+      : []),
+    ...(Array.isArray(candidate.failedAttempts)
+      ? candidate.failedAttempts
+      : []),
+  ]
+    .map((attempt) => jsonValue(attempt))
+    .filter((attempt): attempt is Prisma.InputJsonValue => attempt != null)
+    .filter((attempt, index, all) => {
+      const attemptRecord = record(attempt);
+      const requestId =
+        typeof attemptRecord.requestId === "string" &&
+        attemptRecord.requestId.trim()
+          ? attemptRecord.requestId.trim()
+          : null;
+      const identity = requestId
+        ? `request:${requestId}`
+        : `metadata:${JSON.stringify(attempt)}`;
+      return all.findIndex((candidateAttempt) => {
+        const candidateRecord = record(candidateAttempt);
+        const candidateRequestId =
+          typeof candidateRecord.requestId === "string" &&
+          candidateRecord.requestId.trim()
+            ? candidateRecord.requestId.trim()
+            : null;
+        return (
+          candidateRequestId
+            ? `request:${candidateRequestId}`
+            : `metadata:${JSON.stringify(candidateAttempt)}`
+        ) === identity;
+      }) === index;
+    });
   const explicitProviderAttemptCount =
-    typeof candidate.providerAttemptCount === "number" &&
-    Number.isFinite(candidate.providerAttemptCount) &&
-    candidate.providerAttemptCount >= 0
-      ? Math.floor(candidate.providerAttemptCount)
-      : null;
+    nonNegativeInteger(candidate.providerAttemptCount);
   const explicitUnknownUsageAttempts =
-    typeof candidate.unknownUsageAttempts === "number" &&
-    Number.isFinite(candidate.unknownUsageAttempts) &&
-    candidate.unknownUsageAttempts >= 0
-      ? Math.floor(candidate.unknownUsageAttempts)
-      : null;
+    nonNegativeInteger(candidate.unknownUsageAttempts);
   if (
     tokenUsage == null &&
-    failedAttempts == null &&
+    failedAttempts.length === 0 &&
     explicitProviderAttemptCount == null &&
     explicitUnknownUsageAttempts == null
   ) {
@@ -173,6 +260,7 @@ export function generationRunFailureTokenUsage(
     explicitProviderAttemptCount ?? 0,
     countModelProviderAttempts(tokenUsage),
     explicitUnknownUsageAttempts ?? 0,
+    failedAttempts.length,
     1,
   );
   const unknownUsageAttempts =
@@ -187,11 +275,8 @@ export function generationRunFailureTokenUsage(
       ? candidate.requestId.trim()
       : null;
   return {
-    attempts: tokenUsage == null ? [] : [tokenUsage],
-    failedAttempts:
-      Array.isArray(failedAttempts)
-        ? failedAttempts
-        : [],
+    attempts,
+    failedAttempts,
     ...(requestId ? { requestIds: [requestId] } : {}),
     providerAttemptCount,
     unknownUsageAttempts,

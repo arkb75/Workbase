@@ -8,6 +8,7 @@ import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import {
   createGenerationRun,
   generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
 import { claimVerificationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import {
@@ -23,10 +24,7 @@ import {
   claimVerificationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import {
-  StructuredGenerationBudgetError,
-  StructuredOutputError,
-} from "@/src/lib/bedrock-structured-llm-client";
+import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import { toSentence } from "@/src/lib/utils";
 import type { ClaimVerificationService } from "@/src/services/types";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
@@ -434,6 +432,7 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
         validationErrors: null,
         resultRefs: {
           ...(agentRunId ? { agentRunId } : {}),
+          profile: "verification",
           configuredModelId: configuredIdentity.modelId,
         },
         tokenUsage: {
@@ -449,7 +448,7 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
       const admissionFailure =
-        error instanceof StructuredGenerationBudgetError;
+        isStructuredGenerationAdmissionFailure(error);
       const baseInputSummary = buildVerificationInputSummary({
         workItemId: workItem.id,
         workItemTitle: workItem.title,
@@ -492,6 +491,7 @@ const bedrockClaimVerificationService: ClaimVerificationService = {
           (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
         resultRefs: {
           ...(agentRunId ? { agentRunId } : {}),
+          profile: "verification",
           configuredModelId: configuredIdentity.modelId,
           ...(admissionFailure ? { admissionFailure: true } : {}),
         },

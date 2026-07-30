@@ -25,6 +25,7 @@ const zeroMetrics: ProjectChatApplicationMetrics = {
     providerAttempts: 0,
     failedProviderAttempts: 0,
     fallbackUsed: false,
+    profiles: {},
   },
   repositoryTreeLookups: 0,
   repositorySearches: 0,
@@ -479,6 +480,25 @@ describe("project-chat application scenario runner", () => {
                 providerAttempts: 1,
                 failedProviderAttempts: fallback ? 1 : 0,
                 fallbackUsed: fallback,
+                profiles: {
+                  primary_answer: {
+                    providers: ["openrouter"],
+                    configuredModelIds: ["openai/gpt-5.6-terra"],
+                    expectedModelIds: ["openai/gpt-5.6-terra"],
+                    actualModelIds: [
+                      fallback
+                        ? "anthropic/claude-sonnet-5"
+                        : "openai/gpt-5.6-terra",
+                    ],
+                    providerAttempts: 1,
+                    failedProviderAttempts: fallback ? 1 : 0,
+                    totalTokens: 100,
+                    estimatedCostUsd: 0.001,
+                    usageComplete: true,
+                    fallbackUsed: fallback,
+                    configuredRoutingMatched: !fallback,
+                  },
+                },
               },
             },
           };
@@ -505,6 +525,13 @@ describe("project-chat application scenario runner", () => {
         providerAttempts: 2,
         failedProviderAttempts: 1,
         fallbackUsed: true,
+        profiles: {
+          primary_answer: expect.objectContaining({
+            providerAttempts: 2,
+            fallbackUsed: true,
+            configuredRoutingMatched: false,
+          }),
+        },
       },
     });
   });
@@ -535,6 +562,88 @@ describe("project-chat application scenario runner", () => {
 
     expect(result.passed).toBe(false);
     expect(result.checks.find((check) => check.name === "provider usage telemetry is complete")?.passed).toBe(false);
+  });
+
+  it("rejects a fully metered answer when an application fallback was used", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "design_tradeoffs",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      metrics: {
+        ...observation.metrics,
+        modelAttribution: {
+          ...observation.metrics.modelAttribution,
+          fallbackUsed: true,
+          profiles: {
+            primary_answer: {
+              providers: [],
+              configuredModelIds: [],
+              expectedModelIds: [],
+              actualModelIds: [],
+              providerAttempts: 0,
+              failedProviderAttempts: 0,
+              totalTokens: 0,
+              estimatedCostUsd: 0,
+              usageComplete: true,
+              fallbackUsed: true,
+              configuredRoutingMatched: true,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "live model execution used no fallback",
+      passed: false,
+    }));
+  });
+
+  it("rejects an invoked profile that did not use its configured model", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "design_tradeoffs",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      metrics: {
+        ...observation.metrics,
+        modelCalls: 1,
+        totalTokens: 25,
+        estimatedCostUsd: 0.0001,
+        modelAttribution: {
+          ...observation.metrics.modelAttribution,
+          providers: ["openrouter"],
+          configuredModelIds: ["openai/gpt-5.4-nano"],
+          actualModelIds: ["anthropic/claude-sonnet-5"],
+          providerAttempts: 1,
+          profiles: {
+            routing: {
+              providers: ["openrouter"],
+              configuredModelIds: ["openai/gpt-5.4-nano"],
+              expectedModelIds: ["openai/gpt-5.4-nano"],
+              actualModelIds: ["anthropic/claude-sonnet-5"],
+              providerAttempts: 1,
+              failedProviderAttempts: 0,
+              totalTokens: 25,
+              estimatedCostUsd: 0.0001,
+              usageComplete: true,
+              fallbackUsed: false,
+              configuredRoutingMatched: false,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "observed model profiles match configured routing",
+      passed: false,
+    }));
   });
 
   it("never accepts user-visible verifier or durable-run failure copy", () => {

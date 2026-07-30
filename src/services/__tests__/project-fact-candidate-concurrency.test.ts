@@ -444,6 +444,10 @@ describe("Project Fact candidate concurrency", () => {
     expect(promoteRepositoryCitationsMock).toHaveBeenCalledTimes(1);
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
     expect(result.candidateIds).toHaveLength(1);
+    expect(result).toMatchObject({
+      modelInvoked: true,
+      fallbackUsed: false,
+    });
     expect(factRows).toHaveLength(1);
   });
 
@@ -505,6 +509,8 @@ describe("Project Fact candidate concurrency", () => {
     expect(result).toMatchObject({
       candidateIds: ["candidate-edited"],
       activeProjectFactIds: ["fact-edited"],
+      modelInvoked: false,
+      fallbackUsed: false,
     });
     expect(prismaMock.workItem.findFirstOrThrow).toHaveBeenCalledWith({
       where: { id: "work-1", userId: "user-1" },
@@ -524,6 +530,24 @@ describe("Project Fact candidate concurrency", () => {
     expect(recordChangeMock).toHaveBeenCalledWith(expect.objectContaining({
       entityId: "fact-edited",
     }));
+  });
+
+  it("reports an explicit deterministic no-model result without repository citations", async () => {
+    const input = researchInput("run-no-repository-citations");
+    input.citations = [];
+
+    const result = await createProjectFactCandidates(input);
+
+    expect(result).toEqual({
+      candidateIds: [],
+      activeProjectFactIds: [],
+      coverageGaps: [],
+      tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
+    });
+    expect(generateStructuredMock).not.toHaveBeenCalled();
+    expect(promoteRepositoryCitationsMock).not.toHaveBeenCalled();
   });
 
   it("authorizes the run and work item before disclosing replayed candidates", async () => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-llm-client";
 
 const prismaMock = vi.hoisted(() => ({
   generationRun: {
@@ -13,6 +14,7 @@ vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 import {
   createGenerationRun,
   generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
 
 describe("generation run telemetry privacy", () => {
@@ -258,6 +260,124 @@ describe("generation run telemetry privacy", () => {
           knownEstimatedCostUsd: null,
         },
       }),
+    });
+  });
+
+  it("distinguishes zero-call admission from a post-response token budget error", async () => {
+    const admissionError = new StructuredGenerationBudgetError(
+      "token_budget_exhausted",
+      "request did not fit",
+      {
+        modelCalls: 0,
+        repairPasses: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        unknownUsageCalls: 0,
+      },
+    );
+    const chargedError = new StructuredGenerationBudgetError(
+      "token_budget_exhausted",
+      "provider response exceeded the cumulative limit",
+      {
+        modelCalls: 1,
+        repairPasses: 0,
+        inputTokens: 120,
+        outputTokens: 30,
+        totalTokens: 150,
+        unknownUsageCalls: 0,
+      },
+    );
+
+    expect(isStructuredGenerationAdmissionFailure(admissionError)).toBe(true);
+    expect(generationRunFailureTokenUsage(admissionError)).toBeNull();
+    expect(isStructuredGenerationAdmissionFailure(chargedError)).toBe(false);
+    expect(generationRunFailureTokenUsage(chargedError)).toEqual({
+      attempts: [{
+        inputTokens: 120,
+        outputTokens: 30,
+        totalTokens: 150,
+      }],
+      failedAttempts: [],
+      providerAttemptCount: 1,
+      unknownUsageAttempts: 0,
+      budgetCode: "token_budget_exhausted",
+    });
+
+    prismaMock.generationRun.create.mockImplementation(async ({ data }) => ({
+      id: "generation-charged-budget",
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      status: "provider_error",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      rawOutput: null,
+      parsedOutput: null,
+      validationErrors: null,
+      ...data,
+    }));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await createGenerationRun({
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      status: "provider_error",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      inputSummary: {},
+      resultRefs: {
+        agentRunId: "agent-1",
+        admissionFailure: false,
+      },
+      tokenUsage: generationRunFailureTokenUsage(chargedError),
+    });
+
+    expect(prismaMock.generationRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        estimatedCostUsd: null,
+        resultRefs: expect.objectContaining({
+          admissionFailure: false,
+          auditAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          usageComplete: false,
+          knownEstimatedCostUsd: null,
+        }),
+      }),
+    });
+  });
+
+  it("flattens and deduplicates nested OpenRouter fallback failures", () => {
+    const primaryFailure = {
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-nano",
+      requestId: "request-primary",
+      httpStatus: 503,
+    };
+    const fallbackFailure = {
+      provider: "openrouter",
+      modelId: "anthropic/claude-sonnet-5",
+      requestId: "request-fallback",
+      httpStatus: 429,
+    };
+    const tokenUsage = generationRunFailureTokenUsage({
+      requestId: "request-fallback",
+      providerAttemptCount: 2,
+      unknownUsageAttempts: 2,
+      failedAttempts: [primaryFailure, fallbackFailure],
+      tokenUsage: {
+        attempts: [],
+        failedAttempts: [primaryFailure, fallbackFailure],
+        providerAttemptCount: 2,
+        unknownUsageAttempts: 2,
+      },
+    });
+
+    expect(tokenUsage).toEqual({
+      attempts: [],
+      failedAttempts: [primaryFailure, fallbackFailure],
+      requestIds: ["request-fallback"],
+      providerAttemptCount: 2,
+      unknownUsageAttempts: 2,
     });
   });
 });

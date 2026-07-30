@@ -3,6 +3,7 @@ import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import {
   createGenerationRun,
   generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
 import { artifactGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
 import {
@@ -17,10 +18,7 @@ import {
   artifactGenerationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import {
-  StructuredGenerationBudgetError,
-  StructuredOutputError,
-} from "@/src/lib/bedrock-structured-llm-client";
+import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockArtifactGenerationService } from "@/src/services/mock-artifact-generation-service";
@@ -230,6 +228,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         validationErrors: null,
         resultRefs: {
           ...(agentRunId ? { agentRunId } : {}),
+          profile: "drafting",
           configuredModelId: configuredIdentity.modelId,
           usedHighlightIds: artifact.usedHighlightIds,
           supportingEvidenceItemIds: artifact.supportingEvidenceItemIds,
@@ -245,7 +244,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
       const admissionFailure =
-        error instanceof StructuredGenerationBudgetError;
+        isStructuredGenerationAdmissionFailure(error);
 
       await createGenerationRun({
         workItemId: request.workItemId,
@@ -267,6 +266,7 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
           (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
         resultRefs: {
           ...(agentRunId ? { agentRunId } : {}),
+          profile: "drafting",
           configuredModelId: configuredIdentity.modelId,
           ...(admissionFailure ? { admissionFailure: true } : {}),
         },

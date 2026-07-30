@@ -7,6 +7,7 @@ import type {
 import {
   createGenerationRun,
   generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
 import {
   buildHighlightGenerationJsonSchema,
@@ -22,10 +23,7 @@ import {
   resolveWorkbaseLlmProvider,
 } from "@/src/lib/llm-config";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
-import {
-  StructuredGenerationBudgetError,
-  StructuredOutputError,
-} from "@/src/lib/bedrock-structured-llm-client";
+import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import {
   buildRepairEvidenceRefHints,
   buildResearchSourceCatalog,
@@ -312,6 +310,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           validationErrors: null,
           resultRefs: {
             ...(agentRunId ? { agentRunId } : {}),
+            profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
             generatedHighlightCount: drafts.length,
@@ -325,7 +324,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
       } catch (error) {
         const failure = error instanceof StructuredOutputError ? error : null;
         const admissionFailure =
-          error instanceof StructuredGenerationBudgetError;
+          isStructuredGenerationAdmissionFailure(error);
 
         await createGenerationRun({
           workItemId: workItem.id,
@@ -347,6 +346,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
           resultRefs: {
             ...(agentRunId ? { agentRunId } : {}),
+            profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             ...(admissionFailure ? { admissionFailure: true } : {}),
             batchKey: batch.batchKey,

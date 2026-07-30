@@ -12,6 +12,7 @@ import {
 export interface ApplicationModelEvent {
   id?: string;
   message?: string | null;
+  toolName?: string | null;
   payload: unknown;
 }
 
@@ -38,6 +39,7 @@ type ApplicationModelMetrics = Pick<
 
 interface MeasuredUsageUnit {
   identity: string;
+  profile: string;
   provider: string;
   configuredModelIds: string[];
   actualModelIds: string[];
@@ -80,6 +82,77 @@ function isModelProvider(provider: string) {
   return !["", "mock", "workbase", "deterministic"].includes(
     provider.trim().toLowerCase(),
   );
+}
+
+function profileName(value: unknown, fallback = "unattributed") {
+  return typeof value === "string" && value.trim()
+    ? value.trim()
+    : fallback;
+}
+
+function containsFallbackSignal(value: unknown) {
+  const seen = new WeakSet<object>();
+  let found = false;
+  const visit = (current: unknown, depth: number) => {
+    if (
+      found ||
+      !current ||
+      typeof current !== "object" ||
+      depth > 8 ||
+      seen.has(current)
+    ) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    for (const [key, entry] of Object.entries(
+      current as Record<string, unknown>,
+    )) {
+      if (
+        (key === "fallbackUsed" || key === "editorialFallbackUsed") &&
+        entry === true
+      ) {
+        found = true;
+        return;
+      }
+      if (
+        key === "fallback" &&
+        (
+          entry === true ||
+          (typeof entry === "string" && entry.trim() !== "")
+        )
+      ) {
+        found = true;
+        return;
+      }
+      if (
+        key === "fallback" &&
+        entry != null &&
+        typeof entry === "object"
+      ) {
+        const fallback = record(entry);
+        const acceptedBlockCount = nonNegativeInteger(
+          fallback.acceptedBlockCount,
+        ) ?? 0;
+        if (
+          fallback.attempted === true ||
+          fallback.used === true ||
+          fallback.active === true ||
+          fallback.accepted === true ||
+          acceptedBlockCount > 0
+        ) {
+          found = true;
+          return;
+        }
+      }
+      visit(entry, depth + 1);
+    }
+  };
+  visit(value, 0);
+  return found;
 }
 
 function requestIdentity(value: unknown) {
@@ -131,7 +204,7 @@ function collectRawAttribution(value: unknown) {
   const routedProviders = new Set<string>();
   const requestIds = new Set<string>();
   const failedModelIds = new Set<string>();
-  let failedProviderAttempts = 0;
+  const failedAttemptIdentities = new Set<string>();
   const seen = new WeakSet<object>();
   const addStrings = (target: Set<string>, current: unknown) => {
     const values = Array.isArray(current) ? current : [current];
@@ -160,8 +233,20 @@ function collectRawAttribution(value: unknown) {
     )) {
       if (key === "failedAttempts" || key === "failedProviderAttempts") {
         if (Array.isArray(entry)) {
-          failedProviderAttempts += entry.length;
-          entry.forEach((attempt) => visit(attempt, depth + 1, true));
+          entry.forEach((attempt) => {
+            const attemptRecord = record(attempt);
+            const requestId =
+              typeof attemptRecord.requestId === "string" &&
+              attemptRecord.requestId.trim()
+                ? attemptRecord.requestId.trim()
+                : null;
+            failedAttemptIdentities.add(
+              requestId
+                ? `request:${requestId}`
+                : `metadata:${JSON.stringify(attempt)}`,
+            );
+            visit(attempt, depth + 1, true);
+          });
         }
         continue;
       }
@@ -185,12 +270,13 @@ function collectRawAttribution(value: unknown) {
     routedProviders: Array.from(routedProviders),
     requestIds: Array.from(requestIds),
     failedModelIds: Array.from(failedModelIds),
-    failedProviderAttempts,
+    failedProviderAttempts: failedAttemptIdentities.size,
   };
 }
 
 function measureUsageUnit(input: {
   identity: string;
+  profile: string;
   provider: string;
   modelId: string;
   configuredModelId?: string | null;
@@ -259,17 +345,32 @@ function measureUsageUnit(input: {
   ]);
   const fallbackUsed =
     input.explicitFallbackUsed === true ||
+    containsFallbackSignal(input.rawUsage) ||
+    containsFallbackSignal(input.attributionMetadata) ||
     (
       modelCalls > 0 &&
       configuredModelId !== "" &&
-      input.modelId.trim() !== "" &&
-      configuredModelId !== input.modelId.trim()
+      Array.from(actualModelIds).some(
+        (modelId) => modelId !== configuredModelId,
+      )
     ) ||
     Array.from(failedModelIds).some(
-      (modelId) => !actualModelIds.has(modelId),
+      (modelId) =>
+        modelId !== configuredModelId &&
+        !actualModelIds.has(modelId),
     );
+  const failedProviderAttempts = Math.min(
+    modelCalls,
+    Math.max(
+      rawAttribution.failedProviderAttempts,
+      metadataAttribution.failedProviderAttempts,
+      unknownUsageAttempts,
+      input.terminalFailure ? modelCalls : 0,
+    ),
+  );
   return {
     identity: input.identity,
+    profile: input.profile,
     provider: input.provider,
     configuredModelIds:
       modelCalls > 0 && configuredModelId ? [configuredModelId] : [],
@@ -288,12 +389,7 @@ function measureUsageUnit(input: {
       ...metadataAttribution.requestIds,
     ])),
     failedModelIds: Array.from(failedModelIds),
-    failedProviderAttempts: Math.max(
-      rawAttribution.failedProviderAttempts,
-      metadataAttribution.failedProviderAttempts,
-      unknownUsageAttempts,
-      input.terminalFailure ? modelCalls : 0,
-    ),
+    failedProviderAttempts,
     fallbackUsed,
     modelCalls,
     unknownUsageAttempts,
@@ -367,6 +463,7 @@ function eventUsageUnits(input: {
       identity:
         requestIdentity(payload) ??
         `event:${event.id ?? index}:${iteration ?? "unknown"}:${kind}`,
+      profile: profileName(payload.profile, "primary_answer"),
       provider,
       modelId,
       configuredModelId: input.modelId,
@@ -382,6 +479,10 @@ function eventUsageUnits(input: {
     if (iteration != null && terminalIterations.has(iteration)) continue;
     units.push(measureUsageUnit({
       identity: `unmetered-event-start:${event.id ?? index}:${iteration ?? "unknown"}`,
+      profile: profileName(
+        record(event.payload).profile,
+        "primary_answer",
+      ),
       provider: input.provider,
       modelId: input.modelId,
       configuredModelId: input.modelId,
@@ -415,6 +516,7 @@ function dossierUsageUnits(input: {
       identity:
         requestIdentity(entry) ??
         `research-model-usage:${index}:${typeof wrapper.phase === "string" ? wrapper.phase : "unknown"}`,
+      profile: profileName(wrapper.profile),
       provider:
         typeof wrapper.provider === "string"
           ? wrapper.provider
@@ -427,6 +529,7 @@ function dossierUsageUnits(input: {
         typeof wrapper.modelInvoked === "boolean"
           ? wrapper.modelInvoked
           : rawUsage != null,
+      explicitFallbackUsed: containsFallbackSignal(entry),
     });
   });
 }
@@ -447,6 +550,7 @@ function generationUsageUnits(generationRuns: ApplicationGenerationRun[]) {
       identity:
         requestIdentity({ tokenUsage: run.tokenUsage, resultRefs: run.resultRefs }) ??
         `generation-run:${run.id}`,
+      profile: profileName(refs.profile),
       provider: run.provider,
       modelId: run.modelId,
       configuredModelId:
@@ -489,6 +593,112 @@ function deduplicateUsageUnits(units: MeasuredUsageUnit[]) {
     }
   }
   return Array.from(byIdentity.values());
+}
+
+function fallbackSignalProfiles(input: {
+  events: ApplicationModelEvent[];
+  storedResult: unknown;
+}) {
+  const profiles = new Set<string>();
+  if (containsFallbackSignal(input.storedResult)) {
+    profiles.add("primary_answer");
+  }
+  for (const event of input.events) {
+    if (!containsFallbackSignal(event.payload)) continue;
+    const payload = record(event.payload);
+    profiles.add(
+      profileName(
+        payload.profile,
+        event.toolName === "route_project_execution"
+          ? "routing"
+          : "primary_answer",
+      ),
+    );
+  }
+  return profiles;
+}
+
+function profileAttribution(input: {
+  units: MeasuredUsageUnit[];
+  fallbackProfiles: ReadonlySet<string>;
+  expectedModelIdsByProfile?: Readonly<Record<string, string>>;
+}) {
+  const profiles = new Set([
+    ...input.units
+      .filter((unit) => unit.modelCalls > 0 || unit.fallbackUsed)
+      .map((unit) => unit.profile),
+    ...input.fallbackProfiles,
+  ]);
+  return Object.fromEntries(
+    Array.from(profiles).sort().map((profile) => {
+      const units = input.units.filter((unit) => unit.profile === profile);
+      const providerAttempts = units.reduce(
+        (total, unit) => total + unit.modelCalls,
+        0,
+      );
+      const configuredModelIds = Array.from(new Set(
+        units.flatMap((unit) => unit.configuredModelIds),
+      )).sort();
+      const configuredExpectedModelId =
+        input.expectedModelIdsByProfile?.[profile]?.trim();
+      const expectedModelIds = configuredExpectedModelId
+        ? [configuredExpectedModelId]
+        : configuredModelIds;
+      const actualModelIds = Array.from(new Set(
+        units.flatMap((unit) => unit.actualModelIds),
+      )).sort();
+      const failedProviderAttempts = Math.min(
+        providerAttempts,
+        units.reduce(
+          (total, unit) => total + unit.failedProviderAttempts,
+          0,
+        ),
+      );
+      const estimatedCostUsd = Number(
+        units.reduce(
+          (total, unit) => total + (unit.costUsd ?? 0),
+          0,
+        ).toFixed(6),
+      );
+      const usageComplete = units.every(
+        (unit) => unit.authoritativeCostComplete,
+      );
+      const fallbackUsed =
+        input.fallbackProfiles.has(profile) ||
+        units.some((unit) => unit.fallbackUsed);
+      const configuredRoutingMatched =
+        providerAttempts === 0 ||
+        (
+          profile !== "unattributed" &&
+          expectedModelIds.length > 0 &&
+          actualModelIds.length > 0 &&
+          configuredModelIds.every((modelId) =>
+            expectedModelIds.includes(modelId)
+          ) &&
+          actualModelIds.every((modelId) =>
+            expectedModelIds.includes(modelId)
+          )
+        );
+      return [profile, {
+        providers: Array.from(new Set(
+          units.flatMap((unit) => unit.providers),
+        )).sort(),
+        configuredModelIds,
+        expectedModelIds,
+        actualModelIds,
+        providerAttempts,
+        failedProviderAttempts,
+        totalTokens: units.reduce(
+          (total, unit) => total + unit.usage.totalTokens,
+          0,
+        ),
+        estimatedCostUsd,
+        usageComplete,
+        fallbackUsed,
+        configuredRoutingMatched,
+      }];
+    }),
+  );
 }
 
 export function collectReferencedGenerationRunIds(...values: unknown[]) {
@@ -567,6 +777,8 @@ export function calculateApplicationModelMetrics(input: {
   events: ApplicationModelEvent[];
   dossierModelUsage: unknown;
   generationRuns: ApplicationGenerationRun[];
+  storedResult?: unknown;
+  expectedModelIdsByProfile?: Readonly<Record<string, string>>;
 }): ApplicationModelMetrics {
   const units = deduplicateUsageUnits([
     ...generationUsageUnits(input.generationRuns),
@@ -594,6 +806,15 @@ export function calculateApplicationModelMetrics(input: {
       usageComplete: true,
     },
   );
+  const fallbackProfiles = fallbackSignalProfiles({
+    events: input.events,
+    storedResult: input.storedResult,
+  });
+  const profiles = profileAttribution({
+    units,
+    fallbackProfiles,
+    expectedModelIdsByProfile: input.expectedModelIdsByProfile,
+  });
   const modelAttribution = {
     providers: Array.from(new Set(
       units.flatMap((unit) => unit.providers),
@@ -614,11 +835,17 @@ export function calculateApplicationModelMetrics(input: {
       units.flatMap((unit) => unit.failedModelIds),
     )).sort(),
     providerAttempts: totals.modelCalls,
-    failedProviderAttempts: units.reduce(
-      (total, unit) => total + unit.failedProviderAttempts,
-      0,
+    failedProviderAttempts: Math.min(
+      totals.modelCalls,
+      units.reduce(
+        (total, unit) => total + unit.failedProviderAttempts,
+        0,
+      ),
     ),
-    fallbackUsed: units.some((unit) => unit.fallbackUsed),
+    fallbackUsed:
+      units.some((unit) => unit.fallbackUsed) ||
+      fallbackProfiles.size > 0,
+    profiles,
   };
   return {
     ...totals,
