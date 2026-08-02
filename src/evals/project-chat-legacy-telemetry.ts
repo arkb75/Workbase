@@ -31,8 +31,13 @@ export function buildLegacyProjectChatModelTelemetry(
       metrics.modelAttribution.actualModelIds.length > 0 &&
       metrics.modelAttribution.routedProviders.length > 0 &&
       metrics.modelAttribution.requestIds.length > 0 &&
+      metrics.modelAttribution.authoritativeAttributionComplete &&
       invokedProfiles.length > 0 &&
-      invokedProfiles.every((profile) => profile.usageComplete)
+      invokedProfiles.every(
+        (profile) =>
+          profile.usageComplete &&
+          profile.authoritativeAttributionComplete,
+      )
     );
   const noFallbackAttempts =
     !openRouter ||
