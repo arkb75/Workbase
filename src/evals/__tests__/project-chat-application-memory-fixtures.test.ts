@@ -11,6 +11,7 @@ import {
   type PersistedGroundedComparisonEvaluationFact,
 } from "@/src/evals/project-chat-application-memory-fixtures";
 import { projectChatApplicationScenarios } from "@/src/evals/project-chat-application-runner";
+import { evaluateProjectChatAnswerQuality } from "@/src/evals/project-chat-answer-quality";
 import {
   classifyProjectAnswerEditorialProfile,
   hasGroundedProjectAnswerComparison,
@@ -143,6 +144,25 @@ describe("grounded project-chat application memory fixtures", () => {
       "repository_refresh",
       "targeted_research",
     ]);
+
+    const deterministicTable = [
+      "| Theme | Assessment |",
+      "| --- | --- |",
+      ...facts.map((fact, index) =>
+        `| ${fact.key} | ${fact.statement} [citation:${index + 1}] |`
+      ),
+    ].join("\n");
+    const qualityChecks = evaluateProjectChatAnswerQuality({
+      answer: deterministicTable,
+      contract: selectedScenario.answerContract!,
+      citationMetadata: facts.map((fact, index) => ({
+        ordinal: index + 1,
+        type: "project_fact",
+        title: fact.statement,
+        statement: fact.statement,
+      })),
+    });
+    expect(qualityChecks.filter((check) => !check.passed)).toEqual([]);
   });
 
   it("grounds the exact long-thread anchors only when current runtime is current-run evidence", () => {

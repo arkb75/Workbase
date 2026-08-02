@@ -37,20 +37,20 @@ const groundedComparisonEvaluationFixtures = {
       {
         key: "repository_refresh",
         statement:
-          "Repository knowledge refresh: Workbase should use this path for broad, project-wide currency across an attached repository. Its supported outputs become trusted memory by reconciling reviewed Project Facts and Highlights with provenance and retiring stale knowledge.",
+          "Repository knowledge refresh: Workbase should use this path for broad, project-wide currency across an attached repository. It reconciles supported outputs into reviewed Project Facts and Highlights, which keeps trusted memory current, provenance-backed, and free of retired stale knowledge.",
         evidenceTitle: "Repository knowledge refresh scope and memory outcome",
         evidenceContent:
-          "Workbase uses repository knowledge refresh for broad, project-wide currency across an attached repository. Supported refresh outputs enter trusted memory as reviewed Project Facts and Highlights with provenance, while stale knowledge is reconciled.",
+          "Workbase uses repository knowledge refresh for broad, project-wide currency across an attached repository. It reconciles supported refresh outputs into reviewed Project Facts and Highlights, which keeps trusted memory current and provenance-backed while stale knowledge is retired.",
         subsystemKey: "repository_knowledge_lifecycle",
         category: "data_flow",
       },
       {
         key: "targeted_research",
         statement:
-          "Targeted repository research: Workbase should use this path for a specific evidence gap that approved memory cannot answer. Its supported outputs become trusted memory by promoting reviewed Project Facts or Highlights with nested provenance; unsupported gaps remain explicit.",
+          "Targeted repository research: Workbase should use this path for a specific evidence gap that approved memory cannot answer. It promotes supported outputs into reviewed Project Facts or Highlights with nested provenance, which lets chat reuse trusted findings while unsupported gaps remain explicit.",
         evidenceTitle: "Targeted repository research scope and memory outcome",
         evidenceContent:
-          "Workbase uses targeted repository research for a specific evidence gap that approved memory cannot answer. Supported findings enter trusted memory as reviewed Project Facts or Highlights with nested provenance; unsupported gaps remain explicit.",
+          "Workbase uses targeted repository research for a specific evidence gap that approved memory cannot answer. It promotes supported findings into reviewed Project Facts or Highlights with nested provenance, which lets chat reuse trusted memory while unsupported gaps remain explicit.",
         subsystemKey: "project_chat_grounding",
         category: "behavior",
       },
