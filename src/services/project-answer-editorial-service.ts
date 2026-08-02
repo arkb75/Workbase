@@ -192,7 +192,7 @@ const comparisonPattern =
   /\b(?:compared? (?:with|to)|whereas|while|versus|vs\.?|difference|trade[- ]?off|both|unlike|respectively)\b/i;
 
 const comparisonIntentPattern =
-  /(?:\b(?:compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\bvs\.(?=\s|$))/i;
+  /(?:\b(?:compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\b(?:differ(?:s|ed|ing)?|different)\b.{0,180}\bfrom\b|\bdistinguish(?:es|ed|ing)?\b.{0,180}\bfrom\b|\btrade[- ]?offs?\s+between\b|\bvs\.(?=\s|$))/i;
 
 const genericVerificationErrorPattern =
   /\b(?:the answer could not be verified against its sources|could not be verified against (?:its|the) sources|grounding verifier returned no supported|citation integrity failed|durable agent run failed unexpectedly|durable agent run failed without)\b/i;
@@ -355,27 +355,34 @@ function splitComparisonDimensions(value: string | undefined) {
   )).slice(0, 6);
 }
 
+interface ExtractedComparisonSubjects {
+  subjects: [string, string];
+  subjectEndIndex: number;
+}
+
+const bareComparisonDimensionStart =
+  "(?:latency|delay|speed|throughput|performance|response\\s+time|failure|recovery|resilien\\w*|retry|fault\\s+tolerance|cost|price|spend|expense|complexity|operations?|maintenance|operability|security|privacy|authorization|access|reliability|scalability|accuracy|correctness|quality)";
+
 function extractComparisonDimensions(
   question: string,
-  subjects: [string, string] | null,
+  extracted: ExtractedComparisonSubjects | null,
 ) {
-  const explicitLens = question.match(
-    /\b(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
+  const normalizedQuestion = question.replace(/\s+/g, " ").trim();
+  const suffix = extracted
+    ? normalizedQuestion.slice(extracted.subjectEndIndex)
+    : "";
+  const explicitLens = suffix.match(
+    /^\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
   );
   if (explicitLens?.[1]) return splitComparisonDimensions(explicitLens[1]);
-  if (subjects) {
-    const normalizedQuestion = question.replace(/\s+/g, " ").trim();
-    const normalizedSecond = subjects[1].replace(/\s+/g, " ").trim();
-    const secondIndex = normalizedQuestion.toLowerCase().lastIndexOf(
-      normalizedSecond.toLowerCase(),
-    );
-    if (secondIndex >= 0) {
-      const suffix = normalizedQuestion.slice(secondIndex + normalizedSecond.length);
-      const bareOnLens = suffix.match(
-        /^\s+on\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
-      );
-      if (bareOnLens?.[1]) return splitComparisonDimensions(bareOnLens[1]);
-    }
+  const bareOnLens = suffix.match(
+    new RegExp(
+      `^\\s+on\\s+(${bareComparisonDimensionStart}\\b.+?|${bareComparisonDimensionStart})(?=[?.!]|$|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`,
+      "i",
+    ),
+  );
+  if (bareOnLens?.[1]) {
+    return splitComparisonDimensions(bareOnLens[1]);
   }
   const followUpInstruction = question.match(
     /(?:^|[.!?]\s+)\b(?:explain|cover|include|address)\s+(.+?)(?=[.!?]|$)/i,
@@ -383,10 +390,12 @@ function extractComparisonDimensions(
   return splitComparisonDimensions(followUpInstruction?.[1]);
 }
 
-function extractComparisonSubjects(question: string): [string, string] | null {
+function extractComparisonSubjects(
+  question: string,
+): ExtractedComparisonSubjects | null {
   const normalized = question.replace(/\s+/g, " ").trim();
   const terminal =
-    "(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of|on)\\b|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)";
+    `(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\\b|\\s+on\\s+(?=${bareComparisonDimensionStart}\\b)|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`;
   const patterns = [
     new RegExp(
       `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+and\\s+(.+?)\\s+compare${terminal}`,
@@ -394,6 +403,18 @@ function extractComparisonSubjects(question: string): [string, string] | null {
     ),
     new RegExp(
       `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+compare\\s+(?:with|to|against)\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+differ(?:s|ed)?\\s+from\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\bhow\\s+(?:is|are|was|were)\\s+(.+?)\\s+different\\s+from\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\bwhat\\s+distinguish(?:es|ed)?\\s+(.+?)\\s+from\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
@@ -405,11 +426,27 @@ function extractComparisonSubjects(question: string): [string, string] | null {
       "i",
     ),
     new RegExp(
+      `\\btrade[- ]?offs?\\s+between\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\b(?:compare|contrast)\\s+between\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
       `\\b(?:compare|compared|comparing|contrast|contrasted|contrasting)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
       `\\b(?:a|the)?\\s*comparison\\s+(?:of|between)\\s+(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\b(?:a|the)?\\s*comparison\\s*:\\s*(.+?)\\s+and\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `(?:^|[.!?]\\s+)(.+?)\\s+(?:compared|contrasted)\\s+(?:with|to|against)\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
@@ -427,7 +464,10 @@ function extractComparisonSubjects(question: string): [string, string] | null {
       first.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() !==
         second.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
     ) {
-      return [first, second];
+      return {
+        subjects: [first, second],
+        subjectEndIndex: (match?.index ?? 0) + (match?.[0]?.length ?? 0),
+      };
     }
   }
   return null;
@@ -435,6 +475,15 @@ function extractComparisonSubjects(question: string): [string, string] | null {
 
 const referentialComparisonSubjectPattern =
   /\b(?:that|this|those|these|earlier|prior|previous|former|original|current|present|latest|newer|now|today|one|ones)\b/i;
+
+const demonstrativeComparisonSubjectPattern =
+  /\b(?:that|this|those|these|one|ones)\b/i;
+
+const earlierComparisonEvidencePattern =
+  /\b(?:earlier|prior|previous|former|original|before|historical|legacy|formerly|used to|decision|decided|admit(?:ted|s)?|reviewed|durable memory|provenance)\b/i;
+
+const currentComparisonEvidencePattern =
+  /\b(?:current|present|latest|newer|now|today|runtime|execution)\b/i;
 
 function compactComparisonAnchor(value: string) {
   return value
@@ -510,8 +559,9 @@ export function deriveProjectAnswerComparisonContract(
   question: string,
   context: ProjectAnswerComparisonContext = {},
 ): ProjectAnswerComparisonContract | null {
-  const subjects = extractComparisonSubjects(question);
-  if (!subjects) return null;
+  const extracted = extractComparisonSubjects(question);
+  if (!extracted) return null;
+  const { subjects } = extracted;
   return {
     subjects: subjects.map((label) => {
       const temporalRole = comparisonTemporalRole(label);
@@ -522,7 +572,7 @@ export function deriveProjectAnswerComparisonContract(
         resolvedAnchor: resolveComparisonAnchor(label, temporalRole, context),
       };
     }) as ProjectAnswerComparisonContract["subjects"],
-    requestedDimensions: extractComparisonDimensions(question, subjects),
+    requestedDimensions: extractComparisonDimensions(question, extracted),
   };
 }
 
@@ -1139,21 +1189,55 @@ function explicitComparisonSubjectSupported(
   subject: ProjectAnswerComparisonSubject,
   evidenceText: string,
 ) {
-  if (referentialComparisonSubjectPattern.test(subject.label)) return true;
   const normalizedLabel = normalizedComparisonPhrase(subject.label);
   const normalizedEvidence = normalizedComparisonPhrase(evidenceText);
   if (
+    !referentialComparisonSubjectPattern.test(subject.label) &&
     normalizedLabel &&
     ` ${normalizedEvidence} `.includes(` ${normalizedLabel} `)
   ) {
     return true;
   }
   const labelTerms = Array.from(tokens(subject.label, comparisonSubjectStopWords));
-  if (!labelTerms.length) return false;
   const evidenceTerms = tokens(evidenceText, comparisonSubjectStopWords);
-  return labelTerms.every((term) =>
+  if (!labelTerms.every((term) =>
     comparisonSubjectTermSupported(term, evidenceTerms)
-  );
+  )) {
+    return false;
+  }
+  const anchorTerms = Array.from(tokens(
+    subject.resolvedAnchor ?? "",
+    comparisonSubjectStopWords,
+  ));
+  const supportedAnchorTerms = anchorTerms.filter((term) =>
+    comparisonSubjectTermSupported(term, evidenceTerms)
+  ).length;
+  const anchorSupported = anchorTerms.length > 0 &&
+    supportedAnchorTerms >= Math.min(
+      3,
+      Math.max(1, Math.ceil(anchorTerms.length * 0.3)),
+    );
+  const temporalSupported = subject.temporalRole === "earlier"
+    ? earlierComparisonEvidencePattern.test(evidenceText)
+    : subject.temporalRole === "current"
+      ? currentComparisonEvidencePattern.test(evidenceText)
+      : false;
+  if (
+    demonstrativeComparisonSubjectPattern.test(subject.label) &&
+    !labelTerms.length &&
+    !anchorSupported &&
+    !temporalSupported
+  ) {
+    return false;
+  }
+  if (
+    subject.temporalRole === "earlier" &&
+    !anchorSupported &&
+    !temporalSupported
+  ) {
+    return false;
+  }
+  return labelTerms.length > 0 || anchorSupported || temporalSupported;
 }
 
 function comparisonSubjectMemberScore(
@@ -1238,7 +1322,7 @@ function comparisonDimensionSupported(dimension: string, evidenceText: string) {
 }
 
 const comparisonNegationPattern =
-  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b/i;
+  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b/i;
 
 const comparisonContradictionStopWords = new Set([
   ...comparisonSubjectStopWords,
@@ -1273,27 +1357,84 @@ function comparisonSentences(value: string) {
 }
 
 function negatedComparisonClauses(value: string) {
-  return comparisonSentences(value).flatMap((sentence) =>
-    Array.from(sentence.matchAll(
-      /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+  return comparisonSentences(value).flatMap((sentence) => {
+    const forward = Array.from(sentence.matchAll(
+      /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
     )).flatMap((match) => {
       const terms = tokens(match[1] ?? "", comparisonContradictionStopWords);
       return terms.size ? [{ terms, sentence }] : [];
-    })
-  );
+    });
+    const predicativeDisabled = Array.from(sentence.matchAll(
+      /(?:^|[,;:]\s*)([^,.;:]{1,160}?)\s+\b(?:is|are|was|were)\s+disabled\b/gi,
+    )).flatMap((match) => {
+      const terms = tokens(match[1] ?? "", comparisonContradictionStopWords);
+      return terms.size ? [{ terms, sentence }] : [];
+    });
+    return [...forward, ...predicativeDisabled];
+  });
 }
 
 function positiveComparisonTerms(value: string) {
   const withoutNegatedClauses = value.replace(
-    /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+    /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
     " ",
   );
   return tokens(withoutNegatedClauses, comparisonContradictionStopWords);
 }
 
+const comparisonExclusiveScopePairs = [
+  [
+    new Set(["success", "successful", "succeed"]),
+    new Set(["fail", "failure"]),
+  ],
+  [
+    new Set(["batch", "bulk"]),
+    new Set(["stream", "continuou", "continuously"]),
+  ],
+  [
+    new Set(["read", "reader"]),
+    new Set(["write", "writer"]),
+  ],
+  [
+    new Set(["input", "prompt"]),
+    new Set(["output", "completion"]),
+  ],
+] as const;
+
+function hasComparisonScopeTerm(
+  terms: ReadonlySet<string>,
+  scope: ReadonlySet<string>,
+) {
+  return Array.from(scope).some((term) => terms.has(term));
+}
+
+function comparisonScopesDisjoint(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+) {
+  return comparisonExclusiveScopePairs.some(([first, second]) => {
+    const leftFirst = hasComparisonScopeTerm(left, first);
+    const leftSecond = hasComparisonScopeTerm(left, second);
+    const rightFirst = hasComparisonScopeTerm(right, first);
+    const rightSecond = hasComparisonScopeTerm(right, second);
+    return (
+      leftFirst &&
+      !leftSecond &&
+      rightSecond &&
+      !rightFirst
+    ) || (
+      leftSecond &&
+      !leftFirst &&
+      rightFirst &&
+      !rightSecond
+    );
+  });
+}
+
 function negationContradiction(left: string, right: string) {
   const rightPositive = positiveComparisonTerms(right);
   return negatedComparisonClauses(left).some(({ terms }) => {
+    if (comparisonScopesDisjoint(terms, rightPositive)) return false;
     const overlap = Array.from(terms).filter((term) =>
       rightPositive.has(term)
     ).length;
@@ -1338,6 +1479,14 @@ function numericComparisonContradiction(left: string, right: string) {
   return comparisonNumericClaims(left).some((leftClaim) =>
     comparisonNumericClaims(right).some((rightClaim) => {
       if (leftClaim.value === rightClaim.value) return false;
+      if (
+        comparisonScopesDisjoint(
+          leftClaim.sentenceTerms,
+          rightClaim.sentenceTerms,
+        )
+      ) {
+        return false;
+      }
       const metricOverlap = Array.from(leftClaim.metricTerms).filter((term) =>
         rightClaim.metricTerms.has(term)
       ).length;
@@ -1947,12 +2096,9 @@ export function buildExactSourceEditorialFallbackBlocks(
         : [],
     );
     const exactCandidates = boundEntryIndexes.size
-      ? [
-          ...theme.members.filter((member) => boundEntryIndexes.has(member.entryIndex)),
-          ...theme.representativeMembers.filter((member) =>
-            !boundEntryIndexes.has(member.entryIndex)
-          ),
-        ]
+      ? theme.members.filter((member) =>
+          boundEntryIndexes.has(member.entryIndex)
+        )
       : theme.representativeMembers;
     for (const candidate of exactCandidates) {
       if (members.length >= themeMemberLimit) break;

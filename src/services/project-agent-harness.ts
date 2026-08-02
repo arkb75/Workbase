@@ -103,6 +103,9 @@ const provenancePattern =
 const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug|retry|backoff|loop|timeout|cache|queue|workflow|validation|error handling)\b/i;
 const reviewPattern = /\b(?:approve|deny|reject)\b/i;
 
+const conceptualRepositoryRefreshPattern =
+  /(?:\b(?:repo|repository|codebase)\b.{0,100}\brefresh\w*\b|\brefresh\w*\b.{0,100}\b(?:repo|repository|codebase)\b)/i;
+
 function highAuthorityMemory(hits: readonly ProjectKnowledgeHit[]) {
   return hits.some((hit) =>
     hit.authority === "verified_highlight" ||
@@ -178,7 +181,12 @@ export function routeProjectTurn(input: {
   const explicitRepositoryResearch =
     explicitRepositoryAction ||
     (repositoryPattern.test(question) && freshness === "required");
-  const unsupportedCodeQuestion = codePattern.test(question) && !hasRelevantHighAuthorityMemory(question, input.memoryHits);
+  const conceptualRepositoryRefresh =
+    !explicitRepositoryAction && conceptualRepositoryRefreshPattern.test(question);
+  const unsupportedCodeQuestion =
+    codePattern.test(question) &&
+    !conceptualRepositoryRefresh &&
+    !hasRelevantHighAuthorityMemory(question, input.memoryHits);
   if (input.allowResearch !== false && (explicitRepositoryResearch || freshness === "required" || unsupportedCodeQuestion)) {
     return {
       kind: "repository_research",

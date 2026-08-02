@@ -108,6 +108,8 @@ describe("project chat repository intent", () => {
     "How does the repository refresh scheduler differ from incremental ingestion?",
     "Explain the trade-off between a codebase refresh and a targeted search.",
     "Refresh rate in the repository pipeline versus targeted research latency.",
+    "How does Workbase inspect the repository during a knowledge refresh?",
+    "Why does the workflow read the codebase during refresh?",
   ])("treats a conceptual refresh mention as memory-backed analysis: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(false);
   });
@@ -118,6 +120,9 @@ describe("project chat repository intent", () => {
     "Refresh knowledge from the repository before answering.",
     "Please refresh Workbase repository knowledge.",
     "Can you check the codebase for the newest implementation?",
+    "I need you to refresh the repository before answering.",
+    "Go ahead and refresh the repo, then answer.",
+    "Could you refresh Workbase repository knowledge?",
   ])("requires live repository work for an explicit action: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(true);
   });

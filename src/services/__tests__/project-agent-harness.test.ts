@@ -68,6 +68,8 @@ describe("project agent harness", () => {
     "How does the repository refresh scheduler differ from incremental ingestion?",
     "Explain the trade-off between a codebase refresh and a targeted search.",
     "Refresh rate in the repository pipeline versus targeted research latency.",
+    "How does Workbase inspect the repository during a knowledge refresh?",
+    "Why does the workflow read the codebase during refresh?",
   ])("keeps conceptual refresh comparisons on approved memory: %s", (question) => {
     expect(routeProjectTurn({
       question,
@@ -79,6 +81,9 @@ describe("project agent harness", () => {
   it.each([
     "Refresh knowledge from the repository before answering.",
     "Please refresh Workbase repository knowledge.",
+    "I need you to refresh the repository before answering.",
+    "Go ahead and refresh the repo, then answer.",
+    "Could you refresh Workbase repository knowledge?",
   ])("routes an explicit knowledge-refresh action as fresh repository work: %s", (question) => {
     expect(routeProjectTurn({
       question,
