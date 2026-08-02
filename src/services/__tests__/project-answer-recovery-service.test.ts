@@ -553,4 +553,44 @@ describe("project answer verification recovery", () => {
       },
     }));
   });
+
+  it("keeps exact recovery for same-theme comparison sides source-disjoint", async () => {
+    const question =
+      "Compare batch imports with streaming updates in terms of latency.";
+    const entries = [
+      entry(1, "module:data_ingestion", {
+        title: "Batch imports",
+        content: "Batch imports reduce per-record latency.",
+      }),
+      entry(2, "module:data_ingestion", {
+        title: "Streaming updates",
+        content: "Streaming updates reduce event latency.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({ question, entries });
+    const result = await verifyProjectAnswerWithRecovery({
+      question,
+      draftAnswer: "",
+      entries,
+      catalog: [citation(1), citation(2)],
+      selection,
+      forceExactFallback: true,
+      requiredBlockCount: { minimum: 2, maximum: 2 },
+    });
+
+    expect(result.status).toBe("answered");
+    if (result.status !== "answered") return;
+    expect(result.blocks).toEqual([
+      expect.objectContaining({
+        heading: "Batch imports",
+        bodyMarkdown: "Batch imports reduce per-record latency.",
+        citationIndexes: [1],
+      }),
+      expect.objectContaining({
+        heading: "Streaming updates",
+        bodyMarkdown: "Streaming updates reduce event latency.",
+        citationIndexes: [2],
+      }),
+    ]);
+  });
 });

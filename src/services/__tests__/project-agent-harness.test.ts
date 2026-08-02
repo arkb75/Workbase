@@ -68,6 +68,13 @@ describe("project agent harness", () => {
     "How does the repository refresh scheduler differ from incremental ingestion?",
     "Explain the trade-off between a codebase refresh and a targeted search.",
     "Refresh rate in the repository pipeline versus targeted research latency.",
+    "How does Workbase inspect the repository during a knowledge refresh?",
+    "Why does the workflow read the codebase during refresh?",
+    "Read versus write behavior in the repository refresh.",
+    "Read-vs-write behavior in the repository refresh.",
+    "Read/write behavior in the repository refresh.",
+    "Read behavior versus write behavior in repository refresh.",
+    "Compare reading source files with writing durable facts during repository refresh.",
   ])("keeps conceptual refresh comparisons on approved memory: %s", (question) => {
     expect(routeProjectTurn({
       question,
@@ -79,6 +86,15 @@ describe("project agent harness", () => {
   it.each([
     "Refresh knowledge from the repository before answering.",
     "Please refresh Workbase repository knowledge.",
+    "I need you to refresh the repository before answering.",
+    "Go ahead and refresh the repo, then answer.",
+    "Could you refresh Workbase repository knowledge?",
+    "Before answering, please refresh the repository.",
+    "First, refresh the codebase and then answer.",
+    "Before you answer, refresh the repository.",
+    "Before responding, refresh the repository.",
+    "Next, refresh the repository.",
+    "Please, refresh the repository.",
   ])("routes an explicit knowledge-refresh action as fresh repository work: %s", (question) => {
     expect(routeProjectTurn({
       question,
@@ -88,6 +104,17 @@ describe("project agent harness", () => {
       kind: "repository_research",
       freshness: "required",
     });
+  });
+
+  it.each([
+    "Before answering, please read the repository.",
+    "First, inspect the codebase and then answer.",
+  ])("routes a prefixed explicit inspection as repository work: %s", (question) => {
+    expect(routeProjectTurn({
+      question,
+      memoryHits: [approvedFact],
+      allowResearch: true,
+    }).kind).toBe("repository_research");
   });
 
   it("routes provenance questions without repository research", () => {

@@ -189,6 +189,67 @@ describe("project answer editorial profiles", () => {
     });
   });
 
+  it.each([
+    "Compare work across repositories with targeted research.",
+    "Compare an API expressed in terms of latency guarantees with streaming updates.",
+  ])("does not treat an explicit lens phrase inside a subject as dimensions: %s", (question) => {
+    expect(
+      classifyProjectAnswerEditorialProfile(question).comparisonContract
+        ?.requestedDimensions,
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["How does batch import differ from streaming updates?", "batch import", "streaming updates"],
+    ["Batch imports compared with streaming updates.", "Batch imports", "streaming updates"],
+    ["Compare between batch imports and streaming updates.", "batch imports", "streaming updates"],
+    ["Explain the trade-off between batch imports and streaming updates.", "batch imports", "streaming updates"],
+    ["How do batch imports and streaming updates differ?", "batch imports", "streaming updates"],
+    ["How are batch imports different than streaming updates?", "batch imports", "streaming updates"],
+    ["Batch imports are different than streaming updates.", "Batch imports", "streaming updates"],
+    ["What differentiates batch imports from streaming updates?", "batch imports", "streaming updates"],
+  ])("parses common two-sided comparison grammar for %s", (
+    question,
+    first,
+    second,
+  ) => {
+    const profile = classifyProjectAnswerEditorialProfile(question);
+
+    expect(profile.kind).toBe("comparison");
+    expect(profile.comparisonContract?.subjects.map((subject) => subject.label))
+      .toEqual([first, second]);
+  });
+
+  it("parses a bare operational-complexity lens after both subjects", () => {
+    const profile = classifyProjectAnswerEditorialProfile(
+      "Compare batch imports with streaming updates on operational complexity.",
+    );
+
+    expect(profile.comparisonContract).toEqual({
+      subjects: [
+        expect.objectContaining({ label: "batch imports" }),
+        expect.objectContaining({ label: "streaming updates" }),
+      ],
+      requestedDimensions: ["operational complexity"],
+    });
+  });
+
+  it.each([
+    "Compare batch imports with streaming updates regarding latency.",
+    "How do batch imports and streaming updates differ in latency?",
+  ])("parses a suffix dimension lens in %s", (question) => {
+    const profile = classifyProjectAnswerEditorialProfile(question);
+
+    expect(profile.kind).toBe("comparison");
+    expect(profile.comparisonContract).toEqual({
+      subjects: [
+        expect.objectContaining({ label: "batch imports" }),
+        expect.objectContaining({ label: "streaming updates" }),
+      ],
+      requestedDimensions: ["latency"],
+    });
+  });
+
   it("keeps an unparseable comparison in comparison mode so callers fail closed", () => {
     const profile = classifyProjectAnswerEditorialProfile(
       "Compare these approaches.",
@@ -938,6 +999,24 @@ describe("project answer editorial ranking and grouping", () => {
         content: "Streaming updates reduce event latency.",
       }),
     },
+    {
+      question:
+        "Compare batch imports with current quantum queue processing in terms of latency.",
+      unsupportedLabel: "current quantum queue processing",
+      unrelated: entry(2, "module:queue_processing", {
+        title: "Queue processing",
+        content: "Queue processing reduces latency for ordinary background jobs.",
+      }),
+    },
+    {
+      question:
+        "Compare batch imports with this fictitious streaming update in terms of latency.",
+      unsupportedLabel: "this fictitious streaming update",
+      unrelated: entry(2, "module:streaming_updates", {
+        title: "Streaming updates",
+        content: "Streaming updates reduce event latency.",
+      }),
+    },
   ])("requires the full explicit compound subject: $unsupportedLabel", ({
     question,
     unrelated,
@@ -953,6 +1032,30 @@ describe("project answer editorial ranking and grouping", () => {
       ],
     });
 
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
+  });
+
+  it("keeps an on-clause inside the second subject instead of binding a generic prefix", () => {
+    const question =
+      "Compare batch imports with stream processing on demand in terms of latency.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports reduce latency.",
+        }),
+        entry(2, "module:stream_processing", {
+          title: "Stream processing",
+          content: "Stream processing reduces event latency continuously.",
+        }),
+      ],
+    });
+
+    expect(selection.profile.comparisonContract?.subjects[1].label).toBe(
+      "stream processing on demand",
+    );
     expect(selection.comparisonBindings).toBeNull();
     expect(selection.selectedThemes).toEqual([]);
   });
@@ -1000,6 +1103,60 @@ describe("project answer editorial ranking and grouping", () => {
 
     expect(selection.selectedThemes).toHaveLength(2);
     expect(selection.comparisonBindings).not.toBeNull();
+  });
+
+  it("requires every compound dimension term to be grounded", () => {
+    const question =
+      "Compare batch imports with streaming updates in terms of quantum latency.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports reduce ordinary processing latency.",
+        }),
+        entry(2, "module:streaming_updates", {
+          title: "Streaming updates",
+          content: "Streaming updates reduce event latency.",
+        }),
+      ],
+    });
+
+    expect(selection.profile.comparisonContract?.requestedDimensions).toEqual([
+      "quantum latency",
+    ]);
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
+  });
+
+  it("does not bind a demonstrative subject when its conversation anchor mismatches", () => {
+    const question =
+      "Compare batch imports with this queue processing in terms of latency.";
+    const profile = classifyProjectAnswerEditorialProfile(question, {
+      priorAssistantAnswer:
+        "The referenced approach is quantum queue processing for background jobs, reducing latency through bounded workers, retry recovery, and ordinary coordination.",
+    });
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      profile,
+      entries: [
+        entry(1, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports reduce per-record latency.",
+        }),
+        entry(2, "module:queue_processing", {
+          title: "Queue processing",
+          content:
+            "Queue processing for background jobs reduces latency through bounded workers, retry recovery, and ordinary coordination.",
+        }),
+      ],
+    });
+
+    expect(profile.comparisonContract?.subjects[1].resolvedAnchor).toMatch(
+      /quantum queue processing/i,
+    );
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
   });
 
   it("requires every requested dimension to be supported independently for both sides", () => {
@@ -1098,6 +1255,101 @@ describe("project answer editorial ranking and grouping", () => {
       .not.toContain("does not retry");
   });
 
+  it("keeps previous and current versions bound to their correct chronology", () => {
+    const question =
+      "Compare previous adaptive scheduling with current adaptive scheduling in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:legacy_scheduler", {
+          title: "Previous adaptive scheduling",
+          content: "Previous adaptive scheduling used manual failure recovery.",
+          currentRun: false,
+        }),
+        entry(2, "module:current_scheduler_retry", {
+          title: "Current adaptive scheduling",
+          content: "Current adaptive scheduling retries failed jobs for recovery.",
+          currentRun: true,
+        }),
+        entry(3, "module:current_scheduler_checkpoint", {
+          title: "Current adaptive scheduling",
+          content: "Current adaptive scheduling checkpoints jobs for recovery.",
+          currentRun: true,
+        }),
+      ],
+    });
+    const blocks = buildExactSourceEditorialFallbackBlocks(selection);
+
+    expect(selection.comparisonBindings?.[0].themeKey).toBe(
+      "module:legacy_scheduler",
+    );
+    expect(selection.comparisonBindings?.[1].themeKey).toMatch(
+      /^module:current_scheduler_/,
+    );
+    expect(blocks[0]?.bodyMarkdown).toContain("Previous adaptive scheduling");
+    expect(blocks[0]?.bodyMarkdown).not.toContain("Current adaptive scheduling");
+  });
+
+  it("does not bind an earlier side to a current fact that merely mentions it", () => {
+    const question =
+      "Compare previous adaptive scheduling with current adaptive scheduling in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:legacy_scheduler", {
+          title: "Previous adaptive scheduling",
+          content: "Previous adaptive scheduling used manual failure recovery.",
+          currentRun: false,
+        }),
+        entry(2, "module:current_scheduler_history", {
+          title: "Current adaptive scheduling migration",
+          content:
+            "Current adaptive scheduling replaced previous adaptive scheduling and retries failed jobs for recovery.",
+          currentRun: true,
+        }),
+        entry(3, "module:current_scheduler", {
+          title: "Current adaptive scheduling",
+          content:
+            "Current adaptive scheduling checkpoints failed jobs for recovery.",
+          currentRun: true,
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings?.[0]).toMatchObject({
+      themeKey: "module:legacy_scheduler",
+      evidenceEntryIndexes: [0],
+    });
+    expect(selection.comparisonBindings?.[1].themeKey).toMatch(
+      /^module:current_scheduler/,
+    );
+  });
+
+  it("does not assign current behavior from a mixed migration fact to the earlier side", () => {
+    const question =
+      "Compare previous adaptive scheduling with current adaptive scheduling in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:scheduler_migration", {
+          title: "Adaptive scheduling migration",
+          content:
+            "Previous adaptive scheduling was replaced by current adaptive scheduling, which retries failed jobs for recovery.",
+          currentRun: true,
+        }),
+        entry(2, "module:current_scheduler", {
+          title: "Current adaptive scheduling",
+          content:
+            "Current adaptive scheduling checkpoints failed jobs for recovery.",
+          currentRun: true,
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
+  });
+
   it("fails closed on equally current contradictions across themes for one logical subject", () => {
     const question =
       "Compare adaptive scheduling with batch imports in terms of failure recovery.";
@@ -1158,6 +1410,229 @@ describe("project answer editorial ranking and grouping", () => {
     expect(selection.selectedThemes).toHaveLength(2);
   });
 
+  it("does not mistake complementary scoped retry policies for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling successful-job policy",
+          content:
+            "Adaptive scheduling does not retry successful jobs during recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling failed-job policy",
+          content: "Adaptive scheduling retries failed jobs during recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
+  it("does not mistake differently scoped numeric policies for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling batch policy",
+          content:
+            "Adaptive scheduling retries failed jobs 3 times in batch mode for recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling streaming policy",
+          content:
+            "Adaptive scheduling retries failed jobs 5 times in streaming mode for recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
+  it.each([
+    [
+      "Adaptive scheduling retries failed jobs for recovery.",
+      "Adaptive scheduling prevents failed-job retries during recovery.",
+    ],
+    [
+      "Adaptive scheduling enables retries for failure recovery.",
+      "Adaptive scheduling retry recovery is disabled.",
+    ],
+  ])("fails closed on equivalent negation grammar: %s / %s", (
+    positive,
+    negative,
+  ) => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:scheduler_a", {
+          title: "Adaptive scheduling",
+          content: positive,
+        }),
+        entry(2, "module:scheduler_b", {
+          title: "Adaptive scheduling",
+          content: negative,
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
+  });
+
+  it("fails closed when one current policy allows retries and another rejects them", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:scheduler_a", {
+          title: "Adaptive scheduling",
+          content: "Adaptive scheduling allows retries for failure recovery.",
+        }),
+        entry(2, "module:scheduler_b", {
+          title: "Adaptive scheduling",
+          content: "Adaptive scheduling rejects retries for failure recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).toBeNull();
+    expect(selection.selectedThemes).toEqual([]);
+  });
+
+  it("does not mistake idempotent and non-idempotent retry scopes for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling idempotent policy",
+          content:
+            "Adaptive scheduling retries idempotent jobs during recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling non-idempotent policy",
+          content:
+            "Adaptive scheduling does not retry non-idempotent jobs during recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
+  it("does not mistake idempotent and nonidempotent retry scopes for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling idempotent policy",
+          content:
+            "Adaptive scheduling retries idempotent jobs during recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling nonidempotent policy",
+          content:
+            "Adaptive scheduling does not retry nonidempotent jobs during recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
+  it("does not mistake interactive and background numeric policies for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling interactive policy",
+          content:
+            "Adaptive scheduling retries failed interactive jobs 3 times during recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling background policy",
+          content:
+            "Adaptive scheduling retries failed background jobs 5 times during recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
+  it("does not mistake synchronous and asynchronous numeric policies for contradictions", () => {
+    const question =
+      "Compare adaptive scheduling with batch imports in terms of failure recovery.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling synchronous policy",
+          content:
+            "Adaptive scheduling retries failed synchronous jobs 3 times during recovery.",
+        }),
+        entry(2, "module:adaptive_scheduler", {
+          title: "Adaptive scheduling asynchronous policy",
+          content:
+            "Adaptive scheduling retries failed asynchronous jobs 5 times during recovery.",
+        }),
+        entry(3, "module:batch_imports", {
+          title: "Batch imports",
+          content: "Batch imports retry failed jobs for recovery.",
+        }),
+      ],
+    });
+
+    expect(selection.comparisonBindings).not.toBeNull();
+    expect(selection.selectedThemes).toHaveLength(2);
+  });
+
   it("still rejects incompatible values for the same current metric", () => {
     const question =
       "Compare adaptive scheduling with batch imports in terms of failure recovery.";
@@ -1208,6 +1683,39 @@ describe("project answer editorial ranking and grouping", () => {
 
     expect(selection.comparisonBindings).toBeNull();
     expect(selection.selectedThemes).toEqual([]);
+  });
+
+  it("keeps disjoint same-theme comparison fallback evidence on its own side", () => {
+    const question =
+      "Compare batch imports with streaming updates in terms of latency.";
+    const selection = selectProjectAnswerEditorialThemes({
+      question,
+      entries: [
+        entry(1, "module:data_ingestion", {
+          title: "Batch imports",
+          content: "Batch imports reduce per-record latency.",
+        }),
+        entry(2, "module:data_ingestion", {
+          title: "Streaming updates",
+          content: "Streaming updates reduce event latency.",
+        }),
+      ],
+    });
+    const blocks = buildExactSourceEditorialFallbackBlocks(selection);
+
+    expect(selection.comparisonBindings?.map((binding) =>
+      binding.evidenceEntryIndexes
+    )).toEqual([[0], [1]]);
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        bodyMarkdown: "Batch imports reduce per-record latency.",
+        citationIndexes: [1],
+      }),
+      expect.objectContaining({
+        bodyMarkdown: "Streaming updates reduce event latency.",
+        citationIndexes: [2],
+      }),
+    ]);
   });
 });
 
