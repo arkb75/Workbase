@@ -343,6 +343,75 @@ describe("application evaluator model telemetry", () => {
     });
   });
 
+  it("counts duplicate usage once without reconciling conflicting model identity", () => {
+    const requestId = "request-conflicting-duplicate";
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        resultRefs: {
+          requestId,
+          profile: "primary_answer",
+          configuredModelId: "openai/gpt-5.6-terra",
+          routedProviders: ["openai"],
+          auditAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [{
+        id: "conflicting-duplicate-event",
+        message: "Project evidence review completed.",
+        payload: {
+          modelEvent: "model_call_completed",
+          iteration: 1,
+          profile: "primary_answer",
+          provider: "openrouter",
+          modelId: "anthropic/claude-sonnet-5",
+          routedProvider: "anthropic",
+          requestId,
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            totalTokens: 120,
+            cost: 0.001,
+            providerAttemptCount: 1,
+            modelId: "anthropic/claude-sonnet-5",
+            routedProvider: "anthropic",
+            requestId,
+          },
+        },
+      }],
+      expectedModelIdsByProfile: {
+        primary_answer: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 120,
+      estimatedCostUsd: 0.001,
+      usageComplete: true,
+      modelAttribution: {
+        actualModelIds: [
+          "anthropic/claude-sonnet-5",
+          "openai/gpt-5.6-terra",
+        ],
+        routedProviders: ["anthropic", "openai"],
+        fallbackUsed: true,
+        authoritativeAttributionComplete: false,
+        profiles: {
+          primary_answer: {
+            fallbackUsed: true,
+            configuredRoutingMatched: false,
+            authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
+  });
+
   it("exposes actual fallback attribution without prompt or response content", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
@@ -392,6 +461,7 @@ describe("application evaluator model telemetry", () => {
       providerAttempts: 2,
       failedProviderAttempts: 1,
       fallbackUsed: true,
+      authoritativeAttributionComplete: false,
       profiles: {
         unattributed: {
           providers: ["openrouter"],
@@ -405,6 +475,7 @@ describe("application evaluator model telemetry", () => {
           usageComplete: false,
           fallbackUsed: true,
           configuredRoutingMatched: false,
+          authoritativeAttributionComplete: false,
         },
       },
     });

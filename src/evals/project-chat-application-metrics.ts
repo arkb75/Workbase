@@ -49,6 +49,9 @@ interface MeasuredUsageUnit {
   failedModelIds: string[];
   failedProviderAttempts: number;
   fallbackUsed: boolean;
+  attributedProviderAttempts: number;
+  authoritativeAttributionComplete: boolean;
+  attributionConflict: boolean;
   modelCalls: number;
   unknownUsageAttempts: number;
   usage: ModelTokenUsageTotals;
@@ -274,6 +277,60 @@ function collectRawAttribution(value: unknown) {
   };
 }
 
+function collectUsageLeaves(value: unknown) {
+  const leaves: Array<Record<string, unknown>> = [];
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      depth > 8 ||
+      seen.has(current)
+    ) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const currentRecord = current as Record<string, unknown>;
+    if (
+      ["inputTokens", "outputTokens", "totalTokens"].some(
+        (key) =>
+          typeof currentRecord[key] === "number" &&
+          Number.isFinite(currentRecord[key]),
+      )
+    ) {
+      leaves.push(currentRecord);
+      return;
+    }
+    Object.values(currentRecord).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return leaves;
+}
+
+function hasOneNonEmptyString(
+  value: Record<string, unknown>,
+  singularKey: string,
+  pluralKey: string,
+) {
+  const values = new Set<string>();
+  const singular = value[singularKey];
+  if (typeof singular === "string" && singular.trim()) {
+    values.add(singular.trim());
+  }
+  if (Array.isArray(value[pluralKey])) {
+    value[pluralKey].forEach((entry) => {
+      if (typeof entry === "string" && entry.trim()) {
+        values.add(entry.trim());
+      }
+    });
+  }
+  return values.size === 1;
+}
+
 function measureUsageUnit(input: {
   identity: string;
   profile: string;
@@ -375,6 +432,84 @@ function measureUsageUnit(input: {
       input.terminalFailure ? modelCalls : 0,
     ),
   );
+  const routedProviders = Array.from(new Set([
+    ...rawAttribution.routedProviders,
+    ...metadataAttribution.routedProviders,
+  ]));
+  const requestIds = Array.from(new Set([
+    ...rawAttribution.requestIds,
+    ...metadataAttribution.requestIds,
+  ]));
+  const providers = Array.from(new Set([
+    ...(modelCalls > 0 && input.provider.trim() ? [input.provider.trim()] : []),
+    ...rawAttribution.providers,
+    ...metadataAttribution.providers,
+  ]));
+  const observedModelIds =
+    modelCalls === 1 &&
+    input.modelIdentityObserved === true &&
+    input.modelId.trim()
+      ? [input.modelId.trim()]
+      : [];
+  const observedProviders =
+    modelCalls === 1 && input.provider.trim()
+      ? [input.provider.trim()]
+      : [];
+  const attributionConflict =
+    conflictingEvidence(
+      rawAttribution.actualModelIds,
+      metadataAttribution.actualModelIds,
+    ) ||
+    conflictingEvidence(rawAttribution.actualModelIds, observedModelIds) ||
+    conflictingEvidence(
+      metadataAttribution.actualModelIds,
+      observedModelIds,
+    ) ||
+    conflictingEvidence(
+      rawAttribution.providers,
+      metadataAttribution.providers,
+    ) ||
+    conflictingEvidence(rawAttribution.providers, observedProviders) ||
+    conflictingEvidence(metadataAttribution.providers, observedProviders) ||
+    conflictingEvidence(
+      rawAttribution.routedProviders,
+      metadataAttribution.routedProviders,
+    ) ||
+    conflictingEvidence(
+      rawAttribution.requestIds,
+      metadataAttribution.requestIds,
+    );
+  const usageLeaves = collectUsageLeaves(input.rawUsage);
+  const everyUsageLeafHasIdentity =
+    usageLeaves.length === modelCalls &&
+    usageLeaves.every(
+      (leaf) =>
+        hasOneNonEmptyString(leaf, "modelId", "modelIds") &&
+        hasOneNonEmptyString(
+          leaf,
+          "routedProvider",
+          "routedProviders",
+        ) &&
+        hasOneNonEmptyString(leaf, "requestId", "requestIds"),
+    );
+  const metadataDescribesSingleAttempt =
+    modelCalls === 1 &&
+    actualModelIds.size === 1 &&
+    routedProviders.length === 1 &&
+    requestIds.length === 1;
+  const attributedProviderAttempts =
+    everyUsageLeafHasIdentity
+      ? modelCalls
+      : metadataDescribesSingleAttempt
+        ? 1
+        : 0;
+  const authoritativeAttributionComplete =
+    input.provider.toLowerCase() !== "openrouter" ||
+    modelCalls === 0 ||
+    (
+      attributedProviderAttempts === modelCalls &&
+      !attributionConflict
+    );
   return {
     identity: input.identity,
     profile: input.profile,
@@ -382,22 +517,15 @@ function measureUsageUnit(input: {
     configuredModelIds:
       modelCalls > 0 && configuredModelId ? [configuredModelId] : [],
     actualModelIds: Array.from(actualModelIds),
-    providers: Array.from(new Set([
-      ...(modelCalls > 0 && input.provider.trim() ? [input.provider.trim()] : []),
-      ...rawAttribution.providers,
-      ...metadataAttribution.providers,
-    ])),
-    routedProviders: Array.from(new Set([
-      ...rawAttribution.routedProviders,
-      ...metadataAttribution.routedProviders,
-    ])),
-    requestIds: Array.from(new Set([
-      ...rawAttribution.requestIds,
-      ...metadataAttribution.requestIds,
-    ])),
+    providers,
+    routedProviders,
+    requestIds,
     failedModelIds: Array.from(failedModelIds),
     failedProviderAttempts,
     fallbackUsed,
+    attributedProviderAttempts,
+    authoritativeAttributionComplete,
+    attributionConflict,
     modelCalls,
     unknownUsageAttempts,
     usage,
@@ -602,13 +730,150 @@ function usageUnitScore(unit: MeasuredUsageUnit) {
   );
 }
 
+function uniqueStrings(...values: string[][]) {
+  return Array.from(new Set(values.flat())).sort();
+}
+
+function conflictingEvidence(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) return false;
+  const normalizedLeft = uniqueStrings(left);
+  const normalizedRight = uniqueStrings(right);
+  return normalizedLeft.length !== normalizedRight.length ||
+    normalizedLeft.some(
+      (value, index) => value !== normalizedRight[index],
+    );
+}
+
+function mergeDuplicateUsageUnits(
+  left: MeasuredUsageUnit,
+  right: MeasuredUsageUnit,
+): MeasuredUsageUnit {
+  const preferred =
+    usageUnitScore(right) > usageUnitScore(left) ? right : left;
+  const modelCalls = Math.max(left.modelCalls, right.modelCalls);
+  const configuredModelIds = uniqueStrings(
+    left.configuredModelIds,
+    right.configuredModelIds,
+  );
+  const actualModelIds = uniqueStrings(
+    left.actualModelIds,
+    right.actualModelIds,
+  );
+  const providers = uniqueStrings(left.providers, right.providers);
+  const routedProviders = uniqueStrings(
+    left.routedProviders,
+    right.routedProviders,
+  );
+  const requestIds = uniqueStrings(left.requestIds, right.requestIds);
+  const failedModelIds = uniqueStrings(
+    left.failedModelIds,
+    right.failedModelIds,
+  );
+  const attributedProviderAttempts = Math.max(
+    left.attributedProviderAttempts,
+    right.attributedProviderAttempts,
+    (
+      modelCalls === 1 &&
+      actualModelIds.length > 0 &&
+      routedProviders.length > 0 &&
+      requestIds.length === 1
+    )
+      ? 1
+      : 0,
+  );
+  const attributionConflict =
+    left.attributionConflict ||
+    right.attributionConflict ||
+    left.profile !== right.profile ||
+    conflictingEvidence(
+      left.configuredModelIds,
+      right.configuredModelIds,
+    ) ||
+    conflictingEvidence(left.actualModelIds, right.actualModelIds) ||
+    conflictingEvidence(left.providers, right.providers) ||
+    conflictingEvidence(left.routedProviders, right.routedProviders) ||
+    conflictingEvidence(left.requestIds, right.requestIds);
+  const openRouter =
+    providers.some((provider) => provider.toLowerCase() === "openrouter") ||
+    preferred.provider.toLowerCase() === "openrouter";
+  const authoritativeAttributionComplete =
+    !openRouter ||
+    modelCalls === 0 ||
+    (
+      providers.length > 0 &&
+      providers.every((provider) => provider.toLowerCase() === "openrouter") &&
+      attributedProviderAttempts === modelCalls &&
+      !attributionConflict
+    );
+  const costConflict =
+    left.costUsd != null &&
+    right.costUsd != null &&
+    Math.abs(left.costUsd - right.costUsd) > 1e-8;
+  const fallbackUsed =
+    left.fallbackUsed ||
+    right.fallbackUsed ||
+    configuredModelIds.length > 1 ||
+    (
+      configuredModelIds.length > 0 &&
+      actualModelIds.some(
+        (modelId) => !configuredModelIds.includes(modelId),
+      )
+    ) ||
+    failedModelIds.some(
+      (modelId) =>
+        !configuredModelIds.includes(modelId) &&
+        !actualModelIds.includes(modelId),
+    );
+
+  return {
+    ...preferred,
+    profile:
+      left.profile === right.profile ? left.profile : "unattributed",
+    configuredModelIds,
+    actualModelIds,
+    providers,
+    routedProviders,
+    requestIds,
+    failedModelIds,
+    failedProviderAttempts: Math.min(
+      modelCalls,
+      Math.max(
+        left.failedProviderAttempts,
+        right.failedProviderAttempts,
+      ),
+    ),
+    fallbackUsed,
+    attributedProviderAttempts,
+    authoritativeAttributionComplete,
+    attributionConflict,
+    modelCalls,
+    unknownUsageAttempts: Math.max(
+      left.unknownUsageAttempts,
+      right.unknownUsageAttempts,
+    ),
+    authoritativeCostComplete:
+      (
+        left.authoritativeCostComplete ||
+        right.authoritativeCostComplete
+      ) &&
+      !costConflict &&
+      left.unknownUsageAttempts === 0 &&
+      right.unknownUsageAttempts === 0,
+  };
+}
+
 function deduplicateUsageUnits(units: MeasuredUsageUnit[]) {
   const byIdentity = new Map<string, MeasuredUsageUnit>();
   for (const unit of units) {
     const existing = byIdentity.get(unit.identity);
-    if (!existing || usageUnitScore(unit) > usageUnitScore(existing)) {
+    if (!existing) {
       byIdentity.set(unit.identity, unit);
+      continue;
     }
+    byIdentity.set(
+      unit.identity,
+      mergeDuplicateUsageUnits(existing, unit),
+    );
   }
   return Array.from(byIdentity.values());
 }
@@ -640,6 +905,7 @@ function profileAttribution(input: {
   units: MeasuredUsageUnit[];
   fallbackProfiles: ReadonlySet<string>;
   expectedModelIdsByProfile?: Readonly<Record<string, string>>;
+  requireOpenRouterAttribution: boolean;
 }) {
   const profiles = new Set([
     ...input.units
@@ -681,6 +947,20 @@ function profileAttribution(input: {
       const usageComplete = units.every(
         (unit) => unit.authoritativeCostComplete,
       );
+      const authoritativeAttributionComplete =
+        !input.requireOpenRouterAttribution ||
+        providerAttempts === 0 ||
+        (
+          units.every(
+            (unit) =>
+              unit.provider.toLowerCase() === "openrouter" &&
+              unit.providers.length > 0 &&
+              unit.providers.every(
+                (provider) => provider.toLowerCase() === "openrouter",
+              ) &&
+              unit.authoritativeAttributionComplete,
+          )
+        );
       const fallbackUsed =
         input.fallbackProfiles.has(profile) ||
         units.some((unit) => unit.fallbackUsed);
@@ -712,6 +992,7 @@ function profileAttribution(input: {
         ),
         estimatedCostUsd,
         usageComplete,
+        authoritativeAttributionComplete,
         fallbackUsed,
         configuredRoutingMatched,
       }];
@@ -832,7 +1113,23 @@ export function calculateApplicationModelMetrics(input: {
     units,
     fallbackProfiles,
     expectedModelIdsByProfile: input.expectedModelIdsByProfile,
+    requireOpenRouterAttribution:
+      input.provider.toLowerCase() === "openrouter",
   });
+  const authoritativeAttributionComplete =
+    input.provider.toLowerCase() !== "openrouter" ||
+    units.every(
+      (unit) =>
+        unit.modelCalls === 0 ||
+        (
+          unit.provider.toLowerCase() === "openrouter" &&
+          unit.providers.length > 0 &&
+          unit.providers.every(
+            (provider) => provider.toLowerCase() === "openrouter",
+          ) &&
+          unit.authoritativeAttributionComplete
+        ),
+    );
   const modelAttribution = {
     providers: Array.from(new Set(
       units.flatMap((unit) => unit.providers),
@@ -863,6 +1160,7 @@ export function calculateApplicationModelMetrics(input: {
     fallbackUsed:
       units.some((unit) => unit.fallbackUsed) ||
       fallbackProfiles.size > 0,
+    authoritativeAttributionComplete,
     profiles,
   };
   return {

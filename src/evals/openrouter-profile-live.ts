@@ -79,6 +79,7 @@ export interface OpenRouterProfileTelemetry {
   configuredModelId: string;
   configuredFallbackModelId: string | null;
   actualModelIds: string[];
+  providers: string[];
   routedProviders: string[];
   requestIds: string[];
   providerAttempts: number;
@@ -403,18 +404,31 @@ function failedProviderAttemptCount(value: unknown) {
   return attempts.size;
 }
 
-function leafHasIdentifier(
+function leafIdentifierValues(
   leaf: Record<string, unknown>,
   singularKey: string,
   pluralKey: string,
   parser: (value: unknown) => string | null,
 ) {
-  return Boolean(
-    parser(leaf[singularKey]) ||
-      (
-        Array.isArray(leaf[pluralKey]) &&
-        leaf[pluralKey].some((entry) => parser(entry))
-      ),
+  return unique([
+    parser(leaf[singularKey]),
+    ...(Array.isArray(leaf[pluralKey])
+      ? leaf[pluralKey].map((entry) => parser(entry))
+      : []),
+  ]);
+}
+
+function leafHasReportedCost(leaf: Record<string, unknown>) {
+  const cost =
+    typeof leaf.cost === "number"
+      ? leaf.cost
+      : typeof leaf.costUsd === "number"
+        ? leaf.costUsd
+        : null;
+  return (
+    typeof cost === "number" &&
+    Number.isFinite(cost) &&
+    cost >= 0
   );
 }
 
@@ -441,15 +455,18 @@ export function buildOpenRouterProfileTelemetry(input: {
     "modelIds",
     safeModelId,
   );
-  const usageProviders = unique([
-    ...identifierValues(
-      liveUsage,
-      "routedProvider",
-      "routedProviders",
-      safeIdentifier,
-    ),
-    ...identifierValues(liveUsage, "provider", "providers", safeIdentifier),
-  ]);
+  const usageProviders = identifierValues(
+    liveUsage,
+    "provider",
+    "providers",
+    safeIdentifier,
+  );
+  const usageRoutedProviders = identifierValues(
+    liveUsage,
+    "routedProvider",
+    "routedProviders",
+    safeIdentifier,
+  );
   const usageRequestIds = identifierValues(
     liveUsage,
     "requestId",
@@ -463,14 +480,14 @@ export function buildOpenRouterProfileTelemetry(input: {
     safeModelId,
   );
   const metadataProviders = unique([
-    ...metadataValues(
-      input.observation.metadata,
-      "routedProvider",
-      "routedProviders",
-      safeIdentifier,
-    ),
     safeIdentifier(input.observation.metadata?.provider),
   ]);
+  const metadataRoutedProviders = metadataValues(
+    input.observation.metadata,
+    "routedProvider",
+    "routedProviders",
+    safeIdentifier,
+  );
   const metadataRequestIds = metadataValues(
     input.observation.metadata,
     "requestId",
@@ -478,7 +495,11 @@ export function buildOpenRouterProfileTelemetry(input: {
     safeRequestId,
   );
   const actualModelIds = unique([...usageModelIds, ...metadataModelIds]);
-  const routedProviders = unique([...usageProviders, ...metadataProviders]);
+  const providers = unique([...usageProviders, ...metadataProviders]);
+  const routedProviders = unique([
+    ...usageRoutedProviders,
+    ...metadataRoutedProviders,
+  ]);
   const requestIds = unique([...usageRequestIds, ...metadataRequestIds]);
   const configuredModelId =
     safeModelId(input.config.configuredModelId) ?? "invalid/model-id";
@@ -490,45 +511,76 @@ export function buildOpenRouterProfileTelemetry(input: {
       actualModelIds.includes(configuredFallbackModelId),
   );
   const metadataCanDescribeSingleLeaf = leaves.length === 1;
-  const everyLeafHasRequestId =
-    leaves.every((leaf) =>
-      leafHasIdentifier(leaf, "requestId", "requestIds", safeRequestId),
-    ) ||
-    (metadataCanDescribeSingleLeaf && metadataRequestIds.length > 0);
-  const everyLeafHasProvider =
-    leaves.every(
-      (leaf) =>
-        leafHasIdentifier(
-          leaf,
-          "routedProvider",
-          "routedProviders",
-          safeIdentifier,
-        ) ||
-        leafHasIdentifier(leaf, "provider", "providers", safeIdentifier),
-    ) ||
-    (metadataCanDescribeSingleLeaf && metadataProviders.length > 0);
-  const everyLeafHasModel =
-    leaves.every((leaf) =>
-      leafHasIdentifier(leaf, "modelId", "modelIds", safeModelId),
-    ) ||
-    (metadataCanDescribeSingleLeaf && metadataModelIds.length > 0);
+  const everyLeafHasOneRequestId = leaves.every((leaf) =>
+    leafIdentifierValues(
+      leaf,
+      "requestId",
+      "requestIds",
+      safeRequestId,
+    ).length === 1,
+  );
+  const everyLeafHasOneRoutedProvider = leaves.every((leaf) =>
+    leafIdentifierValues(
+      leaf,
+      "routedProvider",
+      "routedProviders",
+      safeIdentifier,
+    ).length === 1,
+  );
+  const everyLeafHasOneModel = leaves.every((leaf) =>
+    leafIdentifierValues(
+      leaf,
+      "modelId",
+      "modelIds",
+      safeModelId,
+    ).length === 1,
+  );
+  const everyLeafHasReportedCost = leaves.every(leafHasReportedCost);
+  const perAttemptAttributionComplete =
+    leaves.length === providerAttempts &&
+    usageEntries === providerAttempts &&
+    costEntries === providerAttempts &&
+    requestIds.length === providerAttempts &&
+    everyLeafHasReportedCost &&
+    (
+      everyLeafHasOneRequestId ||
+      (
+        metadataCanDescribeSingleLeaf &&
+        providerAttempts === 1 &&
+        metadataRequestIds.length === 1
+      )
+    ) &&
+    (
+      everyLeafHasOneRoutedProvider ||
+      (
+        metadataCanDescribeSingleLeaf &&
+        providerAttempts === 1 &&
+        metadataRoutedProviders.length === 1
+      )
+    ) &&
+    (
+      everyLeafHasOneModel ||
+      (
+        metadataCanDescribeSingleLeaf &&
+        providerAttempts === 1 &&
+        metadataModelIds.length === 1
+      )
+    );
   const usageComplete =
     usageEntries > 0 &&
     providerAttempts > 0 &&
     leaves.length === usageEntries &&
     unknownUsageAttempts === 0 &&
     failedProviderAttempts === 0 &&
-    costEntries === usageEntries &&
     knownCostLowerBoundUsd != null &&
-    everyLeafHasRequestId &&
-    everyLeafHasProvider &&
-    everyLeafHasModel &&
+    perAttemptAttributionComplete &&
     !fallbackUsed;
 
   return {
     configuredModelId,
     configuredFallbackModelId,
     actualModelIds,
+    providers,
     routedProviders,
     requestIds,
     providerAttempts,

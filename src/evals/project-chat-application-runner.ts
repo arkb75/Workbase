@@ -117,6 +117,7 @@ export interface ProjectChatApplicationModelAttribution {
   providerAttempts: number;
   failedProviderAttempts: number;
   fallbackUsed: boolean;
+  authoritativeAttributionComplete: boolean;
   profiles: Record<string, {
     providers: string[];
     configuredModelIds: string[];
@@ -127,6 +128,7 @@ export interface ProjectChatApplicationModelAttribution {
     totalTokens: number;
     estimatedCostUsd: number;
     usageComplete: boolean;
+    authoritativeAttributionComplete: boolean;
     fallbackUsed: boolean;
     configuredRoutingMatched: boolean;
   }>;
@@ -1187,6 +1189,13 @@ function checkPerformance(
   );
   addCheck(
     checks,
+    "provider attempt attribution is authoritative",
+    observation.metrics.modelAttribution.authoritativeAttributionComplete,
+    observation.metrics.modelAttribution.authoritativeAttributionComplete,
+    true,
+  );
+  addCheck(
+    checks,
     "live model execution used no fallback",
     !observation.metrics.modelAttribution.fallbackUsed,
     observation.metrics.modelAttribution.fallbackUsed,
@@ -1549,6 +1558,9 @@ function mergeProfileAttribution(
           0,
         ).toFixed(6)),
         usageComplete: entries.every((entry) => entry.usageComplete),
+        authoritativeAttributionComplete: entries.every(
+          (entry) => entry.authoritativeAttributionComplete,
+        ),
         fallbackUsed: entries.some((entry) => entry.fallbackUsed),
         configuredRoutingMatched: entries.every(
           (entry) => entry.configuredRoutingMatched,
@@ -1633,6 +1645,10 @@ export async function runProjectChatApplicationScenarios(input: {
         fallbackUsed:
           total.modelAttribution.fallbackUsed ||
           result.observation.metrics.modelAttribution.fallbackUsed,
+        authoritativeAttributionComplete:
+          total.modelAttribution.authoritativeAttributionComplete &&
+          result.observation.metrics.modelAttribution
+            .authoritativeAttributionComplete,
         profiles: mergeProfileAttribution(
           total.modelAttribution.profiles,
           result.observation.metrics.modelAttribution.profiles,
@@ -1654,6 +1670,7 @@ export async function runProjectChatApplicationScenarios(input: {
         providerAttempts: 0,
         failedProviderAttempts: 0,
         fallbackUsed: false,
+        authoritativeAttributionComplete: true,
         profiles: {},
       },
     }),

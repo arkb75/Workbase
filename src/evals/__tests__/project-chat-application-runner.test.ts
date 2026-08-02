@@ -25,6 +25,7 @@ const zeroMetrics: ProjectChatApplicationMetrics = {
     providerAttempts: 0,
     failedProviderAttempts: 0,
     fallbackUsed: false,
+    authoritativeAttributionComplete: true,
     profiles: {},
   },
   repositoryTreeLookups: 0,
@@ -480,6 +481,7 @@ describe("project-chat application scenario runner", () => {
                 providerAttempts: 1,
                 failedProviderAttempts: fallback ? 1 : 0,
                 fallbackUsed: fallback,
+                authoritativeAttributionComplete: true,
                 profiles: {
                   primary_answer: {
                     providers: ["openrouter"],
@@ -495,6 +497,7 @@ describe("project-chat application scenario runner", () => {
                     totalTokens: 100,
                     estimatedCostUsd: 0.001,
                     usageComplete: true,
+                    authoritativeAttributionComplete: true,
                     fallbackUsed: fallback,
                     configuredRoutingMatched: !fallback,
                   },
@@ -525,6 +528,7 @@ describe("project-chat application scenario runner", () => {
         providerAttempts: 2,
         failedProviderAttempts: 1,
         fallbackUsed: true,
+        authoritativeAttributionComplete: true,
         profiles: {
           primary_answer: expect.objectContaining({
             providerAttempts: 2,
@@ -564,6 +568,31 @@ describe("project-chat application scenario runner", () => {
     expect(result.checks.find((check) => check.name === "provider usage telemetry is complete")?.passed).toBe(false);
   });
 
+  it("fails the performance gate when provider-attempt identity is incomplete", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "memory_answer",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      metrics: {
+        ...observation.metrics,
+        modelCalls: 1,
+        modelAttribution: {
+          ...observation.metrics.modelAttribution,
+          providerAttempts: 1,
+          authoritativeAttributionComplete: false,
+        },
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "provider attempt attribution is authoritative",
+      passed: false,
+    }));
+  });
+
   it("rejects a fully metered answer when an application fallback was used", () => {
     const scenario = projectChatApplicationScenarios.find(
       (entry) => entry.id === "design_tradeoffs",
@@ -587,6 +616,7 @@ describe("project-chat application scenario runner", () => {
               totalTokens: 0,
               estimatedCostUsd: 0,
               usageComplete: true,
+              authoritativeAttributionComplete: true,
               fallbackUsed: true,
               configuredRoutingMatched: true,
             },
@@ -620,6 +650,7 @@ describe("project-chat application scenario runner", () => {
           configuredModelIds: ["openai/gpt-5.4-nano"],
           actualModelIds: ["anthropic/claude-sonnet-5"],
           providerAttempts: 1,
+          authoritativeAttributionComplete: false,
           profiles: {
             routing: {
               providers: ["openrouter"],
@@ -631,6 +662,7 @@ describe("project-chat application scenario runner", () => {
               totalTokens: 25,
               estimatedCostUsd: 0.0001,
               usageComplete: true,
+              authoritativeAttributionComplete: false,
               fallbackUsed: false,
               configuredRoutingMatched: false,
             },

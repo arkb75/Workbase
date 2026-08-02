@@ -388,6 +388,120 @@ describe("OpenRouter profile live evaluation report", () => {
     });
   });
 
+  it("does not accept the OpenRouter gateway as the routed provider", () => {
+    const observations = validObservations();
+    const primary = observations.find(
+      (observation) => observation.id === "primary_answer",
+    )!;
+    primary.usage = liveUsage("primary_answer", {
+      routedProvider: undefined,
+      provider: "openrouter",
+    });
+
+    const report = buildReport(observations);
+    const scenario = report.scenarios.find(
+      (entry) => entry.id === "primary_answer",
+    )!;
+
+    expect(scenario.telemetry).toMatchObject({
+      providers: ["openrouter"],
+      routedProviders: [],
+      usageComplete: false,
+      authoritativeCostUsd: null,
+    });
+    expect(scenario.passed).toBe(false);
+    expect(scenario.checks).toContainEqual({
+      id: "usage_telemetry_is_complete",
+      passed: false,
+    });
+  });
+
+  it("rejects ambiguous per-attempt model and routed-provider identity", () => {
+    const observation = validObservation("primary_answer");
+    observation.usage = liveUsage("primary_answer", {
+      modelId: undefined,
+      modelIds: [primaryModel, "openai/unexpected-model"],
+      routedProvider: undefined,
+      routedProviders: ["TestProvider", "UnexpectedProvider"],
+    });
+
+    const telemetry = buildOpenRouterProfileTelemetry({
+      observation,
+      config: profileConfigs().primary_answer,
+    });
+
+    expect(telemetry).toMatchObject({
+      providerAttempts: 1,
+      usageComplete: false,
+      authoritativeCostUsd: null,
+    });
+  });
+
+  it("requires one authoritative usage and identity record per provider attempt", () => {
+    const observations = validObservations();
+    const primary = observations.find(
+      (observation) => observation.id === "primary_answer",
+    )!;
+    primary.usage = liveUsage("primary_answer", {
+      providerAttemptCount: 2,
+      unknownUsageAttempts: 0,
+    });
+
+    const report = buildReport(observations);
+    const scenario = report.scenarios.find(
+      (entry) => entry.id === "primary_answer",
+    )!;
+
+    expect(scenario.telemetry).toMatchObject({
+      providerAttempts: 2,
+      requestIds: ["req-primary_answer"],
+      usageComplete: false,
+      authoritativeCostUsd: null,
+    });
+    expect(scenario.passed).toBe(false);
+  });
+
+  it("does not use aggregate metadata to fill multiple unattributed attempts", () => {
+    const observation = validObservation("deep_synthesis");
+    observation.usage = {
+      attempts: [
+        {
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12,
+          cost: 0.001,
+          providerAttemptCount: 1,
+        },
+        {
+          inputTokens: 20,
+          outputTokens: 3,
+          totalTokens: 23,
+          cost: 0.002,
+          providerAttemptCount: 1,
+        },
+      ],
+      providerAttemptCount: 2,
+      unknownUsageAttempts: 0,
+    };
+    observation.metadata = {
+      provider: "openrouter",
+      actualModelIds: [primaryModel],
+      routedProviders: ["TestProvider"],
+      requestIds: ["req-one", "req-two"],
+    };
+
+    const telemetry = buildOpenRouterProfileTelemetry({
+      observation,
+      config: profileConfigs().deep_synthesis,
+    });
+
+    expect(telemetry).toMatchObject({
+      providerAttempts: 2,
+      usageComplete: false,
+      authoritativeCostUsd: null,
+    });
+  });
+
   it.each<{
     id: OpenRouterProfileScenarioId;
     unsafeValue: unknown;
