@@ -258,6 +258,381 @@ describe("application evaluator model telemetry", () => {
     ).toBe(false);
   });
 
+  it("accepts the live audited artifact-verification usage shape", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-live-artifact-verification",
+        idempotencyKey: "public-artifact-verification:artifact-run-live",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [{
+            inputTokens: 500,
+            outputTokens: 157,
+            totalTokens: 657,
+            cost: 0.00588,
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "gen-1785647202-E0dxEmPkhtNSwdnoTyLi",
+            routedProvider: "Azure",
+            providerAttemptCount: 1,
+          }],
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 0,
+        },
+        estimatedCostUsd: 0.00588,
+        resultRefs: {
+          agentRunId: "artifact-run-live",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestId: "gen-1785647202-E0dxEmPkhtNSwdnoTyLi",
+          routedProviders: ["Azure"],
+          auditAttemptCount: 1,
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+          knownEstimatedCostUsd: 0.00588,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 657,
+      estimatedCostUsd: 0.00588,
+      usageComplete: true,
+      modelAttribution: {
+        providers: ["openrouter"],
+        actualModelIds: ["openai/gpt-5.6-terra"],
+        routedProviders: ["Azure"],
+        requestIds: ["gen-1785647202-E0dxEmPkhtNSwdnoTyLi"],
+        providerAttempts: 1,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          verification: {
+            providerAttempts: 1,
+            totalTokens: 657,
+            estimatedCostUsd: 0.00588,
+            usageComplete: true,
+            authoritativeAttributionComplete: true,
+            configuredRoutingMatched: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps complete per-attempt cost and identity across audited idempotent retries", () => {
+    const attempts = [
+      {
+        inputTokens: 500,
+        outputTokens: 157,
+        totalTokens: 657,
+        cost: 0.00588,
+        provider: "openrouter",
+        modelId: "openai/gpt-5.6-terra",
+        requestId: "gen-audited-prior",
+        routedProvider: "Azure",
+        providerAttemptCount: 1,
+      },
+      {
+        inputTokens: 200,
+        outputTokens: 40,
+        totalTokens: 240,
+        cost: 0.002,
+        provider: "openrouter",
+        modelId: "openai/gpt-5.6-terra",
+        requestId: "gen-audited-current",
+        routedProvider: "Azure",
+        providerAttemptCount: 1,
+      },
+    ];
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-retry",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts,
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+        },
+        estimatedCostUsd: 0.00788,
+        resultRefs: {
+          agentRunId: "artifact-run-retry",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestId: "gen-audited-current",
+          requestIds: ["gen-audited-prior", "gen-audited-current"],
+          routedProviders: ["Azure"],
+          auditAttemptCount: 2,
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+          knownEstimatedCostUsd: 0.00788,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 897,
+      estimatedCostUsd: 0.00788,
+      usageComplete: true,
+      modelAttribution: {
+        requestIds: ["gen-audited-current", "gen-audited-prior"],
+        providerAttempts: 2,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          verification: {
+            providerAttempts: 2,
+            totalTokens: 897,
+            estimatedCostUsd: 0.00788,
+            usageComplete: true,
+            authoritativeAttributionComplete: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("accepts an explicit authoritative normalized multi-attempt aggregate", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-aggregate",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [{
+            inputTokens: 700,
+            outputTokens: 197,
+            totalTokens: 897,
+            cost: 0.00788,
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+            routedProviders: ["Azure"],
+            providerAttemptCount: 2,
+            costedAttemptCount: 2,
+            unknownUsageAttempts: 0,
+          }],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+        },
+        estimatedCostUsd: 0.00788,
+        resultRefs: {
+          agentRunId: "artifact-run-aggregate",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+          routedProviders: ["Azure"],
+          auditAttemptCount: 2,
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+          knownEstimatedCostUsd: 0.00788,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 897,
+      estimatedCostUsd: 0.00788,
+      usageComplete: true,
+      modelAttribution: {
+        requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+        providerAttempts: 2,
+        failedProviderAttempts: 0,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          verification: {
+            providerAttempts: 2,
+            estimatedCostUsd: 0.00788,
+            usageComplete: true,
+            authoritativeAttributionComplete: true,
+            configuredRoutingMatched: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps a costed audited attempt incomplete when a later attempt has unknown usage", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-unknown-retry",
+        status: "provider_error",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [
+            {
+              inputTokens: 500,
+              outputTokens: 157,
+              totalTokens: 657,
+              cost: 0.00588,
+              provider: "openrouter",
+              modelId: "openai/gpt-5.6-terra",
+              requestId: "gen-known",
+              routedProvider: "Azure",
+              providerAttemptCount: 1,
+            },
+            {
+              attempts: [],
+              failedAttempts: [{
+                provider: "openrouter",
+                modelId: "openai/gpt-5.6-terra",
+                requestId: "gen-unknown",
+                status: "provider_error",
+                httpStatus: 503,
+                retryable: true,
+              }],
+              providerAttemptCount: 1,
+              unknownUsageAttempts: 1,
+            },
+          ],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 1,
+        },
+        estimatedCostUsd: null,
+        resultRefs: {
+          agentRunId: "artifact-run-unknown",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          auditAttemptCount: 2,
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 1,
+          usageComplete: false,
+          knownEstimatedCostUsd: 0.00588,
+          failedProviderAttempts: [{
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "gen-unknown",
+            status: "provider_error",
+            httpStatus: 503,
+            retryable: true,
+          }],
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 657,
+      estimatedCostUsd: 0.00588,
+      usageComplete: false,
+      modelAttribution: {
+        requestIds: ["gen-known", "gen-unknown"],
+        providerAttempts: 2,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: false,
+        profiles: {
+          verification: {
+            providerAttempts: 2,
+            totalTokens: 657,
+            estimatedCostUsd: 0.00588,
+            usageComplete: false,
+            authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
+    expect(metrics.modelAttribution.failedProviderAttempts).toBeGreaterThan(0);
+  });
+
+  it("reports the full known cost lower bound when persisted evidence is truncated", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-truncated",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [{
+            inputTokens: 500,
+            outputTokens: 157,
+            totalTokens: 657,
+            cost: 0.00588,
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "gen-retained",
+            routedProvider: "Azure",
+            providerAttemptCount: 1,
+          }],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          auditEvidenceTruncated: true,
+        },
+        estimatedCostUsd: null,
+        resultRefs: {
+          agentRunId: "artifact-run-truncated",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestIds: ["gen-retained"],
+          routedProviders: ["Azure"],
+          auditAttemptCount: 2,
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          auditEvidenceTruncated: true,
+          usageComplete: false,
+          knownEstimatedCostUsd: 0.00788,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 657,
+      estimatedCostUsd: 0.00788,
+      usageComplete: false,
+      modelAttribution: {
+        providerAttempts: 2,
+        authoritativeAttributionComplete: false,
+        profiles: {
+          verification: {
+            estimatedCostUsd: 0.00788,
+            usageComplete: false,
+            authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
+  });
+
   it("keeps deterministic dossier phases at zero calls", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
