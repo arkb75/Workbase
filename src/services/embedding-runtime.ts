@@ -31,8 +31,33 @@ type OpenRouterEmbeddingResponse = {
     total_tokens?: unknown;
     cost?: unknown;
   };
-  error?: { message?: unknown; code?: unknown };
 };
+
+export type OpenRouterEmbeddingFailureClassification =
+  | "authentication"
+  | "billing"
+  | "invalid_response"
+  | "rate_limit"
+  | "request_rejected"
+  | "timeout"
+  | "transport"
+  | "unavailable";
+
+/**
+ * Carries only allowlisted provider diagnostics. Raw response messages, URLs,
+ * key identifiers, and workspace metadata must never cross this boundary.
+ */
+export class OpenRouterEmbeddingRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+    readonly retryable: boolean,
+    readonly classification: OpenRouterEmbeddingFailureClassification,
+  ) {
+    super(message);
+    this.name = "OpenRouterEmbeddingRequestError";
+  }
+}
 
 let cachedBedrockClient: BedrockRuntimeClient | null = null;
 let cachedBedrockClientKey = "";
@@ -101,6 +126,85 @@ function retryableStatus(status: number) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+function openRouterEmbeddingHttpError(status: number) {
+  if (status === 401 || status === 403) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter authentication or access was rejected for this embedding request.",
+      status,
+      false,
+      "authentication",
+    );
+  }
+  if (status === 402) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter account credits are insufficient for this embedding request.",
+      status,
+      false,
+      "billing",
+    );
+  }
+  if (status === 408) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter timed out while processing this embedding request.",
+      status,
+      true,
+      "timeout",
+    );
+  }
+  if (status === 429) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter rate-limited this embedding request.",
+      status,
+      true,
+      "rate_limit",
+    );
+  }
+  if (status >= 500) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter or the selected embedding provider is temporarily unavailable.",
+      status,
+      true,
+      "unavailable",
+    );
+  }
+  if (status === 400 || status === 404 || status === 409 || status === 422) {
+    return new OpenRouterEmbeddingRequestError(
+      "OpenRouter rejected this embedding request's parameters or state.",
+      status,
+      retryableStatus(status),
+      "request_rejected",
+    );
+  }
+  return new OpenRouterEmbeddingRequestError(
+    `OpenRouter could not complete this embedding request (HTTP ${status}).`,
+    status,
+    retryableStatus(status),
+    "request_rejected",
+  );
+}
+
+function invalidOpenRouterEmbeddingResponse(status: number) {
+  return status >= 400
+    ? openRouterEmbeddingHttpError(status)
+    : new OpenRouterEmbeddingRequestError(
+      "OpenRouter returned an invalid embedding response.",
+      status,
+      false,
+      "invalid_response",
+    );
+}
+
+function openRouterEmbeddingTransportError(timedOut: boolean) {
+  return new OpenRouterEmbeddingRequestError(
+    timedOut
+      ? "OpenRouter timed out before returning an embedding response."
+      : "OpenRouter embedding transport failed before a response was received.",
+    null,
+    true,
+    timedOut ? "timeout" : "transport",
+  );
+}
+
 async function delay(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -157,14 +261,12 @@ export async function requestOpenRouterEmbedding(input: {
           await delay(retryDelayMs(response, attempt));
           continue;
         }
-        throw new Error(`OpenRouter embeddings returned non-JSON HTTP ${response.status}.`);
+        throw invalidOpenRouterEmbeddingResponse(response.status);
       }
       if (!response.ok) {
-        const providerMessage =
-          typeof parsed.error?.message === "string"
-            ? parsed.error.message
-            : `HTTP ${response.status}`;
-        const error = new Error(`OpenRouter embeddings request failed: ${providerMessage}.`);
+        // The provider payload is intentionally ignored. OpenRouter error
+        // messages can contain key-management URLs, key IDs, or workspace IDs.
+        const error = openRouterEmbeddingHttpError(response.status);
         if (!retryableStatus(response.status) || attempt === config.maxAttempts - 1) {
           throw error;
         }
@@ -188,10 +290,13 @@ export async function requestOpenRouterEmbedding(input: {
       };
     } catch (error) {
       lastError = error;
-      const retryable =
+      const transportFailure =
         error instanceof TypeError ||
         (error instanceof DOMException && error.name === "AbortError");
-      if (!retryable || attempt === config.maxAttempts - 1) throw error;
+      if (!transportFailure) throw error;
+      if (attempt === config.maxAttempts - 1) {
+        throw openRouterEmbeddingTransportError(controller.signal.aborted);
+      }
       await delay(retryDelayMs(response, attempt));
     } finally {
       clearTimeout(timeout);

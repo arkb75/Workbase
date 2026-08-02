@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestOpenRouterEmbedding } from "@/src/services/embedding-runtime";
+import { embeddingIndexEvaluationErrorMessage } from "@/src/evals/embedding-index-error";
+import {
+  OpenRouterEmbeddingRequestError,
+  requestOpenRouterEmbedding,
+} from "@/src/services/embedding-runtime";
 
 const identity = {
   id: "openrouter-small-512",
@@ -12,6 +16,7 @@ const identity = {
 const priorEnvironment = {
   apiKey: process.env.OPENROUTER_API_KEY,
   baseUrl: process.env.WORKBASE_OPENROUTER_BASE_URL,
+  maxAttempts: process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS,
 };
 
 afterEach(() => {
@@ -21,6 +26,12 @@ afterEach(() => {
     delete process.env.WORKBASE_OPENROUTER_BASE_URL;
   } else {
     process.env.WORKBASE_OPENROUTER_BASE_URL = priorEnvironment.baseUrl;
+  }
+  if (priorEnvironment.maxAttempts === undefined) {
+    delete process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS;
+  } else {
+    process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS =
+      priorEnvironment.maxAttempts;
   }
 });
 
@@ -96,5 +107,63 @@ describe("OpenRouter embedding transport", () => {
       fetchImpl,
     })).resolves.toMatchObject({ vector: expect.any(Array) });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains only safe billing classification when provider diagnostics contain key metadata", async () => {
+    process.env.OPENROUTER_API_KEY = "private-test-key";
+    process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS = "1";
+    const unsafeProviderMessage =
+      "Insufficient credits. Manage key sk-or-v1-sensitive at https://openrouter.ai/settings/keys/key_sensitive?workspace=ws_private";
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({
+        error: {
+          message: unsafeProviderMessage,
+          code: "workspace_private",
+        },
+      }), {
+        status: 402,
+        headers: {
+          "x-request-id": "sk-or-v1-sensitive",
+          "retry-after": "https://openrouter.ai/settings/credits",
+        },
+      })
+    );
+
+    let failure: unknown;
+    try {
+      await requestOpenRouterEmbedding({
+        identity,
+        inputText: "secret-safe billing failure",
+        fetchImpl,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OpenRouterEmbeddingRequestError);
+    expect(failure).toMatchObject({
+      message:
+        "OpenRouter account credits are insufficient for this embedding request.",
+      status: 402,
+      retryable: false,
+      classification: "billing",
+    });
+    const evaluatorDiagnostic = embeddingIndexEvaluationErrorMessage(failure);
+    const serialized = `${evaluatorDiagnostic} ${JSON.stringify(failure)}`;
+    expect(serialized).not.toContain("key_sensitive");
+    expect(serialized).not.toContain("workspace_private");
+    expect(serialized).not.toContain("openrouter.ai");
+    expect(serialized).not.toContain("sk-or-");
+  });
+
+  it("fails closed when an unexpected evaluator error contains provider metadata", () => {
+    const diagnostic = embeddingIndexEvaluationErrorMessage(new Error(
+      "Inspect key_sensitive at https://openrouter.ai/settings/keys/key_sensitive?workspace=ws_private",
+    ));
+
+    expect(diagnostic).toBe(
+      "Embedding index evaluation failed without exposing provider diagnostics.",
+    );
+    expect(diagnostic).not.toMatch(/key_sensitive|workspace_private|openrouter\.ai/);
   });
 });
