@@ -102,8 +102,11 @@ export function buildPublicArtifactVerificationSources(
 ) {
   return highlights.map((highlight) => ({
     kind: "highlight" as const,
-    title: highlight.text,
-    content: highlight.summary,
+    // The exact approved Highlight is the public claim boundary. Keep it in
+    // the source content field so a verifier cannot mistake it for a display
+    // label and evaluate only the broader descriptive summary.
+    title: "Approved Highlight",
+    content: highlight.text,
     ownershipClarity: highlight.ownershipClarity,
     sensitivityFlag: highlight.sensitivityFlag,
     publicSafetyStatus: highlight.publicSafetyStatus,

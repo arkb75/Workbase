@@ -149,6 +149,15 @@ const artifactVerificationJsonSchema: JsonSchemaObject = {
   },
 };
 
+export function isArtifactPublicVerificationEligible(input: {
+  eligible: boolean;
+  claims: Array<{ verdict: string }>;
+}) {
+  return input.eligible &&
+    input.claims.length > 0 &&
+    input.claims.every((claim) => claim.verdict === "entailed");
+}
+
 export async function verifyArtifactForPublicUse(input: {
   content: string;
   sources: Array<{
@@ -180,6 +189,7 @@ export async function verifyArtifactForPublicUse(input: {
       systemPrompt: [
         "You are the final fail-closed verifier for a public career artifact.",
         "Every material technical, ownership, scope, outcome, and impact claim must be fully entailed by the supplied approved sources.",
+        "For each source, content is the exact approved Highlight claim and title is only a display label.",
         "Remove or narrowly correct unsupported claims without adding facts. Never convert project implementation into personal ownership unless a source explicitly supports ownership.",
         "Any sensitive, partially entailed, unsupported, ownership-gap, or scope-overclaim verdict makes eligible false unless correctedContent removes the problem and every remaining claim is entailed.",
         "When correctedContent is non-null, evaluate claims against correctedContent only and set eligible true only if every remaining claim is entailed; otherwise return correctedContent null and eligible false.",
@@ -207,7 +217,7 @@ export async function verifyArtifactForPublicUse(input: {
           execute,
         })
       : await execute();
-    const eligible = result.data.eligible && result.data.claims.every((claim) => claim.verdict === "entailed");
+    const eligible = isArtifactPublicVerificationEligible(result.data);
     return { ...result.data, eligible, tokenUsage: result.tokenUsage };
   } catch (error) {
     return {
