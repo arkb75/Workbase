@@ -120,6 +120,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         totalTokens: 25,
         cacheReadInputTokens: 10,
         reasoningTokens: 2,
+        provider: "openrouter",
         cost: 0.00042,
         routedProvider: "openai",
       },
@@ -366,6 +367,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
       partialContent: "partial",
       tokenUsage: expect.objectContaining({
         totalTokens: 11,
+        provider: "openrouter",
         cost: 0.0003,
       }),
     });
@@ -404,6 +406,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
       tokenUsage: expect.objectContaining({
         requestId: "req_header_1",
         modelId: "openai/gpt-5.6-terra",
+        provider: "openrouter",
         routedProvider: "openai",
         totalTokens: 9,
         cost: 0.0002,
@@ -778,6 +781,7 @@ describe("OpenRouterConverseTransport", () => {
         outputTokens: 10,
         totalTokens: 60,
         reasoningTokens: 6,
+        provider: "openrouter",
         cost: 0.002,
       },
       message: {

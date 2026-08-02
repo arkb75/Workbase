@@ -157,6 +157,7 @@ function normalizeUsage(
     cacheReadInputTokens: cachedTokens,
     cacheWriteInputTokens: cacheWriteTokens,
     reasoningTokens,
+    provider: "openrouter",
     cost:
       typeof usage.cost === "number" &&
       Number.isFinite(usage.cost) &&

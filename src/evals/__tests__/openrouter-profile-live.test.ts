@@ -433,6 +433,47 @@ describe("OpenRouter profile live evaluation report", () => {
     });
   });
 
+  it("accepts the paid code-extraction usage leaf without separate result metadata", () => {
+    const observation = validObservation("code_extraction");
+    observation.metadata = undefined;
+    observation.usage = {
+      inputTokens: 2_737,
+      outputTokens: 667,
+      reasoningTokens: 0,
+      totalTokens: 3_404,
+      cacheReadInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      provider: "openrouter",
+      cost: 0.0168475,
+      requestId: "gen-test-code-extraction-terra-1",
+      modelId: "openai/gpt-5.6-terra",
+      routedProvider: "Azure",
+      providerAttemptCount: 1,
+    };
+
+    const telemetry = buildOpenRouterProfileTelemetry({
+      observation,
+      config: {
+        configuredModelId: "openai/gpt-5.6-terra",
+        configuredFallbackModelId: null,
+      },
+    });
+
+    expect(telemetry).toMatchObject({
+      actualModelIds: ["openai/gpt-5.6-terra"],
+      providers: ["openrouter"],
+      routedProviders: ["Azure"],
+      requestIds: ["gen-test-code-extraction-terra-1"],
+      providerAttempts: 1,
+      inputTokens: 2_737,
+      outputTokens: 667,
+      totalTokens: 3_404,
+      authoritativeCostUsd: 0.0168475,
+      knownCostLowerBoundUsd: 0.0168475,
+      usageComplete: true,
+    });
+  });
+
   it("rejects OpenRouter itself as the routed upstream provider", () => {
     const observation = validObservation("primary_answer");
     observation.usage = liveUsage("primary_answer", {
