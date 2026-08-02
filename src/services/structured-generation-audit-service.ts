@@ -20,10 +20,9 @@ import {
   collectModelTokenUsage,
   collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
+  countCostedModelProviderAttempts,
   countModelUsageEntries,
   countModelProviderAttempts,
-  countReportedModelCostEntries,
-  modelTokenUsageJson,
   resolveModelCostUsd,
 } from "@/src/services/model-usage-service";
 
@@ -84,6 +83,7 @@ function nonNegativeNumber(value: unknown) {
 
 function collectProviderAttemptMetadata(value: unknown) {
   const attempts: JsonValue[] = [];
+  const requestIds = new Set<string>();
   const routedProviders = new Set<string>();
   const seen = new WeakSet<object>();
   const visit = (current: unknown, depth: number) => {
@@ -103,7 +103,7 @@ function collectProviderAttemptMetadata(value: unknown) {
     const record = current as Record<string, unknown>;
     if (Array.isArray(record.failedAttempts)) {
       for (const attempt of record.failedAttempts) {
-        const sanitized = sanitizeBedrockConverseEventValue(attempt);
+        const sanitized = sanitizeAuditedUsageEvidence(attempt);
         if (
           sanitized &&
           typeof sanitized === "object" &&
@@ -111,6 +111,7 @@ function collectProviderAttemptMetadata(value: unknown) {
         ) {
           attempts.push(sanitized);
         }
+        visit(attempt, depth + 1);
       }
     }
     if (
@@ -119,6 +120,23 @@ function collectProviderAttemptMetadata(value: unknown) {
     ) {
       routedProviders.add(record.routedProvider.trim());
     }
+    if (Array.isArray(record.routedProviders)) {
+      record.routedProviders.forEach((provider) => {
+        if (typeof provider === "string" && provider.trim()) {
+          routedProviders.add(provider.trim());
+        }
+      });
+    }
+    if (typeof record.requestId === "string" && record.requestId.trim()) {
+      requestIds.add(record.requestId.trim());
+    }
+    if (Array.isArray(record.requestIds)) {
+      record.requestIds.forEach((requestId) => {
+        if (typeof requestId === "string" && requestId.trim()) {
+          requestIds.add(requestId.trim());
+        }
+      });
+    }
     Object.entries(record).forEach(([key, entry]) => {
       if (key !== "failedAttempts") visit(entry, depth + 1);
     });
@@ -126,8 +144,162 @@ function collectProviderAttemptMetadata(value: unknown) {
   visit(value, 0);
   return {
     failedAttempts: attempts,
+    requestIds: Array.from(requestIds),
     routedProviders: Array.from(routedProviders),
   };
+}
+
+const AUDITED_USAGE_EVIDENCE_VERSION = 1;
+const auditedUsageNumberKeys = new Set([
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
+  "cacheReadInputTokens",
+  "cacheWriteInputTokens",
+  "reasoningTokens",
+  "cost",
+  "costUsd",
+  "providerAttemptCount",
+  "costedAttemptCount",
+  "unknownUsageAttempts",
+  "httpStatus",
+]);
+const auditedUsageStringKeys = new Set([
+  "provider",
+  "modelId",
+  "requestId",
+  "routedProvider",
+  "status",
+  "code",
+  "errorType",
+  "retryAfter",
+]);
+const auditedUsageBooleanKeys = new Set(["retryable"]);
+const auditedUsageStringArrayKeys = new Set([
+  "providers",
+  "modelIds",
+  "requestIds",
+  "routedProviders",
+]);
+const auditedUsageContainerKeys = new Set([
+  "attempts",
+  "failedAttempts",
+  "usage",
+  "tokenUsage",
+  "batches",
+  "phases",
+]);
+
+/**
+ * Retains only metering and provider-attempt identity. Provider token-usage
+ * objects are trusted as accounting evidence, not as a channel for persisting
+ * prompts, response content, or raw error messages.
+ */
+function sanitizeAuditedUsageEvidence(value: unknown): JsonValue | null {
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number): JsonValue | null => {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      depth > 8 ||
+      seen.has(current)
+    ) {
+      return null;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      return current.flatMap((entry) => {
+        const sanitized = visit(entry, depth + 1);
+        return sanitized == null ? [] : [sanitized];
+      });
+    }
+
+    const output: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(
+      current as Record<string, unknown>,
+    )) {
+      if (auditedUsageNumberKeys.has(key)) {
+        if (
+          typeof entry === "number" &&
+          Number.isFinite(entry) &&
+          entry >= 0
+        ) {
+          output[key] = entry;
+        } else if (entry == null) {
+          output[key] = null;
+        }
+        continue;
+      }
+      if (auditedUsageStringKeys.has(key)) {
+        if (typeof entry === "string" && entry.trim()) {
+          output[key] = entry.trim();
+        } else if (
+          key === "code" &&
+          typeof entry === "number" &&
+          Number.isFinite(entry)
+        ) {
+          output[key] = entry;
+        } else if (entry == null) {
+          output[key] = null;
+        }
+        continue;
+      }
+      if (auditedUsageBooleanKeys.has(key)) {
+        if (typeof entry === "boolean") output[key] = entry;
+        continue;
+      }
+      if (auditedUsageStringArrayKeys.has(key) && Array.isArray(entry)) {
+        output[key] = entry.flatMap((candidate) =>
+          typeof candidate === "string" && candidate.trim()
+            ? [candidate.trim()]
+            : []
+        );
+        continue;
+      }
+      if (auditedUsageContainerKeys.has(key)) {
+        const nested = visit(entry, depth + 1);
+        if (nested != null) output[key] = nested;
+      }
+    }
+    if (!Object.keys(output).length) return null;
+    return sanitizeBedrockConverseEventValue(output);
+  };
+  return visit(value, 0);
+}
+
+function priorAuditedUsageEntries(value: unknown) {
+  const prior = objectValue(value);
+  if (
+    prior?.auditUsageEvidenceVersion === AUDITED_USAGE_EVIDENCE_VERSION &&
+    Array.isArray(prior.attempts)
+  ) {
+    return prior.attempts.flatMap((entry) => {
+      const sanitized = sanitizeAuditedUsageEvidence(entry);
+      return sanitized == null ? [] : [sanitized];
+    });
+  }
+  const sanitized = sanitizeAuditedUsageEvidence(value);
+  return sanitized == null ? [] : [sanitized];
+}
+
+function cumulativeAuditedUsageEvidence(input: {
+  priorTokenUsage: unknown;
+  currentTokenUsage: unknown;
+  providerAttemptCount: number;
+  unknownUsageAttempts: number;
+}) {
+  const current = sanitizeAuditedUsageEvidence(input.currentTokenUsage);
+  const attempts = [
+    ...priorAuditedUsageEntries(input.priorTokenUsage),
+    ...(current == null ? [] : [current]),
+  ];
+  if (!attempts.length) return null;
+  return sanitizeBedrockConverseEventValue({
+    auditUsageEvidenceVersion: AUDITED_USAGE_EVIDENCE_VERSION,
+    attempts,
+    providerAttemptCount: input.providerAttemptCount,
+    unknownUsageAttempts: input.unknownUsageAttempts,
+  });
 }
 
 function providerErrorUsage(error: unknown): JsonValue | null {
@@ -209,17 +381,31 @@ function cumulativeAuditUsage(input: {
   const currentUsageEntryCount = countModelUsageEntries(
     input.currentTokenUsage,
   );
-  const currentCostEntryCount = countReportedModelCostEntries(
+  const currentCostedAttemptCount = countCostedModelProviderAttempts(
     input.currentTokenUsage,
   );
-  const priorUsageComplete = priorRefs?.usageComplete !== false;
+  const priorUsageEntryCount = countModelUsageEntries(input.priorTokenUsage);
+  const priorCostedAttemptCount = countCostedModelProviderAttempts(
+    input.priorTokenUsage,
+  );
+  const openRouter = input.provider.toLowerCase() === "openrouter";
+  const priorCostComplete =
+    !openRouter ||
+    input.modelId === "mock" ||
+    priorAttemptCount === 0 ||
+    (
+      priorUsageEntryCount > 0 &&
+      priorCostedAttemptCount >= priorAttemptCount
+    );
+  const priorUsageComplete =
+    priorRefs?.usageComplete !== false && priorCostComplete;
   const currentCostComplete =
     !countCurrentAttempt ||
-    input.provider !== "openrouter" ||
+    !openRouter ||
     input.modelId === "mock" ||
     (
       currentUsageEntryCount > 0 &&
-      currentCostEntryCount === currentUsageEntryCount
+      currentCostedAttemptCount >= currentProviderAttemptCount
     );
   const usageComplete =
     unknownUsageAttempts === 0 &&
@@ -337,10 +523,13 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         provider: result.provider,
         priorEstimatedCostUsd: run.estimatedCostUsd,
       });
-      const providerAttempts = collectProviderAttemptMetadata(
-        result.tokenUsage,
-      );
-      const tokenUsage = auditUsage.hasKnownUsage ? modelTokenUsageJson(auditUsage.usage) : null;
+      const tokenUsage = cumulativeAuditedUsageEvidence({
+        priorTokenUsage: run.tokenUsage,
+        currentTokenUsage: result.tokenUsage,
+        providerAttemptCount: auditUsage.auditAttemptCount,
+        unknownUsageAttempts: auditUsage.unknownUsageAttempts,
+      });
+      const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
       await prisma.generationRun.update({
         where: { id: run.id },
         data: {
@@ -358,6 +547,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             profile: input.profile ?? profileForAuditedKind(input.kind),
             configuredModelId: config!.modelId,
             requestId: result.requestId ?? null,
+            requestIds: providerAttempts.requestIds,
             attempts: result.attempts,
             rawOutputHash: rawHash(result.rawOutput),
             durationMs: Date.now() - startedAt,
@@ -391,10 +581,13 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
         priorEstimatedCostUsd: run.estimatedCostUsd,
         countCurrentAttempt: !admissionFailure,
       });
-      const providerAttempts = collectProviderAttemptMetadata(
-        failureTokenUsage,
-      );
-      const tokenUsage = auditUsage.hasKnownUsage ? modelTokenUsageJson(auditUsage.usage) : null;
+      const tokenUsage = cumulativeAuditedUsageEvidence({
+        priorTokenUsage: run.tokenUsage,
+        currentTokenUsage: failureTokenUsage,
+        providerAttemptCount: auditUsage.auditAttemptCount,
+        unknownUsageAttempts: auditUsage.unknownUsageAttempts,
+      });
+      const providerAttempts = collectProviderAttemptMetadata(tokenUsage);
       await prisma.generationRun.update({
         where: { id: run.id },
         data: {
@@ -408,6 +601,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             transportMode: structured?.transportMode ?? null,
             profile: input.profile ?? profileForAuditedKind(input.kind),
             configuredModelId: config!.modelId,
+            requestIds: providerAttempts.requestIds,
             attempts: structured?.attempts ?? null,
             rawOutputHash: rawHash(structured?.rawOutput ?? null),
             message: error instanceof Error ? error.message.slice(0, 500) : "Unknown structured generation error.",
