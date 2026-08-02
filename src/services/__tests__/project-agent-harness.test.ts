@@ -73,6 +73,7 @@ describe("project agent harness", () => {
     "Read versus write behavior in the repository refresh.",
     "Read-vs-write behavior in the repository refresh.",
     "Read/write behavior in the repository refresh.",
+    "Read behavior versus write behavior in repository refresh.",
     "Compare reading source files with writing durable facts during repository refresh.",
   ])("keeps conceptual refresh comparisons on approved memory: %s", (question) => {
     expect(routeProjectTurn({
@@ -90,6 +91,10 @@ describe("project agent harness", () => {
     "Could you refresh Workbase repository knowledge?",
     "Before answering, please refresh the repository.",
     "First, refresh the codebase and then answer.",
+    "Before you answer, refresh the repository.",
+    "Before responding, refresh the repository.",
+    "Next, refresh the repository.",
+    "Please, refresh the repository.",
   ])("routes an explicit knowledge-refresh action as fresh repository work: %s", (question) => {
     expect(routeProjectTurn({
       question,

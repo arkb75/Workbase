@@ -3,7 +3,10 @@ const repositoryActionVerb =
 const repositoryActionTarget =
   "(?:(?:repo|repository|github|codebase)\\b|[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+\\b)";
 const repositoryCommandPrefix =
-  "(?:(?:(?:before answering|first|then|now),?\\s+)?(?:please\\s+)?|(?:please\\s+)?go ahead(?:\\s+and)?\\s+)";
+  "(?:(?:(?:before\\s+(?:(?:you\\s+)?(?:answer|respond)|answering|responding)|first|next|then|now),?\\s+)?(?:please,?\\s+)?|(?:please,?\\s+)?go ahead(?:\\s+and)?\\s+)";
+
+const conceptualRepositoryReadWritePattern =
+  /(?:^|[.!?]\s+)read(?:ing)?\b(?:\s+[a-z-]+){0,5}\s+(?:versus|vs\.?|compared\s+(?:with|to))\s+writ(?:e|ing)\b/i;
 
 const explicitLiveRepositoryActionPattern = new RegExp(
   `(?:(?:^|[.!?]\\s+)${repositoryCommandPrefix}${repositoryActionVerb}\\b.{0,100}\\b${repositoryActionTarget}|\\b(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?${repositoryActionVerb}\\b.{0,100}\\b${repositoryActionTarget}|\\b(?:i|we)\\s+(?:need|want|would like)\\s+you\\s+to\\s+${repositoryActionVerb}\\b.{0,100}\\b${repositoryActionTarget})`,
@@ -22,6 +25,7 @@ const explicitRepositoryRefreshActionPattern = new RegExp(
 );
 
 export function hasExplicitLiveRepositoryAction(question: string) {
+  if (conceptualRepositoryReadWritePattern.test(question)) return false;
   return explicitLiveRepositoryActionPattern.test(question) ||
     hasExplicitRepositoryRefreshAction(question);
 }

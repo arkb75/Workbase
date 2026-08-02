@@ -113,6 +113,7 @@ describe("project chat repository intent", () => {
     "Read versus write behavior in the repository refresh.",
     "Read-vs-write behavior in the repository refresh.",
     "Read/write behavior in the repository refresh.",
+    "Read behavior versus write behavior in repository refresh.",
     "Compare reading source files with writing durable facts during repository refresh.",
   ])("treats a conceptual refresh mention as memory-backed analysis: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(false);
@@ -131,6 +132,10 @@ describe("project chat repository intent", () => {
     "First, inspect the codebase and then answer.",
     "Before answering, please refresh the repository.",
     "First, refresh the codebase and then answer.",
+    "Before you answer, refresh the repository.",
+    "Before responding, refresh the repository.",
+    "Next, refresh the repository.",
+    "Please, refresh the repository.",
   ])("requires live repository work for an explicit action: %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(true);
   });

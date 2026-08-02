@@ -372,12 +372,12 @@ function extractComparisonDimensions(
     ? normalizedQuestion.slice(extracted.subjectEndIndex)
     : "";
   const explicitLens = suffix.match(
-    /^\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
+    /^\s+(?:in terms of|with respect to|focusing on|across|regarding|on the dimensions? of)\s+(.+?)(?=[?.!]|$|\s+(?:(?:in|as)\s+(?:a|an)\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\s+)?(?:markdown\s+)?(?:table|list|answer|comparison|format)\b)/i,
   );
   if (explicitLens?.[1]) return splitComparisonDimensions(explicitLens[1]);
   const bareOnLens = suffix.match(
     new RegExp(
-      `^\\s+on\\s+(${bareComparisonDimensionStart}\\b.+?|${bareComparisonDimensionStart})(?=[?.!]|$|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`,
+      `^\\s+(?:on|in)\\s+(${bareComparisonDimensionStart}\\b.+?|${bareComparisonDimensionStart})(?=[?.!]|$|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`,
       "i",
     ),
   );
@@ -395,7 +395,7 @@ function extractComparisonSubjects(
 ): ExtractedComparisonSubjects | null {
   const normalized = question.replace(/\s+/g, " ").trim();
   const terminal =
-    `(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\\b|\\s+on\\s+(?=${bareComparisonDimensionStart}\\b)|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`;
+    `(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|regarding|on the dimensions? of)\\b|\\s+(?:on|in)\\s+(?=${bareComparisonDimensionStart}\\b)|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`;
   const patterns = [
     new RegExp(
       `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+and\\s+(.+?)\\s+differ(?:s|ed)?${terminal}`,
@@ -1197,6 +1197,73 @@ function comparisonSubjectTermSupported(
   return Boolean(aliases?.some((alias) => evidenceTerms.has(stem(alias))));
 }
 
+const comparisonAnchorQualifierStopWords = new Set([
+  ...comparisonSubjectStopWords,
+  "answer",
+  "assistant",
+  "call",
+  "called",
+  "context",
+  "describe",
+  "described",
+  "discuss",
+  "discussed",
+  "known",
+  "mention",
+  "mentioned",
+  "name",
+  "named",
+  "reference",
+  "referenced",
+  "referencing",
+]);
+
+function demonstrativeAnchorQualifierTerms(
+  subject: ProjectAnswerComparisonSubject,
+) {
+  if (!subject.resolvedAnchor) return [];
+  const labelTerms = Array.from(tokens(
+    subject.label,
+    comparisonSubjectStopWords,
+  ));
+  if (!labelTerms.length) return [];
+  const anchorTerms = subject.resolvedAnchor
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((term) =>
+      term.length > 2 && !comparisonAnchorQualifierStopWords.has(term)
+    )
+    .map(stem)
+    .filter((term) => term.length > 2);
+  const firstLabelIndex = anchorTerms.findIndex((term) =>
+    comparisonSubjectTermSupported(term, new Set([labelTerms[0]!])) ||
+    comparisonSubjectTermSupported(labelTerms[0]!, new Set([term]))
+  );
+  if (firstLabelIndex < 0) return [];
+  const nearbyLabelTerms = new Set(
+    anchorTerms.slice(
+      firstLabelIndex + 1,
+      firstLabelIndex + labelTerms.length + 2,
+    ),
+  );
+  if (
+    labelTerms.slice(1).some((term) =>
+      !comparisonSubjectTermSupported(term, nearbyLabelTerms)
+    )
+  ) {
+    return [];
+  }
+  return anchorTerms
+    .slice(Math.max(0, firstLabelIndex - 3), firstLabelIndex)
+    .filter((term) =>
+      !labelTerms.some((labelTerm) =>
+        comparisonSubjectTermSupported(term, new Set([labelTerm])) ||
+        comparisonSubjectTermSupported(labelTerm, new Set([term]))
+      )
+    )
+    .slice(-2);
+}
+
 function explicitComparisonSubjectSupported(
   subject: ProjectAnswerComparisonSubject,
   evidenceText: string,
@@ -1231,6 +1298,8 @@ function explicitComparisonSubjectSupported(
     : Math.min(3, Math.max(1, Math.ceil(anchorTerms.length * 0.3)));
   const anchorSupported = anchorTerms.length > 0 &&
     supportedAnchorTerms >= requiredAnchorTerms;
+  const anchorQualifiersSupported = demonstrativeAnchorQualifierTerms(subject)
+    .every((term) => comparisonSubjectTermSupported(term, evidenceTerms));
   const temporalSupported = subject.temporalRole === "earlier"
     ? earlierComparisonEvidencePattern.test(evidenceText)
     : subject.temporalRole === "current"
@@ -1239,7 +1308,7 @@ function explicitComparisonSubjectSupported(
   if (
     demonstrativeComparisonSubjectPattern.test(subject.label) &&
     subject.resolvedAnchor &&
-    !anchorSupported
+    (!anchorSupported || !anchorQualifiersSupported)
   ) {
     return false;
   }
@@ -1267,13 +1336,7 @@ function comparisonSubjectMemberScore(
 ) {
   if (subject.temporalRole === "earlier") {
     const temporalDescription = `${member.entry.title} ${member.entry.content}`;
-    const earlierIndex = temporalDescription.search(
-      /\b(?:earlier|prior|previous|former|original|historical|legacy|formerly)\b/i,
-    );
-    const currentIndex = temporalDescription.search(
-      /\b(?:current|present|latest|newer|now|today)\b/i,
-    );
-    if (currentIndex >= 0 && (earlierIndex < 0 || currentIndex < earlierIndex)) {
+    if (/\b(?:current|present|latest|newer|now|today)\b/i.test(temporalDescription)) {
       return 0;
     }
   }
@@ -1432,8 +1495,8 @@ const comparisonExclusiveScopePairs = [
     new Set(["output", "completion"]),
   ],
   [
-    new Set(["interactive", "foreground", "synchronous"]),
-    new Set(["background", "asynchronous", "offline"]),
+    new Set(["interactive", "foreground", "synchronous", "synchronou"]),
+    new Set(["background", "asynchronous", "asynchronou", "offline"]),
   ],
 ] as const;
 
@@ -1448,8 +1511,12 @@ function comparisonScopesDisjoint(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ) {
-  const leftNonIdempotent = left.has("non") && left.has("idempotent");
-  const rightNonIdempotent = right.has("non") && right.has("idempotent");
+  const leftNonIdempotent =
+    left.has("nonidempotent") ||
+    (left.has("non") && left.has("idempotent"));
+  const rightNonIdempotent =
+    right.has("nonidempotent") ||
+    (right.has("non") && right.has("idempotent"));
   const leftIdempotent = left.has("idempotent") && !leftNonIdempotent;
   const rightIdempotent = right.has("idempotent") && !rightNonIdempotent;
   if (
