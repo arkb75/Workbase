@@ -29,6 +29,15 @@ import {
   runProjectChatApplicationScenarios,
 } from "../src/evals/project-chat-application-runner";
 import {
+  buildLongThreadEvaluationCitationRows,
+  currentRunGroundedComparisonEvaluationFacts,
+  groundedComparisonEvaluationFixtureForScenario,
+  longThreadEvaluationMessageCore,
+  projectChatApplicationCleanupTargets,
+  projectChatApplicationSandboxIsolationKey,
+  type PersistedGroundedComparisonEvaluationFact,
+} from "../src/evals/project-chat-application-memory-fixtures";
+import {
   completeAgentRun,
   buildRollingConversationSummary,
   createProjectChatRun,
@@ -149,6 +158,10 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
   private readonly createdRunIds = new Set<string>();
   private readonly sandboxWorkItemIds = new Set<string>();
   private readonly workspaces = new Map<string, string>();
+  private readonly groundedComparisonFixtures = new Map<
+    string,
+    PersistedGroundedComparisonEvaluationFact[]
+  >();
 
   constructor(
     private readonly input: {
@@ -207,17 +220,125 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
 
   private async workItemIdFor(scenario: ProjectChatApplicationScenario) {
     if (scenario.workspace === "project_memory") return this.input.mainWorkItemId;
-    const isolatedArtifactScenario = [
-      "artifact_from_approved_context",
-      "artifact_missing_impact",
-      "artifact_review_gate",
-    ].includes(scenario.id)
-      ? scenario.id
-      : undefined;
     return this.createSandbox(
       scenario.workspace === "attached_repository_sandbox",
-      isolatedArtifactScenario,
+      projectChatApplicationSandboxIsolationKey(scenario.id),
     );
+  }
+
+  private async seedGroundedComparisonScenario(
+    scenario: ProjectChatApplicationScenario,
+    workItemId: string,
+  ) {
+    const fixture = groundedComparisonEvaluationFixtureForScenario(scenario.id);
+    if (!fixture) return [];
+    const fixtureKey = `${workItemId}:${scenario.id}`;
+    const existing = this.groundedComparisonFixtures.get(fixtureKey);
+    if (existing) return existing;
+
+    const facts = await prisma.$transaction(async (tx) => {
+      const source = await tx.source.create({
+        data: {
+          workItemId,
+          type: "manual_note",
+          label: fixture.sourceLabel,
+          externalId: `application-eval:${scenario.id}`,
+          rawContent: fixture.facts.map((fact) => fact.evidenceContent).join("\n\n"),
+          metadata: {
+            evaluationScenarioId: scenario.id,
+            purpose: "grounded_comparison_fixture",
+          },
+        },
+      });
+      const persisted: PersistedGroundedComparisonEvaluationFact[] = [];
+      for (const fact of fixture.facts) {
+        const evidence = await tx.evidenceItem.create({
+          data: {
+            workItemId,
+            sourceId: source.id,
+            externalId: `application-eval:${scenario.id}:${fact.key}`,
+            type: "manual_note_excerpt",
+            title: fact.evidenceTitle,
+            content: fact.evidenceContent,
+            searchText: `${fact.statement} ${fact.evidenceContent}`,
+            logicalKey: `application-eval:${scenario.id}:${fact.key}`,
+            included: true,
+            lifecycleStatus: "active",
+            reviewState: "reviewed",
+            approvalSource: "user",
+            publicSafetyStatus: "verified",
+            metadata: {
+              evaluationScenarioId: scenario.id,
+              factKey: fact.key,
+            },
+          },
+        });
+        const projectFact = await tx.projectFact.create({
+          data: {
+            workItemId,
+            statement: fact.statement,
+            category: fact.category,
+            confidence: "high",
+            status: "approved",
+            sensitivityFlag: false,
+            reviewNotes:
+              "Reviewed application-evaluation fixture backed by the linked manual-note evidence.",
+            searchText: `${fact.statement} ${fact.evidenceContent}`,
+            lifecycleStatus: "active",
+            reviewState: "reviewed",
+            approvalSource: "user",
+            publicSafetyStatus: "verified",
+            subsystemKey: fact.subsystemKey,
+            evidence: {
+              create: {
+                evidenceItemId: evidence.id,
+                relevanceScore: 1,
+              },
+            },
+          },
+        });
+        persisted.push({
+          ...fact,
+          id: projectFact.id,
+          evidenceItemId: evidence.id,
+        });
+      }
+      return persisted;
+    });
+    this.groundedComparisonFixtures.set(fixtureKey, facts);
+    return facts;
+  }
+
+  private async attachGroundedComparisonFactsToRun(
+    scenario: ProjectChatApplicationScenario,
+    runId: string,
+    facts: readonly PersistedGroundedComparisonEvaluationFact[],
+  ) {
+    const currentRunFacts = currentRunGroundedComparisonEvaluationFacts(
+      scenario.id,
+      facts,
+    );
+    if (!currentRunFacts.length) return;
+    const reviewedAt = new Date();
+    await prisma.agentRunCandidate.createMany({
+      data: currentRunFacts.map((fact, index) => ({
+        agentRunId: runId,
+        projectFactId: fact.id,
+        kind: "new_project_fact",
+        status: "approved",
+        batchNumber: 1,
+        ordinal: index + 1,
+        reviewedAt,
+        snapshot: {
+          statement: fact.statement,
+          category: fact.category,
+          confidence: "high",
+          status: "approved",
+          evidenceItemIds: [fact.evidenceItemId],
+          evaluationFixture: true,
+        },
+      })),
+    });
   }
 
   private async seedArtifactScenario(
@@ -330,6 +451,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
   private async seedLongThreadScenario(
     scenario: ProjectChatApplicationScenario,
     threadId: string,
+    facts: readonly PersistedGroundedComparisonEvaluationFact[],
   ) {
     if (scenario.id !== "long_thread_rollover") return;
     const existingCount = await prisma.chatMessage.count({ where: { threadId } });
@@ -337,17 +459,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     const messages = Array.from({ length: 16 }, (_, index) => {
       const sequence = index + 1;
       const role = sequence % 2 === 1 ? "user" as const : "assistant" as const;
-      const core = sequence === 1
-        ? "Earlier decision under discussion: repository discoveries should become reviewed durable Project Facts before ordinary chat reuses them."
-        : sequence === 2
-          ? "Decision adopted: keep raw repository exploration internal and promote only supported findings into durable memory with provenance."
-          : sequence === 15
-            ? "Current-runtime question: how does the bounded model tool loop control a project-chat turn?"
-            : sequence === 16
-              ? "Current runtime context: the provider-neutral model loop enforces tool and token limits inside the durable workflow boundary."
-              : role === "user"
-                ? `Intermediate project question ${Math.ceil(sequence / 2)} asked about repository knowledge and grounded chat.`
-                : `Intermediate answer ${Math.ceil(sequence / 2)} explained that repository analysis becomes reviewed Project Facts with durable provenance.`;
+      const core = longThreadEvaluationMessageCore(sequence, role);
       return {
         threadId,
         sequence,
@@ -363,15 +475,14 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       select: { id: true, sequence: true },
       orderBy: { sequence: "asc" },
     });
-    await prisma.chatCitation.createMany({
-      data: assistants.map((message) => ({
-        messageId: message.id,
-        kind: "project_fact",
-        ordinal: 1,
-        label: `Earlier used Project Fact ${message.sequence / 2}`,
-        excerpt: "Compact manifest test; the full excerpt is not replayed to the chat model.",
-      })),
-    });
+    const citationRows = buildLongThreadEvaluationCitationRows(assistants, facts);
+    await prisma.chatCitation.createMany({ data: citationRows });
+    const citationLabelBySequence = new Map(
+      assistants.map((message, index) => [
+        message.sequence,
+        citationRows[index]!.label,
+      ]),
+    );
     const olderMessages = messages.slice(0, messages.length - 12);
     const rollingSummary = buildRollingConversationSummary(
       olderMessages.map((message) => ({
@@ -379,7 +490,10 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         role: message.role,
         content: message.content,
         citations: message.role === "assistant"
-          ? [{ kind: "project_fact", label: `Earlier used Project Fact ${message.sequence / 2}` }]
+          ? [{
+              kind: "project_fact",
+              label: citationLabelBySequence.get(message.sequence)!,
+            }]
           : [],
       })),
       6_000,
@@ -621,7 +735,15 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
   async run(scenario: ProjectChatApplicationScenario): Promise<ProjectChatApplicationObservation> {
     const workItemId = await this.workItemIdFor(scenario);
     const thread = await this.threadFor(scenario, workItemId);
-    await this.seedLongThreadScenario(scenario, thread.id);
+    const groundedComparisonFacts = await this.seedGroundedComparisonScenario(
+      scenario,
+      workItemId,
+    );
+    await this.seedLongThreadScenario(
+      scenario,
+      thread.id,
+      groundedComparisonFacts,
+    );
     const startedAt = new Date();
     const run = await createProjectChatRun({
       userId: this.input.userId,
@@ -631,6 +753,11 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       idempotencyKey: `application-eval:${scenario.id}:${randomUUID()}`,
     });
     this.createdRunIds.add(run.id);
+    await this.attachGroundedComparisonFactsToRun(
+      scenario,
+      run.id,
+      groundedComparisonFacts,
+    );
     await this.seedArtifactScenario(scenario, workItemId, run.id);
     const { userMessage, history, rollingSummary } = await this.turnContext(thread.id, run.id);
     let outcome: ProjectChatApplicationOutcome = "failed";
@@ -805,17 +932,24 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
 
   async cleanup() {
     if (this.input.keepData) return;
-    if (this.createdRunIds.size) {
-      await prisma.artifact.deleteMany({ where: { originatingAgentRunId: { in: [...this.createdRunIds] } } });
+    const targets = projectChatApplicationCleanupTargets({
+      createdRunIds: this.createdRunIds,
+      createdThreadIds: this.createdThreadIds,
+      sandboxWorkItemIds: this.sandboxWorkItemIds,
+    });
+    if (targets.runIds.length) {
+      await prisma.artifact.deleteMany({ where: { originatingAgentRunId: { in: targets.runIds } } });
     }
-    if (this.createdThreadIds.size) {
-      await prisma.chatThread.deleteMany({ where: { id: { in: [...this.createdThreadIds] } } });
+    if (targets.threadIds.length) {
+      await prisma.chatThread.deleteMany({ where: { id: { in: targets.threadIds } } });
     }
-    if (this.createdRunIds.size) {
-      await prisma.agentRun.deleteMany({ where: { id: { in: [...this.createdRunIds] } } });
+    if (targets.runIds.length) {
+      await prisma.agentRun.deleteMany({ where: { id: { in: targets.runIds } } });
     }
-    if (this.sandboxWorkItemIds.size) {
-      await prisma.workItem.deleteMany({ where: { id: { in: [...this.sandboxWorkItemIds] } } });
+    if (targets.sandboxWorkItemIds.length) {
+      // Deleting the isolated Work Items cascades through their fixture Source,
+      // EvidenceItem, ProjectFactEvidence, and ProjectFact rows.
+      await prisma.workItem.deleteMany({ where: { id: { in: targets.sandboxWorkItemIds } } });
     }
   }
 }
