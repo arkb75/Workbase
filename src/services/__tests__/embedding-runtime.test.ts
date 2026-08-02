@@ -166,6 +166,41 @@ describe("OpenRouter embedding transport", () => {
     expect(serialized).not.toContain("sk-or-");
   });
 
+  it.each([
+    [400, "request_rejected", false, "OpenRouter rejected this embedding request's parameters or state."],
+    [401, "authentication", false, "OpenRouter authentication or access was rejected for this embedding request."],
+    [402, "billing", false, "OpenRouter account credits are insufficient for this embedding request."],
+    [408, "timeout", true, "OpenRouter timed out while processing this embedding request."],
+    [409, "request_rejected", true, "OpenRouter rejected this embedding request's parameters or state."],
+    [429, "rate_limit", true, "OpenRouter rate-limited this embedding request."],
+    [503, "unavailable", true, "OpenRouter or the selected embedding provider is temporarily unavailable."],
+  ])(
+    "retains the closed HTTP %i classification",
+    async (status, classification, retryable, message) => {
+      process.env.OPENROUTER_API_KEY = "private-test-key";
+      process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS = "1";
+      const fetchImpl = vi.fn(async () =>
+        new Response(JSON.stringify({
+          error: {
+            message: "Authorization: Bearer provider-secret; request-id req_secret",
+          },
+        }), { status })
+      );
+
+      await expect(requestOpenRouterEmbedding({
+        identity,
+        inputText: "classified provider failure",
+        fetchImpl,
+      })).rejects.toMatchObject({
+        name: "OpenRouterEmbeddingRequestError",
+        message,
+        status,
+        retryable,
+        classification,
+      });
+    },
+  );
+
   it("fails closed when an unexpected evaluator error contains provider metadata", () => {
     const unsafeMessages = [
       "Provider request req_sensitive failed with request-id request_sensitive.",
@@ -258,6 +293,71 @@ describe("OpenRouter embedding transport", () => {
     const diagnostic = embeddingIndexEvaluationErrorMessage(failure);
     expect(diagnostic.length).toBeLessThanOrEqual(1_000);
     expect(diagnostic).not.toMatch(/acct_sensitive|authorization|bearer|insufficient/i);
+  });
+
+  it.each([
+    [
+      "prototype-forged failure",
+      () => {
+        const failure = Object.create(OpenRouterEmbeddingRequestError.prototype);
+        Object.defineProperties(failure, {
+          name: { value: "OpenRouterEmbeddingRequestError", enumerable: true },
+          message: {
+            value: "Authorization: Bearer forged-secret; request-id req_forged",
+            enumerable: true,
+          },
+          status: { value: 429, enumerable: true },
+          retryable: { value: true, enumerable: true },
+          classification: { value: "rate_limit", enumerable: true },
+        });
+        return Object.freeze(failure) as OpenRouterEmbeddingRequestError;
+      },
+    ],
+    [
+      "proxied genuine failure",
+      () => new Proxy(
+        new OpenRouterEmbeddingRequestError(429, "rate_limit"),
+        {
+          get(target, property, receiver) {
+            if (property === "message") {
+              return "Authorization: Bearer proxy-secret; request-id req_proxy";
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        },
+      ),
+    ],
+  ])("reconstructs a %s rejected by the transport", async (_label, createFailure) => {
+    process.env.OPENROUTER_API_KEY = "private-test-key";
+    process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS = "1";
+    const injectedFailure = createFailure();
+    const fetchImpl = vi.fn(async () => {
+      throw injectedFailure;
+    });
+
+    let failure: unknown;
+    try {
+      await requestOpenRouterEmbedding({
+        identity,
+        inputText: "untrusted typed transport failure",
+        fetchImpl,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).not.toBe(injectedFailure);
+    expect(failure).toBeInstanceOf(OpenRouterEmbeddingRequestError);
+    expect(failure).toMatchObject({
+      message: "OpenRouter embedding transport failed before a response was received.",
+      status: null,
+      retryable: true,
+      classification: "transport",
+    });
+    const serialized = `${embeddingIndexEvaluationErrorMessage(failure)} ${JSON.stringify(failure)}`;
+    expect(serialized).not.toMatch(
+      /forged-secret|proxy-secret|req_forged|req_proxy|authorization|bearer/i,
+    );
   });
 
   it("fails closed when an Error exposes a throwing diagnostic accessor", () => {

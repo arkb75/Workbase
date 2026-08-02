@@ -56,6 +56,20 @@ const openRouterEmbeddingFailureClassifications = new Set<
   "unavailable",
 ]);
 
+type OpenRouterEmbeddingFailureState = Readonly<{
+  status: number | null;
+  classification: OpenRouterEmbeddingFailureClassification;
+}>;
+
+// Prototype checks are not an authenticity boundary: Object.create() and
+// Proxy can both produce values that satisfy instanceof. Keep the canonical
+// state private so caught transport values can only retain state that this
+// module assigned during construction.
+const openRouterEmbeddingFailureStates = new WeakMap<
+  OpenRouterEmbeddingRequestError,
+  OpenRouterEmbeddingFailureState
+>();
+
 function normalizedOpenRouterEmbeddingStatus(status: unknown) {
   return typeof status === "number" &&
       Number.isInteger(status) &&
@@ -141,19 +155,36 @@ export class OpenRouterEmbeddingRequestError extends Error {
       safeClassification,
     );
     this.classification = safeClassification;
+    openRouterEmbeddingFailureStates.set(this, {
+      status: safeStatus,
+      classification: safeClassification,
+    });
     // Keep the diagnostic and classification closed after construction so a
     // caught provider error cannot be decorated later with raw response data.
     Object.freeze(this);
   }
 }
 
+function closedOpenRouterEmbeddingRequestError(error: unknown) {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) {
+    return null;
+  }
+  const state = openRouterEmbeddingFailureStates.get(
+    error as OpenRouterEmbeddingRequestError,
+  );
+  return state
+    ? new OpenRouterEmbeddingRequestError(state.status, state.classification)
+    : null;
+}
+
 /** Reconstructs the closed diagnostic without trusting Error.message. */
 export function openRouterEmbeddingRequestErrorMessage(
   error: OpenRouterEmbeddingRequestError,
 ) {
+  const state = openRouterEmbeddingFailureStates.get(error);
   return openRouterEmbeddingFailureMessage(
-    normalizedOpenRouterEmbeddingStatus(error.status),
-    normalizedOpenRouterEmbeddingClassification(error.classification),
+    state?.status ?? null,
+    state?.classification ?? "transport",
   );
 }
 
@@ -356,7 +387,8 @@ export async function requestOpenRouterEmbedding(input: {
         } satisfies EmbeddingUsage,
       };
     } catch (error) {
-      if (error instanceof OpenRouterEmbeddingRequestError) throw error;
+      const closedProviderFailure = closedOpenRouterEmbeddingRequestError(error);
+      if (closedProviderFailure) throw closedProviderFailure;
       const responseStatus = response && responseBodyRead
         ? safeResponseStatus(response)
         : null;
@@ -373,9 +405,8 @@ export async function requestOpenRouterEmbedding(input: {
     }
   }
 
-  throw lastError instanceof OpenRouterEmbeddingRequestError
-    ? lastError
-    : openRouterEmbeddingTransportError(false);
+  throw closedOpenRouterEmbeddingRequestError(lastError) ??
+    openRouterEmbeddingTransportError(false);
 }
 
 function getBedrockClient() {
