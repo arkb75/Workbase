@@ -93,71 +93,6 @@ function profileName(value: unknown, fallback = "unattributed") {
     : fallback;
 }
 
-function containsFallbackSignal(value: unknown) {
-  const seen = new WeakSet<object>();
-  let found = false;
-  const visit = (current: unknown, depth: number) => {
-    if (
-      found ||
-      !current ||
-      typeof current !== "object" ||
-      depth > 8 ||
-      seen.has(current)
-    ) {
-      return;
-    }
-    seen.add(current);
-    if (Array.isArray(current)) {
-      current.forEach((entry) => visit(entry, depth + 1));
-      return;
-    }
-    for (const [key, entry] of Object.entries(
-      current as Record<string, unknown>,
-    )) {
-      if (
-        (key === "fallbackUsed" || key === "editorialFallbackUsed") &&
-        entry === true
-      ) {
-        found = true;
-        return;
-      }
-      if (
-        key === "fallback" &&
-        (
-          entry === true ||
-          (typeof entry === "string" && entry.trim() !== "")
-        )
-      ) {
-        found = true;
-        return;
-      }
-      if (
-        key === "fallback" &&
-        entry != null &&
-        typeof entry === "object"
-      ) {
-        const fallback = record(entry);
-        const acceptedBlockCount = nonNegativeInteger(
-          fallback.acceptedBlockCount,
-        ) ?? 0;
-        if (
-          fallback.attempted === true ||
-          fallback.used === true ||
-          fallback.active === true ||
-          fallback.accepted === true ||
-          acceptedBlockCount > 0
-        ) {
-          found = true;
-          return;
-        }
-      }
-      visit(entry, depth + 1);
-    }
-  };
-  visit(value, 0);
-  return found;
-}
-
 function requestIdentity(value: unknown) {
   const requestIds = new Set<string>();
   const seen = new WeakSet<object>();
@@ -344,7 +279,6 @@ function measureUsageUnit(input: {
   providerIdentityObserved?: boolean;
   modelIdentityObserved?: boolean;
   terminalFailure?: boolean;
-  explicitFallbackUsed?: boolean;
   attemptCount?: number | null;
   unknownUsageAttempts?: number | null;
   knownCostUsd?: number | null;
@@ -432,21 +366,23 @@ function measureUsageUnit(input: {
     ...rawAttribution.failedModelIds,
     ...metadataAttribution.failedModelIds,
   ]);
+  // Application workflows also use `fallbackUsed` for local routing and
+  // editorial recovery. Model attribution must instead rely on provider-call
+  // evidence: a configured/actual model mismatch, or a distinct failed model.
   const fallbackUsed =
-    input.explicitFallbackUsed === true ||
-    containsFallbackSignal(input.rawUsage) ||
-    containsFallbackSignal(input.attributionMetadata) ||
+    modelCalls > 0 &&
     (
-      modelCalls > 0 &&
-      configuredModelId !== "" &&
-      Array.from(actualModelIds).some(
-        (modelId) => modelId !== configuredModelId,
+      (
+        configuredModelId !== "" &&
+        Array.from(actualModelIds).some(
+          (modelId) => modelId !== configuredModelId,
+        )
+      ) ||
+      Array.from(failedModelIds).some(
+        (modelId) =>
+          modelId !== configuredModelId &&
+          !actualModelIds.has(modelId),
       )
-    ) ||
-    Array.from(failedModelIds).some(
-      (modelId) =>
-        modelId !== configuredModelId &&
-        !actualModelIds.has(modelId),
     );
   const failedProviderAttempts = Math.min(
     modelCalls,
@@ -732,7 +668,6 @@ function dossierUsageUnits(input: {
       modelIdentityObserved:
         provider.toLowerCase() !== "openrouter" ||
         attribution.actualModelIds.length > 0,
-      explicitFallbackUsed: containsFallbackSignal(entry),
     });
   });
 }
@@ -770,7 +705,6 @@ function generationUsageUnits(generationRuns: ApplicationGenerationRun[]) {
         run.status === "success",
       terminalFailure:
         run.status === "provider_error" && !admissionFailure,
-      explicitFallbackUsed: refs.fallbackUsed === true,
       attemptCount,
       unknownUsageAttempts: nonNegativeInteger(refs.unknownUsageAttempts),
       knownCostUsd,
@@ -953,32 +887,8 @@ function deduplicateUsageUnits(units: MeasuredUsageUnit[]) {
   return Array.from(byIdentity.values());
 }
 
-function fallbackSignalProfiles(input: {
-  events: ApplicationModelEvent[];
-  storedResult: unknown;
-}) {
-  const profiles = new Set<string>();
-  if (containsFallbackSignal(input.storedResult)) {
-    profiles.add("primary_answer");
-  }
-  for (const event of input.events) {
-    if (!containsFallbackSignal(event.payload)) continue;
-    const payload = record(event.payload);
-    profiles.add(
-      profileName(
-        payload.profile,
-        event.toolName === "route_project_execution"
-          ? "routing"
-          : "primary_answer",
-      ),
-    );
-  }
-  return profiles;
-}
-
 function profileAttribution(input: {
   units: MeasuredUsageUnit[];
-  fallbackProfiles: ReadonlySet<string>;
   expectedModelIdsByProfile?: Readonly<Record<string, string>>;
   requireOpenRouterAttribution: boolean;
 }) {
@@ -986,7 +896,6 @@ function profileAttribution(input: {
     ...input.units
       .filter((unit) => unit.modelCalls > 0 || unit.fallbackUsed)
       .map((unit) => unit.profile),
-    ...input.fallbackProfiles,
   ]);
   return Object.fromEntries(
     Array.from(profiles).sort().map((profile) => {
@@ -1041,8 +950,7 @@ function profileAttribution(input: {
           requestIds.length === providerAttempts
         );
       const fallbackUsed =
-        input.fallbackProfiles.has(profile) ||
-        units.some((unit) => unit.fallbackUsed);
+        units.some((unit) => unit.modelCalls > 0 && unit.fallbackUsed);
       const configuredRoutingMatched =
         providerAttempts === 0 ||
         (
@@ -1184,13 +1092,8 @@ export function calculateApplicationModelMetrics(input: {
       usageComplete: true,
     },
   );
-  const fallbackProfiles = fallbackSignalProfiles({
-    events: input.events,
-    storedResult: input.storedResult,
-  });
   const profiles = profileAttribution({
     units,
-    fallbackProfiles,
     expectedModelIdsByProfile: input.expectedModelIdsByProfile,
     requireOpenRouterAttribution:
       input.provider.toLowerCase() === "openrouter",
@@ -1241,8 +1144,7 @@ export function calculateApplicationModelMetrics(input: {
       ),
     ),
     fallbackUsed:
-      units.some((unit) => unit.fallbackUsed) ||
-      fallbackProfiles.size > 0,
+      units.some((unit) => unit.modelCalls > 0 && unit.fallbackUsed),
     authoritativeAttributionComplete,
     profiles,
   };

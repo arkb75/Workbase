@@ -619,7 +619,7 @@ describe("project-chat application scenario runner", () => {
     }));
   });
 
-  it("rejects a fully metered answer when an application fallback was used", () => {
+  it("accepts a deliberate deterministic completion with zero model calls", () => {
     const scenario = projectChatApplicationScenarios.find(
       (entry) => entry.id === "design_tradeoffs",
     )!;
@@ -630,31 +630,16 @@ describe("project-chat application scenario runner", () => {
         ...observation.metrics,
         modelAttribution: {
           ...observation.metrics.modelAttribution,
-          fallbackUsed: true,
-          profiles: {
-            primary_answer: {
-              providers: [],
-              configuredModelIds: [],
-              expectedModelIds: [],
-              actualModelIds: [],
-              providerAttempts: 0,
-              failedProviderAttempts: 0,
-              totalTokens: 0,
-              estimatedCostUsd: 0,
-              usageComplete: true,
-              authoritativeAttributionComplete: true,
-              fallbackUsed: true,
-              configuredRoutingMatched: true,
-            },
-          },
+          fallbackUsed: false,
+          profiles: {},
         },
       },
     });
 
-    expect(result.passed).toBe(false);
+    expect(result.passed).toBe(true);
     expect(result.checks).toContainEqual(expect.objectContaining({
       name: "live model execution used no fallback",
-      passed: false,
+      passed: true,
     }));
   });
 

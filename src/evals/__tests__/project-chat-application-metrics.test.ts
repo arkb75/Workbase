@@ -174,6 +174,60 @@ describe("application evaluator model telemetry", () => {
     });
   });
 
+  it("keeps a failed primary attempt rejecting after deterministic recovery", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [{
+        id: "primary-failed",
+        message: "The model provider did not complete the answer.",
+        payload: {
+          modelEvent: "model_call_failed",
+          iteration: 1,
+          profile: "primary_answer",
+          provider: "openrouter",
+          modelId: "openai/gpt-5.6-terra",
+          requestIds: ["request-primary-failed"],
+          providerStatus: 503,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            providerAttemptCount: 1,
+            unknownUsageAttempts: 1,
+          },
+        },
+      }],
+      storedResult: {
+        status: "answered",
+        fallbackUsed: true,
+        editorialFallbackUsed: true,
+      },
+      expectedModelIdsByProfile: {
+        primary_answer: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      usageComplete: false,
+      modelAttribution: {
+        providerAttempts: 1,
+        failedProviderAttempts: 1,
+        fallbackUsed: false,
+        profiles: {
+          primary_answer: {
+            providerAttempts: 1,
+            failedProviderAttempts: 1,
+            fallbackUsed: false,
+          },
+        },
+      },
+    });
+  });
+
   it("requires authoritative cost for every OpenRouter attempt", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
@@ -789,7 +843,7 @@ describe("application evaluator model telemetry", () => {
     expect(metrics.estimatedCostUsd).toBe(0.002);
   });
 
-  it("propagates a stored editorial fallback even on a complete zero-call path", () => {
+  it("does not classify stored deterministic completion as a model fallback", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
       modelId: "openai/gpt-5.6-terra",
@@ -811,19 +865,14 @@ describe("application evaluator model telemetry", () => {
       estimatedCostUsd: 0,
       usageComplete: true,
       modelAttribution: {
-        fallbackUsed: true,
-        profiles: {
-          primary_answer: {
-            providerAttempts: 0,
-            fallbackUsed: true,
-            configuredRoutingMatched: true,
-          },
-        },
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {},
       },
     });
   });
 
-  it("propagates execution-router fallback from its stored tool event", () => {
+  it("does not classify a deterministic execution-router choice as a model fallback", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
       modelId: "openai/gpt-5.6-terra",
@@ -845,17 +894,126 @@ describe("application evaluator model telemetry", () => {
     });
 
     expect(metrics.modelAttribution).toMatchObject({
-      fallbackUsed: true,
-      profiles: {
-        routing: {
-          providerAttempts: 0,
-          fallbackUsed: true,
+      providerAttempts: 0,
+      failedProviderAttempts: 0,
+      fallbackUsed: false,
+      authoritativeAttributionComplete: true,
+      profiles: {},
+    });
+  });
+
+  it("reproduces a live mixed report without treating zero-call profiles as model fallbacks", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [
+        {
+          id: "route-result",
+          message: null,
+          toolName: "route_project_execution",
+          payload: {
+            mode: "memory_answer",
+            fallbackUsed: true,
+          },
+        },
+        {
+          id: "verification-complete",
+          message: "Project evidence review completed.",
+          payload: {
+            modelEvent: "model_call_completed",
+            iteration: 1,
+            profile: "verification",
+            provider: "bedrock",
+            modelId: "us.anthropic.claude-sonnet-4-6",
+            requestId: "bedrock-verification-request",
+            usage: {
+              inputTokens: 100,
+              outputTokens: 20,
+              totalTokens: 120,
+              providerAttemptCount: 1,
+            },
+          },
+        },
+      ],
+      storedResult: {
+        status: "answered",
+        fallbackUsed: true,
+      },
+      expectedModelIdsByProfile: {
+        primary_answer: "us.anthropic.claude-sonnet-4-6",
+        routing: "us.anthropic.claude-sonnet-4-6",
+        verification: "us.anthropic.claude-sonnet-4-6",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 120,
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 1,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          verification: {
+            providerAttempts: 1,
+            fallbackUsed: false,
+            configuredRoutingMatched: true,
+          },
         },
       },
     });
   });
 
-  it("does not confuse inactive verifier fallback telemetry with a used fallback", () => {
+  it("does not classify editorial recovery after a configured model success as model fallback", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [{
+        phase: "planning",
+        profile: "routing",
+        provider: "openrouter",
+        configuredModelId: "openai/gpt-5.4-nano",
+        modelInvoked: true,
+        editorialFallbackUsed: true,
+        usage: {
+          inputTokens: 20,
+          outputTokens: 5,
+          totalTokens: 25,
+          cost: 0.00001,
+          requestId: "request-routing-fallback",
+          modelId: "openai/gpt-5.4-nano",
+          routedProvider: "openai",
+          providerAttemptCount: 1,
+        },
+      }],
+      events: [],
+      expectedModelIdsByProfile: {
+        routing: "openai/gpt-5.4-nano",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 1,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        profiles: {
+          routing: {
+            providerAttempts: 1,
+            fallbackUsed: false,
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps verifier recovery diagnostics out of model-provider fallback attribution", () => {
     const input = {
       provider: "openrouter",
       modelId: "openai/gpt-5.6-terra",
@@ -893,12 +1051,9 @@ describe("application evaluator model telemetry", () => {
         },
       }],
     }).modelAttribution).toMatchObject({
-      fallbackUsed: true,
-      profiles: {
-        primary_answer: {
-          fallbackUsed: true,
-        },
-      },
+      providerAttempts: 0,
+      fallbackUsed: false,
+      profiles: {},
     });
   });
 
