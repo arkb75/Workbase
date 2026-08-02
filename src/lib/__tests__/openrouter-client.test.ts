@@ -36,6 +36,147 @@ function response(body: unknown, status = 200) {
   });
 }
 
+const constraintRichJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["label", "optionalNote", "score", "items"],
+  properties: {
+    label: {
+      type: "string",
+      minLength: 2,
+      maxLength: 40,
+      enum: ["ready", "blocked"],
+    },
+    optionalNote: {
+      anyOf: [
+        { type: "string", maxLength: 120 },
+        { type: "null" },
+      ],
+    },
+    score: {
+      type: "number",
+      minimum: 0,
+      maximum: 1,
+      multipleOf: 0.1,
+    },
+    items: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: {
+        type: "integer",
+        minimum: 0,
+      },
+    },
+  },
+};
+
+const constraintCompatibleJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["label", "optionalNote", "score", "items"],
+  properties: {
+    label: {
+      type: "string",
+      enum: ["ready", "blocked"],
+    },
+    optionalNote: {
+      anyOf: [
+        { type: "string" },
+        { type: "null" },
+      ],
+    },
+    score: {
+      type: "number",
+    },
+    items: {
+      type: "array",
+      items: {
+        type: "integer",
+      },
+    },
+  },
+};
+
+interface StructuredRequestBody {
+  response_format?: {
+    json_schema: {
+      schema: unknown;
+    };
+  };
+  tools?: Array<{
+    function: {
+      parameters: unknown;
+    };
+  }>;
+}
+
+async function structuredRequestBody(
+  modelId: string,
+  mode: "json_schema" | "strict_tool_use",
+) {
+  const fetchMock = vi.fn().mockResolvedValue(
+    response({
+      choices: [
+        mode === "strict_tool_use"
+          ? {
+              finish_reason: "tool_calls",
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "tool_compatible_schema",
+                    function: {
+                      name: "workbase_result",
+                      arguments:
+                        '{"label":"ready","optionalNote":null,"score":1,"items":[0,1]}',
+                    },
+                  },
+                ],
+              },
+            }
+          : {
+              finish_reason: "stop",
+              message: {
+                content:
+                  '{"label":"ready","optionalNote":null,"score":1,"items":[0,1]}',
+              },
+            },
+      ],
+    }),
+  );
+  const runtime = new OpenRouterChatCompletionsRuntime(
+    config(),
+    modelId,
+    fetchMock,
+  );
+  await runtime.converse({
+    systemPrompt: "Return the requested result.",
+    userPrompt: "Return a ready result.",
+    maxTokens: 128,
+    temperature: 0,
+    structuredOutput: {
+      mode,
+      schemaName: "workbase_result",
+      schemaDescription: "A structured compatibility result.",
+      jsonSchema: constraintRichJsonSchema,
+    },
+  });
+
+  return JSON.parse(
+    String(fetchMock.mock.calls[0]![1].body),
+  ) as StructuredRequestBody;
+}
+
+function schemaFromStructuredRequest(
+  body: StructuredRequestBody,
+  mode: "json_schema" | "strict_tool_use",
+) {
+  return mode === "json_schema"
+    ? body.response_format?.json_schema.schema
+    : body.tools?.[0]?.function.parameters;
+}
+
 describe("OpenRouterChatCompletionsRuntime", () => {
   it("requires strict ZDR, parameter support, usage accounting, and structured output", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -125,6 +266,35 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         routedProvider: "openai",
       },
     });
+  });
+
+  it("removes only unsupported constraints from Anthropic native and strict-tool schemas", async () => {
+    for (const mode of ["json_schema", "strict_tool_use"] as const) {
+      const body = await structuredRequestBody(
+        "anthropic/claude-sonnet-5",
+        mode,
+      );
+      expect(schemaFromStructuredRequest(body, mode)).toEqual(
+        constraintCompatibleJsonSchema,
+      );
+    }
+
+    expect(constraintRichJsonSchema.properties.optionalNote.anyOf).toEqual([
+      { type: "string", maxLength: 120 },
+      { type: "null" },
+    ]);
+  });
+
+  it("retains full JSON Schema constraints for OpenAI native and strict-tool requests", async () => {
+    for (const mode of ["json_schema", "strict_tool_use"] as const) {
+      const body = await structuredRequestBody(
+        "openai/gpt-5.6-terra",
+        mode,
+      );
+      expect(schemaFromStructuredRequest(body, mode)).toEqual(
+        constraintRichJsonSchema,
+      );
+    }
   });
 
   it("maps strict structured tool calls without parsing them as text", async () => {
@@ -581,6 +751,58 @@ describe("RetryableFallbackTextRuntime", () => {
 });
 
 describe("OpenRouterConverseTransport", () => {
+  it("adapts Anthropic agent tools while retaining full OpenAI tool constraints", async () => {
+    for (const { modelId, expectedSchema } of [
+      {
+        modelId: "anthropic/claude-sonnet-5",
+        expectedSchema: constraintCompatibleJsonSchema,
+      },
+      {
+        modelId: "openai/gpt-5.6-terra",
+        expectedSchema: constraintRichJsonSchema,
+      },
+    ]) {
+      const fetchMock = vi.fn().mockResolvedValue(
+        response({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: "Done." },
+            },
+          ],
+        }),
+      );
+      const transport = new OpenRouterConverseTransport(
+        config(),
+        modelId,
+        fetchMock,
+      );
+      await transport.converse({
+        modelId: "ignored-by-transport",
+        messages: [
+          { role: "user", content: [{ text: "Inspect it." }] },
+        ],
+        toolConfig: {
+          tools: [
+            {
+              toolSpec: {
+                name: "inspect_result",
+                description: "Inspect a structured result.",
+                inputSchema: { json: constraintRichJsonSchema as never },
+                strict: true,
+              },
+            },
+          ],
+        },
+      });
+
+      const body = JSON.parse(
+        String(fetchMock.mock.calls[0]![1].body),
+      ) as StructuredRequestBody;
+      expect(body.tools?.[0]?.function.parameters).toEqual(expectedSchema);
+    }
+  });
+
   it("replays opaque reasoning details unchanged across tool-loop turns", async () => {
     const reasoningDetails = [
       {
