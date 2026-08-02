@@ -119,12 +119,12 @@ export function resolveOpenRouterConfig(
     ).replace(/\/+$/, ""),
     apiKey,
     modelId: profileModelId,
-    // Cross-family fallback is deliberately restricted to the primary-quality
-    // profiles. Specialized profiles fail closed on model-specific errors and
-    // rely on OpenRouter's same-model provider failover first.
+    // Cross-family fallback is deliberately restricted to profiles where the
+    // fallback cleared the live quality gate. Deep synthesis and specialized
+    // profiles fail closed on model-specific errors and rely on OpenRouter's
+    // same-model provider failover first.
     fallbackModelId:
       profile === "primary_answer" ||
-      profile === "deep_synthesis" ||
       profile === "verification"
         ? configuredFallback === profileModelId
           ? undefined

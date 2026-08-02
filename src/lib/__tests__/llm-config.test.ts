@@ -9,9 +9,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 describe("OpenRouter model configuration", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("defaults every role to the primary model with quality-profile fallback", () => {
+  it("enables cross-family fallback only for profiles that cleared its live quality gate", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     const primary = resolveOpenRouterConfig("primary_answer");
+    const synthesis = resolveOpenRouterConfig("deep_synthesis");
+    const verification = resolveOpenRouterConfig("verification");
     const drafting = resolveOpenRouterConfig("drafting");
     expect(primary).toMatchObject({
       modelId: DEFAULT_OPENROUTER_MODEL_ID,
@@ -20,6 +22,10 @@ describe("OpenRouter model configuration", () => {
       requireParameters: true,
       sendTemperature: false,
     });
+    expect(verification.fallbackModelId).toBe(
+      DEFAULT_OPENROUTER_FALLBACK_MODEL_ID,
+    );
+    expect(synthesis.fallbackModelId).toBeUndefined();
     expect(drafting).toMatchObject({
       modelId: DEFAULT_OPENROUTER_MODEL_ID,
       fallbackModelId: undefined,
