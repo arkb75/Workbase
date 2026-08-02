@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { embeddingIndexEvaluationErrorMessage } from "@/src/evals/embedding-index-error";
+import { OPENROUTER_EMBEDDING_API_KEY_REQUIRED_MESSAGE } from "@/src/lib/embedding-config";
 import {
   OpenRouterEmbeddingRequestError,
   requestOpenRouterEmbedding,
@@ -75,11 +76,14 @@ describe("OpenRouter embedding transport", () => {
     });
   });
 
-  it("rejects a response from the wrong vector space", async () => {
+  it.each([
+    ["wrong vector space", [1, 2, 3]],
+    ["missing vector", undefined],
+  ])("classifies a valid-JSON 2xx response with %s", async (_label, embedding) => {
     process.env.OPENROUTER_API_KEY = "private-test-key";
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({
-        data: [{ index: 0, embedding: [1, 2, 3] }],
+        data: [{ index: 0, embedding }],
       }), { status: 200 })
     );
 
@@ -87,7 +91,13 @@ describe("OpenRouter embedding transport", () => {
       identity,
       inputText: "wrong dimensions",
       fetchImpl,
-    })).rejects.toThrow("512-dimensional");
+    })).rejects.toMatchObject({
+      name: "OpenRouterEmbeddingRequestError",
+      message: "OpenRouter returned an invalid embedding response.",
+      status: 200,
+      retryable: false,
+      classification: "invalid_response",
+    });
   });
 
   it("retries a retryable non-JSON provider response once", async () => {
@@ -157,13 +167,131 @@ describe("OpenRouter embedding transport", () => {
   });
 
   it("fails closed when an unexpected evaluator error contains provider metadata", () => {
-    const diagnostic = embeddingIndexEvaluationErrorMessage(new Error(
-      "Inspect key_sensitive at https://openrouter.ai/settings/keys/key_sensitive?workspace=ws_private",
-    ));
+    const unsafeMessages = [
+      "Provider request req_sensitive failed with request-id request_sensitive.",
+      "Authorization: Bearer bearer_sensitive; x-request-id: req_sensitive.",
+      "Headers: x-ratelimit-reset=123, cf-ray=ray_sensitive.",
+      "Insufficient credits for account acct_sensitive; add funds. " + "x".repeat(5_000),
+      "Manage key id kid_sensitive for this request.",
+      "Workspace id ws_sensitive rejected the request.",
+      "Inspect https://openrouter.ai/settings/keys/key_sensitive?workspace=ws_private.",
+    ];
 
-    expect(diagnostic).toBe(
+    for (const message of unsafeMessages) {
+      const diagnostic = embeddingIndexEvaluationErrorMessage(new Error(message));
+      expect(diagnostic).toBe(
+        "Embedding index evaluation failed without exposing provider diagnostics.",
+      );
+      expect(diagnostic.length).toBeLessThanOrEqual(1_000);
+      expect(diagnostic).not.toMatch(
+        /sensitive|authorization|bearer|request-id|x-ratelimit|cf-ray|insufficient credits/i,
+      );
+    }
+  });
+
+  it.each([
+    [
+      "fetch rejection",
+      async () => {
+        throw new Error(
+          "Provider request req_fetch leaked; Authorization: Bearer fetch-secret",
+        );
+      },
+    ],
+    [
+      "body stream rejection",
+      async () => new Response(new ReadableStream({
+        start(controller) {
+          controller.error(new Error(
+            "Provider body req_body leaked; x-request-id: req_body",
+          ));
+        },
+      }), { status: 200 }),
+    ],
+  ])("collapses an ordinary Error from the %s boundary", async (_label, fetchImpl) => {
+    process.env.OPENROUTER_API_KEY = "private-test-key";
+    process.env.WORKBASE_OPENROUTER_EMBEDDING_MAX_ATTEMPTS = "1";
+
+    let failure: unknown;
+    try {
+      await requestOpenRouterEmbedding({
+        identity,
+        inputText: "transport failure",
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OpenRouterEmbeddingRequestError);
+    expect(failure).toMatchObject({
+      message: "OpenRouter embedding transport failed before a response was received.",
+      status: null,
+      retryable: true,
+      classification: "transport",
+    });
+    const serialized = `${embeddingIndexEvaluationErrorMessage(failure)} ${JSON.stringify(failure)}`;
+    expect(serialized).not.toMatch(
+      /req_fetch|fetch-secret|req_body|authorization|bearer|x-request-id/i,
+    );
+  });
+
+  it("cannot construct or mutate a typed failure with an arbitrary unbounded message", () => {
+    const unsafeMessage =
+      "Insufficient credits for account acct_sensitive; Authorization: Bearer secret; " +
+      "x".repeat(5_000);
+    const failure = Reflect.construct(
+      OpenRouterEmbeddingRequestError,
+      [429, unsafeMessage],
+    ) as OpenRouterEmbeddingRequestError;
+
+    expect(failure).toMatchObject({
+      message: "OpenRouter embedding transport failed before a response was received.",
+      status: 429,
+      retryable: true,
+      classification: "transport",
+    });
+    expect(Object.isFrozen(failure)).toBe(true);
+    expect(() => {
+      (failure as { message: string }).message = unsafeMessage;
+    }).toThrow(TypeError);
+    const diagnostic = embeddingIndexEvaluationErrorMessage(failure);
+    expect(diagnostic.length).toBeLessThanOrEqual(1_000);
+    expect(diagnostic).not.toMatch(/acct_sensitive|authorization|bearer|insufficient/i);
+  });
+
+  it("fails closed when an Error exposes a throwing diagnostic accessor", () => {
+    const failure = new Error("placeholder");
+    Object.defineProperty(failure, "message", {
+      get() {
+        throw new Error(
+          "Authorization: Bearer accessor-secret; request-id req_accessor " +
+          "x".repeat(5_000),
+        );
+      },
+    });
+
+    expect(embeddingIndexEvaluationErrorMessage(failure)).toBe(
       "Embedding index evaluation failed without exposing provider diagnostics.",
     );
-    expect(diagnostic).not.toMatch(/key_sensitive|workspace_private|openrouter\.ai/);
+  });
+
+  it("preserves the explicit safe local missing-key diagnostic", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    let failure: unknown;
+    try {
+      await requestOpenRouterEmbedding({
+        identity,
+        inputText: "missing local configuration",
+        fetchImpl: vi.fn(),
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(embeddingIndexEvaluationErrorMessage(failure)).toBe(
+      OPENROUTER_EMBEDDING_API_KEY_REQUIRED_MESSAGE,
+    );
   });
 });

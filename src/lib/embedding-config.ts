@@ -1,4 +1,6 @@
 export const WORKBASE_EMBEDDING_DIMENSIONS = 512;
+export const OPENROUTER_EMBEDDING_API_KEY_REQUIRED_MESSAGE =
+  "OPENROUTER_API_KEY is required when an OpenRouter embedding index is enabled.";
 
 export type EmbeddingProvider = "bedrock" | "openrouter" | "mock";
 
@@ -33,9 +35,7 @@ export function resolveBedrockEmbeddingRuntimeConfig() {
 export function resolveOpenRouterEmbeddingRuntimeConfig() {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error(
-      "OPENROUTER_API_KEY is required when an OpenRouter embedding index is enabled.",
-    );
+    throw new Error(OPENROUTER_EMBEDDING_API_KEY_REQUIRED_MESSAGE);
   }
 
   return {

@@ -43,20 +43,118 @@ export type OpenRouterEmbeddingFailureClassification =
   | "transport"
   | "unavailable";
 
+const openRouterEmbeddingFailureClassifications = new Set<
+  OpenRouterEmbeddingFailureClassification
+>([
+  "authentication",
+  "billing",
+  "invalid_response",
+  "rate_limit",
+  "request_rejected",
+  "timeout",
+  "transport",
+  "unavailable",
+]);
+
+function normalizedOpenRouterEmbeddingStatus(status: unknown) {
+  return typeof status === "number" &&
+      Number.isInteger(status) &&
+      status >= 100 &&
+      status <= 599
+    ? status
+    : null;
+}
+
+function normalizedOpenRouterEmbeddingClassification(
+  classification: unknown,
+): OpenRouterEmbeddingFailureClassification {
+  return typeof classification === "string" &&
+      openRouterEmbeddingFailureClassifications.has(
+        classification as OpenRouterEmbeddingFailureClassification,
+      )
+    ? classification as OpenRouterEmbeddingFailureClassification
+    : "transport";
+}
+
+function openRouterEmbeddingFailureIsRetryable(
+  status: number | null,
+  classification: OpenRouterEmbeddingFailureClassification,
+) {
+  return classification === "rate_limit" ||
+    classification === "timeout" ||
+    classification === "transport" ||
+    classification === "unavailable" ||
+    (classification === "request_rejected" && status === 409);
+}
+
+function openRouterEmbeddingFailureMessage(
+  status: number | null,
+  classification: OpenRouterEmbeddingFailureClassification,
+) {
+  switch (classification) {
+    case "authentication":
+      return "OpenRouter authentication or access was rejected for this embedding request.";
+    case "billing":
+      return "OpenRouter account credits are insufficient for this embedding request.";
+    case "invalid_response":
+      return "OpenRouter returned an invalid embedding response.";
+    case "rate_limit":
+      return "OpenRouter rate-limited this embedding request.";
+    case "timeout":
+      return status === 408
+        ? "OpenRouter timed out while processing this embedding request."
+        : "OpenRouter timed out before returning an embedding response.";
+    case "unavailable":
+      return "OpenRouter or the selected embedding provider is temporarily unavailable.";
+    case "request_rejected":
+      if (status === 400 || status === 404 || status === 409 || status === 422) {
+        return "OpenRouter rejected this embedding request's parameters or state.";
+      }
+      return status === null
+        ? "OpenRouter could not complete this embedding request."
+        : `OpenRouter could not complete this embedding request (HTTP ${status}).`;
+    case "transport":
+      return "OpenRouter embedding transport failed before a response was received.";
+  }
+}
+
 /**
  * Carries only allowlisted provider diagnostics. Raw response messages, URLs,
  * key identifiers, and workspace metadata must never cross this boundary.
  */
 export class OpenRouterEmbeddingRequestError extends Error {
+  readonly status: number | null;
+  readonly retryable: boolean;
+  readonly classification: OpenRouterEmbeddingFailureClassification;
+
   constructor(
-    message: string,
-    readonly status: number | null,
-    readonly retryable: boolean,
-    readonly classification: OpenRouterEmbeddingFailureClassification,
+    status: number | null,
+    classification: OpenRouterEmbeddingFailureClassification,
   ) {
-    super(message);
+    const safeStatus = normalizedOpenRouterEmbeddingStatus(status);
+    const safeClassification = normalizedOpenRouterEmbeddingClassification(classification);
+    super(openRouterEmbeddingFailureMessage(safeStatus, safeClassification));
     this.name = "OpenRouterEmbeddingRequestError";
+    this.status = safeStatus;
+    this.retryable = openRouterEmbeddingFailureIsRetryable(
+      safeStatus,
+      safeClassification,
+    );
+    this.classification = safeClassification;
+    // Keep the diagnostic and classification closed after construction so a
+    // caught provider error cannot be decorated later with raw response data.
+    Object.freeze(this);
   }
+}
+
+/** Reconstructs the closed diagnostic without trusting Error.message. */
+export function openRouterEmbeddingRequestErrorMessage(
+  error: OpenRouterEmbeddingRequestError,
+) {
+  return openRouterEmbeddingFailureMessage(
+    normalizedOpenRouterEmbeddingStatus(error.status),
+    normalizedOpenRouterEmbeddingClassification(error.classification),
+  );
 }
 
 let cachedBedrockClient: BedrockRuntimeClient | null = null;
@@ -114,7 +212,13 @@ function nullableFiniteNumber(value: unknown) {
 }
 
 function retryDelayMs(response: Response | undefined, attempt: number) {
-  const retryAfter = response?.headers.get("retry-after");
+  let retryAfter: string | null = null;
+  try {
+    retryAfter = response?.headers.get("retry-after") ?? null;
+  } catch {
+    // Header implementations are part of the provider transport boundary.
+    // Never let a custom/native header exception carry raw metadata outward.
+  }
   if (retryAfter) {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds)) return Math.min(5_000, Math.max(0, seconds * 1_000));
@@ -128,79 +232,40 @@ function retryableStatus(status: number) {
 
 function openRouterEmbeddingHttpError(status: number) {
   if (status === 401 || status === 403) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter authentication or access was rejected for this embedding request.",
-      status,
-      false,
-      "authentication",
-    );
+    return new OpenRouterEmbeddingRequestError(status, "authentication");
   }
   if (status === 402) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter account credits are insufficient for this embedding request.",
-      status,
-      false,
-      "billing",
-    );
+    return new OpenRouterEmbeddingRequestError(status, "billing");
   }
   if (status === 408) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter timed out while processing this embedding request.",
-      status,
-      true,
-      "timeout",
-    );
+    return new OpenRouterEmbeddingRequestError(status, "timeout");
   }
   if (status === 429) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter rate-limited this embedding request.",
-      status,
-      true,
-      "rate_limit",
-    );
+    return new OpenRouterEmbeddingRequestError(status, "rate_limit");
   }
   if (status >= 500) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter or the selected embedding provider is temporarily unavailable.",
-      status,
-      true,
-      "unavailable",
-    );
+    return new OpenRouterEmbeddingRequestError(status, "unavailable");
   }
-  if (status === 400 || status === 404 || status === 409 || status === 422) {
-    return new OpenRouterEmbeddingRequestError(
-      "OpenRouter rejected this embedding request's parameters or state.",
-      status,
-      retryableStatus(status),
-      "request_rejected",
-    );
-  }
-  return new OpenRouterEmbeddingRequestError(
-    `OpenRouter could not complete this embedding request (HTTP ${status}).`,
-    status,
-    retryableStatus(status),
-    "request_rejected",
-  );
+  return new OpenRouterEmbeddingRequestError(status, "request_rejected");
 }
 
 function invalidOpenRouterEmbeddingResponse(status: number) {
   return status >= 400
     ? openRouterEmbeddingHttpError(status)
-    : new OpenRouterEmbeddingRequestError(
-      "OpenRouter returned an invalid embedding response.",
-      status,
-      false,
-      "invalid_response",
-    );
+    : new OpenRouterEmbeddingRequestError(status, "invalid_response");
+}
+
+function safeResponseStatus(response: Response) {
+  try {
+    return normalizedOpenRouterEmbeddingStatus(response.status);
+  } catch {
+    return null;
+  }
 }
 
 function openRouterEmbeddingTransportError(timedOut: boolean) {
   return new OpenRouterEmbeddingRequestError(
-    timedOut
-      ? "OpenRouter timed out before returning an embedding response."
-      : "OpenRouter embedding transport failed before a response was received.",
     null,
-    true,
     timedOut ? "timeout" : "transport",
   );
 }
@@ -226,6 +291,7 @@ export async function requestOpenRouterEmbedding(input: {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
     let response: Response | undefined;
+    let responseBodyRead = false;
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${config.apiKey}`,
@@ -249,6 +315,7 @@ export async function requestOpenRouterEmbedding(input: {
         signal: controller.signal,
       });
       const rawBody = await response.text();
+      responseBodyRead = true;
       let parsed: OpenRouterEmbeddingResponse;
       try {
         parsed = JSON.parse(rawBody) as OpenRouterEmbeddingResponse;
@@ -289,23 +356,26 @@ export async function requestOpenRouterEmbedding(input: {
         } satisfies EmbeddingUsage,
       };
     } catch (error) {
-      lastError = error;
-      const transportFailure =
-        error instanceof TypeError ||
-        (error instanceof DOMException && error.name === "AbortError");
-      if (!transportFailure) throw error;
-      if (attempt === config.maxAttempts - 1) {
-        throw openRouterEmbeddingTransportError(controller.signal.aborted);
-      }
+      if (error instanceof OpenRouterEmbeddingRequestError) throw error;
+      const responseStatus = response && responseBodyRead
+        ? safeResponseStatus(response)
+        : null;
+      const safeError = response && responseBodyRead
+        ? responseStatus === null
+          ? new OpenRouterEmbeddingRequestError(null, "invalid_response")
+          : invalidOpenRouterEmbeddingResponse(responseStatus)
+        : openRouterEmbeddingTransportError(controller.signal.aborted);
+      lastError = safeError;
+      if (!safeError.retryable || attempt === config.maxAttempts - 1) throw safeError;
       await delay(retryDelayMs(response, attempt));
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  throw lastError instanceof Error
+  throw lastError instanceof OpenRouterEmbeddingRequestError
     ? lastError
-    : new Error("OpenRouter embeddings request failed.");
+    : openRouterEmbeddingTransportError(false);
 }
 
 function getBedrockClient() {
