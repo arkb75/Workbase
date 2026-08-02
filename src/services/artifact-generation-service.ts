@@ -50,11 +50,20 @@ function buildArtifactInputSummary(params: {
   };
 }
 
-function buildArtifactContentInstructions(
+export function buildArtifactContentInstructions(
   artifactType: "resume_bullets" | "linkedin_experience" | "project_summary",
+  approvedHighlightCount: number,
 ) {
   if (artifactType === "resume_bullets") {
-    return "Return 2 to 3 concise resume bullets, each starting with '- '.";
+    const maximumSupportedBullets = Math.min(
+      3,
+      Math.max(1, Math.floor(approvedHighlightCount)),
+    );
+    return [
+      `Return 1 to ${maximumSupportedBullets} concise resume bullet${maximumSupportedBullets === 1 ? "" : "s"}, each starting with '- '.`,
+      "Use at most one bullet per independently approved Highlight.",
+      "Return fewer bullets than the request asks for when the approved Highlights do not independently support that count.",
+    ].join(" ");
   }
 
   if (artifactType === "linkedin_experience") {
@@ -91,9 +100,10 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         content: [
           "Return a top-level JSON object with `content`, `usedHighlightIds`, and `supportingEvidenceItemIds`.",
           "Never invent work, metrics, outcomes, scope, or technologies.",
+          "Preserve the approved Highlight wording wherever possible; do not replace it with broader synonyms or inferred benefits.",
           "Only cite highlight IDs that were provided in the approvedHighlights input.",
           "Return an empty supportingEvidenceItemIds array. Workbase derives exact evidence provenance from the selected approved Highlights after generation.",
-          buildArtifactContentInstructions(request.type),
+          buildArtifactContentInstructions(request.type, highlights.length),
         ].join("\n"),
       },
       {

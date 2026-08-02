@@ -182,6 +182,7 @@ export async function verifyArtifactForPublicUse(input: {
         "Every material technical, ownership, scope, outcome, and impact claim must be fully entailed by the supplied approved sources.",
         "Remove or narrowly correct unsupported claims without adding facts. Never convert project implementation into personal ownership unless a source explicitly supports ownership.",
         "Any sensitive, partially entailed, unsupported, ownership-gap, or scope-overclaim verdict makes eligible false unless correctedContent removes the problem and every remaining claim is entailed.",
+        "When correctedContent is non-null, evaluate claims against correctedContent only and set eligible true only if every remaining claim is entailed; otherwise return correctedContent null and eligible false.",
       ].join(" "),
       userPrompt: JSON.stringify(verificationInput),
       schema: artifactVerificationSchema,
