@@ -3,6 +3,7 @@ import {
   collectModelTokenUsage,
   collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
+  countCostedModelProviderAttempts,
   countModelProviderAttempts,
   resolveModelCostUsd,
   type ModelTokenUsageTotals,
@@ -327,9 +328,22 @@ function measureUsageUnit(input: {
         )
       : null;
   const rawReportedCostUsd = collectReportedModelCostUsd(input.rawUsage);
+  const rawCostedAttemptCount = countCostedModelProviderAttempts(
+    input.rawUsage,
+  );
+  const normalizedAggregateCostComplete =
+    modelCalls > 1 &&
+    rawAttemptCount === modelCalls &&
+    rawCostedAttemptCount === modelCalls &&
+    usageLeaves.length === 1 &&
+    reportedLeafCosts.length === 1 &&
+    rawReportedCostUsd != null;
   const reportedCostUsd =
     (input.provider.toLowerCase() === "openrouter"
-      ? perAttemptReportedCostUsd ?? rawReportedCostUsd ?? input.knownCostUsd
+      ? perAttemptReportedCostUsd ??
+        (normalizedAggregateCostComplete ? rawReportedCostUsd : null) ??
+        input.knownCostUsd ??
+        rawReportedCostUsd
       : input.knownCostUsd ?? rawReportedCostUsd) ??
     resolveModelCostUsd({
       provider: input.provider,
@@ -345,7 +359,10 @@ function measureUsageUnit(input: {
     modelCalls === 0 ||
     (
       reportedCostUsd != null &&
-      everyUsageLeafHasReportedCost
+      (
+        everyUsageLeafHasReportedCost ||
+        normalizedAggregateCostComplete
+      )
     );
   const rawAttribution = collectRawAttribution(input.rawUsage);
   const metadataAttribution = collectRawAttribution(input.attributionMetadata);
@@ -467,6 +484,11 @@ function measureUsageUnit(input: {
     actualModelIds.size === 1 &&
     routedProviders.length === 1 &&
     requestIds.length === 1;
+  const normalizedAggregateIdentityComplete =
+    normalizedAggregateCostComplete &&
+    rawAttribution.actualModelIds.length === 1 &&
+    rawAttribution.routedProviders.length === 1 &&
+    rawAttribution.requestIds.length === modelCalls;
   const gatewayProviderIdentityComplete =
     providers.length === 1 &&
     providers.every(
@@ -480,6 +502,8 @@ function measureUsageUnit(input: {
   const attributedProviderAttempts =
     everyUsageLeafHasIdentity
       ? modelCalls
+      : normalizedAggregateIdentityComplete
+        ? modelCalls
       : metadataDescribesSingleAttempt
         ? 1
         : 0;

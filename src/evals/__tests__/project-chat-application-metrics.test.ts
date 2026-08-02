@@ -412,6 +412,74 @@ describe("application evaluator model telemetry", () => {
     });
   });
 
+  it("accepts an explicit authoritative normalized multi-attempt aggregate", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-aggregate",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [{
+            inputTokens: 700,
+            outputTokens: 197,
+            totalTokens: 897,
+            cost: 0.00788,
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+            routedProviders: ["Azure"],
+            providerAttemptCount: 2,
+            costedAttemptCount: 2,
+            unknownUsageAttempts: 0,
+          }],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+        },
+        estimatedCostUsd: 0.00788,
+        resultRefs: {
+          agentRunId: "artifact-run-aggregate",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+          routedProviders: ["Azure"],
+          auditAttemptCount: 2,
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+          knownEstimatedCostUsd: 0.00788,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 897,
+      estimatedCostUsd: 0.00788,
+      usageComplete: true,
+      modelAttribution: {
+        requestIds: ["gen-aggregate-1", "gen-aggregate-2"],
+        providerAttempts: 2,
+        failedProviderAttempts: 0,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          verification: {
+            providerAttempts: 2,
+            estimatedCostUsd: 0.00788,
+            usageComplete: true,
+            authoritativeAttributionComplete: true,
+            configuredRoutingMatched: true,
+          },
+        },
+      },
+    });
+  });
+
   it("keeps a costed audited attempt incomplete when a later attempt has unknown usage", () => {
     const metrics = calculateApplicationModelMetrics({
       provider: "openrouter",
@@ -499,6 +567,70 @@ describe("application evaluator model telemetry", () => {
       },
     });
     expect(metrics.modelAttribution.failedProviderAttempts).toBeGreaterThan(0);
+  });
+
+  it("reports the full known cost lower bound when persisted evidence is truncated", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        id: "generation-audited-truncated",
+        tokenUsage: {
+          auditUsageEvidenceVersion: 1,
+          attempts: [{
+            inputTokens: 500,
+            outputTokens: 157,
+            totalTokens: 657,
+            cost: 0.00588,
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "gen-retained",
+            routedProvider: "Azure",
+            providerAttemptCount: 1,
+          }],
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          auditEvidenceTruncated: true,
+        },
+        estimatedCostUsd: null,
+        resultRefs: {
+          agentRunId: "artifact-run-truncated",
+          profile: "verification",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestIds: ["gen-retained"],
+          routedProviders: ["Azure"],
+          auditAttemptCount: 2,
+          providerAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          auditEvidenceTruncated: true,
+          usageComplete: false,
+          knownEstimatedCostUsd: 0.00788,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        verification: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 657,
+      estimatedCostUsd: 0.00788,
+      usageComplete: false,
+      modelAttribution: {
+        providerAttempts: 2,
+        authoritativeAttributionComplete: false,
+        profiles: {
+          verification: {
+            estimatedCostUsd: 0.00788,
+            usageComplete: false,
+            authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
   });
 
   it("keeps deterministic dossier phases at zero calls", () => {

@@ -422,6 +422,278 @@ describe("structured generation audit usage", () => {
     }));
   });
 
+  it("retains all cost and identity evidence through a twenty-first audited attempt", async () => {
+    const openRouterModelId = "openai/gpt-5.6-terra";
+    activeIdentityMock.value = {
+      provider: "openrouter",
+      modelId: openRouterModelId,
+    };
+    const priorAttempts = Array.from({ length: 20 }, (_, index) => ({
+      inputTokens: 10,
+      outputTokens: 2,
+      totalTokens: 12,
+      cost: 0.001,
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      requestId: `gen-prior-${index + 1}`,
+      routedProvider: "Azure",
+      providerAttemptCount: 1,
+    }));
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-openrouter-attempt-21",
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      tokenUsage: {
+        auditUsageEvidenceVersion: 1,
+        attempts: priorAttempts,
+        providerAttemptCount: 20,
+        unknownUsageAttempts: 0,
+      },
+      estimatedCostUsd: 0.02,
+      resultRefs: {
+        auditAttemptCount: 20,
+        unknownUsageAttempts: 0,
+        usageComplete: true,
+        knownEstimatedCostUsd: 0.02,
+      },
+    });
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      profile: "verification",
+      idempotencyKey: "public-artifact-verification:attempt-21",
+      inputSummary: { sourceCount: 1 },
+      execute: async () => ({
+        ...structuredResult(null),
+        provider: "openrouter",
+        modelId: openRouterModelId,
+        requestId: "gen-current-21",
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12,
+          cost: 0.001,
+          provider: "openrouter",
+          modelId: openRouterModelId,
+          requestId: "gen-current-21",
+          routedProvider: "Azure",
+          providerAttemptCount: 1,
+        },
+      }),
+    });
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.tokenUsage.attempts).toHaveLength(21);
+    expect(data.tokenUsage).not.toHaveProperty("auditEvidenceTruncated");
+    expect(data.tokenUsage.attempts.at(-1)).toMatchObject({
+      requestId: "gen-current-21",
+      cost: 0.001,
+    });
+    expect(data.estimatedCostUsd).toBe(0.021);
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditAttemptCount: 21,
+      auditEvidenceTruncated: false,
+      usageComplete: true,
+      knownEstimatedCostUsd: 0.021,
+    }));
+  });
+
+  it("retains valid usage nested beyond the generic event-sanitizer depth", async () => {
+    const openRouterModelId = "openai/gpt-5.6-terra";
+    activeIdentityMock.value = {
+      provider: "openrouter",
+      modelId: openRouterModelId,
+    };
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-openrouter-deep-usage",
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      tokenUsage: null,
+      estimatedCostUsd: null,
+      resultRefs: null,
+    });
+    const leaf = {
+      inputTokens: 80,
+      outputTokens: 20,
+      totalTokens: 100,
+      cost: 0.0015,
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      requestId: "gen-deep",
+      routedProvider: "Azure",
+      providerAttemptCount: 1,
+    };
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      profile: "verification",
+      idempotencyKey: "public-artifact-verification:deep-usage",
+      inputSummary: { sourceCount: 1 },
+      execute: async () => ({
+        ...structuredResult(null),
+        provider: "openrouter",
+        modelId: openRouterModelId,
+        requestId: "gen-deep",
+        tokenUsage: { usage: { attempts: [leaf] } },
+      }),
+    });
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.tokenUsage).toMatchObject({
+      attempts: [{ usage: { attempts: [leaf] } }],
+      providerAttemptCount: 1,
+      unknownUsageAttempts: 0,
+    });
+    expect(JSON.stringify(data.tokenUsage)).not.toContain("depth limit");
+    expect(data.estimatedCostUsd).toBe(0.0015);
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditEvidenceTruncated: false,
+      usageComplete: true,
+      knownEstimatedCostUsd: 0.0015,
+    }));
+  });
+
+  it("marks evidence beyond the explicit audit bound incomplete", async () => {
+    const openRouterModelId = "openai/gpt-5.6-terra";
+    activeIdentityMock.value = {
+      provider: "openrouter",
+      modelId: openRouterModelId,
+    };
+    const priorAttempts = Array.from({ length: 256 }, (_, index) => ({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      cost: 0.001,
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      requestId: `gen-bounded-${index + 1}`,
+      routedProvider: "Azure",
+      providerAttemptCount: 1,
+    }));
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-openrouter-bounded",
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      tokenUsage: {
+        auditUsageEvidenceVersion: 1,
+        attempts: priorAttempts,
+        providerAttemptCount: 256,
+        unknownUsageAttempts: 0,
+      },
+      estimatedCostUsd: 0.256,
+      resultRefs: {
+        auditAttemptCount: 256,
+        unknownUsageAttempts: 0,
+        usageComplete: true,
+        knownEstimatedCostUsd: 0.256,
+      },
+    });
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      profile: "verification",
+      idempotencyKey: "public-artifact-verification:bounded",
+      inputSummary: { sourceCount: 1 },
+      execute: async () => ({
+        ...structuredResult(null),
+        provider: "openrouter",
+        modelId: openRouterModelId,
+        requestId: "gen-over-bound",
+        tokenUsage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          cost: 0.001,
+          provider: "openrouter",
+          modelId: openRouterModelId,
+          requestId: "gen-over-bound",
+          routedProvider: "Azure",
+          providerAttemptCount: 1,
+        },
+      }),
+    });
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.tokenUsage.attempts).toHaveLength(256);
+    expect(data.tokenUsage.auditEvidenceTruncated).toBe(true);
+    expect(data.estimatedCostUsd).toBeNull();
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditAttemptCount: 257,
+      auditEvidenceTruncated: true,
+      usageComplete: false,
+      knownEstimatedCostUsd: 0.257,
+    }));
+  });
+
+  it("fails closed when an object container exceeds the explicit evidence bound", async () => {
+    const openRouterModelId = "openai/gpt-5.6-terra";
+    activeIdentityMock.value = {
+      provider: "openrouter",
+      modelId: openRouterModelId,
+    };
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-openrouter-object-bound",
+      provider: "openrouter",
+      modelId: openRouterModelId,
+      tokenUsage: null,
+      estimatedCostUsd: null,
+      resultRefs: null,
+    });
+    const phases = Object.fromEntries(
+      Array.from({ length: 257 }, (_, index) => [
+        `attempt${index + 1}`,
+        {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          cost: 0.001,
+          provider: "openrouter",
+          modelId: openRouterModelId,
+          requestId: `gen-object-${index + 1}`,
+          routedProvider: "Azure",
+          providerAttemptCount: 1,
+        },
+      ]),
+    );
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "artifact_generation",
+      profile: "verification",
+      idempotencyKey: "public-artifact-verification:object-bound",
+      inputSummary: { sourceCount: 1 },
+      execute: async () => ({
+        ...structuredResult(null),
+        provider: "openrouter",
+        modelId: openRouterModelId,
+        requestId: "gen-object-257",
+        tokenUsage: {
+          phases,
+          providerAttemptCount: 257,
+          costedAttemptCount: 257,
+          unknownUsageAttempts: 0,
+        },
+      }),
+    });
+
+    const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
+    expect(data.tokenUsage).toMatchObject({
+      auditEvidenceTruncated: true,
+      providerAttemptCount: 257,
+      unknownUsageAttempts: 0,
+    });
+    expect(data.estimatedCostUsd).toBeNull();
+    expect(data.resultRefs).toEqual(expect.objectContaining({
+      auditAttemptCount: 257,
+      auditEvidenceTruncated: true,
+      usageComplete: false,
+      knownEstimatedCostUsd: 0.257,
+    }));
+  });
+
   it("does not certify a legacy OpenRouter retry whose prior cost evidence was flattened away", async () => {
     const openRouterModelId = "openai/gpt-5.6-terra";
     activeIdentityMock.value = {
@@ -516,7 +788,11 @@ describe("structured generation audit usage", () => {
           provider: "openrouter",
           modelId: openRouterModelId,
           requestId: "gen-failed",
+          routedProvider: "Customer Launch Roadmap Alpha",
           status: "provider_error",
+          code: "raw provider prose must not persist",
+          errorType: "raw error prose must not persist",
+          retryAfter: "raw retry prose must not persist",
           httpStatus: 503,
           retryable: true,
           message: "raw provider message must not persist",
@@ -555,10 +831,9 @@ describe("structured generation audit usage", () => {
       providerAttemptCount: 1,
       unknownUsageAttempts: 1,
     });
-    expect(JSON.stringify({
-      tokenUsage: data.tokenUsage,
-      failedProviderAttempts: data.resultRefs.failedProviderAttempts,
-    })).not.toMatch(/message|prompt|private prompt|raw provider/i);
+    expect(JSON.stringify(data)).not.toMatch(
+      /customer launch|private prompt|raw upstream|raw provider|raw error|raw retry|must not persist/i,
+    );
     expect(data.resultRefs).toEqual(expect.objectContaining({
       auditAttemptCount: 1,
       providerAttemptCount: 1,
@@ -573,6 +848,7 @@ describe("structured generation audit usage", () => {
         retryable: true,
       }],
       requestIds: ["gen-failed"],
+      message: "Structured generation provider request failed closed.",
     }));
   });
 
