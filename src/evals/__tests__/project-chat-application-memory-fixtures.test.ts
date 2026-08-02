@@ -10,7 +10,10 @@ import {
   type GroundedComparisonEvaluationScenarioId,
   type PersistedGroundedComparisonEvaluationFact,
 } from "@/src/evals/project-chat-application-memory-fixtures";
-import { projectChatApplicationScenarios } from "@/src/evals/project-chat-application-runner";
+import {
+  projectChatApplicationScenarios,
+  type ProjectChatApplicationScenario,
+} from "@/src/evals/project-chat-application-runner";
 import { evaluateProjectChatAnswerQuality } from "@/src/evals/project-chat-answer-quality";
 import {
   classifyProjectAnswerEditorialProfile,
@@ -19,7 +22,9 @@ import {
 } from "@/src/services/project-answer-editorial-service";
 import { buildRollingConversationSummary } from "@/src/services/project-chat-store";
 
-function scenario(id: GroundedComparisonEvaluationScenarioId) {
+function scenario(
+  id: GroundedComparisonEvaluationScenarioId,
+): ProjectChatApplicationScenario {
   return projectChatApplicationScenarios.find((candidate) => candidate.id === id)!;
 }
 
