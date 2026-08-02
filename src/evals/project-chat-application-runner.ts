@@ -1203,6 +1203,13 @@ function checkPerformance(
   );
   addCheck(
     checks,
+    "live model execution had no failed provider attempts",
+    observation.metrics.modelAttribution.failedProviderAttempts === 0,
+    observation.metrics.modelAttribution.failedProviderAttempts,
+    0,
+  );
+  addCheck(
+    checks,
     "failed provider attempts do not exceed total attempts",
     observation.metrics.modelAttribution.failedProviderAttempts <=
       observation.metrics.modelAttribution.providerAttempts,

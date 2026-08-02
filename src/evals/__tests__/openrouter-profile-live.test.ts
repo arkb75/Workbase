@@ -167,6 +167,7 @@ function validObservation(
     latencyMs: 20,
     value,
     usage: rawUsage,
+    metadata: { provider: "openrouter" },
   };
 }
 
@@ -413,6 +414,41 @@ describe("OpenRouter profile live evaluation report", () => {
     expect(scenario.checks).toContainEqual({
       id: "usage_telemetry_is_complete",
       passed: false,
+    });
+  });
+
+  it("requires an explicit OpenRouter gateway identity", () => {
+    const observation = validObservation("primary_answer");
+    observation.metadata = undefined;
+
+    const telemetry = buildOpenRouterProfileTelemetry({
+      observation,
+      config: profileConfigs().primary_answer,
+    });
+
+    expect(telemetry).toMatchObject({
+      providers: [],
+      usageComplete: false,
+      authoritativeCostUsd: null,
+    });
+  });
+
+  it("rejects OpenRouter itself as the routed upstream provider", () => {
+    const observation = validObservation("primary_answer");
+    observation.usage = liveUsage("primary_answer", {
+      routedProvider: "openrouter",
+    });
+
+    const telemetry = buildOpenRouterProfileTelemetry({
+      observation,
+      config: profileConfigs().primary_answer,
+    });
+
+    expect(telemetry).toMatchObject({
+      providers: ["openrouter"],
+      routedProviders: ["openrouter"],
+      usageComplete: false,
+      authoritativeCostUsd: null,
     });
   });
 

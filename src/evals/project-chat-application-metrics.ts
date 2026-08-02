@@ -3,7 +3,6 @@ import {
   collectModelTokenUsage,
   collectReportedModelCostUsd,
   collectUnknownModelUsageAttempts,
-  countCostedModelProviderAttempts,
   countModelProviderAttempts,
   resolveModelCostUsd,
   type ModelTokenUsageTotals,
@@ -39,6 +38,7 @@ type ApplicationModelMetrics = Pick<
 
 interface MeasuredUsageUnit {
   identity: string;
+  telemetrySources: string[];
   profile: string;
   provider: string;
   configuredModelIds: string[];
@@ -333,6 +333,7 @@ function hasOneNonEmptyString(
 
 function measureUsageUnit(input: {
   identity: string;
+  telemetrySource: string;
   profile: string;
   provider: string;
   modelId: string;
@@ -340,6 +341,7 @@ function measureUsageUnit(input: {
   rawUsage: unknown;
   attributionMetadata?: unknown;
   invocationExpected: boolean;
+  providerIdentityObserved?: boolean;
   modelIdentityObserved?: boolean;
   terminalFailure?: boolean;
   explicitFallbackUsed?: boolean;
@@ -368,25 +370,48 @@ function measureUsageUnit(input: {
     unknownUsageAttempts = Math.max(unknownUsageAttempts, 1);
   }
   const usage = collectModelTokenUsage(input.rawUsage);
+  const usageLeaves = collectUsageLeaves(input.rawUsage);
+  const reportedLeafCosts = usageLeaves.flatMap((leaf) => {
+    const reportedCost =
+      typeof leaf.cost === "number"
+        ? leaf.cost
+        : typeof leaf.costUsd === "number"
+          ? leaf.costUsd
+          : null;
+    return (
+        typeof reportedCost === "number" &&
+        Number.isFinite(reportedCost) &&
+        reportedCost >= 0
+      )
+      ? [reportedCost]
+      : [];
+  });
+  const perAttemptReportedCostUsd =
+    reportedLeafCosts.length === modelCalls && modelCalls > 0
+      ? Number(
+          reportedLeafCosts.reduce((total, cost) => total + cost, 0).toFixed(8),
+        )
+      : null;
+  const rawReportedCostUsd = collectReportedModelCostUsd(input.rawUsage);
   const reportedCostUsd =
-    input.knownCostUsd ??
-    collectReportedModelCostUsd(input.rawUsage) ??
+    (input.provider.toLowerCase() === "openrouter"
+      ? perAttemptReportedCostUsd ?? rawReportedCostUsd ?? input.knownCostUsd
+      : input.knownCostUsd ?? rawReportedCostUsd) ??
     resolveModelCostUsd({
       provider: input.provider,
       modelId: input.modelId,
       usage,
       rawUsage: input.rawUsage,
     });
-  const costedAttempts = countCostedModelProviderAttempts(input.rawUsage);
+  const everyUsageLeafHasReportedCost =
+    usageLeaves.length === modelCalls &&
+    reportedLeafCosts.length === modelCalls;
   const openRouterCostComplete =
     input.provider.toLowerCase() !== "openrouter" ||
     modelCalls === 0 ||
     (
       reportedCostUsd != null &&
-      (
-        input.usageComplete === true ||
-        costedAttempts >= modelCalls
-      )
+      everyUsageLeafHasReportedCost
     );
   const rawAttribution = collectRawAttribution(input.rawUsage);
   const metadataAttribution = collectRawAttribution(input.attributionMetadata);
@@ -440,8 +465,18 @@ function measureUsageUnit(input: {
     ...rawAttribution.requestIds,
     ...metadataAttribution.requestIds,
   ]));
+  const providerIdentityObserved =
+    input.providerIdentityObserved === true ||
+    rawAttribution.providers.length > 0 ||
+    metadataAttribution.providers.length > 0;
   const providers = Array.from(new Set([
-    ...(modelCalls > 0 && input.provider.trim() ? [input.provider.trim()] : []),
+    ...(
+      modelCalls > 0 &&
+      providerIdentityObserved &&
+      input.provider.trim()
+        ? [input.provider.trim()]
+        : []
+    ),
     ...rawAttribution.providers,
     ...metadataAttribution.providers,
   ]));
@@ -452,7 +487,7 @@ function measureUsageUnit(input: {
       ? [input.modelId.trim()]
       : [];
   const observedProviders =
-    modelCalls === 1 && input.provider.trim()
+    modelCalls === 1 && providerIdentityObserved && input.provider.trim()
       ? [input.provider.trim()]
       : [];
   const attributionConflict =
@@ -479,7 +514,6 @@ function measureUsageUnit(input: {
       rawAttribution.requestIds,
       metadataAttribution.requestIds,
     );
-  const usageLeaves = collectUsageLeaves(input.rawUsage);
   const everyUsageLeafHasIdentity =
     usageLeaves.length === modelCalls &&
     usageLeaves.every(
@@ -497,6 +531,16 @@ function measureUsageUnit(input: {
     actualModelIds.size === 1 &&
     routedProviders.length === 1 &&
     requestIds.length === 1;
+  const gatewayProviderIdentityComplete =
+    providers.length === 1 &&
+    providers.every(
+      (provider) => provider.trim().toLowerCase() === "openrouter",
+    );
+  const routedProviderIdentitiesAreUpstream =
+    routedProviders.length > 0 &&
+    routedProviders.every(
+      (provider) => provider.trim().toLowerCase() !== "openrouter",
+    );
   const attributedProviderAttempts =
     everyUsageLeafHasIdentity
       ? modelCalls
@@ -508,10 +552,14 @@ function measureUsageUnit(input: {
     modelCalls === 0 ||
     (
       attributedProviderAttempts === modelCalls &&
+      requestIds.length === modelCalls &&
+      gatewayProviderIdentityComplete &&
+      routedProviderIdentitiesAreUpstream &&
       !attributionConflict
     );
   return {
     identity: input.identity,
+    telemetrySources: [input.telemetrySource],
     profile: input.profile,
     provider: input.provider,
     configuredModelIds:
@@ -598,6 +646,7 @@ function eventUsageUnits(input: {
       identity:
         requestIdentity(payload) ??
         `event:${event.id ?? index}:${iteration ?? "unknown"}:${kind}`,
+      telemetrySource: "event",
       profile: profileName(payload.profile, "primary_answer"),
       provider,
       modelId,
@@ -605,6 +654,9 @@ function eventUsageUnits(input: {
       rawUsage,
       attributionMetadata: payload,
       invocationExpected: true,
+      providerIdentityObserved:
+        typeof payload.provider === "string" &&
+        payload.provider.trim().length > 0,
       modelIdentityObserved:
         provider.toLowerCase() !== "openrouter" ||
         typeof payload.modelId === "string",
@@ -617,6 +669,7 @@ function eventUsageUnits(input: {
     if (iteration != null && terminalIterations.has(iteration)) continue;
     units.push(measureUsageUnit({
       identity: `unmetered-event-start:${event.id ?? index}:${iteration ?? "unknown"}`,
+      telemetrySource: "event",
       profile: profileName(
         record(event.payload).profile,
         "primary_answer",
@@ -627,6 +680,9 @@ function eventUsageUnits(input: {
       rawUsage: null,
       attributionMetadata: event.payload,
       invocationExpected: true,
+      providerIdentityObserved:
+        typeof record(event.payload).provider === "string" &&
+        String(record(event.payload).provider).trim().length > 0,
       modelIdentityObserved: input.provider.toLowerCase() !== "openrouter",
       terminalFailure: true,
     }));
@@ -659,6 +715,7 @@ function dossierUsageUnits(input: {
       identity:
         requestIdentity(entry) ??
         `research-model-usage:${index}:${typeof wrapper.phase === "string" ? wrapper.phase : "unknown"}`,
+      telemetrySource: "dossier",
       profile: profileName(wrapper.profile),
       provider,
       modelId,
@@ -669,6 +726,9 @@ function dossierUsageUnits(input: {
         typeof wrapper.modelInvoked === "boolean"
           ? wrapper.modelInvoked
           : rawUsage != null,
+      providerIdentityObserved:
+        typeof wrapper.provider === "string" &&
+        wrapper.provider.trim().length > 0,
       modelIdentityObserved:
         provider.toLowerCase() !== "openrouter" ||
         attribution.actualModelIds.length > 0,
@@ -693,6 +753,7 @@ function generationUsageUnits(generationRuns: ApplicationGenerationRun[]) {
       identity:
         requestIdentity({ tokenUsage: run.tokenUsage, resultRefs: run.resultRefs }) ??
         `generation-run:${run.id}`,
+      telemetrySource: "generation_run",
       profile: profileName(refs.profile),
       provider: run.provider,
       modelId: run.modelId,
@@ -703,6 +764,7 @@ function generationUsageUnits(generationRuns: ApplicationGenerationRun[]) {
       rawUsage: run.tokenUsage,
       attributionMetadata: run.resultRefs,
       invocationExpected: isModelProvider(run.provider) && !admissionFailure,
+      providerIdentityObserved: run.provider.trim().length > 0,
       modelIdentityObserved:
         run.provider.toLowerCase() !== "openrouter" ||
         run.status === "success",
@@ -751,6 +813,10 @@ function mergeDuplicateUsageUnits(
   const preferred =
     usageUnitScore(right) > usageUnitScore(left) ? right : left;
   const modelCalls = Math.max(left.modelCalls, right.modelCalls);
+  const telemetrySources = uniqueStrings(
+    left.telemetrySources,
+    right.telemetrySources,
+  );
   const configuredModelIds = uniqueStrings(
     left.configuredModelIds,
     right.configuredModelIds,
@@ -784,6 +850,9 @@ function mergeDuplicateUsageUnits(
   const attributionConflict =
     left.attributionConflict ||
     right.attributionConflict ||
+    left.telemetrySources.some((source) =>
+      right.telemetrySources.includes(source)
+    ) ||
     left.profile !== right.profile ||
     conflictingEvidence(
       left.configuredModelIds,
@@ -802,6 +871,11 @@ function mergeDuplicateUsageUnits(
     (
       providers.length > 0 &&
       providers.every((provider) => provider.toLowerCase() === "openrouter") &&
+      routedProviders.length > 0 &&
+      routedProviders.every(
+        (provider) => provider.trim().toLowerCase() !== "openrouter",
+      ) &&
+      requestIds.length === modelCalls &&
       attributedProviderAttempts === modelCalls &&
       !attributionConflict
     );
@@ -827,6 +901,7 @@ function mergeDuplicateUsageUnits(
 
   return {
     ...preferred,
+    telemetrySources,
     profile:
       left.profile === right.profile ? left.profile : "unattributed",
     configuredModelIds,
@@ -931,6 +1006,9 @@ function profileAttribution(input: {
       const actualModelIds = Array.from(new Set(
         units.flatMap((unit) => unit.actualModelIds),
       )).sort();
+      const requestIds = Array.from(new Set(
+        units.flatMap((unit) => unit.requestIds),
+      )).sort();
       const failedProviderAttempts = Math.min(
         providerAttempts,
         units.reduce(
@@ -959,7 +1037,8 @@ function profileAttribution(input: {
                 (provider) => provider.toLowerCase() === "openrouter",
               ) &&
               unit.authoritativeAttributionComplete,
-          )
+          ) &&
+          requestIds.length === providerAttempts
         );
       const fallbackUsed =
         input.fallbackProfiles.has(profile) ||
@@ -1118,17 +1197,21 @@ export function calculateApplicationModelMetrics(input: {
   });
   const authoritativeAttributionComplete =
     input.provider.toLowerCase() !== "openrouter" ||
-    units.every(
-      (unit) =>
-        unit.modelCalls === 0 ||
-        (
-          unit.provider.toLowerCase() === "openrouter" &&
-          unit.providers.length > 0 &&
-          unit.providers.every(
-            (provider) => provider.toLowerCase() === "openrouter",
-          ) &&
-          unit.authoritativeAttributionComplete
-        ),
+    (
+      units.every(
+        (unit) =>
+          unit.modelCalls === 0 ||
+          (
+            unit.provider.toLowerCase() === "openrouter" &&
+            unit.providers.length > 0 &&
+            unit.providers.every(
+              (provider) => provider.toLowerCase() === "openrouter",
+            ) &&
+            unit.authoritativeAttributionComplete
+          ),
+      ) &&
+      new Set(units.flatMap((unit) => unit.requestIds)).size ===
+        totals.modelCalls
     );
   const modelAttribution = {
     providers: Array.from(new Set(

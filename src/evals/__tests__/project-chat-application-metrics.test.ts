@@ -231,6 +231,7 @@ describe("application evaluator model telemetry", () => {
         providerAttempts: 0,
         failedProviderAttempts: 0,
         fallbackUsed: false,
+        authoritativeAttributionComplete: true,
       },
     });
   });
@@ -306,6 +307,235 @@ describe("application evaluator model telemetry", () => {
       fallbackUsed: false,
     });
     expect(metrics.usageComplete).toBe(true);
+  });
+
+  it("requires an explicit OpenRouter gateway identity for an invoked event", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [{
+        id: "missing-provider",
+        message: "Project evidence review completed.",
+        payload: {
+          modelEvent: "model_call_completed",
+          iteration: 1,
+          profile: "primary_answer",
+          modelId: "openai/gpt-5.6-terra",
+          requestId: "request-missing-provider",
+          routedProvider: "openai",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            totalTokens: 120,
+            cost: 0.001,
+            providerAttemptCount: 1,
+            modelId: "openai/gpt-5.6-terra",
+            routedProvider: "openai",
+            requestId: "request-missing-provider",
+          },
+        },
+      }],
+    });
+
+    expect(metrics.usageComplete).toBe(true);
+    expect(metrics.modelAttribution).toMatchObject({
+      providers: [],
+      authoritativeAttributionComplete: false,
+      profiles: {
+        primary_answer: {
+          authoritativeAttributionComplete: false,
+        },
+      },
+    });
+  });
+
+  it("rejects OpenRouter itself as the routed upstream provider", () => {
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [{
+        phase: "planning",
+        profile: "routing",
+        provider: "openrouter",
+        configuredModelId: "openai/gpt-5.4-nano",
+        modelInvoked: true,
+        usage: {
+          inputTokens: 20,
+          outputTokens: 5,
+          totalTokens: 25,
+          cost: 0.0001,
+          providerAttemptCount: 1,
+          modelId: "openai/gpt-5.4-nano",
+          routedProvider: "openrouter",
+          requestId: "request-gateway-route",
+        },
+      }],
+      events: [],
+      expectedModelIdsByProfile: {
+        routing: "openai/gpt-5.4-nano",
+      },
+    });
+
+    expect(metrics.usageComplete).toBe(true);
+    expect(metrics.modelAttribution).toMatchObject({
+      routedProviders: ["openrouter"],
+      authoritativeAttributionComplete: false,
+      profiles: {
+        routing: {
+          authoritativeAttributionComplete: false,
+        },
+      },
+    });
+  });
+
+  it("requires one unique request identity per provider attempt", () => {
+    const repeatedAttempt = {
+      inputTokens: 50,
+      outputTokens: 10,
+      totalTokens: 60,
+      cost: 0.0005,
+      modelId: "openai/gpt-5.6-terra",
+      routedProvider: "openai",
+      requestId: "request-reused",
+    };
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [{
+        id: "reused-request-id",
+        message: "Project evidence review completed.",
+        payload: {
+          modelEvent: "model_call_completed",
+          iteration: 1,
+          profile: "primary_answer",
+          provider: "openrouter",
+          modelId: "openai/gpt-5.6-terra",
+          requestId: "request-reused",
+          usage: {
+            attempts: [{ ...repeatedAttempt }, { ...repeatedAttempt }],
+            providerAttemptCount: 2,
+            unknownUsageAttempts: 0,
+          },
+        },
+      }],
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      usageComplete: true,
+      modelAttribution: {
+        requestIds: ["request-reused"],
+        authoritativeAttributionComplete: false,
+        profiles: {
+          primary_answer: {
+            providerAttempts: 2,
+            authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
+  });
+
+  it("rejects a request identity reused by separate event attempts", () => {
+    const event = (id: string, iteration: number) => ({
+      id,
+      message: "Project evidence review completed.",
+      payload: {
+        modelEvent: "model_call_completed",
+        iteration,
+        profile: "primary_answer",
+        provider: "openrouter",
+        modelId: "openai/gpt-5.6-terra",
+        routedProvider: "openai",
+        requestId: "request-reused-across-events",
+        usage: {
+          inputTokens: 50,
+          outputTokens: 10,
+          totalTokens: 60,
+          cost: 0.0005,
+          providerAttemptCount: 1,
+          modelId: "openai/gpt-5.6-terra",
+          routedProvider: "openai",
+          requestId: "request-reused-across-events",
+        },
+      },
+    });
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [],
+      dossierModelUsage: [],
+      events: [event("first-event", 1), event("second-event", 2)],
+    });
+
+    expect(metrics.modelAttribution).toMatchObject({
+      requestIds: ["request-reused-across-events"],
+      authoritativeAttributionComplete: false,
+      profiles: {
+        primary_answer: {
+          authoritativeAttributionComplete: false,
+        },
+      },
+    });
+  });
+
+  it("does not promote aggregate generation cost to per-attempt cost", () => {
+    const usageAttempt = (requestId: string) => ({
+      inputTokens: 50,
+      outputTokens: 10,
+      totalTokens: 60,
+      modelId: "openai/gpt-5.6-terra",
+      routedProvider: "openai",
+      requestId,
+    });
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        tokenUsage: {
+          attempts: [
+            usageAttempt("request-aggregate-cost-1"),
+            usageAttempt("request-aggregate-cost-2"),
+          ],
+          cost: 0.002,
+          costedAttemptCount: 2,
+          providerAttemptCount: 2,
+        },
+        estimatedCostUsd: 0.002,
+        resultRefs: {
+          profile: "primary_answer",
+          configuredModelId: "openai/gpt-5.6-terra",
+          auditAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+          routedProviders: ["openai"],
+        },
+      })],
+      dossierModelUsage: [],
+      events: [],
+      expectedModelIdsByProfile: {
+        primary_answer: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      estimatedCostUsd: 0.002,
+      usageComplete: false,
+      modelAttribution: {
+        authoritativeAttributionComplete: true,
+        profiles: {
+          primary_answer: {
+            usageComplete: false,
+          },
+        },
+      },
+    });
   });
 
   it("deduplicates one provider request represented by a run and an event", () => {
@@ -406,6 +636,82 @@ describe("application evaluator model telemetry", () => {
             fallbackUsed: true,
             configuredRoutingMatched: false,
             authoritativeAttributionComplete: false,
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps a same-model failed attempt from a duplicate telemetry source", () => {
+    const requestId = "request-failed-duplicate";
+    const completeUsage = {
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      cost: 0.001,
+      providerAttemptCount: 1,
+      modelId: "openai/gpt-5.6-terra",
+      routedProvider: "openai",
+      requestId,
+    };
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        tokenUsage: completeUsage,
+        resultRefs: {
+          requestId,
+          profile: "primary_answer",
+          configuredModelId: "openai/gpt-5.6-terra",
+          routedProviders: ["openai"],
+          auditAttemptCount: 1,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+        },
+      })],
+      dossierModelUsage: [],
+      events: [{
+        id: "failed-duplicate-event",
+        message: "Project evidence review completed.",
+        payload: {
+          modelEvent: "model_call_completed",
+          iteration: 1,
+          profile: "primary_answer",
+          provider: "openrouter",
+          modelId: "openai/gpt-5.6-terra",
+          routedProvider: "openai",
+          requestId,
+          usage: {
+            ...completeUsage,
+            failedAttempts: [{
+              provider: "openrouter",
+              modelId: "openai/gpt-5.6-terra",
+              requestId,
+              httpStatus: 503,
+            }],
+          },
+        },
+      }],
+      expectedModelIdsByProfile: {
+        primary_answer: "openai/gpt-5.6-terra",
+      },
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 120,
+      estimatedCostUsd: 0.001,
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 1,
+        failedProviderAttempts: 1,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {
+          primary_answer: {
+            failedProviderAttempts: 1,
+            fallbackUsed: false,
+            authoritativeAttributionComplete: true,
           },
         },
       },

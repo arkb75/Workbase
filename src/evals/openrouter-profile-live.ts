@@ -432,6 +432,10 @@ function leafHasReportedCost(leaf: Record<string, unknown>) {
   );
 }
 
+function isOpenRouterGateway(value: string) {
+  return value.trim().toLowerCase() === "openrouter";
+}
+
 function roundedCost(value: number) {
   return Number(value.toFixed(8));
 }
@@ -510,6 +514,11 @@ export function buildOpenRouterProfileTelemetry(input: {
     configuredFallbackModelId &&
       actualModelIds.includes(configuredFallbackModelId),
   );
+  const providerIdentityComplete =
+    providers.length === 1 && providers.every(isOpenRouterGateway);
+  const routedProviderIdentitiesAreUpstream =
+    routedProviders.length > 0 &&
+    routedProviders.every((provider) => !isOpenRouterGateway(provider));
   const metadataCanDescribeSingleLeaf = leaves.length === 1;
   const everyLeafHasOneRequestId = leaves.every((leaf) =>
     leafIdentifierValues(
@@ -541,6 +550,8 @@ export function buildOpenRouterProfileTelemetry(input: {
     usageEntries === providerAttempts &&
     costEntries === providerAttempts &&
     requestIds.length === providerAttempts &&
+    providerIdentityComplete &&
+    routedProviderIdentitiesAreUpstream &&
     everyLeafHasReportedCost &&
     (
       everyLeafHasOneRequestId ||

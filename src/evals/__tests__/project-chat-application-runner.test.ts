@@ -593,6 +593,32 @@ describe("project-chat application scenario runner", () => {
     }));
   });
 
+  it("rejects a failed provider attempt even when no fallback was used", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "memory_answer",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      metrics: {
+        ...observation.metrics,
+        modelCalls: 1,
+        modelAttribution: {
+          ...observation.metrics.modelAttribution,
+          providerAttempts: 1,
+          failedProviderAttempts: 1,
+          fallbackUsed: false,
+        },
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "live model execution had no failed provider attempts",
+      passed: false,
+    }));
+  });
+
   it("rejects a fully metered answer when an application fallback was used", () => {
     const scenario = projectChatApplicationScenarios.find(
       (entry) => entry.id === "design_tradeoffs",
