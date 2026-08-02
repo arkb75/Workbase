@@ -28,19 +28,26 @@ export type AggregateProjectFactEmbedding = {
 
 export type ProjectFactEmbeddingAvgAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type ProjectFactEmbeddingSumAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type ProjectFactEmbeddingMinAggregateOutputType = {
   id: string | null
   projectFactId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,10 +55,13 @@ export type ProjectFactEmbeddingMinAggregateOutputType = {
 export type ProjectFactEmbeddingMaxAggregateOutputType = {
   id: string | null
   projectFactId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -59,10 +69,13 @@ export type ProjectFactEmbeddingMaxAggregateOutputType = {
 export type ProjectFactEmbeddingCountAggregateOutputType = {
   id: number
   projectFactId: number
+  indexVersionId: number
   modelId: number
   dimensions: number
   inputHash: number
   inputText: number
+  inputTokens: number
+  costUsd: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -71,19 +84,26 @@ export type ProjectFactEmbeddingCountAggregateOutputType = {
 
 export type ProjectFactEmbeddingAvgAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type ProjectFactEmbeddingSumAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type ProjectFactEmbeddingMinAggregateInputType = {
   id?: true
   projectFactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -91,10 +111,13 @@ export type ProjectFactEmbeddingMinAggregateInputType = {
 export type ProjectFactEmbeddingMaxAggregateInputType = {
   id?: true
   projectFactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,10 +125,13 @@ export type ProjectFactEmbeddingMaxAggregateInputType = {
 export type ProjectFactEmbeddingCountAggregateInputType = {
   id?: true
   projectFactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -200,10 +226,13 @@ export type ProjectFactEmbeddingGroupByArgs<ExtArgs extends runtime.Types.Extens
 export type ProjectFactEmbeddingGroupByOutputType = {
   id: string
   projectFactId: string
+  indexVersionId: string
   modelId: string
   dimensions: number
   inputHash: string
   inputText: string
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date
   updatedAt: Date
   _count: ProjectFactEmbeddingCountAggregateOutputType | null
@@ -234,49 +263,65 @@ export type ProjectFactEmbeddingWhereInput = {
   NOT?: Prisma.ProjectFactEmbeddingWhereInput | Prisma.ProjectFactEmbeddingWhereInput[]
   id?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   projectFactId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   modelId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   dimensions?: Prisma.IntFilter<"ProjectFactEmbedding"> | number
   inputHash?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   inputText?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ProjectFactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ProjectFactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
   projectFact?: Prisma.XOR<Prisma.ProjectFactScalarRelationFilter, Prisma.ProjectFactWhereInput>
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
 }
 
 export type ProjectFactEmbeddingOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   projectFactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   projectFact?: Prisma.ProjectFactOrderByWithRelationInput
+  indexVersion?: Prisma.EmbeddingIndexVersionOrderByWithRelationInput
 }
 
 export type ProjectFactEmbeddingWhereUniqueInput = Prisma.AtLeast<{
   id?: string
-  projectFactId?: string
+  projectFactId_indexVersionId?: Prisma.ProjectFactEmbeddingProjectFactIdIndexVersionIdCompoundUniqueInput
   AND?: Prisma.ProjectFactEmbeddingWhereInput | Prisma.ProjectFactEmbeddingWhereInput[]
   OR?: Prisma.ProjectFactEmbeddingWhereInput[]
   NOT?: Prisma.ProjectFactEmbeddingWhereInput | Prisma.ProjectFactEmbeddingWhereInput[]
+  projectFactId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   modelId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   dimensions?: Prisma.IntFilter<"ProjectFactEmbedding"> | number
   inputHash?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
   inputText?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ProjectFactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ProjectFactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
   projectFact?: Prisma.XOR<Prisma.ProjectFactScalarRelationFilter, Prisma.ProjectFactWhereInput>
-}, "id" | "projectFactId">
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
+}, "id" | "projectFactId_indexVersionId">
 
 export type ProjectFactEmbeddingOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   projectFactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ProjectFactEmbeddingCountOrderByAggregateInput
@@ -292,10 +337,13 @@ export type ProjectFactEmbeddingScalarWhereWithAggregatesInput = {
   NOT?: Prisma.ProjectFactEmbeddingScalarWhereWithAggregatesInput | Prisma.ProjectFactEmbeddingScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
   projectFactId?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
+  indexVersionId?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
   modelId?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
   dimensions?: Prisma.IntWithAggregatesFilter<"ProjectFactEmbedding"> | number
   inputHash?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
   inputText?: Prisma.StringWithAggregatesFilter<"ProjectFactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableWithAggregatesFilter<"ProjectFactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableWithAggregatesFilter<"ProjectFactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"ProjectFactEmbedding"> | Date | string
 }
@@ -306,18 +354,24 @@ export type ProjectFactEmbeddingUpdateInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projectFact?: Prisma.ProjectFactUpdateOneRequiredWithoutEmbeddingNestedInput
+  projectFact?: Prisma.ProjectFactUpdateOneRequiredWithoutEmbeddingsNestedInput
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutProjectFactEmbeddingsNestedInput
 }
 
 export type ProjectFactEmbeddingUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectFactId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -328,6 +382,8 @@ export type ProjectFactEmbeddingUpdateManyMutationInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -335,41 +391,62 @@ export type ProjectFactEmbeddingUpdateManyMutationInput = {
 export type ProjectFactEmbeddingUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectFactId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type ProjectFactEmbeddingNullableScalarRelationFilter = {
-  is?: Prisma.ProjectFactEmbeddingWhereInput | null
-  isNot?: Prisma.ProjectFactEmbeddingWhereInput | null
+export type ProjectFactEmbeddingListRelationFilter = {
+  every?: Prisma.ProjectFactEmbeddingWhereInput
+  some?: Prisma.ProjectFactEmbeddingWhereInput
+  none?: Prisma.ProjectFactEmbeddingWhereInput
+}
+
+export type ProjectFactEmbeddingOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
+}
+
+export type ProjectFactEmbeddingProjectFactIdIndexVersionIdCompoundUniqueInput = {
+  projectFactId: string
+  indexVersionId: string
 }
 
 export type ProjectFactEmbeddingCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectFactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ProjectFactEmbeddingAvgOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
 export type ProjectFactEmbeddingMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectFactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -377,43 +454,114 @@ export type ProjectFactEmbeddingMaxOrderByAggregateInput = {
 export type ProjectFactEmbeddingMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectFactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ProjectFactEmbeddingSumOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
-export type ProjectFactEmbeddingCreateNestedOneWithoutProjectFactInput = {
-  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput
+export type ProjectFactEmbeddingCreateNestedManyWithoutProjectFactInput = {
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
 }
 
-export type ProjectFactEmbeddingUncheckedCreateNestedOneWithoutProjectFactInput = {
-  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput
+export type ProjectFactEmbeddingUncheckedCreateNestedManyWithoutProjectFactInput = {
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
 }
 
-export type ProjectFactEmbeddingUpdateOneWithoutProjectFactNestedInput = {
-  disconnect?: Prisma.ProjectFactEmbeddingWhereInput | boolean
-  delete?: Prisma.ProjectFactEmbeddingWhereInput | boolean
-  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateToOneWithWhereWithoutProjectFactInput, Prisma.ProjectFactEmbeddingUpdateWithoutProjectFactInput>, Prisma.ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput>
+export type ProjectFactEmbeddingUpdateManyWithoutProjectFactNestedInput = {
+  set?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutProjectFactInput | Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutProjectFactInput[]
+  deleteMany?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
 }
 
-export type ProjectFactEmbeddingUncheckedUpdateOneWithoutProjectFactNestedInput = {
-  disconnect?: Prisma.ProjectFactEmbeddingWhereInput | boolean
-  delete?: Prisma.ProjectFactEmbeddingWhereInput | boolean
-  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateToOneWithWhereWithoutProjectFactInput, Prisma.ProjectFactEmbeddingUpdateWithoutProjectFactInput>, Prisma.ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput>
+export type ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactNestedInput = {
+  set?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutProjectFactInput | Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutProjectFactInput[]
+  updateMany?: Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutProjectFactInput | Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutProjectFactInput[]
+  deleteMany?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
 }
 
-export type ProjectFactEmbeddingUpdateToOneWithWhereWithoutProjectFactInput = {
-  where?: Prisma.ProjectFactEmbeddingWhereInput
+export type ProjectFactEmbeddingCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+}
+
+export type ProjectFactEmbeddingUncheckedCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+}
+
+export type ProjectFactEmbeddingUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
+}
+
+export type ProjectFactEmbeddingUncheckedUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ProjectFactEmbeddingWhereUniqueInput | Prisma.ProjectFactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.ProjectFactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.ProjectFactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
+}
+
+export type ProjectFactEmbeddingUpdateWithWhereUniqueWithoutProjectFactInput = {
+  where: Prisma.ProjectFactEmbeddingWhereUniqueInput
   data: Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateWithoutProjectFactInput, Prisma.ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput>
+}
+
+export type ProjectFactEmbeddingUpdateManyWithWhereWithoutProjectFactInput = {
+  where: Prisma.ProjectFactEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateManyMutationInput, Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactInput>
+}
+
+export type ProjectFactEmbeddingScalarWhereInput = {
+  AND?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
+  OR?: Prisma.ProjectFactEmbeddingScalarWhereInput[]
+  NOT?: Prisma.ProjectFactEmbeddingScalarWhereInput | Prisma.ProjectFactEmbeddingScalarWhereInput[]
+  id?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  projectFactId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  modelId?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  dimensions?: Prisma.IntFilter<"ProjectFactEmbedding"> | number
+  inputHash?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  inputText?: Prisma.StringFilter<"ProjectFactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ProjectFactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ProjectFactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"ProjectFactEmbedding"> | Date | string
+}
+
+export type ProjectFactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput = {
+  where: Prisma.ProjectFactEmbeddingWhereUniqueInput
+  data: Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateWithoutIndexVersionInput, Prisma.ProjectFactEmbeddingUncheckedUpdateWithoutIndexVersionInput>
+}
+
+export type ProjectFactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput = {
+  where: Prisma.ProjectFactEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.ProjectFactEmbeddingUpdateManyMutationInput, Prisma.ProjectFactEmbeddingUncheckedUpdateManyWithoutIndexVersionInput>
 }
 
 export type ProjectFactEmbeddingUpdateWithoutProjectFactInput = {
@@ -422,16 +570,74 @@ export type ProjectFactEmbeddingUpdateWithoutProjectFactInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutProjectFactEmbeddingsNestedInput
+}
+
+export type ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput = {
+export type ProjectFactEmbeddingUncheckedUpdateManyWithoutProjectFactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ProjectFactEmbeddingUpdateWithoutIndexVersionInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projectFact?: Prisma.ProjectFactUpdateOneRequiredWithoutEmbeddingsNestedInput
+}
+
+export type ProjectFactEmbeddingUncheckedUpdateWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  projectFactId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ProjectFactEmbeddingUncheckedUpdateManyWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  projectFactId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -441,59 +647,76 @@ export type ProjectFactEmbeddingUncheckedUpdateWithoutProjectFactInput = {
 export type ProjectFactEmbeddingSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   projectFactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   projectFact?: boolean | Prisma.ProjectFactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["projectFactEmbedding"]>
 
 
 export type ProjectFactEmbeddingSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   projectFactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   projectFact?: boolean | Prisma.ProjectFactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["projectFactEmbedding"]>
 
 export type ProjectFactEmbeddingSelectScalar = {
   id?: boolean
   projectFactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ProjectFactEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectFactId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFactEmbedding"]>
+export type ProjectFactEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectFactId" | "indexVersionId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "inputTokens" | "costUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["projectFactEmbedding"]>
 export type ProjectFactEmbeddingInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   projectFact?: boolean | Prisma.ProjectFactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 export type ProjectFactEmbeddingIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   projectFact?: boolean | Prisma.ProjectFactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 
 export type $ProjectFactEmbeddingPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "ProjectFactEmbedding"
   objects: {
     projectFact: Prisma.$ProjectFactPayload<ExtArgs>
+    indexVersion: Prisma.$EmbeddingIndexVersionPayload<ExtArgs>
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     projectFactId: string
+    indexVersionId: string
     modelId: string
     dimensions: number
     inputHash: string
     inputText: string
+    inputTokens: number | null
+    costUsd: runtime.Decimal | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["projectFactEmbedding"]>
@@ -820,6 +1043,7 @@ readonly fields: ProjectFactEmbeddingFieldRefs;
 export interface Prisma__ProjectFactEmbeddingClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   projectFact<T extends Prisma.ProjectFactDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectFactDefaultArgs<ExtArgs>>): Prisma.Prisma__ProjectFactClient<runtime.Types.Result.GetResult<Prisma.$ProjectFactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  indexVersion<T extends Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>>): Prisma.Prisma__EmbeddingIndexVersionClient<runtime.Types.Result.GetResult<Prisma.$EmbeddingIndexVersionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -851,10 +1075,13 @@ export interface Prisma__ProjectFactEmbeddingClient<T, Null = never, ExtArgs ext
 export interface ProjectFactEmbeddingFieldRefs {
   readonly id: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
   readonly projectFactId: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
+  readonly indexVersionId: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
   readonly modelId: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
   readonly dimensions: Prisma.FieldRef<"ProjectFactEmbedding", 'Int'>
   readonly inputHash: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
   readonly inputText: Prisma.FieldRef<"ProjectFactEmbedding", 'String'>
+  readonly inputTokens: Prisma.FieldRef<"ProjectFactEmbedding", 'Int'>
+  readonly costUsd: Prisma.FieldRef<"ProjectFactEmbedding", 'Decimal'>
   readonly createdAt: Prisma.FieldRef<"ProjectFactEmbedding", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"ProjectFactEmbedding", 'DateTime'>
 }

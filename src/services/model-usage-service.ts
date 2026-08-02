@@ -6,6 +6,7 @@ export interface ModelTokenUsageTotals {
   totalTokens: number;
   cacheReadInputTokens: number;
   cacheWriteInputTokens: number;
+  reasoningTokens?: number;
 }
 
 const usageKeys = [
@@ -15,6 +16,62 @@ const usageKeys = [
   "cacheReadInputTokens",
   "cacheWriteInputTokens",
 ] as const;
+
+export function countModelUsageEntries(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    if (usageKeys.some((key) => typeof record[key] === "number")) {
+      total += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
+/**
+ * Counts provider HTTP/model dispatches without confusing a logical wrapper
+ * response for a single attempt. New runtimes report providerAttemptCount;
+ * legacy leaf usage objects conservatively count as one.
+ */
+export function countModelProviderAttempts(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const explicit = finiteTokenCount(record.providerAttemptCount);
+    if (explicit > 0) {
+      total += explicit;
+      return;
+    }
+    if (usageKeys.some((key) => typeof record[key] === "number")) {
+      total += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
 
 function finiteTokenCount(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
@@ -48,6 +105,11 @@ export function collectModelTokenUsage(value: unknown): ModelTokenUsageTotals {
       totals.totalTokens += finiteTokenCount(record.totalTokens) || inputTokens + outputTokens;
       totals.cacheReadInputTokens += finiteTokenCount(record.cacheReadInputTokens);
       totals.cacheWriteInputTokens += finiteTokenCount(record.cacheWriteInputTokens);
+      const reasoningTokens = finiteTokenCount(record.reasoningTokens);
+      if (reasoningTokens) {
+        totals.reasoningTokens =
+          (totals.reasoningTokens ?? 0) + reasoningTokens;
+      }
       return;
     }
     Object.values(record).forEach((entry) => visit(entry, depth + 1));
@@ -67,7 +129,11 @@ export function collectUnknownModelUsageAttempts(value: unknown) {
       return;
     }
     const record = current as Record<string, unknown>;
-    total += finiteTokenCount(record.unknownUsageAttempts);
+    const explicit = finiteTokenCount(record.unknownUsageAttempts);
+    if (explicit > 0) {
+      total += explicit;
+      return;
+    }
     Object.entries(record).forEach(([key, entry]) => {
       if (key !== "unknownUsageAttempts") visit(entry, depth + 1);
     });
@@ -76,16 +142,134 @@ export function collectUnknownModelUsageAttempts(value: unknown) {
   return total;
 }
 
+export function collectReportedModelCostUsd(value: unknown) {
+  let total = 0;
+  let observed = false;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const reportedCost =
+      typeof record.cost === "number"
+        ? record.cost
+        : typeof record.costUsd === "number"
+          ? record.costUsd
+          : null;
+    if (
+      typeof reportedCost === "number" &&
+      Number.isFinite(reportedCost) &&
+      reportedCost >= 0
+    ) {
+      total += reportedCost;
+      observed = true;
+      // A normalized usage object may also contain nested detail fields, but
+      // they do not represent additional billable requests.
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return observed ? Number(total.toFixed(8)) : null;
+}
+
+export function countReportedModelCostEntries(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const reportedCost =
+      typeof record.cost === "number"
+        ? record.cost
+        : typeof record.costUsd === "number"
+          ? record.costUsd
+          : null;
+    if (
+      typeof reportedCost === "number" &&
+      Number.isFinite(reportedCost) &&
+      reportedCost >= 0
+    ) {
+      total += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
+/**
+ * Counts provider attempts whose authoritative cost was returned by the
+ * provider. Normalized aggregate usage can declare costedAttemptCount; older
+ * usage shapes are counted from cost-bearing leaves.
+ */
+export function countCostedModelProviderAttempts(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) {
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const explicit = finiteTokenCount(record.costedAttemptCount);
+    if (explicit > 0) {
+      total += explicit;
+      return;
+    }
+    const reportedCost =
+      typeof record.cost === "number"
+        ? record.cost
+        : typeof record.costUsd === "number"
+          ? record.costUsd
+          : null;
+    if (
+      typeof reportedCost === "number" &&
+      Number.isFinite(reportedCost) &&
+      reportedCost >= 0
+    ) {
+      total += 1;
+      return;
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
 export function addModelTokenUsage(
   ...values: ModelTokenUsageTotals[]
 ): ModelTokenUsageTotals {
-  return values.reduce<ModelTokenUsageTotals>((total, value) => ({
-    inputTokens: total.inputTokens + value.inputTokens,
-    outputTokens: total.outputTokens + value.outputTokens,
-    totalTokens: total.totalTokens + value.totalTokens,
-    cacheReadInputTokens: total.cacheReadInputTokens + value.cacheReadInputTokens,
-    cacheWriteInputTokens: total.cacheWriteInputTokens + value.cacheWriteInputTokens,
-  }), {
+  return values.reduce<ModelTokenUsageTotals>((total, value) => {
+    const reasoningTokens =
+      (total.reasoningTokens ?? 0) + (value.reasoningTokens ?? 0);
+    return {
+      inputTokens: total.inputTokens + value.inputTokens,
+      outputTokens: total.outputTokens + value.outputTokens,
+      totalTokens: total.totalTokens + value.totalTokens,
+      cacheReadInputTokens: total.cacheReadInputTokens + value.cacheReadInputTokens,
+      cacheWriteInputTokens: total.cacheWriteInputTokens + value.cacheWriteInputTokens,
+      ...(reasoningTokens ? { reasoningTokens } : {}),
+    };
+  }, {
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
@@ -120,4 +304,19 @@ export function estimateBedrockCostUsd(modelId: string, usage: ModelTokenUsageTo
     usage.cacheWriteInputTokens * cacheWriteRate
   ) / 1_000_000;
   return Number(cost.toFixed(6));
+}
+
+export function resolveModelCostUsd(input: {
+  provider: string;
+  modelId: string;
+  usage: ModelTokenUsageTotals;
+  rawUsage?: unknown;
+}) {
+  const reportedCost = collectReportedModelCostUsd(input.rawUsage);
+  if (reportedCost != null) return reportedCost;
+  return input.provider === "bedrock"
+    ? estimateBedrockCostUsd(input.modelId, input.usage)
+    : input.modelId === "mock"
+      ? 0
+      : null;
 }

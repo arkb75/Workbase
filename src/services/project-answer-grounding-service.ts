@@ -3,7 +3,11 @@ import type { GroundedAnswerBlock, ProjectResearchDossier } from "@/src/domain/p
 import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
 import type { JsonSchemaObject, StructuredOutputTransportMode } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import type {
+  ProjectAnswerComparisonContext,
+  ProjectAnswerComparisonContract,
+} from "@/src/services/project-answer-editorial-service";
 import { repositoryFreshnessFromDossier } from "@/src/services/project-research-dossier-service";
 
 const groundingSchema = z.object({
@@ -98,6 +102,12 @@ export type ProjectAnswerGroundingMode =
   | "hybrid"
   | "deterministic"
   | "model";
+
+export interface ProjectAnswerGroundingRequestContext {
+  question: string;
+  comparisonContract: ProjectAnswerComparisonContract | null;
+  conversation: ProjectAnswerComparisonContext | null;
+}
 
 const personalOwnershipPattern = /(?:\b(?:i|we|you)\s+(?:(?:personally|independently|solely|single-handedly)\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)|(?:\b(?:solo[- ]built|single-handedly built|solely (?:built|implemented|designed|created|developed|architected|shipped|owned))\b)|(?:^(?:#{1,6}\s+)?(?:\d+[.)]\s+|[-*]\s+)?(?:built|implemented|designed|created|developed|architected|shipped|led|owned)\b)/i;
 
@@ -212,7 +222,7 @@ export function projectAnswerGroundingExecutionOptions(singleAttempt: boolean) {
     };
   }
   return {
-    transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+    transportPreference: ["json_schema"] as StructuredOutputTransportMode[],
     budget: createStructuredGenerationBudget({
       maxModelCalls: 1,
       maxRepairPasses: 0,
@@ -344,6 +354,7 @@ export async function groundProjectAnswer(input: {
   requiredBlockCount?: { minimum: number; maximum: number };
   singleAttempt?: boolean;
   verificationMode?: ProjectAnswerGroundingMode;
+  requestContext?: ProjectAnswerGroundingRequestContext;
 }) {
   const deterministic = evaluateDeterministicAnswerGrounding(input);
   const contractIssues = deterministic.issues;
@@ -412,12 +423,13 @@ export async function groundProjectAnswer(input: {
     }
     return errors;
   };
-  const result = await getBedrockStructuredLlmClient().generateStructured({
+  const result = await getStructuredLlmClient("verification").generateStructured({
       systemPrompt: [
         "You verify a citation-backed Workbase project answer before it is shown to the user.",
         "Check each factual project claim against only the source entry referenced by a [citation:N] marker in that claim or paragraph.",
         "Topical similarity is not entailment. Narrow configurable defaults, conditional behavior, and inferred intent instead of turning them into universal guarantees.",
         "For an assessment or comparison, retain an explicitly qualified analytical conclusion only when it follows directly from the cited implementation premises. Keep language such as “this suggests,” “this creates a trade-off,” or “this may limit”; do not rewrite the analysis as an observed project fact.",
+        "When requestContext contains a comparison contract, preserve its two user-named subjects, their order, requested dimensions, and earlier/current roles. Conversation anchors resolve referential labels; they control framing but do not authorize new factual project claims or new citations.",
         "Repository-only Project Facts establish implementation, not who personally built it. Remove or neutralize first-person, second-person, solo-built, sole-owner, and subjectless accomplishment language unless at least one cited verified Highlight or explicit included self-reported evidence item has ownershipAuthority of 3 or greater. A work-item description or chat user statement may provide that private-chat ownership authority; included repository evidence may not.",
         "Return supported factual units as structured blocks. Do not include [citation:N], [N], footnotes, or any other citation syntax in heading or bodyMarkdown; use citationIndexes only.",
         "Do not introduce new facts or citation indexes. Remove claims that cannot be supported.",
@@ -428,6 +440,17 @@ export async function groundProjectAnswer(input: {
       ].join(" "),
       userPrompt: JSON.stringify({
         answer: input.answer,
+        requestContext: input.requestContext ? {
+          question: input.requestContext.question.replace(/\s+/g, " ").trim().slice(0, 2_000),
+          comparisonContract: input.requestContext.comparisonContract,
+          conversationAnchors: input.requestContext.comparisonContract?.subjects
+            .filter((subject) => subject.resolvedAnchor)
+            .map((subject) => ({
+              label: subject.label,
+              temporalRole: subject.temporalRole,
+              anchor: subject.resolvedAnchor,
+            })) ?? [],
+        } : null,
         sources: verifierEntries,
         freshness,
         research: input.dossier ? {

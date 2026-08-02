@@ -2,13 +2,13 @@ import { z } from "zod";
 import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import type { ProjectTurnIntent } from "@/src/services/project-agent-harness";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const PROJECT_EXECUTION_ROUTER_VERSION = "project-execution-router-v2";
 
-const routingSchema = z.object({
+export const routingSchema = z.object({
   mode: z.enum(["memory_only", "targeted_repository_research", "repository_refresh", "clarification", "insufficient_context"]),
   confidence: z.number().min(0).max(1),
   breadth: z.enum(["targeted", "broad", "exhaustive"]),
@@ -18,7 +18,7 @@ const routingSchema = z.object({
   suggestedCapabilityKeys: z.array(z.string().trim().min(2).max(100)),
 });
 
-const routingJsonSchema: JsonSchemaObject = {
+export const routingJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
   required: ["mode", "confidence", "breadth", "rationaleCodes", "objectives", "suggestedWorkerCount", "suggestedCapabilityKeys"],
@@ -121,7 +121,9 @@ export async function routeProjectExecution(input: {
   try {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
+      agentRunId: input.runId,
       kind: "execution_routing",
+      profile: "routing",
       idempotencyKey: `execution-route:${input.runId}:${PROJECT_EXECUTION_ROUTER_VERSION}`,
       inputSummary: {
         question: input.question.slice(0, 1_000),
@@ -129,7 +131,7 @@ export async function routeProjectExecution(input: {
         memoryHitCount: input.memoryHits.length,
         repositoryCount: input.repositories.length,
       },
-      execute: () => getBedrockStructuredLlmClient().generateStructured({
+      execute: () => getStructuredLlmClient("routing").generateStructured({
         systemPrompt: [
           "You route one Workbase project-chat request within a deterministic safety and budget envelope.",
           "Choose memory when approved current memory is sufficient; targeted research for a bounded code question; refresh for broad or explicitly current repository assessment.",

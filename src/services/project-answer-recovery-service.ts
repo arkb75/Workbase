@@ -9,9 +9,10 @@ import {
   finalizeGroundedAnswer,
 } from "@/src/services/chat-citation-service";
 import {
-  addSourceBoundedEditorialAnalysis,
+  addSourceBoundedEditorialContext,
   buildExactSourceEditorialFallbackBlocks,
   selectProjectAnswerEditorialThemes,
+  type ProjectAnswerComparisonContext,
   type ProjectAnswerEditorialSelection,
 } from "@/src/services/project-answer-editorial-service";
 import {
@@ -274,21 +275,30 @@ interface PlannedRecoveryTheme {
 }
 
 function plannedRecoveryThemes(selection?: ProjectAnswerEditorialSelection) {
-  return (selection?.selectedThemes ?? []).map((theme, order) => ({
-    key: theme.key,
-    label: theme.label,
-    order,
-    citationIndexes: new Set(
-      theme.members.flatMap((member) => member.entry.citationIndexes),
-    ),
-    semanticText: [
-      theme.label,
-      ...theme.representativeMembers.flatMap((member) => [
-        member.entry.title,
-        member.entry.content,
-      ]),
-    ].join(" "),
-  } satisfies PlannedRecoveryTheme));
+  return (selection?.selectedThemes ?? []).map((theme, order) => {
+    const binding = selection?.comparisonBindings?.[order];
+    const members =
+      binding?.themeKey === theme.key
+        ? theme.members.filter((member) =>
+            binding.evidenceEntryIndexes.includes(member.entryIndex)
+          )
+        : theme.members;
+    return {
+      key: binding ? `${theme.key}:comparison-side-${order + 1}` : theme.key,
+      label: theme.label,
+      order,
+      citationIndexes: new Set(
+        members.flatMap((member) => member.entry.citationIndexes),
+      ),
+      semanticText: [
+        theme.label,
+        ...members.flatMap((member) => [
+          member.entry.title,
+          member.entry.content,
+        ]),
+      ].join(" "),
+    } satisfies PlannedRecoveryTheme;
+  });
 }
 
 function matchingPlannedTheme(
@@ -520,6 +530,7 @@ export async function verifyProjectAnswerWithRecovery(input: {
   verifier?: GroundingVerifier;
   forceExactFallback?: boolean;
   verificationMode?: ProjectAnswerGroundingMode;
+  comparisonContext?: ProjectAnswerComparisonContext;
 }): Promise<ProjectAnswerRecoveryResult> {
   const maxCitations = Math.max(1, Math.min(20, input.maxCitations ?? 20));
   const verifier = input.verifier ?? groundProjectAnswer;
@@ -548,6 +559,11 @@ export async function verifyProjectAnswerWithRecovery(input: {
         requiredBlockCount,
         singleAttempt: true,
         verificationMode: input.verificationMode,
+        requestContext: {
+          question: input.question,
+          comparisonContract: selection.profile.comparisonContract,
+          conversation: input.comparisonContext ?? null,
+        },
       });
       verifierReturnedBlockCount = verified.blocks.length;
       verifierIssueCount = verified.issues.length;
@@ -686,20 +702,11 @@ export async function verifyProjectAnswerWithRecovery(input: {
     };
   }
 
-  // Exact recovery must not silently turn an assessment into a capability
-  // inventory. The factual premises remain source-exact; this helper appends
-  // only explicitly labelled, subsystem-specific inferences from those cited
-  // premises. It is the same bounded path used by deterministic assessment
-  // synthesis and never invents a new project fact.
-  if (
-    selection.profile.kind === "assessment" &&
-    !finalBlocks.some((block) =>
-      /\b(?:assessment|strength|risk|limitation|constraint|trade[- ]?off)\b/i.test(
-        `${block.heading ?? ""} ${block.bodyMarkdown}`,
-      )
-    )
-  ) {
-    finalBlocks = addSourceBoundedEditorialAnalysis(finalBlocks, selection);
+  // Exact recovery may preserve ordering and user-visible comparison labels,
+  // but it cannot append canned analytical claims after the verifier failed.
+  // Assessment prose must either survive entailment or fail closed upstream.
+  if (selection.profile.kind === "comparison") {
+    finalBlocks = addSourceBoundedEditorialContext(finalBlocks, selection);
   }
 
   const countSatisfied = requestedCountSatisfied(finalBlocks.length, requiredBlockCount);

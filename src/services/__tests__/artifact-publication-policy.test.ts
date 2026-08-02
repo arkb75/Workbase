@@ -202,6 +202,10 @@ describe("public Artifact publication policy", () => {
 
     const verificationSources = buildPublicArtifactVerificationSources([selected]);
     expect(verificationSources.map((source) => source.kind)).toEqual(["highlight"]);
+    expect(verificationSources).toEqual([expect.objectContaining({
+      title: "Approved Highlight",
+      content: "Implemented the durable workflow.",
+    })]);
     expect(JSON.stringify(verificationSources)).not.toContain("github_file");
     expect(JSON.stringify(verificationSources)).not.toContain("Raw private note");
   });

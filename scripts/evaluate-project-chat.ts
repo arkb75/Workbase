@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../src/lib/prisma";
 import { ensureDemoUser } from "../src/lib/demo-user";
 import {
+  resolveActiveTextModelIdentity,
+  textModelProfiles,
+} from "../src/lib/llm-config";
+import {
   completeAgentRun,
   createProjectChatRun,
   createProjectChatThread,
@@ -31,12 +35,13 @@ import {
   evaluateProjectChatAnswerQuality,
   projectChatReaderThemes,
 } from "../src/evals/project-chat-answer-quality";
+import { buildLegacyProjectChatModelTelemetry } from "../src/evals/project-chat-legacy-telemetry";
 import { explicitSelfReportedOwnershipAuthority } from "../src/services/evidence-ownership-authority";
 import { persistResearchAgentEvent } from "../src/services/research-event-persistence-service";
 import {
   collectModelTokenUsage,
   collectUnknownModelUsageAttempts,
-  estimateBedrockCostUsd,
+  countModelProviderAttempts,
 } from "../src/services/model-usage-service";
 
 const prompt = process.argv.slice(2).join(" ").trim() || "Summarize my strongest accomplishments and make sure your information is up to date";
@@ -199,6 +204,7 @@ async function main() {
       citationCount: result.citations.length,
       groundedClaims: result.groundedClaims,
       evaluation: true,
+      fallbackUsed: result.fallbackUsed ?? false,
     },
   });
   const message = await prisma.chatMessage.findFirstOrThrow({
@@ -207,7 +213,11 @@ async function main() {
   });
   const persistedRun = await prisma.agentRun.findUniqueOrThrow({
     where: { id: run.id },
-    select: { knowledgeRefreshRunId: true },
+    select: {
+      knowledgeRefreshRunId: true,
+      result: true,
+      researchState: true,
+    },
   });
   const targets = records(refresh.targetHeads);
   const coverage = records(refresh.coverage);
@@ -265,42 +275,64 @@ async function main() {
         tokenUsage: true,
         estimatedCostUsd: true,
         resultRefs: true,
+        updatedAt: true,
       },
     }),
     prisma.agentRunEvent.findMany({
       where: { agentRunId: run.id },
-      select: { type: true, toolName: true, message: true, payload: true },
+      select: {
+        id: true,
+        type: true,
+        toolName: true,
+        message: true,
+        payload: true,
+      },
       orderBy: { sequence: "asc" },
     }),
   ]);
   // Attribute provider work to this evaluation's immutable refresh or chat
   // run, rather than every generation that happened to touch the same project
   // during the wall-clock window (for example, a cron refresh).
-  const generationRuns = candidateGenerationRuns.filter((entry) =>
-    entry.idempotencyKey?.includes(refresh.id) || entry.idempotencyKey?.includes(run.id)
-  );
+  const generationRuns = candidateGenerationRuns.filter((entry) => {
+    const refs = record(entry.resultRefs);
+    return (
+      entry.idempotencyKey?.includes(refresh.id) ||
+      entry.idempotencyKey?.includes(run.id) ||
+      refs.agentRunId === run.id ||
+      refs.refreshRunId === refresh.id
+    );
+  });
   const generationUsage = collectModelTokenUsage(generationRuns.map((entry) => entry.tokenUsage));
   const conversationUsageValues = runEvents.flatMap((event) => {
     const usage = record(event.payload).usage;
     return usage ? [usage] : [];
   });
   const conversationUsage = collectModelTokenUsage(conversationUsageValues);
-  const generationUnknownUsageAttempts = generationRuns.reduce((total, entry) => {
-    const refs = record(entry.resultRefs);
-    const recorded = refs.unknownUsageAttempts;
-    return total + (
-      typeof recorded === "number" && Number.isFinite(recorded) && recorded >= 0
-        ? Math.floor(recorded)
-        : entry.tokenUsage == null && entry.provider === "bedrock"
-          ? 1
-          : collectUnknownModelUsageAttempts(entry.tokenUsage)
-    );
-  }, 0);
-  const usageComplete = generationUnknownUsageAttempts + collectUnknownModelUsageAttempts(conversationUsageValues) === 0;
-  const modelId = process.env.WORKBASE_BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
-  const measuredCostUsd = generationRuns.reduce((total, entry) => total + (
-    entry.estimatedCostUsd ?? estimateBedrockCostUsd(entry.modelId, collectModelTokenUsage(entry.tokenUsage)) ?? 0
-  ), 0) + (estimateBedrockCostUsd(modelId, conversationUsage) ?? 0);
+  const provider = process.env.WORKBASE_LLM_PROVIDER ?? "openrouter";
+  const modelId =
+    provider === "openrouter"
+      ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
+        process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+        "openai/gpt-5.6-terra"
+      : process.env.WORKBASE_BEDROCK_MODEL_ID ??
+        "us.anthropic.claude-sonnet-4-6";
+  const legacyModelTelemetry = buildLegacyProjectChatModelTelemetry({
+    provider,
+    modelId,
+    events: runEvents,
+    dossierModelUsage: record(persistedRun.researchState).modelUsage,
+    generationRuns,
+    storedResult: persistedRun.result,
+    expectedModelIdsByProfile: Object.fromEntries(
+      textModelProfiles.map((profile) => [
+        profile,
+        resolveActiveTextModelIdentity(profile).modelId,
+      ]),
+    ),
+  });
+  const usageComplete = legacyModelTelemetry.metrics.usageComplete;
+  const measuredCostUsd =
+    legacyModelTelemetry.metrics.estimatedCostUsd;
   const elapsedMs = Date.now() - evaluationStartedMs;
   const completenessPayload = record(completenessEvent?.payload);
   const runtimeCompletenessAudit = parseRuntimeAccomplishmentAudit(completenessPayload);
@@ -465,12 +497,13 @@ async function main() {
   );
   const requiredEditorialAnchors = ["product_surface", "repository_knowledge_lifecycle"];
   const prioritizedLedgerSelectionHealthy =
-    ledgerCoverage.length > 0 &&
-    representedLedger.length >= Math.min(4, ledgerCoverage.length) &&
-    requiredEditorialAnchors.every((capabilityKey) =>
-      !ledgerCoverage.some((entry) => entry.capabilityKey === capabilityKey) ||
-      representedLedger.some((entry) => entry.capabilityKey === capabilityKey)
-    );
+    ledgerCoverage.length === 0
+      ? null
+      : representedLedger.length >= Math.min(4, ledgerCoverage.length) &&
+        requiredEditorialAnchors.every((capabilityKey) =>
+          !ledgerCoverage.some((entry) => entry.capabilityKey === capabilityKey) ||
+          representedLedger.some((entry) => entry.capabilityKey === capabilityKey)
+        );
   const checks = {
     latestCommitPinned: targets.length > 0 && targets.every((target) => typeof target.commitSha === "string" && target.commitSha.length === 40),
     allEligibleFilesMapped: coverage.length > 0 && coverage.every((entry) => Number(entry.analyzedPaths) + Number(entry.excludedPaths) === Number(entry.totalPaths)),
@@ -490,6 +523,12 @@ async function main() {
     ownershipClaimsSupported: unsupportedOwnershipClaims.length === 0,
     durableSourcesOnly: message.citations.every((citation) => citation.kind !== "github_file"),
     usageTelemetryComplete: usageComplete,
+    modelAttributionAuthoritative:
+      legacyModelTelemetry.acceptance.authoritativeAttributionComplete,
+    noModelFallbackAttempts:
+      legacyModelTelemetry.acceptance.noFallbackAttempts,
+    modelProfilesMatchConfiguredRouting:
+      legacyModelTelemetry.acceptance.profileRoutingMatches,
     editorialQuality: answerQualityChecks.every((check) => check.passed),
   };
   const diagnostics = {
@@ -544,11 +583,23 @@ async function main() {
         const count = record(entry.resultRefs).auditAttemptCount;
         return total + (typeof count === "number" && Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0);
       }, 0),
-      converseModelCallCount: runEvents.filter((event) => record(event.payload).usage != null).length,
+      converseModelCallCount: conversationUsageValues.reduce<number>(
+        (total, usage) =>
+          total +
+          Math.max(
+            countModelProviderAttempts(usage),
+            collectUnknownModelUsageAttempts(usage),
+          ),
+        0,
+      ),
       usageComplete,
+      providerModelCallCount: legacyModelTelemetry.metrics.modelCalls,
       generationUsage,
       conversationUsage,
       estimatedCostUsd: Number(measuredCostUsd.toFixed(6)),
+      modelAttribution:
+        legacyModelTelemetry.metrics.modelAttribution,
+      modelAcceptance: legacyModelTelemetry.acceptance,
       generationRuns: generationRuns.map((entry) => ({
         id: entry.id,
         kind: entry.kind,
@@ -556,6 +607,11 @@ async function main() {
         modelId: entry.modelId,
         tokenUsage: collectModelTokenUsage(entry.tokenUsage),
         estimatedCostUsd: entry.estimatedCostUsd,
+        knownEstimatedCostUsd:
+          typeof record(entry.resultRefs).knownEstimatedCostUsd === "number"
+            ? record(entry.resultRefs).knownEstimatedCostUsd
+            : null,
+        usageComplete: record(entry.resultRefs).usageComplete === true,
         durationMs: typeof record(entry.resultRefs).durationMs === "number" ? record(entry.resultRefs).durationMs : null,
       })),
     },
@@ -564,7 +620,7 @@ async function main() {
   }, null, 2)}\n`);
   if (
     Object.values(checks).some((passed) => !passed) ||
-    Object.values(diagnostics).some((passed) => !passed)
+    Object.values(diagnostics).some((passed) => passed === false)
   ) process.exitCode = 2;
 }
 

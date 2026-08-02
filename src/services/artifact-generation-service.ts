@@ -1,8 +1,15 @@
 import type { Prisma } from "@/src/generated/prisma/client";
 import { attachGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
-import { createGenerationRun } from "@/src/lib/generation-runs";
+import {
+  createGenerationRun,
+  generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
+} from "@/src/lib/generation-runs";
 import { artifactGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
-import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import {
   artifactGenerationExampleOutput,
   artifactGenerationJsonSchema,
@@ -13,7 +20,7 @@ import {
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import type { ArtifactGenerationService } from "@/src/services/types";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockArtifactGenerationService } from "@/src/services/mock-artifact-generation-service";
 import { deriveArtifactEvidenceItemIds } from "@/src/services/artifact-publication-policy";
 
@@ -43,11 +50,20 @@ function buildArtifactInputSummary(params: {
   };
 }
 
-function buildArtifactContentInstructions(
+export function buildArtifactContentInstructions(
   artifactType: "resume_bullets" | "linkedin_experience" | "project_summary",
+  approvedHighlightCount: number,
 ) {
   if (artifactType === "resume_bullets") {
-    return "Return 2 to 3 concise resume bullets, each starting with '- '.";
+    const maximumSupportedBullets = Math.min(
+      3,
+      Math.max(1, Math.floor(approvedHighlightCount)),
+    );
+    return [
+      `Return 1 to ${maximumSupportedBullets} concise resume bullet${maximumSupportedBullets === 1 ? "" : "s"}, each starting with '- '.`,
+      "Use at most one bullet per independently approved Highlight.",
+      "Return fewer bullets than the request asks for when the approved Highlights do not independently support that count.",
+    ].join(" ");
   }
 
   if (artifactType === "linkedin_experience") {
@@ -58,14 +74,15 @@ function buildArtifactContentInstructions(
 }
 
 const bedrockArtifactGenerationService: ArtifactGenerationService = {
-  async generate({ request, highlights, supportingEvidence }) {
+  async generate({ request, highlights, supportingEvidence, agentRunId }) {
     if (!highlights.length) {
       throw new Error(
         "No approved highlights match the current artifact visibility and sensitivity rules.",
       );
     }
 
-    const structuredClient = getBedrockStructuredLlmClient();
+    const structuredClient = getStructuredLlmClient("drafting");
+    const configuredIdentity = resolveActiveTextModelIdentity("drafting");
     const allowedHighlightIds = new Set(highlights.map((highlight) => highlight.id));
     const allowedEvidenceItemIds = new Set(supportingEvidence.map((item) => item.id));
     const systemPrompt = [
@@ -83,9 +100,10 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         content: [
           "Return a top-level JSON object with `content`, `usedHighlightIds`, and `supportingEvidenceItemIds`.",
           "Never invent work, metrics, outcomes, scope, or technologies.",
+          "Preserve the approved Highlight wording wherever possible; do not replace it with broader synonyms or inferred benefits.",
           "Only cite highlight IDs that were provided in the approvedHighlights input.",
           "Return an empty supportingEvidenceItemIds array. Workbase derives exact evidence provenance from the selected approved Highlights after generation.",
-          buildArtifactContentInstructions(request.type),
+          buildArtifactContentInstructions(request.type, highlights.length),
         ].join("\n"),
       },
       {
@@ -219,6 +237,9 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
         validationErrors: null,
         resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          profile: "drafting",
+          configuredModelId: configuredIdentity.modelId,
           usedHighlightIds: artifact.usedHighlightIds,
           supportingEvidenceItemIds: artifact.supportingEvidenceItemIds,
         } as Prisma.InputJsonValue,
@@ -232,13 +253,15 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
       });
     } catch (error) {
       const failure = error instanceof StructuredOutputError ? error : null;
+      const admissionFailure =
+        isStructuredGenerationAdmissionFailure(error);
 
       await createGenerationRun({
         workItemId: request.workItemId,
         kind: "artifact_generation",
         status: failure?.status ?? "provider_error",
-        provider: "bedrock",
-        modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
+        provider: configuredIdentity.provider,
+        modelId: configuredIdentity.modelId,
         inputSummary: {
           ...baseInputSummary,
           transportMode: failure?.transportMode ?? null,
@@ -251,8 +274,15 @@ const bedrockArtifactGenerationService: ArtifactGenerationService = {
         parsedOutput: null,
         validationErrors:
           (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
-        resultRefs: null,
-        tokenUsage: (failure?.tokenUsage as Prisma.InputJsonValue | null) ?? null,
+        resultRefs: {
+          ...(agentRunId ? { agentRunId } : {}),
+          profile: "drafting",
+          configuredModelId: configuredIdentity.modelId,
+          ...(admissionFailure ? { admissionFailure: true } : {}),
+        },
+        tokenUsage:
+          (failure?.tokenUsage as Prisma.InputJsonValue | null) ??
+          (admissionFailure ? null : generationRunFailureTokenUsage(error)),
         estimatedCostUsd: null,
       });
 

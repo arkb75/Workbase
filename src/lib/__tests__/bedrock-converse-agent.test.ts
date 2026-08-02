@@ -17,6 +17,7 @@ import {
   type BedrockConverseTransport,
   type BedrockConverseTransportResponse,
 } from "@/src/lib/bedrock-converse-agent";
+import { OpenRouterRequestError } from "@/src/lib/openrouter-client";
 
 type FakeResponse =
   | BedrockConverseTransportResponse
@@ -568,6 +569,103 @@ describe("BedrockConverseAgent", () => {
         error.code === "provider_error" &&
         error.message.includes("AccessDeniedException"),
     );
+
+    const openRouterCapabilityError = new OpenRouterRequestError(
+      "OpenRouter rejected this request's parameters or state.",
+      400,
+      false,
+      null,
+      { capability: "tool_use" },
+    );
+    const openRouterTransport = new FakeTransport([openRouterCapabilityError]);
+    const openRouterAgent = new BedrockConverseAgent(openRouterTransport, {
+      modelId: "openai/gpt-5.6-terra",
+      providerLabel: "OpenRouter",
+    });
+    await expect(
+      openRouterAgent.run({ messages: [userMessage()] }),
+    ).rejects.toBeInstanceOf(BedrockConverseModelCapabilityError);
+  });
+
+  it("marks OpenRouter metering incomplete when a model call omits cost", async () => {
+    const transport = new FakeTransport([
+      {
+        ...assistantResponse({
+          stopReason: "end_turn",
+          content: [{ text: "Done." }],
+          usage: usage(7, 3),
+        }),
+        provider: "openrouter",
+        modelId: "openai/gpt-5.6-terra",
+        costUsd: null,
+      },
+    ]);
+    const agent = new BedrockConverseAgent(transport, {
+      modelId: "openai/gpt-5.6-terra",
+      providerLabel: "OpenRouter",
+    });
+
+    await expect(
+      agent.run({ messages: [userMessage()] }),
+    ).resolves.toMatchObject({
+      usage: { unknownUsageAttempts: 1 },
+    });
+  });
+
+  it("emits failed provider attempts with bounded metering metadata", async () => {
+    const failure = new OpenRouterRequestError(
+      "providers unavailable",
+      503,
+      true,
+      "req_fallback",
+      {
+        failedAttempts: [
+          {
+            provider: "openrouter",
+            modelId: "openai/gpt-5.6-terra",
+            requestId: "req_primary",
+          },
+          {
+            provider: "openrouter",
+            modelId: "anthropic/claude-sonnet-5",
+            requestId: "req_fallback",
+          },
+        ],
+        unknownUsageAttempts: 2,
+        providerAttemptCount: 2,
+      },
+    );
+    const transport = new FakeTransport([failure]);
+    const agent = new BedrockConverseAgent(transport, {
+      modelId: "openai/gpt-5.6-terra",
+      providerLabel: "OpenRouter",
+    });
+    const events: unknown[] = [];
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    })).rejects.toMatchObject({
+      code: "provider_error",
+      providerStatus: 503,
+      retryable: true,
+      usage: expect.objectContaining({
+        providerAttemptCount: 2,
+        unknownUsageAttempts: 2,
+      }),
+    });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "model_call_failed",
+        requestIds: ["req_fallback", "req_primary"],
+        usage: expect.objectContaining({
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 2,
+        }),
+      }),
+    ]));
   });
 
   it("validates configuration before invoking Bedrock", async () => {

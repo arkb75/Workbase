@@ -74,6 +74,8 @@ export const ModelName = {
   HighlightTag: 'HighlightTag',
   Artifact: 'Artifact',
   ArtifactEmbedding: 'ArtifactEmbedding',
+  EmbeddingIndexVersion: 'EmbeddingIndexVersion',
+  EmbeddingIndexControl: 'EmbeddingIndexControl',
   ArtifactHighlightProvenance: 'ArtifactHighlightProvenance',
   ArtifactEvidenceProvenance: 'ArtifactEvidenceProvenance',
   ChatThread: 'ChatThread',
@@ -390,10 +392,13 @@ export type HighlightScalarFieldEnum = (typeof HighlightScalarFieldEnum)[keyof t
 export const HighlightEmbeddingScalarFieldEnum = {
   id: 'id',
   highlightId: 'highlightId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -447,10 +452,13 @@ export type ProjectFactEvidenceScalarFieldEnum = (typeof ProjectFactEvidenceScal
 export const ProjectFactEmbeddingScalarFieldEnum = {
   id: 'id',
   projectFactId: 'projectFactId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -461,10 +469,13 @@ export type ProjectFactEmbeddingScalarFieldEnum = (typeof ProjectFactEmbeddingSc
 export const EvidenceEmbeddingScalarFieldEnum = {
   id: 'id',
   evidenceItemId: 'evidenceItemId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -544,15 +555,55 @@ export type ArtifactScalarFieldEnum = (typeof ArtifactScalarFieldEnum)[keyof typ
 export const ArtifactEmbeddingScalarFieldEnum = {
   id: 'id',
   artifactId: 'artifactId',
+  indexVersionId: 'indexVersionId',
   modelId: 'modelId',
   dimensions: 'dimensions',
   inputHash: 'inputHash',
   inputText: 'inputText',
+  inputTokens: 'inputTokens',
+  costUsd: 'costUsd',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type ArtifactEmbeddingScalarFieldEnum = (typeof ArtifactEmbeddingScalarFieldEnum)[keyof typeof ArtifactEmbeddingScalarFieldEnum]
+
+
+export const EmbeddingIndexVersionScalarFieldEnum = {
+  id: 'id',
+  key: 'key',
+  provider: 'provider',
+  modelId: 'modelId',
+  dimensions: 'dimensions',
+  status: 'status',
+  writeEnabled: 'writeEnabled',
+  baseActivationEpoch: 'baseActivationEpoch',
+  buildStartedAt: 'buildStartedAt',
+  buildCompletedAt: 'buildCompletedAt',
+  reconciledAt: 'reconciledAt',
+  activatedAt: 'activatedAt',
+  validation: 'validation',
+  qualityGatePassed: 'qualityGatePassed',
+  qualityValidatedAt: 'qualityValidatedAt',
+  qualityReport: 'qualityReport',
+  lastError: 'lastError',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EmbeddingIndexVersionScalarFieldEnum = (typeof EmbeddingIndexVersionScalarFieldEnum)[keyof typeof EmbeddingIndexVersionScalarFieldEnum]
+
+
+export const EmbeddingIndexControlScalarFieldEnum = {
+  id: 'id',
+  activeVersionId: 'activeVersionId',
+  activationEpoch: 'activationEpoch',
+  writeSetEpoch: 'writeSetEpoch',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EmbeddingIndexControlScalarFieldEnum = (typeof EmbeddingIndexControlScalarFieldEnum)[keyof typeof EmbeddingIndexControlScalarFieldEnum]
 
 
 export const ArtifactHighlightProvenanceScalarFieldEnum = {

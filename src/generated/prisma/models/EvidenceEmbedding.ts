@@ -28,19 +28,26 @@ export type AggregateEvidenceEmbedding = {
 
 export type EvidenceEmbeddingAvgAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type EvidenceEmbeddingSumAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type EvidenceEmbeddingMinAggregateOutputType = {
   id: string | null
   evidenceItemId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,10 +55,13 @@ export type EvidenceEmbeddingMinAggregateOutputType = {
 export type EvidenceEmbeddingMaxAggregateOutputType = {
   id: string | null
   evidenceItemId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -59,10 +69,13 @@ export type EvidenceEmbeddingMaxAggregateOutputType = {
 export type EvidenceEmbeddingCountAggregateOutputType = {
   id: number
   evidenceItemId: number
+  indexVersionId: number
   modelId: number
   dimensions: number
   inputHash: number
   inputText: number
+  inputTokens: number
+  costUsd: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -71,19 +84,26 @@ export type EvidenceEmbeddingCountAggregateOutputType = {
 
 export type EvidenceEmbeddingAvgAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type EvidenceEmbeddingSumAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type EvidenceEmbeddingMinAggregateInputType = {
   id?: true
   evidenceItemId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -91,10 +111,13 @@ export type EvidenceEmbeddingMinAggregateInputType = {
 export type EvidenceEmbeddingMaxAggregateInputType = {
   id?: true
   evidenceItemId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,10 +125,13 @@ export type EvidenceEmbeddingMaxAggregateInputType = {
 export type EvidenceEmbeddingCountAggregateInputType = {
   id?: true
   evidenceItemId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -200,10 +226,13 @@ export type EvidenceEmbeddingGroupByArgs<ExtArgs extends runtime.Types.Extension
 export type EvidenceEmbeddingGroupByOutputType = {
   id: string
   evidenceItemId: string
+  indexVersionId: string
   modelId: string
   dimensions: number
   inputHash: string
   inputText: string
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date
   updatedAt: Date
   _count: EvidenceEmbeddingCountAggregateOutputType | null
@@ -234,49 +263,65 @@ export type EvidenceEmbeddingWhereInput = {
   NOT?: Prisma.EvidenceEmbeddingWhereInput | Prisma.EvidenceEmbeddingWhereInput[]
   id?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   evidenceItemId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   modelId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   dimensions?: Prisma.IntFilter<"EvidenceEmbedding"> | number
   inputHash?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   inputText?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"EvidenceEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"EvidenceEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
   evidenceItem?: Prisma.XOR<Prisma.EvidenceItemScalarRelationFilter, Prisma.EvidenceItemWhereInput>
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
 }
 
 export type EvidenceEmbeddingOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   evidenceItem?: Prisma.EvidenceItemOrderByWithRelationInput
+  indexVersion?: Prisma.EmbeddingIndexVersionOrderByWithRelationInput
 }
 
 export type EvidenceEmbeddingWhereUniqueInput = Prisma.AtLeast<{
   id?: string
-  evidenceItemId?: string
+  evidenceItemId_indexVersionId?: Prisma.EvidenceEmbeddingEvidenceItemIdIndexVersionIdCompoundUniqueInput
   AND?: Prisma.EvidenceEmbeddingWhereInput | Prisma.EvidenceEmbeddingWhereInput[]
   OR?: Prisma.EvidenceEmbeddingWhereInput[]
   NOT?: Prisma.EvidenceEmbeddingWhereInput | Prisma.EvidenceEmbeddingWhereInput[]
+  evidenceItemId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   modelId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   dimensions?: Prisma.IntFilter<"EvidenceEmbedding"> | number
   inputHash?: Prisma.StringFilter<"EvidenceEmbedding"> | string
   inputText?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"EvidenceEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"EvidenceEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
   evidenceItem?: Prisma.XOR<Prisma.EvidenceItemScalarRelationFilter, Prisma.EvidenceItemWhereInput>
-}, "id" | "evidenceItemId">
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
+}, "id" | "evidenceItemId_indexVersionId">
 
 export type EvidenceEmbeddingOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.EvidenceEmbeddingCountOrderByAggregateInput
@@ -292,10 +337,13 @@ export type EvidenceEmbeddingScalarWhereWithAggregatesInput = {
   NOT?: Prisma.EvidenceEmbeddingScalarWhereWithAggregatesInput | Prisma.EvidenceEmbeddingScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
   evidenceItemId?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
+  indexVersionId?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
   modelId?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
   dimensions?: Prisma.IntWithAggregatesFilter<"EvidenceEmbedding"> | number
   inputHash?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
   inputText?: Prisma.StringWithAggregatesFilter<"EvidenceEmbedding"> | string
+  inputTokens?: Prisma.IntNullableWithAggregatesFilter<"EvidenceEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableWithAggregatesFilter<"EvidenceEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"EvidenceEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"EvidenceEmbedding"> | Date | string
 }
@@ -306,18 +354,24 @@ export type EvidenceEmbeddingUpdateInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  evidenceItem?: Prisma.EvidenceItemUpdateOneRequiredWithoutEmbeddingNestedInput
+  evidenceItem?: Prisma.EvidenceItemUpdateOneRequiredWithoutEmbeddingsNestedInput
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutEvidenceEmbeddingsNestedInput
 }
 
 export type EvidenceEmbeddingUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   evidenceItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -328,6 +382,8 @@ export type EvidenceEmbeddingUpdateManyMutationInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -335,41 +391,62 @@ export type EvidenceEmbeddingUpdateManyMutationInput = {
 export type EvidenceEmbeddingUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   evidenceItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type EvidenceEmbeddingNullableScalarRelationFilter = {
-  is?: Prisma.EvidenceEmbeddingWhereInput | null
-  isNot?: Prisma.EvidenceEmbeddingWhereInput | null
+export type EvidenceEmbeddingListRelationFilter = {
+  every?: Prisma.EvidenceEmbeddingWhereInput
+  some?: Prisma.EvidenceEmbeddingWhereInput
+  none?: Prisma.EvidenceEmbeddingWhereInput
+}
+
+export type EvidenceEmbeddingOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
+}
+
+export type EvidenceEmbeddingEvidenceItemIdIndexVersionIdCompoundUniqueInput = {
+  evidenceItemId: string
+  indexVersionId: string
 }
 
 export type EvidenceEmbeddingCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type EvidenceEmbeddingAvgOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
 export type EvidenceEmbeddingMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -377,43 +454,114 @@ export type EvidenceEmbeddingMaxOrderByAggregateInput = {
 export type EvidenceEmbeddingMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   evidenceItemId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type EvidenceEmbeddingSumOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
-export type EvidenceEmbeddingCreateNestedOneWithoutEvidenceItemInput = {
-  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput
+export type EvidenceEmbeddingCreateNestedManyWithoutEvidenceItemInput = {
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
 }
 
-export type EvidenceEmbeddingUncheckedCreateNestedOneWithoutEvidenceItemInput = {
-  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput
+export type EvidenceEmbeddingUncheckedCreateNestedManyWithoutEvidenceItemInput = {
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
 }
 
-export type EvidenceEmbeddingUpdateOneWithoutEvidenceItemNestedInput = {
-  disconnect?: Prisma.EvidenceEmbeddingWhereInput | boolean
-  delete?: Prisma.EvidenceEmbeddingWhereInput | boolean
-  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceEmbeddingUpdateToOneWithWhereWithoutEvidenceItemInput, Prisma.EvidenceEmbeddingUpdateWithoutEvidenceItemInput>, Prisma.EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput>
+export type EvidenceEmbeddingUpdateManyWithoutEvidenceItemNestedInput = {
+  set?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  delete?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  update?: Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutEvidenceItemInput | Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutEvidenceItemInput[]
+  updateMany?: Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutEvidenceItemInput | Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutEvidenceItemInput[]
+  deleteMany?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
 }
 
-export type EvidenceEmbeddingUncheckedUpdateOneWithoutEvidenceItemNestedInput = {
-  disconnect?: Prisma.EvidenceEmbeddingWhereInput | boolean
-  delete?: Prisma.EvidenceEmbeddingWhereInput | boolean
-  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.EvidenceEmbeddingUpdateToOneWithWhereWithoutEvidenceItemInput, Prisma.EvidenceEmbeddingUpdateWithoutEvidenceItemInput>, Prisma.EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput>
+export type EvidenceEmbeddingUncheckedUpdateManyWithoutEvidenceItemNestedInput = {
+  set?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  delete?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  update?: Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutEvidenceItemInput | Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutEvidenceItemInput[]
+  updateMany?: Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutEvidenceItemInput | Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutEvidenceItemInput[]
+  deleteMany?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
 }
 
-export type EvidenceEmbeddingUpdateToOneWithWhereWithoutEvidenceItemInput = {
-  where?: Prisma.EvidenceEmbeddingWhereInput
+export type EvidenceEmbeddingCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+}
+
+export type EvidenceEmbeddingUncheckedCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+}
+
+export type EvidenceEmbeddingUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  delete?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  update?: Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
+}
+
+export type EvidenceEmbeddingUncheckedUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  delete?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  connect?: Prisma.EvidenceEmbeddingWhereUniqueInput | Prisma.EvidenceEmbeddingWhereUniqueInput[]
+  update?: Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.EvidenceEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.EvidenceEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
+}
+
+export type EvidenceEmbeddingUpdateWithWhereUniqueWithoutEvidenceItemInput = {
+  where: Prisma.EvidenceEmbeddingWhereUniqueInput
   data: Prisma.XOR<Prisma.EvidenceEmbeddingUpdateWithoutEvidenceItemInput, Prisma.EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput>
+}
+
+export type EvidenceEmbeddingUpdateManyWithWhereWithoutEvidenceItemInput = {
+  where: Prisma.EvidenceEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.EvidenceEmbeddingUpdateManyMutationInput, Prisma.EvidenceEmbeddingUncheckedUpdateManyWithoutEvidenceItemInput>
+}
+
+export type EvidenceEmbeddingScalarWhereInput = {
+  AND?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
+  OR?: Prisma.EvidenceEmbeddingScalarWhereInput[]
+  NOT?: Prisma.EvidenceEmbeddingScalarWhereInput | Prisma.EvidenceEmbeddingScalarWhereInput[]
+  id?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  evidenceItemId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  modelId?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  dimensions?: Prisma.IntFilter<"EvidenceEmbedding"> | number
+  inputHash?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  inputText?: Prisma.StringFilter<"EvidenceEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"EvidenceEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"EvidenceEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"EvidenceEmbedding"> | Date | string
+}
+
+export type EvidenceEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput = {
+  where: Prisma.EvidenceEmbeddingWhereUniqueInput
+  data: Prisma.XOR<Prisma.EvidenceEmbeddingUpdateWithoutIndexVersionInput, Prisma.EvidenceEmbeddingUncheckedUpdateWithoutIndexVersionInput>
+}
+
+export type EvidenceEmbeddingUpdateManyWithWhereWithoutIndexVersionInput = {
+  where: Prisma.EvidenceEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.EvidenceEmbeddingUpdateManyMutationInput, Prisma.EvidenceEmbeddingUncheckedUpdateManyWithoutIndexVersionInput>
 }
 
 export type EvidenceEmbeddingUpdateWithoutEvidenceItemInput = {
@@ -422,16 +570,74 @@ export type EvidenceEmbeddingUpdateWithoutEvidenceItemInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutEvidenceEmbeddingsNestedInput
+}
+
+export type EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput = {
+export type EvidenceEmbeddingUncheckedUpdateManyWithoutEvidenceItemInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type EvidenceEmbeddingUpdateWithoutIndexVersionInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  evidenceItem?: Prisma.EvidenceItemUpdateOneRequiredWithoutEmbeddingsNestedInput
+}
+
+export type EvidenceEmbeddingUncheckedUpdateWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  evidenceItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type EvidenceEmbeddingUncheckedUpdateManyWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  evidenceItemId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -441,59 +647,76 @@ export type EvidenceEmbeddingUncheckedUpdateWithoutEvidenceItemInput = {
 export type EvidenceEmbeddingSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   evidenceItemId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   evidenceItem?: boolean | Prisma.EvidenceItemDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceEmbedding"]>
 
 
 export type EvidenceEmbeddingSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   evidenceItemId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   evidenceItem?: boolean | Prisma.EvidenceItemDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["evidenceEmbedding"]>
 
 export type EvidenceEmbeddingSelectScalar = {
   id?: boolean
   evidenceItemId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type EvidenceEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "evidenceItemId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceEmbedding"]>
+export type EvidenceEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "evidenceItemId" | "indexVersionId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "inputTokens" | "costUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["evidenceEmbedding"]>
 export type EvidenceEmbeddingInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidenceItem?: boolean | Prisma.EvidenceItemDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 export type EvidenceEmbeddingIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   evidenceItem?: boolean | Prisma.EvidenceItemDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 
 export type $EvidenceEmbeddingPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "EvidenceEmbedding"
   objects: {
     evidenceItem: Prisma.$EvidenceItemPayload<ExtArgs>
+    indexVersion: Prisma.$EmbeddingIndexVersionPayload<ExtArgs>
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     evidenceItemId: string
+    indexVersionId: string
     modelId: string
     dimensions: number
     inputHash: string
     inputText: string
+    inputTokens: number | null
+    costUsd: runtime.Decimal | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["evidenceEmbedding"]>
@@ -820,6 +1043,7 @@ readonly fields: EvidenceEmbeddingFieldRefs;
 export interface Prisma__EvidenceEmbeddingClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   evidenceItem<T extends Prisma.EvidenceItemDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EvidenceItemDefaultArgs<ExtArgs>>): Prisma.Prisma__EvidenceItemClient<runtime.Types.Result.GetResult<Prisma.$EvidenceItemPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  indexVersion<T extends Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>>): Prisma.Prisma__EmbeddingIndexVersionClient<runtime.Types.Result.GetResult<Prisma.$EmbeddingIndexVersionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -851,10 +1075,13 @@ export interface Prisma__EvidenceEmbeddingClient<T, Null = never, ExtArgs extend
 export interface EvidenceEmbeddingFieldRefs {
   readonly id: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
   readonly evidenceItemId: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
+  readonly indexVersionId: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
   readonly modelId: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
   readonly dimensions: Prisma.FieldRef<"EvidenceEmbedding", 'Int'>
   readonly inputHash: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
   readonly inputText: Prisma.FieldRef<"EvidenceEmbedding", 'String'>
+  readonly inputTokens: Prisma.FieldRef<"EvidenceEmbedding", 'Int'>
+  readonly costUsd: Prisma.FieldRef<"EvidenceEmbedding", 'Decimal'>
   readonly createdAt: Prisma.FieldRef<"EvidenceEmbedding", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"EvidenceEmbedding", 'DateTime'>
 }

@@ -48,6 +48,36 @@ describe("workflow error normalization", () => {
     });
   });
 
+  it("does not recommend retrying terminal provider auth, billing, or refusal errors", () => {
+    expect(classifyWorkflowFailure({
+      message: "payment required",
+      status: 402,
+      retryable: false,
+      code: "payment_required",
+    })).toMatchObject({
+      code: "model_provider_unavailable",
+      retryable: false,
+    });
+    expect(classifyWorkflowFailure({
+      message: "blocked",
+      providerStatus: null,
+      retryable: false,
+      providerCode: "response_blocked",
+    })).toMatchObject({
+      code: "model_provider_unavailable",
+      message: "The model provider blocked this response.",
+      retryable: false,
+    });
+    expect(classifyWorkflowFailure({
+      message: "rate limited",
+      status: 429,
+      retryable: true,
+    })).toMatchObject({
+      code: "model_provider_unavailable",
+      retryable: true,
+    });
+  });
+
   it("never reflects an unknown internal error into the user-visible failure", () => {
     const failure = classifyWorkflowFailure({
       message: "Validation blew up with token ghp_supersecret and /private/app.ts:77",

@@ -3,7 +3,7 @@ import type { JsonValue, ClaimSnapshot, HighlightDraft } from "@/src/domain/type
 import { createHighlightWithRelations } from "@/src/lib/evidence-persistence";
 import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { inferEvidenceTags } from "@/src/lib/highlight-tags";
-import { resolveBedrockConfig } from "@/src/lib/llm-config";
+import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { claimResearchService } from "@/src/services/claim-research-service";
@@ -447,6 +447,7 @@ export async function proposeHighlightFromChatContext(input: {
     },
     evidenceItems: normalizedEvidence,
     existingHighlights,
+    agentRunId: input.agentRunId,
   });
     const verified = await claimVerificationService.verify({
     workItem: {
@@ -460,6 +461,7 @@ export async function proposeHighlightFromChatContext(input: {
     },
     evidenceItems: normalizedEvidence,
     highlights: generated.highlights,
+    agentRunId: input.agentRunId,
   });
     const draft = verified[0];
 
@@ -478,6 +480,12 @@ export async function proposeHighlightFromChatContext(input: {
         ownershipClarity: draft.ownershipClarity,
         sensitivityFlag: draft.sensitivityFlag,
         evidence: [{ title: evidence.title, excerpt: evidence.content }],
+        audit: {
+          workItemId: input.workItemId,
+          idempotencyKey:
+            `public-chat-highlight-verification:${input.messageId}`,
+          agentRunId: input.agentRunId,
+        },
       })
       : { eligible: false, correctedText: null, reasons: dlp.categories.length ? ["The user statement contained suspected secret material and was redacted."] : ["The generated Highlight failed the automatic safety gate."], claimChecks: [], tokenUsage: null };
 
@@ -777,7 +785,7 @@ export async function proposeHighlightFromChatContext(input: {
             dlpCategories: dlp.categories,
           },
           policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
-          modelId: resolveBedrockConfig().modelId,
+          modelId: resolveActiveTextModelIdentity("drafting").modelId,
           idempotencyKey: `direct:highlight:${action}:${input.agentRunId}:${highlight.id}`,
         }, tx);
         return { status: "created", candidate, highlightId: highlight.id, draft };

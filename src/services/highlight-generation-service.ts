@@ -4,7 +4,11 @@ import type {
   NormalizedEvidenceItem,
   WorkItemSnapshot,
 } from "@/src/domain/types";
-import { createGenerationRun } from "@/src/lib/generation-runs";
+import {
+  createGenerationRun,
+  generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
+} from "@/src/lib/generation-runs";
 import {
   buildHighlightGenerationJsonSchema,
   highlightGenerationExampleOutput,
@@ -14,7 +18,10 @@ import {
   highlightGenerationSchemaName,
 } from "@/src/lib/llm-json-schemas";
 import { batchHighlightGenerationLlmOutputSchema } from "@/src/lib/llm-output-schemas";
-import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import { formatTaggedSections } from "@/src/lib/structured-prompt";
 import { StructuredOutputError } from "@/src/lib/bedrock-structured-llm-client";
 import {
@@ -22,7 +29,7 @@ import {
   buildResearchSourceCatalog,
   normalizeResearchDrafts,
 } from "@/src/services/claim-research-shared";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimResearchService } from "@/src/services/mock-claim-research-service";
 import type { HighlightGenerationService } from "@/src/services/types";
 
@@ -107,8 +114,15 @@ function buildBatchInputSummary(params: {
 }
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
-  async generate({ workItem, evidenceItems, existingHighlights, artifactRequest }) {
-    const structuredClient = getBedrockStructuredLlmClient();
+  async generate({
+    workItem,
+    evidenceItems,
+    existingHighlights,
+    artifactRequest,
+    agentRunId,
+  }) {
+    const structuredClient = getStructuredLlmClient("drafting");
+    const configuredIdentity = resolveActiveTextModelIdentity("drafting");
     const rejectedHighlightGuidance = buildRejectedGuidance(evidenceItems);
     const batches = buildEvidenceBatches(evidenceItems);
     const generationRunIds: string[] = [];
@@ -295,6 +309,9 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
           validationErrors: null,
           resultRefs: {
+            ...(agentRunId ? { agentRunId } : {}),
+            profile: "drafting",
+            configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
             generatedHighlightCount: drafts.length,
           } as Prisma.InputJsonValue,
@@ -306,13 +323,15 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         highlights.push(...drafts);
       } catch (error) {
         const failure = error instanceof StructuredOutputError ? error : null;
+        const admissionFailure =
+          isStructuredGenerationAdmissionFailure(error);
 
         await createGenerationRun({
           workItemId: workItem.id,
           kind: "highlight_generation",
           status: failure?.status ?? "provider_error",
-          provider: "bedrock",
-          modelId: process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured",
+          provider: configuredIdentity.provider,
+          modelId: configuredIdentity.modelId,
           inputSummary: {
             ...baseInputSummary,
             transportMode: failure?.transportMode ?? null,
@@ -326,9 +345,15 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           validationErrors:
             (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
           resultRefs: {
+            ...(agentRunId ? { agentRunId } : {}),
+            profile: "drafting",
+            configuredModelId: configuredIdentity.modelId,
+            ...(admissionFailure ? { admissionFailure: true } : {}),
             batchKey: batch.batchKey,
           } as Prisma.InputJsonValue,
-          tokenUsage: (failure?.tokenUsage as Prisma.InputJsonValue | null) ?? null,
+          tokenUsage:
+            (failure?.tokenUsage as Prisma.InputJsonValue | null) ??
+            (admissionFailure ? null : generationRunFailureTokenUsage(error)),
           estimatedCostUsd: null,
         });
 

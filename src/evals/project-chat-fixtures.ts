@@ -486,9 +486,9 @@ export const projectChatEvaluationFixtures = [
   },
   {
     id: "runtime_focused_deep_dive",
-    title: "Focused Bedrock and durable-runtime explanation",
+    title: "Focused model runtime and durable-workflow explanation",
     category: "quality",
-    question: "Explain how the Bedrock tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Do not list unrelated subsystems.",
+    question: "Explain how the provider-neutral model tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Do not list unrelated subsystems.",
     setup: { attachedRepositoryCount: 1, repositoryHeadsCurrent: true, approvedMemoryAdequate: true },
     expected: {
       route: "memory_only",
@@ -499,7 +499,7 @@ export const projectChatEvaluationFixtures = [
       requiredSourceKinds: ["project_fact"],
       allowedAuthorities: durableMemoryAuthorities,
       minimumUsedSources: 2,
-      requiredAnswerPatterns: ["bedrock|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
+      requiredAnswerPatterns: ["openrouter|model (?:tool )?loop|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
       answerQuality: {
         minCharacters: 600,
         maxCharacters: 3_500,

@@ -126,7 +126,7 @@ describe("project answer verification recovery", () => {
     expect(result.telemetry.requestedBlockCountSatisfied).toBe(true);
   });
 
-  it("preserves explicit strength, limitation, and trade-off analysis in exact assessment recovery", async () => {
+  it("does not append canned analysis after exact assessment recovery", async () => {
     const question =
       "Assess the architecture's three most important strengths, limitations, and trade-offs.";
     const selection = selectProjectAnswerEditorialThemes({
@@ -145,11 +145,15 @@ describe("project answer verification recovery", () => {
 
     expect(result.status).toBe("answered");
     if (result.status !== "answered") return;
-    expect(result.finalized.markdown).toContain(
+    expect(result.finalized.markdown).not.toContain(
       "Assessment (inference from the cited design)",
     );
-    expect(result.finalized.markdown).toMatch(/strength and trade-off/i);
-    expect(result.finalized.markdown).toMatch(/limitation|risk/i);
+    expect(result.finalized.markdown).not.toMatch(/strength and trade-off/i);
+    for (const block of result.blocks) {
+      expect(threeEntries.map((candidate) => candidate.content)).toContain(
+        block.bodyMarkdown,
+      );
+    }
     expect(result.finalized.markdown).toMatch(/\[citation:[1-3]\]/);
   });
 
@@ -491,5 +495,102 @@ describe("project answer verification recovery", () => {
     expect(result.blocks).toHaveLength(1);
     expect(result.finalized.citations).toEqual([citation(1)]);
     expect(result.finalized.markdown).not.toContain("citation:2");
+  });
+
+  it("preserves arbitrary comparison order and passes compact request context to the verifier", async () => {
+    const question =
+      "Contrast batch imports with streaming updates in terms of latency, failure recovery, and operational complexity.";
+    const entries = [
+      entry(1, "module:batch_imports", {
+        title: "Batch imports",
+        content:
+          "Batch imports use bounded jobs to reduce latency overhead and retry failed batches, with an operational coordination trade-off.",
+      }),
+      entry(2, "module:streaming_updates", {
+        title: "Streaming updates",
+        content:
+          "Streaming updates process events continuously for lower latency and isolate failure recovery, with a consumer coordination trade-off.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({ question, entries });
+    const verifier = verifierReturning([
+      {
+        heading: "Internal streaming theme",
+        bodyMarkdown: entries[1]!.content,
+        citationIndexes: [2],
+      },
+      {
+        heading: "Internal batch theme",
+        bodyMarkdown: entries[0]!.content,
+        citationIndexes: [1],
+      },
+    ]);
+    const result = await verifyProjectAnswerWithRecovery({
+      question,
+      draftAnswer: `${entries[0]!.content} [citation:1]\n\n${entries[1]!.content} [citation:2]`,
+      entries,
+      catalog: [citation(1), citation(2)],
+      selection,
+      verifier,
+      comparisonContext: {
+        priorUserObjective: "Choose an update strategy.",
+      },
+    });
+
+    expect(result.status).toBe("answered");
+    if (result.status !== "answered") return;
+    expect(result.blocks.map((block) => block.heading)).toEqual([
+      "Batch imports",
+      "Streaming updates",
+    ]);
+    expect(verifier).toHaveBeenCalledWith(expect.objectContaining({
+      requestContext: {
+        question,
+        comparisonContract: selection.profile.comparisonContract,
+        conversation: {
+          priorUserObjective: "Choose an update strategy.",
+        },
+      },
+    }));
+  });
+
+  it("keeps exact recovery for same-theme comparison sides source-disjoint", async () => {
+    const question =
+      "Compare batch imports with streaming updates in terms of latency.";
+    const entries = [
+      entry(1, "module:data_ingestion", {
+        title: "Batch imports",
+        content: "Batch imports reduce per-record latency.",
+      }),
+      entry(2, "module:data_ingestion", {
+        title: "Streaming updates",
+        content: "Streaming updates reduce event latency.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({ question, entries });
+    const result = await verifyProjectAnswerWithRecovery({
+      question,
+      draftAnswer: "",
+      entries,
+      catalog: [citation(1), citation(2)],
+      selection,
+      forceExactFallback: true,
+      requiredBlockCount: { minimum: 2, maximum: 2 },
+    });
+
+    expect(result.status).toBe("answered");
+    if (result.status !== "answered") return;
+    expect(result.blocks).toEqual([
+      expect.objectContaining({
+        heading: "Batch imports",
+        bodyMarkdown: "Batch imports reduce per-record latency.",
+        citationIndexes: [1],
+      }),
+      expect.objectContaining({
+        heading: "Streaming updates",
+        bodyMarkdown: "Streaming updates reduce event latency.",
+        citationIndexes: [2],
+      }),
+    ]);
   });
 });

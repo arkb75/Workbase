@@ -6,7 +6,7 @@ import type {
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { createStructuredGenerationBudget } from "@/src/lib/bedrock-structured-llm-client";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { CitationIntegrityError } from "@/src/services/chat-citation-service";
 import {
   detectGroundingContractIssues,
@@ -215,8 +215,8 @@ const subsystemCoverageAnchors: Record<string, RegExp[]> = {
     /\bworkflow orchestration\b/i,
   ],
   ai_runtime: [
-    /\b(?:bedrock|converse|structured (?:generation|output)|tool use|tool loop)\b/i,
-    /\b(?:json schema|zod|token budget|prompt cach)\w*/i,
+    /\b(?:openrouter|bedrock|model provider|converse|structured (?:generation|output)|tool use|tool loop)\b/i,
+    /\b(?:json schema|zod|strict zdr|provider routing|token budget|prompt cach)\w*/i,
     /\b(?:llm|agent) runtime\b/i,
   ],
   retrieval_provenance: [
@@ -817,7 +817,9 @@ export async function completeGroundedAccomplishmentAnswer(input: {
     });
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
+      agentRunId: input.runId,
       kind: "answer_completeness_audit",
+      profile: "deep_synthesis",
       idempotencyKey: `answer-completeness:${input.runId}`,
       inputSummary: {
         groundedBlockCount: input.blocks.length,
@@ -825,7 +827,7 @@ export async function completeGroundedAccomplishmentAnswer(input: {
         missingSubsystems: initialAudit.missing.map((entry) => entry.requirementKey),
         omittedImportantEntries: initialAudit.omittedImportantEntries.map((entry) => entry.title),
       },
-      execute: () => getBedrockStructuredLlmClient().generateStructured({
+      execute: () => getStructuredLlmClient("deep_synthesis").generateStructured({
         systemPrompt: [
           "You are the final completeness editor for a citation-grounded accomplishment summary.",
           "Return 7–10 distinct accomplishments when that many supported capability entries exist; otherwise return one block per supported distinct capability.",
@@ -851,7 +853,7 @@ export async function completeGroundedAccomplishmentAnswer(input: {
         maxTokens: 8_000,
         temperature: 0,
         effort: "high",
-        transportPreference: ["bedrock_json_schema"],
+        transportPreference: ["json_schema"],
         budget: completionBudget,
         extraValidation: (value) => {
           const blocks = value.blocks;

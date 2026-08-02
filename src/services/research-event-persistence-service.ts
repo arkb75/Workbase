@@ -60,17 +60,46 @@ export async function persistResearchAgentEvent(
     message:
       event.type === "model_call_started"
         ? "Reviewing the available project evidence."
+        : event.type === "model_call_failed"
+          ? "The model provider did not complete evidence review."
         : "Project evidence review completed.",
     payload:
       event.type === "model_call_completed"
         ? {
+            modelEvent: event.type,
             iteration: event.iteration,
             stopReason: event.stopReason,
             durationMs: event.durationMs,
+            requestId: event.requestId,
+            provider: event.provider ?? null,
+            routedProvider: event.routedProvider ?? null,
+            modelId: event.modelId ?? null,
+            profile: event.profile ?? null,
+            costUsd: event.costUsd ?? null,
             usage: event.usage,
             aggregateUsage: event.aggregateUsage,
           }
-        : { iteration: event.iteration },
+        : event.type === "model_call_failed"
+          ? {
+              modelEvent: event.type,
+              iteration: event.iteration,
+              durationMs: event.durationMs,
+              provider: event.provider,
+              modelId: event.modelId,
+              profile: event.profile ?? null,
+              requestIds: event.requestIds,
+              routedProviders: event.routedProviders,
+              providerStatus: event.providerStatus,
+              retryable: event.retryable,
+              providerCode: event.providerCode,
+              usage: event.usage,
+              aggregateUsage: event.aggregateUsage,
+            }
+        : {
+            modelEvent: event.type,
+            iteration: event.iteration,
+            profile: event.profile ?? null,
+          },
     isUserVisible: false,
   });
 }

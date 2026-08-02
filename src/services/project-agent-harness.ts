@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { ProjectKnowledgeHit } from "@/src/domain/project-chat";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { looksLikeArtifactRequest } from "@/src/services/artifact-brief-service";
+import {
+  hasExplicitLiveRepositoryAction,
+  hasExplicitRepositoryRefreshAction,
+} from "@/src/services/repository-research-intent-service";
 
 export const PROJECT_AGENT_HARNESS_VERSION = "v4";
 export const PROJECT_AGENT_PROMPT_VERSION = "project-agent-v4.0";
@@ -82,7 +86,7 @@ export interface ProjectAgentTurnContext {
   runtime: {
     appRevision: string;
     modelId: string;
-    provider: "bedrock" | "mock";
+    provider: "bedrock" | "openrouter" | "mock";
     harnessVersion: string;
     promptVersion: string;
     researchControllerVersion: string;
@@ -92,13 +96,15 @@ export interface ProjectAgentTurnContext {
 
 const freshnessPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
 const repositoryPattern = /\b(?:repo|repository|github|source code|codebase)\b/i;
-const inspectPattern = /\b(?:inspect|search|read|check|look at|access|pull|refresh|scan|explore)\b/i;
 const comprehensivePattern = /\b(?:comprehensive|everything|entire|whole|thorough|all (?:the )?files|across (?:the )?repo)\b/i;
 const broadSynthesisPattern = /\b(?:summarize|summary|overview|strongest|accomplishments?|achievements?|whole project|project-wide|across the project)\b/i;
 const provenancePattern =
   /\b(?:did you (?:use|inspect|search|read|call|access)|what (?:sources?|tools?|information) did you|were (?:any )?(?:repository )?tools? (?:used|called)|was (?:a )?fallback used)\b|(?:\b(?:previous|prior|last)\s+(?:answer|turn|run)\b.{0,100}\b(?:sources?|tools?|information|repository|repo|fallback|partial)\b)|(?:\b(?:sources?|tools?|information|repository|repo|fallback|partial)\b.{0,100}\b(?:previous|prior|last)\s+(?:answer|turn|run)\b)/i;
 const codePattern = /\b(?:code|file|function|class|component|route|api|schema|database|auth|architecture|implementation|data flow|dependency|config|bug|retry|backoff|loop|timeout|cache|queue|workflow|validation|error handling)\b/i;
 const reviewPattern = /\b(?:approve|deny|reject)\b/i;
+
+const conceptualRepositoryRefreshPattern =
+  /(?:\b(?:repo|repository|codebase)\b.{0,100}\brefresh\w*\b|\brefresh\w*\b.{0,100}\b(?:repo|repository|codebase)\b)/i;
 
 function highAuthorityMemory(hits: readonly ProjectKnowledgeHit[]) {
   return hits.some((hit) =>
@@ -149,7 +155,13 @@ export function routeProjectTurn(input: {
   allowResearch?: boolean;
 }): ProjectTurnIntent {
   const question = input.question.trim();
-  const freshness = freshnessPattern.test(question) ? "required" : "none";
+  const explicitRepositoryAction = hasExplicitLiveRepositoryAction(question);
+  const explicitRepositoryRefresh =
+    hasExplicitRepositoryRefreshAction(question);
+  const freshness =
+    freshnessPattern.test(question) || explicitRepositoryRefresh
+      ? "required"
+      : "none";
   const coverage = comprehensivePattern.test(question)
     ? "bounded_comprehensive"
     : broadSynthesisPattern.test(question)
@@ -166,8 +178,15 @@ export function routeProjectTurn(input: {
     return { kind: "candidate_review", freshness: "none", coverage: "targeted", deliverable: "Resolve an explicitly identified candidate review.", references: [...input.pendingCandidateIds], confidence: 0.9, reason: "Review language was used while candidates are pending." };
   }
 
-  const explicitRepositoryResearch = repositoryPattern.test(question) && (inspectPattern.test(question) || freshness === "required");
-  const unsupportedCodeQuestion = codePattern.test(question) && !hasRelevantHighAuthorityMemory(question, input.memoryHits);
+  const explicitRepositoryResearch =
+    explicitRepositoryAction ||
+    (repositoryPattern.test(question) && freshness === "required");
+  const conceptualRepositoryRefresh =
+    !explicitRepositoryAction && conceptualRepositoryRefreshPattern.test(question);
+  const unsupportedCodeQuestion =
+    codePattern.test(question) &&
+    !conceptualRepositoryRefresh &&
+    !hasRelevantHighAuthorityMemory(question, input.memoryHits);
   if (input.allowResearch !== false && (explicitRepositoryResearch || freshness === "required" || unsupportedCodeQuestion)) {
     return {
       kind: "repository_research",
@@ -232,6 +251,14 @@ export function buildProjectAgentTurnContext(input: {
     versions: [PROJECT_AGENT_HARNESS_VERSION, PROJECT_AGENT_PROMPT_VERSION, PROJECT_RESEARCH_CONTROLLER_VERSION],
   };
   const provider = resolveWorkbaseLlmProvider();
+  const configuredModelId =
+    provider === "openrouter"
+      ? process.env.WORKBASE_OPENROUTER_MODEL_PRIMARY_ANSWER ??
+        process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+        "openai/gpt-5.6-terra"
+      : provider === "bedrock"
+        ? process.env.WORKBASE_BEDROCK_MODEL_ID ?? "unconfigured"
+        : "mock";
 
   return {
     objective: input.question,
@@ -280,7 +307,7 @@ export function buildProjectAgentTurnContext(input: {
     },
     runtime: {
       appRevision: input.appRevision ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? "local",
-      modelId: input.modelId ?? process.env.WORKBASE_BEDROCK_MODEL_ID ?? "mock",
+      modelId: input.modelId ?? configuredModelId,
       provider,
       harnessVersion: PROJECT_AGENT_HARNESS_VERSION,
       promptVersion: PROJECT_AGENT_PROMPT_VERSION,

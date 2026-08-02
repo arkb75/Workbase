@@ -28,19 +28,26 @@ export type AggregateArtifactEmbedding = {
 
 export type ArtifactEmbeddingAvgAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type ArtifactEmbeddingSumAggregateOutputType = {
   dimensions: number | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
 }
 
 export type ArtifactEmbeddingMinAggregateOutputType = {
   id: string | null
   artifactId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,10 +55,13 @@ export type ArtifactEmbeddingMinAggregateOutputType = {
 export type ArtifactEmbeddingMaxAggregateOutputType = {
   id: string | null
   artifactId: string | null
+  indexVersionId: string | null
   modelId: string | null
   dimensions: number | null
   inputHash: string | null
   inputText: string | null
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -59,10 +69,13 @@ export type ArtifactEmbeddingMaxAggregateOutputType = {
 export type ArtifactEmbeddingCountAggregateOutputType = {
   id: number
   artifactId: number
+  indexVersionId: number
   modelId: number
   dimensions: number
   inputHash: number
   inputText: number
+  inputTokens: number
+  costUsd: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -71,19 +84,26 @@ export type ArtifactEmbeddingCountAggregateOutputType = {
 
 export type ArtifactEmbeddingAvgAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type ArtifactEmbeddingSumAggregateInputType = {
   dimensions?: true
+  inputTokens?: true
+  costUsd?: true
 }
 
 export type ArtifactEmbeddingMinAggregateInputType = {
   id?: true
   artifactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -91,10 +111,13 @@ export type ArtifactEmbeddingMinAggregateInputType = {
 export type ArtifactEmbeddingMaxAggregateInputType = {
   id?: true
   artifactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,10 +125,13 @@ export type ArtifactEmbeddingMaxAggregateInputType = {
 export type ArtifactEmbeddingCountAggregateInputType = {
   id?: true
   artifactId?: true
+  indexVersionId?: true
   modelId?: true
   dimensions?: true
   inputHash?: true
   inputText?: true
+  inputTokens?: true
+  costUsd?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -200,10 +226,13 @@ export type ArtifactEmbeddingGroupByArgs<ExtArgs extends runtime.Types.Extension
 export type ArtifactEmbeddingGroupByOutputType = {
   id: string
   artifactId: string
+  indexVersionId: string
   modelId: string
   dimensions: number
   inputHash: string
   inputText: string
+  inputTokens: number | null
+  costUsd: runtime.Decimal | null
   createdAt: Date
   updatedAt: Date
   _count: ArtifactEmbeddingCountAggregateOutputType | null
@@ -234,49 +263,65 @@ export type ArtifactEmbeddingWhereInput = {
   NOT?: Prisma.ArtifactEmbeddingWhereInput | Prisma.ArtifactEmbeddingWhereInput[]
   id?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   artifactId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   modelId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   dimensions?: Prisma.IntFilter<"ArtifactEmbedding"> | number
   inputHash?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   inputText?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ArtifactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ArtifactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
   artifact?: Prisma.XOR<Prisma.ArtifactScalarRelationFilter, Prisma.ArtifactWhereInput>
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
 }
 
 export type ArtifactEmbeddingOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   artifact?: Prisma.ArtifactOrderByWithRelationInput
+  indexVersion?: Prisma.EmbeddingIndexVersionOrderByWithRelationInput
 }
 
 export type ArtifactEmbeddingWhereUniqueInput = Prisma.AtLeast<{
   id?: string
-  artifactId?: string
+  artifactId_indexVersionId?: Prisma.ArtifactEmbeddingArtifactIdIndexVersionIdCompoundUniqueInput
   AND?: Prisma.ArtifactEmbeddingWhereInput | Prisma.ArtifactEmbeddingWhereInput[]
   OR?: Prisma.ArtifactEmbeddingWhereInput[]
   NOT?: Prisma.ArtifactEmbeddingWhereInput | Prisma.ArtifactEmbeddingWhereInput[]
+  artifactId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   modelId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   dimensions?: Prisma.IntFilter<"ArtifactEmbedding"> | number
   inputHash?: Prisma.StringFilter<"ArtifactEmbedding"> | string
   inputText?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ArtifactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ArtifactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
   artifact?: Prisma.XOR<Prisma.ArtifactScalarRelationFilter, Prisma.ArtifactWhereInput>
-}, "id" | "artifactId">
+  indexVersion?: Prisma.XOR<Prisma.EmbeddingIndexVersionScalarRelationFilter, Prisma.EmbeddingIndexVersionWhereInput>
+}, "id" | "artifactId_indexVersionId">
 
 export type ArtifactEmbeddingOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  costUsd?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ArtifactEmbeddingCountOrderByAggregateInput
@@ -292,10 +337,13 @@ export type ArtifactEmbeddingScalarWhereWithAggregatesInput = {
   NOT?: Prisma.ArtifactEmbeddingScalarWhereWithAggregatesInput | Prisma.ArtifactEmbeddingScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
   artifactId?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
+  indexVersionId?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
   modelId?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
   dimensions?: Prisma.IntWithAggregatesFilter<"ArtifactEmbedding"> | number
   inputHash?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
   inputText?: Prisma.StringWithAggregatesFilter<"ArtifactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableWithAggregatesFilter<"ArtifactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableWithAggregatesFilter<"ArtifactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ArtifactEmbedding"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"ArtifactEmbedding"> | Date | string
 }
@@ -306,18 +354,24 @@ export type ArtifactEmbeddingUpdateInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  artifact?: Prisma.ArtifactUpdateOneRequiredWithoutEmbeddingNestedInput
+  artifact?: Prisma.ArtifactUpdateOneRequiredWithoutEmbeddingsNestedInput
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutArtifactEmbeddingsNestedInput
 }
 
 export type ArtifactEmbeddingUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   artifactId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -328,6 +382,8 @@ export type ArtifactEmbeddingUpdateManyMutationInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -335,41 +391,62 @@ export type ArtifactEmbeddingUpdateManyMutationInput = {
 export type ArtifactEmbeddingUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   artifactId?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type ArtifactEmbeddingNullableScalarRelationFilter = {
-  is?: Prisma.ArtifactEmbeddingWhereInput | null
-  isNot?: Prisma.ArtifactEmbeddingWhereInput | null
+export type ArtifactEmbeddingListRelationFilter = {
+  every?: Prisma.ArtifactEmbeddingWhereInput
+  some?: Prisma.ArtifactEmbeddingWhereInput
+  none?: Prisma.ArtifactEmbeddingWhereInput
+}
+
+export type ArtifactEmbeddingOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
+}
+
+export type ArtifactEmbeddingArtifactIdIndexVersionIdCompoundUniqueInput = {
+  artifactId: string
+  indexVersionId: string
 }
 
 export type ArtifactEmbeddingCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ArtifactEmbeddingAvgOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
 export type ArtifactEmbeddingMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -377,43 +454,114 @@ export type ArtifactEmbeddingMaxOrderByAggregateInput = {
 export type ArtifactEmbeddingMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   artifactId?: Prisma.SortOrder
+  indexVersionId?: Prisma.SortOrder
   modelId?: Prisma.SortOrder
   dimensions?: Prisma.SortOrder
   inputHash?: Prisma.SortOrder
   inputText?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ArtifactEmbeddingSumOrderByAggregateInput = {
   dimensions?: Prisma.SortOrder
+  inputTokens?: Prisma.SortOrder
+  costUsd?: Prisma.SortOrder
 }
 
-export type ArtifactEmbeddingCreateNestedOneWithoutArtifactInput = {
-  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput
+export type ArtifactEmbeddingCreateNestedManyWithoutArtifactInput = {
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
 }
 
-export type ArtifactEmbeddingUncheckedCreateNestedOneWithoutArtifactInput = {
-  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput
+export type ArtifactEmbeddingUncheckedCreateNestedManyWithoutArtifactInput = {
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
 }
 
-export type ArtifactEmbeddingUpdateOneWithoutArtifactNestedInput = {
-  disconnect?: Prisma.ArtifactEmbeddingWhereInput | boolean
-  delete?: Prisma.ArtifactEmbeddingWhereInput | boolean
-  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactEmbeddingUpdateToOneWithWhereWithoutArtifactInput, Prisma.ArtifactEmbeddingUpdateWithoutArtifactInput>, Prisma.ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput>
+export type ArtifactEmbeddingUpdateManyWithoutArtifactNestedInput = {
+  set?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutArtifactInput | Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutArtifactInput[]
+  updateMany?: Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutArtifactInput | Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutArtifactInput[]
+  deleteMany?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
 }
 
-export type ArtifactEmbeddingUncheckedUpdateOneWithoutArtifactNestedInput = {
-  disconnect?: Prisma.ArtifactEmbeddingWhereInput | boolean
-  delete?: Prisma.ArtifactEmbeddingWhereInput | boolean
-  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.ArtifactEmbeddingUpdateToOneWithWhereWithoutArtifactInput, Prisma.ArtifactEmbeddingUpdateWithoutArtifactInput>, Prisma.ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput>
+export type ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactNestedInput = {
+  set?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutArtifactInput | Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutArtifactInput[]
+  updateMany?: Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutArtifactInput | Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutArtifactInput[]
+  deleteMany?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
 }
 
-export type ArtifactEmbeddingUpdateToOneWithWhereWithoutArtifactInput = {
-  where?: Prisma.ArtifactEmbeddingWhereInput
+export type ArtifactEmbeddingCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+}
+
+export type ArtifactEmbeddingUncheckedCreateNestedManyWithoutIndexVersionInput = {
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+}
+
+export type ArtifactEmbeddingUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
+}
+
+export type ArtifactEmbeddingUncheckedUpdateManyWithoutIndexVersionNestedInput = {
+  set?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  disconnect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  delete?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  connect?: Prisma.ArtifactEmbeddingWhereUniqueInput | Prisma.ArtifactEmbeddingWhereUniqueInput[]
+  update?: Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput | Prisma.ArtifactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput[]
+  updateMany?: Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput | Prisma.ArtifactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput[]
+  deleteMany?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
+}
+
+export type ArtifactEmbeddingUpdateWithWhereUniqueWithoutArtifactInput = {
+  where: Prisma.ArtifactEmbeddingWhereUniqueInput
   data: Prisma.XOR<Prisma.ArtifactEmbeddingUpdateWithoutArtifactInput, Prisma.ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput>
+}
+
+export type ArtifactEmbeddingUpdateManyWithWhereWithoutArtifactInput = {
+  where: Prisma.ArtifactEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.ArtifactEmbeddingUpdateManyMutationInput, Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactInput>
+}
+
+export type ArtifactEmbeddingScalarWhereInput = {
+  AND?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
+  OR?: Prisma.ArtifactEmbeddingScalarWhereInput[]
+  NOT?: Prisma.ArtifactEmbeddingScalarWhereInput | Prisma.ArtifactEmbeddingScalarWhereInput[]
+  id?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  artifactId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  indexVersionId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  modelId?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  dimensions?: Prisma.IntFilter<"ArtifactEmbedding"> | number
+  inputHash?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  inputText?: Prisma.StringFilter<"ArtifactEmbedding"> | string
+  inputTokens?: Prisma.IntNullableFilter<"ArtifactEmbedding"> | number | null
+  costUsd?: Prisma.DecimalNullableFilter<"ArtifactEmbedding"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"ArtifactEmbedding"> | Date | string
+}
+
+export type ArtifactEmbeddingUpdateWithWhereUniqueWithoutIndexVersionInput = {
+  where: Prisma.ArtifactEmbeddingWhereUniqueInput
+  data: Prisma.XOR<Prisma.ArtifactEmbeddingUpdateWithoutIndexVersionInput, Prisma.ArtifactEmbeddingUncheckedUpdateWithoutIndexVersionInput>
+}
+
+export type ArtifactEmbeddingUpdateManyWithWhereWithoutIndexVersionInput = {
+  where: Prisma.ArtifactEmbeddingScalarWhereInput
+  data: Prisma.XOR<Prisma.ArtifactEmbeddingUpdateManyMutationInput, Prisma.ArtifactEmbeddingUncheckedUpdateManyWithoutIndexVersionInput>
 }
 
 export type ArtifactEmbeddingUpdateWithoutArtifactInput = {
@@ -422,16 +570,74 @@ export type ArtifactEmbeddingUpdateWithoutArtifactInput = {
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  indexVersion?: Prisma.EmbeddingIndexVersionUpdateOneRequiredWithoutArtifactEmbeddingsNestedInput
+}
+
+export type ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput = {
+export type ArtifactEmbeddingUncheckedUpdateManyWithoutArtifactInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  indexVersionId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ArtifactEmbeddingUpdateWithoutIndexVersionInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   modelId?: Prisma.StringFieldUpdateOperationsInput | string
   dimensions?: Prisma.IntFieldUpdateOperationsInput | number
   inputHash?: Prisma.StringFieldUpdateOperationsInput | string
   inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  artifact?: Prisma.ArtifactUpdateOneRequiredWithoutEmbeddingsNestedInput
+}
+
+export type ArtifactEmbeddingUncheckedUpdateWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  artifactId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ArtifactEmbeddingUncheckedUpdateManyWithoutIndexVersionInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  artifactId?: Prisma.StringFieldUpdateOperationsInput | string
+  modelId?: Prisma.StringFieldUpdateOperationsInput | string
+  dimensions?: Prisma.IntFieldUpdateOperationsInput | number
+  inputHash?: Prisma.StringFieldUpdateOperationsInput | string
+  inputText?: Prisma.StringFieldUpdateOperationsInput | string
+  inputTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  costUsd?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -441,59 +647,76 @@ export type ArtifactEmbeddingUncheckedUpdateWithoutArtifactInput = {
 export type ArtifactEmbeddingSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   artifactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   artifact?: boolean | Prisma.ArtifactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["artifactEmbedding"]>
 
 
 export type ArtifactEmbeddingSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   artifactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   artifact?: boolean | Prisma.ArtifactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["artifactEmbedding"]>
 
 export type ArtifactEmbeddingSelectScalar = {
   id?: boolean
   artifactId?: boolean
+  indexVersionId?: boolean
   modelId?: boolean
   dimensions?: boolean
   inputHash?: boolean
   inputText?: boolean
+  inputTokens?: boolean
+  costUsd?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ArtifactEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "artifactId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "createdAt" | "updatedAt", ExtArgs["result"]["artifactEmbedding"]>
+export type ArtifactEmbeddingOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "artifactId" | "indexVersionId" | "modelId" | "dimensions" | "inputHash" | "inputText" | "inputTokens" | "costUsd" | "createdAt" | "updatedAt", ExtArgs["result"]["artifactEmbedding"]>
 export type ArtifactEmbeddingInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   artifact?: boolean | Prisma.ArtifactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 export type ArtifactEmbeddingIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   artifact?: boolean | Prisma.ArtifactDefaultArgs<ExtArgs>
+  indexVersion?: boolean | Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>
 }
 
 export type $ArtifactEmbeddingPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "ArtifactEmbedding"
   objects: {
     artifact: Prisma.$ArtifactPayload<ExtArgs>
+    indexVersion: Prisma.$EmbeddingIndexVersionPayload<ExtArgs>
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     artifactId: string
+    indexVersionId: string
     modelId: string
     dimensions: number
     inputHash: string
     inputText: string
+    inputTokens: number | null
+    costUsd: runtime.Decimal | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["artifactEmbedding"]>
@@ -820,6 +1043,7 @@ readonly fields: ArtifactEmbeddingFieldRefs;
 export interface Prisma__ArtifactEmbeddingClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   artifact<T extends Prisma.ArtifactDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ArtifactDefaultArgs<ExtArgs>>): Prisma.Prisma__ArtifactClient<runtime.Types.Result.GetResult<Prisma.$ArtifactPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  indexVersion<T extends Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.EmbeddingIndexVersionDefaultArgs<ExtArgs>>): Prisma.Prisma__EmbeddingIndexVersionClient<runtime.Types.Result.GetResult<Prisma.$EmbeddingIndexVersionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -851,10 +1075,13 @@ export interface Prisma__ArtifactEmbeddingClient<T, Null = never, ExtArgs extend
 export interface ArtifactEmbeddingFieldRefs {
   readonly id: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
   readonly artifactId: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
+  readonly indexVersionId: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
   readonly modelId: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
   readonly dimensions: Prisma.FieldRef<"ArtifactEmbedding", 'Int'>
   readonly inputHash: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
   readonly inputText: Prisma.FieldRef<"ArtifactEmbedding", 'String'>
+  readonly inputTokens: Prisma.FieldRef<"ArtifactEmbedding", 'Int'>
+  readonly costUsd: Prisma.FieldRef<"ArtifactEmbedding", 'Decimal'>
   readonly createdAt: Prisma.FieldRef<"ArtifactEmbedding", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"ArtifactEmbedding", 'DateTime'>
 }

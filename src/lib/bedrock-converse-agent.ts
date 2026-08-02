@@ -31,6 +31,10 @@ const SAFE_NUMERIC_USAGE_KEYS = new Set([
   "totalTokens",
   "cacheReadInputTokens",
   "cacheWriteInputTokens",
+  "reasoningTokens",
+  "cost",
+  "costUsd",
+  "unknownUsageAttempts",
 ]);
 const SENSITIVE_VALUE_PATTERNS = [
   /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
@@ -44,6 +48,10 @@ export interface BedrockConverseTransportResponse {
   stopReason: StopReason | string | null;
   usage: TokenUsage | null;
   requestId: string | null;
+  provider?: string;
+  routedProvider?: string | null;
+  modelId?: string;
+  costUsd?: number | null;
 }
 
 export interface BedrockConverseTransport {
@@ -96,6 +104,13 @@ export interface BedrockConverseAgentTokenUsage {
   totalTokens: number;
   cacheReadInputTokens: number;
   cacheWriteInputTokens: number;
+  reasoningTokens?: number;
+  costUsd?: number;
+  unknownUsageAttempts?: number;
+  failedAttempts?: JsonValue[];
+  providerAttemptCount?: number;
+  costedAttemptCount?: number;
+  routedProviders?: string[];
 }
 
 export interface BedrockConverseToolContext {
@@ -156,6 +171,7 @@ export type BedrockConverseAgentEvent =
       type: "model_call_started";
       iteration: number;
       messageCount: number;
+      profile?: string;
     }
   | {
       type: "model_call_completed";
@@ -165,6 +181,26 @@ export type BedrockConverseAgentEvent =
       durationMs: number;
       usage: BedrockConverseAgentTokenUsage;
       aggregateUsage: BedrockConverseAgentTokenUsage;
+      provider?: string;
+      routedProvider?: string | null;
+      modelId?: string;
+      costUsd?: number | null;
+      profile?: string;
+    }
+  | {
+      type: "model_call_failed";
+      iteration: number;
+      durationMs: number;
+      usage: BedrockConverseAgentTokenUsage;
+      aggregateUsage: BedrockConverseAgentTokenUsage;
+      provider: string;
+      modelId: string;
+      requestIds: string[];
+      routedProviders: string[];
+      providerStatus: number | null;
+      retryable: boolean | null;
+      providerCode: string | null;
+      profile?: string;
     }
   | {
       type: "tool_call_started";
@@ -207,6 +243,11 @@ export interface BedrockConverseAgentRunResult {
   toolCalls: number;
   usage: BedrockConverseAgentTokenUsage;
   events: BedrockConverseAgentEvent[];
+  provider?: string;
+  routedProviders?: string[];
+  modelId?: string;
+  requestIds?: string[];
+  reportedCostUsd?: number | null;
 }
 
 export type BedrockConverseAgentErrorCode =
@@ -227,6 +268,9 @@ interface BedrockConverseAgentErrorOptions {
   toolCalls?: number;
   usage?: BedrockConverseAgentTokenUsage;
   cause?: unknown;
+  providerStatus?: number | null;
+  retryable?: boolean | null;
+  providerCode?: string | null;
 }
 
 export class BedrockConverseAgentError extends Error {
@@ -235,6 +279,9 @@ export class BedrockConverseAgentError extends Error {
   readonly toolCalls: number;
   readonly usage: BedrockConverseAgentTokenUsage;
   override readonly cause?: unknown;
+  readonly providerStatus: number | null;
+  readonly retryable: boolean | null;
+  readonly providerCode: string | null;
 
   constructor(
     message: string,
@@ -248,6 +295,9 @@ export class BedrockConverseAgentError extends Error {
     this.toolCalls = options.toolCalls ?? 0;
     this.usage = options.usage ?? emptyTokenUsage();
     this.cause = options.cause;
+    this.providerStatus = options.providerStatus ?? null;
+    this.retryable = options.retryable ?? null;
+    this.providerCode = options.providerCode ?? null;
   }
 }
 
@@ -301,12 +351,132 @@ function normalizeTokenUsage(usage: TokenUsage | null): BedrockConverseAgentToke
   const outputTokens = normalizeTokenCount(usage?.outputTokens);
   const reportedTotal = normalizeTokenCount(usage?.totalTokens);
 
-  return {
+  const extendedUsage = usage as
+    | (TokenUsage & {
+        reasoningTokens?: number;
+        cost?: number;
+        unknownUsageAttempts?: number;
+        failedAttempts?: JsonValue[];
+        providerAttemptCount?: number;
+        costedAttemptCount?: number;
+        routedProvider?: string | null;
+        attempts?: unknown[];
+      })
+    | null;
+  const nestedUsage = Array.isArray(extendedUsage?.attempts)
+    ? extendedUsage.attempts.reduce<BedrockConverseAgentTokenUsage>(
+        (aggregate, attempt) =>
+          addTokenUsage(
+            aggregate,
+            normalizeTokenUsage(attempt as TokenUsage),
+          ),
+        emptyTokenUsage(),
+      )
+    : null;
+  const reasoningTokens = normalizeTokenCount(extendedUsage?.reasoningTokens);
+  const costUsd =
+    typeof extendedUsage?.cost === "number" &&
+    Number.isFinite(extendedUsage.cost) &&
+    extendedUsage.cost >= 0
+      ? extendedUsage.cost
+      : null;
+  const unknownUsageAttempts = normalizeTokenCount(
+    extendedUsage?.unknownUsageAttempts,
+  );
+  const failedAttempts = Array.isArray(extendedUsage?.failedAttempts)
+    ? extendedUsage.failedAttempts
+    : [];
+  const explicitProviderAttemptCount = normalizeTokenCount(
+    extendedUsage?.providerAttemptCount,
+  );
+  const providerAttemptCount =
+    explicitProviderAttemptCount ||
+    nestedUsage?.providerAttemptCount ||
+    0;
+  const additionalProviderAttemptCount = nestedUsage
+    ? Math.max(
+        0,
+        providerAttemptCount - (nestedUsage.providerAttemptCount ?? 0),
+      )
+    : providerAttemptCount;
+  const costedAttemptCount =
+    normalizeTokenCount(extendedUsage?.costedAttemptCount) ||
+    nestedUsage?.costedAttemptCount ||
+    (costUsd != null ? 1 : 0);
+  const additionalCostedAttemptCount = nestedUsage
+    ? Math.max(
+        0,
+        costedAttemptCount - (nestedUsage.costedAttemptCount ?? 0),
+      )
+    : costedAttemptCount;
+  const routedProviders = Array.from(new Set([
+    ...(nestedUsage?.routedProviders ?? []),
+    ...(typeof extendedUsage?.routedProvider === "string" &&
+    extendedUsage.routedProvider.trim()
+      ? [extendedUsage.routedProvider.trim()]
+      : []),
+  ]));
+
+  return addTokenUsage(nestedUsage ?? emptyTokenUsage(), {
     inputTokens,
     outputTokens,
     totalTokens: reportedTotal || inputTokens + outputTokens,
     cacheReadInputTokens: normalizeTokenCount(usage?.cacheReadInputTokens),
     cacheWriteInputTokens: normalizeTokenCount(usage?.cacheWriteInputTokens),
+    ...(reasoningTokens ? { reasoningTokens } : {}),
+    ...(costUsd != null ? { costUsd } : {}),
+    ...(unknownUsageAttempts ? { unknownUsageAttempts } : {}),
+    ...(failedAttempts.length ? { failedAttempts } : {}),
+    ...(additionalProviderAttemptCount
+      ? { providerAttemptCount: additionalProviderAttemptCount }
+      : {}),
+    ...(additionalCostedAttemptCount
+      ? { costedAttemptCount: additionalCostedAttemptCount }
+      : {}),
+    ...(routedProviders.length ? { routedProviders } : {}),
+  });
+}
+
+function uniqueStrings(values: readonly string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function providerAttemptCountForAddition(
+  aggregate: BedrockConverseAgentTokenUsage,
+  next: BedrockConverseAgentTokenUsage,
+) {
+  return (
+    (aggregate.providerAttemptCount ?? 0) +
+    (next.providerAttemptCount ?? 0)
+  );
+}
+
+function routedProvidersForAddition(
+  aggregate: BedrockConverseAgentTokenUsage,
+  next: BedrockConverseAgentTokenUsage,
+) {
+  return uniqueStrings([
+    ...(aggregate.routedProviders ?? []),
+    ...(next.routedProviders ?? []),
+  ]);
+}
+
+function usageAdditionMetadata(
+  aggregate: BedrockConverseAgentTokenUsage,
+  next: BedrockConverseAgentTokenUsage,
+) {
+  const providerAttemptCount = providerAttemptCountForAddition(
+    aggregate,
+    next,
+  );
+  const routedProviders = routedProvidersForAddition(aggregate, next);
+  const costedAttemptCount =
+    (aggregate.costedAttemptCount ?? 0) +
+    (next.costedAttemptCount ?? 0);
+  return {
+    ...(providerAttemptCount ? { providerAttemptCount } : {}),
+    ...(costedAttemptCount ? { costedAttemptCount } : {}),
+    ...(routedProviders.length ? { routedProviders } : {}),
   };
 }
 
@@ -314,6 +484,19 @@ function addTokenUsage(
   aggregate: BedrockConverseAgentTokenUsage,
   next: BedrockConverseAgentTokenUsage,
 ): BedrockConverseAgentTokenUsage {
+  const reasoningTokens =
+    (aggregate.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0);
+  const hasCost =
+    typeof aggregate.costUsd === "number" ||
+    typeof next.costUsd === "number";
+  const costUsd = (aggregate.costUsd ?? 0) + (next.costUsd ?? 0);
+  const unknownUsageAttempts =
+    (aggregate.unknownUsageAttempts ?? 0) +
+    (next.unknownUsageAttempts ?? 0);
+  const failedAttempts = [
+    ...(aggregate.failedAttempts ?? []),
+    ...(next.failedAttempts ?? []),
+  ];
   return {
     inputTokens: aggregate.inputTokens + next.inputTokens,
     outputTokens: aggregate.outputTokens + next.outputTokens,
@@ -322,6 +505,11 @@ function addTokenUsage(
       aggregate.cacheReadInputTokens + next.cacheReadInputTokens,
     cacheWriteInputTokens:
       aggregate.cacheWriteInputTokens + next.cacheWriteInputTokens,
+    ...(reasoningTokens ? { reasoningTokens } : {}),
+    ...(hasCost ? { costUsd: Number(costUsd.toFixed(8)) } : {}),
+    ...(unknownUsageAttempts ? { unknownUsageAttempts } : {}),
+    ...(failedAttempts.length ? { failedAttempts } : {}),
+    ...usageAdditionMetadata(aggregate, next),
   };
 }
 
@@ -495,7 +683,7 @@ function validateMessages(messages: readonly Message[]) {
       !message.content?.length
     ) {
       throw new BedrockConverseAgentError(
-        `Bedrock Converse message ${index + 1} must have a user or assistant role and at least one content block.`,
+        `Converse agent message ${index + 1} must have a user or assistant role and at least one content block.`,
         "configuration_error",
       );
     }
@@ -539,14 +727,14 @@ function validateTools(tools: readonly BedrockConverseTool[]) {
   for (const tool of tools) {
     if (!tool.name.trim()) {
       throw new BedrockConverseAgentError(
-        "Every Bedrock Converse tool must have a non-empty name.",
+        "Every Converse agent tool must have a non-empty name.",
         "configuration_error",
       );
     }
 
     if (names.has(tool.name)) {
       throw new BedrockConverseAgentError(
-        `Bedrock Converse tool names must be unique; received duplicate \"${truncate(tool.name, 128)}\".`,
+        `Converse agent tool names must be unique; received duplicate \"${truncate(tool.name, 128)}\".`,
         "configuration_error",
       );
     }
@@ -575,26 +763,47 @@ function getProviderErrorMessage(error: unknown) {
     return truncate(error.message.trim(), 1_000);
   }
 
-  return "The Bedrock Converse request failed without an error message.";
+  return "The model provider request failed without an error message.";
 }
 
 function isModelCapabilityError(error: unknown) {
   const name = getProviderErrorName(error);
   const message = getProviderErrorMessage(error);
+  const declaredCapability =
+    error &&
+      typeof error === "object" &&
+      "capability" in error &&
+      typeof error.capability === "string"
+      ? error.capability
+      : null;
+  const status =
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    typeof error.status === "number"
+      ? error.status
+      : null;
 
   if (/UnsupportedOperation|NotSupported/i.test(name)) {
     return true;
   }
 
-  if (!/ValidationException/i.test(name)) {
+  const isProviderValidationFailure =
+    /ValidationException/i.test(name) ||
+    (
+      /OpenRouterRequestError/i.test(name) &&
+      (status === 400 || status === 404 || status === 422)
+    );
+  if (!isProviderValidationFailure) {
     return false;
   }
 
   return (
-    /(?:does not|doesn't|not|isn't|unsupported|unavailable).{0,80}(?:support|available|enabled).{0,80}(?:converse|tool|function)/i.test(
+    declaredCapability !== null ||
+    /(?:does not|doesn't|not|isn't|unsupported|unavailable).{0,80}(?:support|available|enabled).{0,80}(?:chat|completion|converse|tool|function|parameter|response format|reasoning)/i.test(
       message,
     ) ||
-    /(?:converse|tool|function).{0,80}(?:not supported|unsupported|unavailable|not enabled)/i.test(
+    /(?:chat|completion|converse|tool|function|parameter|response format|reasoning).{0,80}(?:not supported|unsupported|unavailable|not enabled)/i.test(
       message,
     )
   );
@@ -636,7 +845,7 @@ function readRequestedTools(
 
     if (!toolUseId || !name || input === undefined) {
       throw new BedrockConverseAgentError(
-        "Bedrock returned a malformed tool request without an ID, name, or input.",
+        "The model provider returned a malformed tool request without an ID, name, or input.",
         "protocol_error",
         state,
       );
@@ -644,7 +853,7 @@ function readRequestedTools(
 
     if (seenToolUseIds.has(toolUseId)) {
       throw new BedrockConverseAgentError(
-        `Bedrock reused tool request ID \"${truncate(toolUseId, 128)}\".`,
+        `The model provider reused tool request ID \"${truncate(toolUseId, 128)}\".`,
         "protocol_error",
         state,
       );
@@ -663,14 +872,20 @@ export class BedrockConverseAgent {
     private readonly config: {
       modelId: string;
       defaultLimits?: Partial<BedrockConverseAgentLimits>;
+      providerLabel?: string;
+      modelProfile?: string;
     },
   ) {
     if (!config.modelId.trim()) {
       throw new BedrockConverseAgentError(
-        "A Bedrock model ID is required for Converse agent runs.",
+        "A model ID is required for Converse agent runs.",
         "configuration_error",
       );
     }
+  }
+
+  private providerLabel() {
+    return this.config.providerLabel?.trim() || "Bedrock";
   }
 
   static fromConfig(config: {
@@ -695,7 +910,7 @@ export class BedrockConverseAgent {
   async run(input: BedrockConverseAgentRunInput): Promise<BedrockConverseAgentRunResult> {
     if (!input.messages.length) {
       throw new BedrockConverseAgentError(
-        "A Bedrock Converse agent run requires at least one message.",
+        `A ${this.providerLabel()} agent run requires at least one message.`,
         "configuration_error",
       );
     }
@@ -723,6 +938,12 @@ export class BedrockConverseAgent {
     const seenToolUseIds = existingToolUseIds(messages);
     const events: BedrockConverseAgentEvent[] = [];
     let aggregateUsage = emptyTokenUsage();
+    let actualProvider: string | undefined;
+    const routedProviders = new Set<string>();
+    let actualModelId: string | undefined;
+    let reportedCostUsd = 0;
+    let hasReportedCost = false;
+    const requestIds: string[] = [];
     let iterations = 0;
     let toolCalls = 0;
 
@@ -734,7 +955,7 @@ export class BedrockConverseAgent {
     while (true) {
       if (iterations >= limits.maxIterations) {
         throw new BedrockConverseLimitError(
-          `Bedrock Converse agent exceeded its ${limits.maxIterations}-iteration limit.`,
+          `${this.providerLabel()} agent exceeded its ${limits.maxIterations}-iteration limit.`,
           "iteration_limit_exceeded",
           limits.maxIterations,
           iterations + 1,
@@ -747,6 +968,9 @@ export class BedrockConverseAgent {
         type: "model_call_started",
         iteration: iterations,
         messageCount: messages.length,
+        ...(this.config.modelProfile
+          ? { profile: this.config.modelProfile }
+          : {}),
       });
 
       let response: BedrockConverseTransportResponse;
@@ -797,6 +1021,107 @@ export class BedrockConverseAgent {
           { signal: input.signal },
         );
       } catch (error) {
+        if (
+          input.signal?.aborted ||
+          (
+            error &&
+            typeof error === "object" &&
+            "name" in error &&
+            String(error.name) === "AbortError"
+          )
+        ) {
+          throw error;
+        }
+        const providerFailure = error && typeof error === "object"
+          ? error as {
+              status?: unknown;
+              retryable?: unknown;
+              code?: unknown;
+              requestId?: unknown;
+              tokenUsage?: unknown;
+              unknownUsageAttempts?: unknown;
+              providerAttemptCount?: unknown;
+              failedAttempts?: unknown;
+            }
+          : null;
+        let failureUsage = normalizeTokenUsage(
+          (providerFailure?.tokenUsage ?? null) as TokenUsage | null,
+        );
+        const reportedUnknownAttempts =
+          typeof providerFailure?.unknownUsageAttempts === "number"
+            ? Math.max(
+                0,
+                Math.floor(providerFailure.unknownUsageAttempts),
+              )
+            : providerFailure?.tokenUsage
+              ? 0
+              : 1;
+        const reportedProviderAttempts = normalizeTokenCount(
+          typeof providerFailure?.providerAttemptCount === "number"
+            ? providerFailure.providerAttemptCount
+            : undefined,
+        ) || 1;
+        const failedAttempts = Array.isArray(
+          providerFailure?.failedAttempts,
+        )
+          ? providerFailure.failedAttempts.map((attempt) =>
+              sanitizeBedrockConverseEventValue(attempt)
+            )
+          : [];
+        failureUsage = addTokenUsage(failureUsage, {
+          ...emptyTokenUsage(),
+          unknownUsageAttempts: Math.max(
+            0,
+            reportedUnknownAttempts -
+              (failureUsage.unknownUsageAttempts ?? 0),
+          ),
+          providerAttemptCount: Math.max(
+            0,
+            reportedProviderAttempts -
+              (failureUsage.providerAttemptCount ?? 0),
+          ),
+          ...(failedAttempts.length ? { failedAttempts } : {}),
+        });
+        aggregateUsage = addTokenUsage(aggregateUsage, failureUsage);
+        const failureRequestIds = uniqueStrings([
+          ...(typeof providerFailure?.requestId === "string"
+            ? [providerFailure.requestId]
+            : []),
+          ...failedAttempts.flatMap((attempt) =>
+            attempt &&
+            typeof attempt === "object" &&
+            !Array.isArray(attempt) &&
+            typeof attempt.requestId === "string"
+              ? [attempt.requestId]
+              : []
+          ),
+        ]);
+        await emit({
+          type: "model_call_failed",
+          iteration: iterations,
+          durationMs: Math.max(0, Date.now() - providerStartedAt),
+          usage: failureUsage,
+          aggregateUsage,
+          provider: this.providerLabel().toLowerCase(),
+          modelId: this.config.modelId,
+          requestIds: failureRequestIds,
+          routedProviders: failureUsage.routedProviders ?? [],
+          providerStatus:
+            typeof providerFailure?.status === "number"
+              ? providerFailure.status
+              : null,
+          retryable:
+            typeof providerFailure?.retryable === "boolean"
+              ? providerFailure.retryable
+              : null,
+          providerCode:
+            typeof providerFailure?.code === "string"
+              ? providerFailure.code
+              : null,
+          ...(this.config.modelProfile
+            ? { profile: this.config.modelProfile }
+            : {}),
+        });
         const providerName = getProviderErrorName(error);
         const providerMessage = getProviderErrorMessage(error);
         const errorState = {
@@ -804,24 +1129,67 @@ export class BedrockConverseAgent {
           toolCalls,
           usage: aggregateUsage,
           cause: error,
+          providerStatus:
+            typeof providerFailure?.status === "number"
+              ? providerFailure.status
+              : null,
+          retryable:
+            typeof providerFailure?.retryable === "boolean"
+              ? providerFailure.retryable
+              : null,
+          providerCode:
+            typeof providerFailure?.code === "string"
+              ? providerFailure.code
+              : null,
         };
+
+        if (providerFailure?.code === "response_blocked") {
+          throw new BedrockConverseAgentError(
+            `${this.providerLabel()} blocked the response for safety or content-policy reasons.`,
+            "response_blocked",
+            errorState,
+          );
+        }
 
         if (isModelCapabilityError(error)) {
           throw new BedrockConverseModelCapabilityError(
-            `Bedrock model \"${this.config.modelId}\" rejected the Converse request as unsupported. Configure a model that supports Bedrock Converse${tools.length ? " tool use" : ""}. Provider response (${providerName}): ${providerMessage}`,
+            `${this.providerLabel()} model \"${this.config.modelId}\" rejected the request as unsupported. Configure a model that supports the required chat completion${tools.length ? " and tool use" : ""}. Provider response (${providerName}): ${providerMessage}`,
             errorState,
           );
         }
 
         throw new BedrockConverseProviderError(
-          `Bedrock Converse request failed for model \"${this.config.modelId}\" (${providerName}): ${providerMessage}`,
+          `${this.providerLabel()} request failed for model \"${this.config.modelId}\" (${providerName}): ${providerMessage}`,
           errorState,
         );
       }
 
       const iterationUsage = normalizeTokenUsage(response.usage);
+      const responseProvider =
+        response.provider ?? this.providerLabel().toLowerCase();
+      const openRouterMeteringIncomplete =
+        responseProvider.toLowerCase() === "openrouter" &&
+        (iterationUsage.costedAttemptCount ?? 0) <
+          (iterationUsage.providerAttemptCount ?? 1);
+      if (openRouterMeteringIncomplete) {
+        iterationUsage.unknownUsageAttempts =
+          (iterationUsage.unknownUsageAttempts ?? 0) + 1;
+      }
       aggregateUsage = addTokenUsage(aggregateUsage, iterationUsage);
       const stopReason = response.stopReason;
+      actualProvider = response.provider ?? actualProvider;
+      if (response.routedProvider) {
+        routedProviders.add(response.routedProvider);
+      }
+      for (const routedProvider of iterationUsage.routedProviders ?? []) {
+        routedProviders.add(routedProvider);
+      }
+      actualModelId = response.modelId ?? actualModelId;
+      if (response.requestId) requestIds.push(response.requestId);
+      if (typeof iterationUsage.costUsd === "number") {
+        reportedCostUsd += iterationUsage.costUsd;
+        hasReportedCost = true;
+      }
 
       await emit({
         type: "model_call_completed",
@@ -831,11 +1199,20 @@ export class BedrockConverseAgent {
         durationMs: Math.max(0, Date.now() - providerStartedAt),
         usage: iterationUsage,
         aggregateUsage,
+        ...(response.provider ? { provider: response.provider } : {}),
+        ...(response.routedProvider
+          ? { routedProvider: response.routedProvider }
+          : {}),
+        ...(response.modelId ? { modelId: response.modelId } : {}),
+        ...(response.costUsd != null ? { costUsd: response.costUsd } : {}),
+        ...(this.config.modelProfile
+          ? { profile: this.config.modelProfile }
+          : {}),
       });
 
       if (aggregateUsage.totalTokens > limits.maxTotalTokens) {
         throw new BedrockConverseLimitError(
-          `Bedrock Converse agent exceeded its ${limits.maxTotalTokens}-token budget.`,
+          `${this.providerLabel()} agent exceeded its ${limits.maxTotalTokens}-token budget.`,
           "token_limit_exceeded",
           limits.maxTotalTokens,
           aggregateUsage.totalTokens,
@@ -845,7 +1222,7 @@ export class BedrockConverseAgent {
 
       if (!stopReason) {
         throw new BedrockConverseAgentError(
-          "Bedrock Converse response did not include a stop reason.",
+          `${this.providerLabel()} response did not include a stop reason.`,
           "protocol_error",
           { iterations, toolCalls, usage: aggregateUsage },
         );
@@ -857,7 +1234,7 @@ export class BedrockConverseAgent {
         !response.message.content?.length
       ) {
         throw new BedrockConverseAgentError(
-          "Bedrock Converse response did not include a complete assistant message.",
+          `${this.providerLabel()} response did not include a complete assistant message.`,
           "protocol_error",
           { stopReason, iterations, toolCalls, usage: aggregateUsage },
         );
@@ -872,7 +1249,7 @@ export class BedrockConverseAgent {
 
         if (unexpectedToolUse) {
           throw new BedrockConverseAgentError(
-            `Bedrock returned tool requests with stop reason \"${stopReason}\".`,
+            `${this.providerLabel()} returned tool requests with stop reason \"${stopReason}\".`,
             "protocol_error",
             { stopReason, iterations, toolCalls, usage: aggregateUsage },
           );
@@ -887,12 +1264,26 @@ export class BedrockConverseAgent {
           toolCalls,
           usage: aggregateUsage,
           events,
+          ...(actualProvider ? { provider: actualProvider } : {}),
+          ...(routedProviders.size
+            ? { routedProviders: Array.from(routedProviders) }
+            : {}),
+          ...(actualModelId ? { modelId: actualModelId } : {}),
+          ...(requestIds.length ? { requestIds } : {}),
+          ...(hasReportedCost
+            ? {
+                reportedCostUsd:
+                  (aggregateUsage.unknownUsageAttempts ?? 0) === 0
+                    ? Number(reportedCostUsd.toFixed(8))
+                    : null,
+              }
+            : {}),
         };
       }
 
       if (stopReason === "max_tokens") {
         throw new BedrockConverseLimitError(
-          `Bedrock model \"${this.config.modelId}\" reached the per-iteration output limit of ${maxTokens} tokens.`,
+          `${this.providerLabel()} model \"${this.config.modelId}\" reached the per-iteration output limit of ${maxTokens} tokens.`,
           "output_token_limit_reached",
           maxTokens,
           iterationUsage.outputTokens,
@@ -905,7 +1296,7 @@ export class BedrockConverseAgent {
         stopReason === "content_filtered"
       ) {
         throw new BedrockConverseAgentError(
-          `Bedrock did not complete the response because ${stopReason.replaceAll("_", " ")}.`,
+          `${this.providerLabel()} did not complete the response because ${stopReason.replaceAll("_", " ")}.`,
           "response_blocked",
           { stopReason, iterations, toolCalls, usage: aggregateUsage },
         );
@@ -916,7 +1307,7 @@ export class BedrockConverseAgent {
         stopReason === "malformed_tool_use"
       ) {
         throw new BedrockConverseAgentError(
-          `Bedrock stopped after producing ${stopReason.replaceAll("_", " ")}.`,
+          `${this.providerLabel()} stopped after producing ${stopReason.replaceAll("_", " ")}.`,
           "malformed_model_response",
           { stopReason, iterations, toolCalls, usage: aggregateUsage },
         );
@@ -924,7 +1315,7 @@ export class BedrockConverseAgent {
 
       if (stopReason === "model_context_window_exceeded") {
         throw new BedrockConverseLimitError(
-          `Bedrock model \"${this.config.modelId}\" exceeded its context window. Reduce the conversation or retrieved context.`,
+          `${this.providerLabel()} model \"${this.config.modelId}\" exceeded its context window. Reduce the conversation or retrieved context.`,
           "token_limit_exceeded",
           limits.maxTotalTokens,
           aggregateUsage.totalTokens,
@@ -934,7 +1325,7 @@ export class BedrockConverseAgent {
 
       if (stopReason !== "tool_use") {
         throw new BedrockConverseAgentError(
-          `Bedrock Converse returned unsupported stop reason \"${truncate(stopReason, 128)}\".`,
+          `${this.providerLabel()} returned unsupported stop reason \"${truncate(stopReason, 128)}\".`,
           "protocol_error",
           { stopReason, iterations, toolCalls, usage: aggregateUsage },
         );
@@ -949,7 +1340,7 @@ export class BedrockConverseAgent {
 
       if (!requestedTools.length) {
         throw new BedrockConverseAgentError(
-          "Bedrock stopped for tool use without returning a tool request.",
+          `${this.providerLabel()} stopped for tool use without returning a tool request.`,
           "protocol_error",
           { stopReason, iterations, toolCalls, usage: aggregateUsage },
         );
@@ -957,7 +1348,7 @@ export class BedrockConverseAgent {
 
       if (toolCalls + requestedTools.length > limits.maxToolCalls) {
         throw new BedrockConverseLimitError(
-          `Bedrock Converse agent would exceed its ${limits.maxToolCalls}-tool-call limit.`,
+          `${this.providerLabel()} agent would exceed its ${limits.maxToolCalls}-tool-call limit.`,
           "tool_call_limit_exceeded",
           limits.maxToolCalls,
           toolCalls + requestedTools.length,
@@ -1055,3 +1446,19 @@ export class BedrockConverseAgent {
     }
   }
 }
+
+// Provider-neutral names for new integrations. The Bedrock-prefixed exports
+// remain stable for rollback compatibility and existing persisted event code.
+export { BedrockConverseAgent as TextConverseAgent };
+export {
+  BedrockConverseAgentError as TextConverseAgentError,
+  BedrockConverseLimitError as TextConverseLimitError,
+  BedrockConverseModelCapabilityError as TextConverseModelCapabilityError,
+  BedrockConverseProviderError as TextConverseProviderError,
+};
+export type TextConverseAgentErrorCode = BedrockConverseAgentErrorCode;
+export type TextConverseAgentEvent = BedrockConverseAgentEvent;
+export type TextConverseAgentRunInput = BedrockConverseAgentRunInput;
+export type TextConverseAgentRunResult = BedrockConverseAgentRunResult;
+export type TextConverseTool = BedrockConverseTool;
+export const defineTextConverseTool = defineBedrockConverseTool;

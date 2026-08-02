@@ -60,6 +60,10 @@ vi.mock("@/src/lib/prisma", () => ({
 
 vi.mock("@/src/lib/llm-config", () => ({
   resolveBedrockConfig: () => ({ modelId: "test-model" }),
+  resolveActiveTextModelIdentity: () => ({
+    provider: "bedrock",
+    modelId: "test-model",
+  }),
 }));
 
 vi.mock("@/src/services/knowledge-reconciliation-service", () => ({

@@ -3,6 +3,7 @@ import {
   artifactAttemptResultAfterCompletion,
   artifactBriefRequiresMeasuredImpact,
 } from "@/src/services/artifact-workflow-service";
+import { buildArtifactContentInstructions } from "@/src/services/artifact-generation-service";
 
 describe("artifact cost routing", () => {
   it.each([
@@ -17,6 +18,24 @@ describe("artifact cost routing", () => {
     expect(artifactBriefRequiresMeasuredImpact(
       "Write two technical resume bullets about the backend architecture.",
     )).toBe(false);
+  });
+
+  it("does not pressure drafting to split one approved Highlight into unsupported bullets", () => {
+    expect(buildArtifactContentInstructions("resume_bullets", 1)).toContain(
+      "Return 1 to 1 concise resume bullet",
+    );
+    expect(buildArtifactContentInstructions("resume_bullets", 1)).toContain(
+      "Use at most one bullet per independently approved Highlight",
+    );
+    expect(buildArtifactContentInstructions("resume_bullets", 1)).toContain(
+      "Return fewer bullets than the request asks for",
+    );
+  });
+
+  it("keeps the public artifact bullet count bounded when more evidence is available", () => {
+    expect(buildArtifactContentInstructions("resume_bullets", 12)).toContain(
+      "Return 1 to 3 concise resume bullets",
+    );
   });
 
   it("preserves cancellation authority when it wins after artifact persistence", () => {

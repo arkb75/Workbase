@@ -5,7 +5,7 @@
  * be executed by a driver that creates actual Workbase threads and AgentRuns.
  * The CLI driver lives in `scripts/evaluate-project-chat-application.ts` so it
  * can use a configured database, GitHub connection, and either the mock or
- * Bedrock runtime without making those dependencies part of ordinary tests.
+ * live model runtime without making those dependencies part of ordinary tests.
  */
 
 import {
@@ -107,6 +107,33 @@ export interface ProjectChatApplicationArtifactObservation {
   usedEvidenceCount: number;
 }
 
+export interface ProjectChatApplicationModelAttribution {
+  providers: string[];
+  configuredModelIds: string[];
+  actualModelIds: string[];
+  routedProviders: string[];
+  requestIds: string[];
+  failedModelIds: string[];
+  providerAttempts: number;
+  failedProviderAttempts: number;
+  fallbackUsed: boolean;
+  authoritativeAttributionComplete: boolean;
+  profiles: Record<string, {
+    providers: string[];
+    configuredModelIds: string[];
+    expectedModelIds: string[];
+    actualModelIds: string[];
+    providerAttempts: number;
+    failedProviderAttempts: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    usageComplete: boolean;
+    authoritativeAttributionComplete: boolean;
+    fallbackUsed: boolean;
+    configuredRoutingMatched: boolean;
+  }>;
+}
+
 export interface ProjectChatApplicationMetrics {
   latencyMs: number;
   modelCalls: number;
@@ -114,6 +141,8 @@ export interface ProjectChatApplicationMetrics {
   estimatedCostUsd: number;
   /** False means at least one provider attempt returned no usage metadata. */
   usageComplete: boolean;
+  /** Secret-safe provider evidence used to reject wrong-model/fallback runs. */
+  modelAttribution: ProjectChatApplicationModelAttribution;
   repositoryTreeLookups: number;
   repositorySearches: number;
   repositoryFileReads: number;
@@ -216,7 +245,7 @@ export const projectChatApplicationScenarios = [
         "career content|resume|artifact",
         "repository (?:knowledge|refresh|intelligence)|semantic analys",
         "project chat|retriev|ground",
-        "workflow|bedrock|structured generation",
+        "workflow|openrouter|model runtime|structured generation",
       ],
       forbiddenPatterns: [
         "\\b(?:every|all) (?:file|subsystem|capability)\\b",
@@ -390,7 +419,7 @@ export const projectChatApplicationScenarios = [
     id: "compare_refresh_and_research",
     title: "Comparison of broad refresh and targeted research",
     question: "Compare repository knowledge refresh with targeted repository research in a concise Markdown table. Explain when Workbase should use each and how their outputs become trusted memory.",
-    workspace: "project_memory",
+    workspace: "empty_sandbox",
     threadKey: "compare_refresh_and_research",
     allowResearch: false,
     captureUserContext: false,
@@ -439,7 +468,7 @@ export const projectChatApplicationScenarios = [
   {
     id: "durable_runtime_deep_dive",
     title: "Focused technical runtime explanation",
-    question: "Explain how Workbase's Bedrock tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Be technically specific without listing unrelated subsystems.",
+    question: "Explain how Workbase's provider-neutral model tool loop and durable workflow boundaries work together to control retries, limits, and recovery. Be technically specific without listing unrelated subsystems.",
     workspace: "project_memory",
     threadKey: "durable_runtime_deep_dive",
     allowResearch: false,
@@ -454,7 +483,7 @@ export const projectChatApplicationScenarios = [
       minMechanismValueItems: 2,
       minCitedItems: 2,
       format: "markdown",
-      requiredPatterns: ["bedrock|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
+      requiredPatterns: ["openrouter|model (?:tool )?loop|tool (?:loop|use)", "durable workflow", "retr|limit|budget", "recover|resume|persist"],
       forbiddenPatterns: ["career content product|linkedin experience"],
     },
     envelope: {
@@ -722,7 +751,7 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: [
         "career content|artifact|resume",
         "repository (?:knowledge|refresh|intelligence)|semantic analys",
-        "project chat|retriev|ground|workflow|bedrock",
+        "project chat|retriev|ground|workflow|openrouter|model runtime",
       ],
     },
     envelope: {
@@ -782,7 +811,7 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: [
         "architect|system design|pipeline|repository intelligence",
         "data|provenance|integrity",
-        "bedrock|agent|runtime",
+        "openrouter|bedrock|agent|model runtime",
         "durable|reliab|recover|bound",
       ],
       forbiddenPatterns: ["\\bUI\\b|onboarding|local setup|npm (?:install|run)|Tailwind"],
@@ -887,7 +916,7 @@ export const projectChatApplicationScenarios = [
     id: "long_thread_rollover",
     title: "Long real thread uses bounded history, rolling summary, and citation manifests",
     question: "Compare that earlier decision with the current runtime in a concise Markdown table.",
-    workspace: "project_memory",
+    workspace: "empty_sandbox",
     threadKey: "long_thread_rollover",
     allowResearch: false,
     captureUserContext: false,
@@ -902,7 +931,7 @@ export const projectChatApplicationScenarios = [
         "earlier decision",
         "repository discover|reviewed durable|project fact|durable memory",
         "current runtime",
-        "bedrock|tool (?:loop|limit)|token limit",
+        "openrouter|model (?:tool )?loop|tool (?:loop|limit)|token limit",
       ],
     },
     envelope: {
@@ -1158,6 +1187,51 @@ function checkPerformance(
     observation.metrics.usageComplete,
     true,
   );
+  addCheck(
+    checks,
+    "provider attempt attribution is authoritative",
+    observation.metrics.modelAttribution.authoritativeAttributionComplete,
+    observation.metrics.modelAttribution.authoritativeAttributionComplete,
+    true,
+  );
+  addCheck(
+    checks,
+    "live model execution used no fallback",
+    !observation.metrics.modelAttribution.fallbackUsed,
+    observation.metrics.modelAttribution.fallbackUsed,
+    false,
+  );
+  addCheck(
+    checks,
+    "live model execution had no failed provider attempts",
+    observation.metrics.modelAttribution.failedProviderAttempts === 0,
+    observation.metrics.modelAttribution.failedProviderAttempts,
+    0,
+  );
+  addCheck(
+    checks,
+    "failed provider attempts do not exceed total attempts",
+    observation.metrics.modelAttribution.failedProviderAttempts <=
+      observation.metrics.modelAttribution.providerAttempts,
+    observation.metrics.modelAttribution.failedProviderAttempts,
+    observation.metrics.modelAttribution.providerAttempts,
+  );
+  const misroutedProfiles = Object.entries(
+    observation.metrics.modelAttribution.profiles,
+  )
+    .filter(([, profile]) =>
+      profile.providerAttempts > 0 &&
+      !profile.configuredRoutingMatched
+    )
+    .map(([profile]) => profile)
+    .sort();
+  addCheck(
+    checks,
+    "observed model profiles match configured routing",
+    misroutedProfiles.length === 0,
+    misroutedProfiles.join(", ") || "all matched",
+    "all matched",
+  );
   if (observation.metrics.modelCalls === 0) {
     addCheck(checks, "zero-call telemetry is internally consistent", observation.metrics.totalTokens === 0 && observation.metrics.estimatedCostUsd === 0,
       `${observation.metrics.totalTokens} tokens / $${observation.metrics.estimatedCostUsd}`, "0 tokens / $0");
@@ -1323,7 +1397,7 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "rolling summary preserved a used-source manifest", observation.rollingSummaryPreservedCitationManifest, observation.rollingSummaryPreservedCitationManifest, true);
       addCheck(checks, "bounded recent history preserved current runtime context", observation.historyPreservedCurrentRuntimeContext, observation.historyPreservedCurrentRuntimeContext, true);
       addCheck(checks, "long-thread comparison preserves the earlier decision", /repository discover|reviewed durable|project fact|durable memory/i.test(observation.answer), observation.answer, "earlier repository-memory decision");
-      addCheck(checks, "long-thread comparison preserves current runtime context", /current runtime|bedrock|tool (?:loop|limit)|token limit/i.test(observation.answer), observation.answer, "current bounded runtime");
+      addCheck(checks, "long-thread comparison preserves current runtime context", /current runtime|openrouter|model (?:tool )?loop|tool (?:loop|limit)|token limit/i.test(observation.answer), observation.answer, "current bounded runtime");
       {
         const earlierIndex = observation.answer.search(/earlier decision/i);
         const currentIndex = observation.answer.search(/current runtime/i);
@@ -1445,6 +1519,64 @@ export function evaluateProjectChatApplicationObservation(
   return { scenario, observation, passed: checks.every((check) => check.passed), checks };
 }
 
+function mergeProfileAttribution(
+  left: ProjectChatApplicationModelAttribution["profiles"],
+  right: ProjectChatApplicationModelAttribution["profiles"],
+) {
+  return Object.fromEntries(
+    Array.from(new Set([
+      ...Object.keys(left),
+      ...Object.keys(right),
+    ])).sort().map((profile) => {
+      const entries = [left[profile], right[profile]].filter(
+        (entry): entry is NonNullable<typeof entry> => entry != null,
+      );
+      const providerAttempts = entries.reduce(
+        (total, entry) => total + entry.providerAttempts,
+        0,
+      );
+      return [profile, {
+        providers: Array.from(new Set(
+          entries.flatMap((entry) => entry.providers),
+        )).sort(),
+        configuredModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.configuredModelIds),
+        )).sort(),
+        expectedModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.expectedModelIds),
+        )).sort(),
+        actualModelIds: Array.from(new Set(
+          entries.flatMap((entry) => entry.actualModelIds),
+        )).sort(),
+        providerAttempts,
+        failedProviderAttempts: Math.min(
+          providerAttempts,
+          entries.reduce(
+            (total, entry) => total + entry.failedProviderAttempts,
+            0,
+          ),
+        ),
+        totalTokens: entries.reduce(
+          (total, entry) => total + entry.totalTokens,
+          0,
+        ),
+        estimatedCostUsd: Number(entries.reduce(
+          (total, entry) => total + entry.estimatedCostUsd,
+          0,
+        ).toFixed(6)),
+        usageComplete: entries.every((entry) => entry.usageComplete),
+        authoritativeAttributionComplete: entries.every(
+          (entry) => entry.authoritativeAttributionComplete,
+        ),
+        fallbackUsed: entries.some((entry) => entry.fallbackUsed),
+        configuredRoutingMatched: entries.every(
+          (entry) => entry.configuredRoutingMatched,
+        ),
+      }];
+    }),
+  );
+}
+
 export async function runProjectChatApplicationScenarios(input: {
   driver: ProjectChatApplicationDriver;
   scenarioIds?: readonly ProjectChatApplicationScenarioId[];
@@ -1484,6 +1616,70 @@ export async function runProjectChatApplicationScenarios(input: {
       modelCalls: total.modelCalls + result.observation.metrics.modelCalls,
       totalTokens: total.totalTokens + result.observation.metrics.totalTokens,
       estimatedCostUsd: Number((total.estimatedCostUsd + result.observation.metrics.estimatedCostUsd).toFixed(6)),
-    }), { latencyMs: 0, modelCalls: 0, totalTokens: 0, estimatedCostUsd: 0 }),
+      usageComplete:
+        total.usageComplete && result.observation.metrics.usageComplete,
+      modelAttribution: {
+        providers: Array.from(new Set([
+          ...total.modelAttribution.providers,
+          ...result.observation.metrics.modelAttribution.providers,
+        ])).sort(),
+        configuredModelIds: Array.from(new Set([
+          ...total.modelAttribution.configuredModelIds,
+          ...result.observation.metrics.modelAttribution.configuredModelIds,
+        ])).sort(),
+        actualModelIds: Array.from(new Set([
+          ...total.modelAttribution.actualModelIds,
+          ...result.observation.metrics.modelAttribution.actualModelIds,
+        ])).sort(),
+        routedProviders: Array.from(new Set([
+          ...total.modelAttribution.routedProviders,
+          ...result.observation.metrics.modelAttribution.routedProviders,
+        ])).sort(),
+        requestIds: Array.from(new Set([
+          ...total.modelAttribution.requestIds,
+          ...result.observation.metrics.modelAttribution.requestIds,
+        ])).sort(),
+        failedModelIds: Array.from(new Set([
+          ...total.modelAttribution.failedModelIds,
+          ...result.observation.metrics.modelAttribution.failedModelIds,
+        ])).sort(),
+        providerAttempts:
+          total.modelAttribution.providerAttempts +
+          result.observation.metrics.modelAttribution.providerAttempts,
+        failedProviderAttempts:
+          total.modelAttribution.failedProviderAttempts +
+          result.observation.metrics.modelAttribution.failedProviderAttempts,
+        fallbackUsed:
+          total.modelAttribution.fallbackUsed ||
+          result.observation.metrics.modelAttribution.fallbackUsed,
+        authoritativeAttributionComplete:
+          total.modelAttribution.authoritativeAttributionComplete &&
+          result.observation.metrics.modelAttribution
+            .authoritativeAttributionComplete,
+        profiles: mergeProfileAttribution(
+          total.modelAttribution.profiles,
+          result.observation.metrics.modelAttribution.profiles,
+        ),
+      },
+    }), {
+      latencyMs: 0,
+      modelCalls: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      usageComplete: true,
+      modelAttribution: {
+        providers: [] as string[],
+        configuredModelIds: [] as string[],
+        actualModelIds: [] as string[],
+        routedProviders: [] as string[],
+        requestIds: [] as string[],
+        failedModelIds: [] as string[],
+        providerAttempts: 0,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {},
+      },
+    }),
   };
 }

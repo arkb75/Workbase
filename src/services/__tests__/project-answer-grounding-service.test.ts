@@ -50,7 +50,7 @@ describe("project answer grounding contract", () => {
 
   it("bounds the optional final verifier to one native structured request", () => {
     const options = projectAnswerGroundingExecutionOptions(true);
-    expect(options.transportPreference).toEqual(["bedrock_json_schema"]);
+    expect(options.transportPreference).toEqual(["json_schema"]);
     expect(options.budget?.limits).toEqual({
       maxModelCalls: 1,
       maxRepairPasses: 0,

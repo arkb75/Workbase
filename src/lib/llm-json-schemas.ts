@@ -3,6 +3,7 @@ import type { JsonValue } from "@/src/domain/types";
 export type JsonSchemaObject = Record<string, unknown>;
 
 export const structuredOutputTransportModes = [
+  "json_schema",
   "bedrock_json_schema",
   "strict_tool_use",
   "text_repair_fallback",
@@ -11,9 +12,9 @@ export const structuredOutputTransportModes = [
 export type StructuredOutputTransportMode =
   (typeof structuredOutputTransportModes)[number];
 
-function sanitizeJsonSchemaNodeForBedrock(value: unknown): unknown {
+function sanitizeConstraintLimitedJsonSchemaNode(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(sanitizeJsonSchemaNodeForBedrock);
+    return value.map(sanitizeConstraintLimitedJsonSchemaNode);
   }
 
   if (!value || typeof value !== "object") {
@@ -51,14 +52,26 @@ function sanitizeJsonSchemaNodeForBedrock(value: unknown): unknown {
       return [];
     }
 
-    return [[key, sanitizeJsonSchemaNodeForBedrock(nestedValue)]];
+    return [[key, sanitizeConstraintLimitedJsonSchemaNode(nestedValue)]];
   });
 
   return Object.fromEntries(sanitizedEntries);
 }
 
 export function toBedrockCompatibleJsonSchema(schema: JsonSchemaObject): JsonSchemaObject {
-  return sanitizeJsonSchemaNodeForBedrock(schema) as JsonSchemaObject;
+  return sanitizeConstraintLimitedJsonSchemaNode(schema) as JsonSchemaObject;
+}
+
+/**
+ * Anthropic's strict structured-output transports reject the same constraint
+ * keywords stripped for Bedrock. The complete schema still reaches Workbase's
+ * Zod and extra-validation layers after generation; only the provider request
+ * uses this constraint-compatible copy.
+ */
+export function toAnthropicCompatibleJsonSchema(
+  schema: JsonSchemaObject,
+): JsonSchemaObject {
+  return sanitizeConstraintLimitedJsonSchemaNode(schema) as JsonSchemaObject;
 }
 
 const nullableString = (maxLength: number): JsonSchemaObject => ({

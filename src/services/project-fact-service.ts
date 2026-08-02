@@ -12,10 +12,14 @@ import {
   StructuredGenerationBudgetError,
   StructuredOutputError,
 } from "@/src/lib/bedrock-structured-llm-client";
+import {
+  generationRunFailureTokenUsage,
+  isStructuredGenerationAdmissionFailure,
+} from "@/src/lib/generation-runs";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
-import { getBedrockStructuredLlmClient } from "@/src/services/bedrock-runtime";
+import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
   buildProjectFactEmbeddingText,
   upsertProjectFactEmbedding,
@@ -349,10 +353,12 @@ async function extractFacts(input: {
     return {
       ...exactRecovery,
       tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
     };
   }
 
-  const result = await getBedrockStructuredLlmClient().generateStructured({
+  const result = await getStructuredLlmClient("code_extraction").generateStructured({
     systemPrompt: [
       "You extract reviewable technical project facts from immutable repository excerpts.",
       "Each fact must be directly supported by its cited excerpts and must not claim user ownership or production impact.",
@@ -385,7 +391,7 @@ async function extractFacts(input: {
     maxTokens: 4_000,
     temperature: 0,
     effort: "medium",
-    transportPreference: ["bedrock_json_schema"] as StructuredOutputTransportMode[],
+    transportPreference: ["json_schema"] as StructuredOutputTransportMode[],
     budget: createStructuredGenerationBudget({
       maxModelCalls: 1,
       maxRepairPasses: 0,
@@ -416,11 +422,17 @@ async function extractFacts(input: {
       ...exactRecovery.coverageGaps,
     ])),
     tokenUsage: result.tokenUsage,
+    modelInvoked: true,
+    fallbackUsed: false,
   };
 }
 
 function failedExtractionAttemptUsage(error: unknown, phase: string) {
-  const usage = error instanceof StructuredOutputError ? error.tokenUsage : null;
+  const usage =
+    error instanceof StructuredOutputError
+      ? error.tokenUsage
+      : generationRunFailureTokenUsage(error);
+  const admissionFailure = isStructuredGenerationAdmissionFailure(error);
   return {
     phase,
     usage,
@@ -432,7 +444,7 @@ function failedExtractionAttemptUsage(error: unknown, phase: string) {
     // Budget admission failures happen before a provider request. Every other
     // failure without usage is conservatively treated as a charged attempt so
     // performance reports cannot present an unknown call as $0.
-    unknownUsageAttempts: usage || error instanceof StructuredGenerationBudgetError ? 0 : 1,
+    unknownUsageAttempts: usage || admissionFailure ? 0 : 1,
   };
 }
 
@@ -454,6 +466,8 @@ export async function extractFactsWithRecovery(input: Parameters<typeof extractF
           ...failedExtractionAttemptUsage(error, "full_extraction"),
           fallback: "deterministic_notebook",
         }],
+        modelInvoked: !isStructuredGenerationAdmissionFailure(error),
+        fallbackUsed: true,
       };
     }
     if (!(error instanceof StructuredOutputError) || error.status === "provider_error") {
@@ -469,6 +483,8 @@ export async function extractFactsWithRecovery(input: Parameters<typeof extractF
           ...failedExtractionAttemptUsage(error, "full_extraction"),
           fallback: "deterministic_notebook",
         }],
+        modelInvoked: !isStructuredGenerationAdmissionFailure(error),
+        fallbackUsed: true,
       };
     }
 
@@ -505,6 +521,8 @@ export async function extractFactsWithRecovery(input: Parameters<typeof extractF
       facts: recoveredFacts.slice(0, input.maxFacts),
       coverageGaps: Array.from(new Set(coverageGaps)),
       tokenUsage: recoveryUsage,
+      modelInvoked: true,
+      fallbackUsed: true,
     };
   }
 }
@@ -716,6 +734,8 @@ async function repairAndReturnStoredCandidates(input: {
   workItemId: string;
   coverageGaps: string[];
   tokenUsage: unknown;
+  modelInvoked: boolean;
+  fallbackUsed: boolean;
   repairSideEffects?: boolean;
 }) {
   const stored = await loadStoredProjectFactCandidates(input);
@@ -732,6 +752,8 @@ async function repairAndReturnStoredCandidates(input: {
     activeProjectFactIds: stored.activeProjectFactIds,
     coverageGaps: input.coverageGaps,
     tokenUsage: input.tokenUsage,
+    modelInvoked: input.modelInvoked,
+    fallbackUsed: input.fallbackUsed,
   };
 }
 
@@ -765,6 +787,8 @@ export async function createProjectFactCandidates(input: {
     workItemId: input.workItemId,
     coverageGaps: [],
     tokenUsage: null,
+    modelInvoked: false,
+    fallbackUsed: false,
     repairSideEffects: ACTIVE_PROJECT_FACT_RUN_STATUSES.has(agentRun.status),
   });
   if (replayed) return replayed;
@@ -773,7 +797,16 @@ export async function createProjectFactCandidates(input: {
   }
 
   const repositoryCitations = input.citations.filter((citation) => citation.kind === "github_file");
-  if (!repositoryCitations.length) return { candidateIds: [], activeProjectFactIds: [], coverageGaps: [], tokenUsage: null };
+  if (!repositoryCitations.length) {
+    return {
+      candidateIds: [],
+      activeProjectFactIds: [],
+      coverageGaps: [],
+      tokenUsage: null,
+      modelInvoked: false,
+      fallbackUsed: false,
+    };
+  }
   const extracted = await extractFactsWithRecovery({
     question: input.question,
     workItemTitle: workItem.title,
@@ -787,7 +820,14 @@ export async function createProjectFactCandidates(input: {
     return citationIndexes.length ? [{ ...fact, citationIndexes }] : [];
   }).slice(0, Math.min(8, Math.max(1, input.maxFacts ?? 4)));
   if (!validFacts.length) {
-    return { candidateIds: [], activeProjectFactIds: [], coverageGaps: extracted.coverageGaps, tokenUsage: extracted.tokenUsage };
+    return {
+      candidateIds: [],
+      activeProjectFactIds: [],
+      coverageGaps: extracted.coverageGaps,
+      tokenUsage: extracted.tokenUsage,
+      modelInvoked: extracted.modelInvoked,
+      fallbackUsed: extracted.fallbackUsed,
+    };
   }
 
   const selectedOriginalIndexes = Array.from(
@@ -806,6 +846,8 @@ export async function createProjectFactCandidates(input: {
         workItemId: input.workItemId,
         coverageGaps: extracted.coverageGaps,
         tokenUsage: extracted.tokenUsage,
+        modelInvoked: extracted.modelInvoked,
+        fallbackUsed: extracted.fallbackUsed,
       });
       if (winner) return winner;
 
@@ -996,6 +1038,8 @@ export async function createProjectFactCandidates(input: {
         ])),
         coverageGaps: extracted.coverageGaps,
         tokenUsage: extracted.tokenUsage,
+        modelInvoked: extracted.modelInvoked,
+        fallbackUsed: extracted.fallbackUsed,
       };
     } catch (error) {
       if (!isRetryableProjectFactPersistenceError(error)) throw error;
@@ -1005,6 +1049,8 @@ export async function createProjectFactCandidates(input: {
         workItemId: input.workItemId,
         coverageGaps: extracted.coverageGaps,
         tokenUsage: extracted.tokenUsage,
+        modelInvoked: extracted.modelInvoked,
+        fallbackUsed: extracted.fallbackUsed,
       });
       if (winner) return winner;
       if (attempt >= PROJECT_FACT_PERSISTENCE_ATTEMPTS - 1) throw error;

@@ -9,6 +9,7 @@ import {
   StructuredGenerationBudgetError,
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
+import { OpenRouterRequestError } from "@/src/lib/openrouter-client";
 
 function makeClient(responses: Array<{
   text?: string;
@@ -122,6 +123,56 @@ const stringAndArrayBoundedSchema = {
 };
 
 describe("BedrockStructuredLlmClient", () => {
+  it("propagates caller cancellation without trying alternate transports", async () => {
+    const calls: unknown[] = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        throw new DOMException("Cancelled", "AbortError");
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "openrouter",
+      region: null,
+      modelId: "openai/gpt-5.6-terra",
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not retry a content-policy block as a schema-format failure", async () => {
+    const { client, calls } = makeClient([
+      { text: "", stopReason: "content_filtered" },
+      { structuredData: { ok: true } },
+    ]);
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+    })).rejects.toMatchObject({
+      providerCode: "response_blocked",
+      retryable: false,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   it("parses valid native structured data on the first attempt", async () => {
     const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
     const result = await client.generateStructured({
@@ -174,8 +225,12 @@ describe("BedrockStructuredLlmClient", () => {
   });
 
   it("retains known usage and marks an unobserved provider attempt before fallback success", async () => {
+    const capabilityError = new Error(
+      "JSON schema response format is not supported by this model.",
+    );
+    capabilityError.name = "ValidationException";
     const { client } = makeClient([
-      new Error("native transport disconnected"),
+      capabilityError,
       { structuredData: { ok: true } },
     ]);
     const result = await client.generateStructured({
@@ -193,6 +248,38 @@ describe("BedrockStructuredLlmClient", () => {
       attempts: [{ inputTokens: 10, outputTokens: 20, totalTokens: 30 }],
       unknownUsageAttempts: 1,
     });
+  });
+
+  it("uses a sanitized OpenRouter capability category for structured fallback", async () => {
+    const capabilityError = new OpenRouterRequestError(
+      "OpenRouter rejected this request's parameters or state.",
+      400,
+      false,
+      null,
+      { capability: "structured_output" },
+    );
+    const { client, calls } = makeClient([
+      capabilityError,
+      { structuredData: { ok: true } },
+    ]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema", "strict_tool_use"],
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(result.transportMode).toBe("strict_tool_use");
+    expect(calls.map((call) => call.structuredOutput?.mode)).toEqual([
+      "bedrock_json_schema",
+      "strict_tool_use",
+    ]);
   });
 
   it("uses schema-aware repair only after native structured modes fail", async () => {
@@ -249,8 +336,8 @@ describe("BedrockStructuredLlmClient", () => {
     });
   });
 
-  it("surfaces provider failures when every transport fails", async () => {
-    const { client } = makeClient([
+  it("terminates provider infrastructure failures without transport retry amplification", async () => {
+    const { client, calls } = makeClient([
       new Error("json schema unavailable"),
       new Error("tool use unavailable"),
       new Error("text mode unavailable"),
@@ -268,10 +355,8 @@ describe("BedrockStructuredLlmClient", () => {
         requiredFieldPaths: ["ok"],
         maxTokens: 128,
       }),
-    ).rejects.toMatchObject({
-      status: "provider_error",
-      transportMode: "text_repair_fallback",
-    });
+    ).rejects.toThrow("json schema unavailable");
+    expect(calls).toHaveLength(1);
   });
 
   it("enforces the shared model-call budget across structured transports", async () => {
@@ -298,6 +383,7 @@ describe("BedrockStructuredLlmClient", () => {
     })).rejects.toBeInstanceOf(StructuredGenerationBudgetError);
 
     expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxProviderAttempts).toBe(1);
     expect(budget.usage).toMatchObject({ modelCalls: 1, inputTokens: 10, outputTokens: 20, totalTokens: 30 });
   });
 
