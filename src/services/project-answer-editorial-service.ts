@@ -192,7 +192,7 @@ const comparisonPattern =
   /\b(?:compared? (?:with|to)|whereas|while|versus|vs\.?|difference|trade[- ]?off|both|unlike|respectively)\b/i;
 
 const comparisonIntentPattern =
-  /(?:\b(?:compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\b(?:differ(?:s|ed|ing)?|different)\b.{0,180}\bfrom\b|\bdistinguish(?:es|ed|ing)?\b.{0,180}\bfrom\b|\btrade[- ]?offs?\s+between\b|\bvs\.(?=\s|$))/i;
+  /(?:\b(?:compar(?:e|ed|es|ing)|comparison|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between)\b|\bhow\s+(?:does|do|did|would)\b.{0,180}\band\b.{0,180}\bdiffer(?:s|ed)?\b|\b(?:differ(?:s|ed|ing)?|different)\b.{0,180}\b(?:from|than)\b|\bdifferentiat(?:e|es|ed|ing)\b.{0,180}\bfrom\b|\bdistinguish(?:es|ed|ing)?\b.{0,180}\bfrom\b|\btrade[- ]?offs?\s+between\b|\bvs\.(?=\s|$))/i;
 
 const genericVerificationErrorPattern =
   /\b(?:the answer could not be verified against its sources|could not be verified against (?:its|the) sources|grounding verifier returned no supported|citation integrity failed|durable agent run failed unexpectedly|durable agent run failed without)\b/i;
@@ -361,7 +361,7 @@ interface ExtractedComparisonSubjects {
 }
 
 const bareComparisonDimensionStart =
-  "(?:latency|delay|speed|throughput|performance|response\\s+time|failure|recovery|resilien\\w*|retry|fault\\s+tolerance|cost|price|spend|expense|complexity|operations?|maintenance|operability|security|privacy|authorization|access|reliability|scalability|accuracy|correctness|quality)";
+  "(?:latency|delay|speed|throughput|performance|response\\s+time|failure|recovery|resilien\\w*|retry|fault\\s+tolerance|cost|price|spend|expense|complexity|operational(?:\\s+complexity)?|operations?|maintenance|operability|security|privacy|authorization|access|reliability|scalability|accuracy|correctness|quality)";
 
 function extractComparisonDimensions(
   question: string,
@@ -398,6 +398,10 @@ function extractComparisonSubjects(
     `(?=$|[?.!]|\\s+(?:in terms of|with respect to|focusing on|across|on the dimensions? of)\\b|\\s+on\\s+(?=${bareComparisonDimensionStart}\\b)|\\s+(?:(?:in|as)\\s+(?:a|an)\\s+)?(?:(?:concise|brief|detailed|formatted|two-column|side-by-side)\\s+)?(?:markdown\\s+)?(?:table|list|answer|comparison|format)\\b)`;
   const patterns = [
     new RegExp(
+      `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+and\\s+(.+?)\\s+differ(?:s|ed)?${terminal}`,
+      "i",
+    ),
+    new RegExp(
       `\\bhow\\s+(?:does|do|did|would)\\s+(.+?)\\s+and\\s+(.+?)\\s+compare${terminal}`,
       "i",
     ),
@@ -410,7 +414,15 @@ function extractComparisonSubjects(
       "i",
     ),
     new RegExp(
-      `\\bhow\\s+(?:is|are|was|were)\\s+(.+?)\\s+different\\s+from\\s+(.+?)${terminal}`,
+      `\\bhow\\s+(?:is|are|was|were)\\s+(.+?)\\s+different\\s+(?:from|than)\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `(?:^|[.!?]\\s+)(.+?)\\s+(?:is|are|was|were)\\s+different\\s+(?:from|than)\\s+(.+?)${terminal}`,
+      "i",
+    ),
+    new RegExp(
+      `\\bwhat\\s+differentiat(?:e|es|ed)\\s+(.+?)\\s+from\\s+(.+?)${terminal}`,
       "i",
     ),
     new RegExp(
@@ -1212,16 +1224,25 @@ function explicitComparisonSubjectSupported(
   const supportedAnchorTerms = anchorTerms.filter((term) =>
     comparisonSubjectTermSupported(term, evidenceTerms)
   ).length;
+  const requiredAnchorTerms = demonstrativeComparisonSubjectPattern.test(
+    subject.label,
+  )
+    ? Math.min(5, Math.max(2, Math.ceil(anchorTerms.length * 0.6)))
+    : Math.min(3, Math.max(1, Math.ceil(anchorTerms.length * 0.3)));
   const anchorSupported = anchorTerms.length > 0 &&
-    supportedAnchorTerms >= Math.min(
-      3,
-      Math.max(1, Math.ceil(anchorTerms.length * 0.3)),
-    );
+    supportedAnchorTerms >= requiredAnchorTerms;
   const temporalSupported = subject.temporalRole === "earlier"
     ? earlierComparisonEvidencePattern.test(evidenceText)
     : subject.temporalRole === "current"
       ? currentComparisonEvidencePattern.test(evidenceText)
       : false;
+  if (
+    demonstrativeComparisonSubjectPattern.test(subject.label) &&
+    subject.resolvedAnchor &&
+    !anchorSupported
+  ) {
+    return false;
+  }
   if (
     demonstrativeComparisonSubjectPattern.test(subject.label) &&
     !labelTerms.length &&
@@ -1244,6 +1265,18 @@ function comparisonSubjectMemberScore(
   subject: ProjectAnswerComparisonSubject,
   member: RankedEditorialEntry,
 ) {
+  if (subject.temporalRole === "earlier") {
+    const temporalDescription = `${member.entry.title} ${member.entry.content}`;
+    const earlierIndex = temporalDescription.search(
+      /\b(?:earlier|prior|previous|former|original|historical|legacy|formerly)\b/i,
+    );
+    const currentIndex = temporalDescription.search(
+      /\b(?:current|present|latest|newer|now|today)\b/i,
+    );
+    if (currentIndex >= 0 && (earlierIndex < 0 || currentIndex < earlierIndex)) {
+      return 0;
+    }
+  }
   const labelTerms = tokens(subject.label, comparisonSubjectStopWords);
   const anchorTerms = tokens(subject.resolvedAnchor ?? "", comparisonSubjectStopWords);
   const evidenceText = comparisonMemberText(member);
@@ -1290,39 +1323,38 @@ function comparisonDimensionSupported(dimension: string, evidenceText: string) {
   const dimensionTerms = Array.from(tokens(dimension, comparisonDimensionStopWords));
   if (!dimensionTerms.length) return false;
   const evidenceTerms = tokens(evidenceText, comparisonDimensionStopWords);
-  const overlap = dimensionTerms.filter((term) => evidenceTerms.has(term)).length;
-  if (overlap >= Math.max(1, Math.ceil(dimensionTerms.length * 0.5))) {
-    return true;
-  }
-  const semanticDimensions = [
+  const semanticDimensionTerms = [
     {
-      dimension: /\b(?:latency|delay|speed|throughput|performance)\b/i,
+      term: /^(?:latency|delay|speed|throughput|performance|response|time)$/i,
       evidence: /\b(?:latency|delay|speed|throughput|performance|response time|fast(?:er)?)\b/i,
     },
     {
-      dimension: /\b(?:failure|recovery|resilien|retry|fault tolerance)\w*/i,
+      term: /^(?:fail|failure|recovery|resilien\w*|retry|fault|tolerance)$/i,
       evidence: /\b(?:failure|recover|resilien|retry|replay|resume|fault toleran)\w*/i,
     },
     {
-      dimension: /\b(?:cost|price|spend|expense)\w*/i,
+      term: /^(?:cost|price|spend|expense)\w*/i,
       evidence: /\b(?:cost|price|spend|expense|billing|token usage)\w*/i,
     },
     {
-      dimension: /\b(?:complexity|operations?|maintenance|operability)\b/i,
+      term: /^(?:complexity|operation\w*|maintenance|operability)$/i,
       evidence: /\b(?:complexity|operations?|maintenance|operability|coordination|overhead)\b/i,
     },
     {
-      dimension: /\b(?:security|privacy|authorization|access)\b/i,
+      term: /^(?:security|privacy|authorization|access)$/i,
       evidence: /\b(?:security|privacy|authorization|permission|access|credential|secret)\w*/i,
     },
   ];
-  return semanticDimensions.some((concept) =>
-    concept.dimension.test(dimension) && concept.evidence.test(evidenceText)
+  return dimensionTerms.every((term) =>
+    evidenceTerms.has(term) ||
+    semanticDimensionTerms.some((concept) =>
+      concept.term.test(term) && concept.evidence.test(evidenceText)
+    )
   );
 }
 
 const comparisonNegationPattern =
-  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b/i;
+  /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?|rejects?|denies?|forbids?|blocks?|disallows?)\b/i;
 
 const comparisonContradictionStopWords = new Set([
   ...comparisonSubjectStopWords,
@@ -1359,7 +1391,7 @@ function comparisonSentences(value: string) {
 function negatedComparisonClauses(value: string) {
   return comparisonSentences(value).flatMap((sentence) => {
     const forward = Array.from(sentence.matchAll(
-      /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+      /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?|rejects?|denies?|forbids?|blocks?|disallows?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
     )).flatMap((match) => {
       const terms = tokens(match[1] ?? "", comparisonContradictionStopWords);
       return terms.size ? [{ terms, sentence }] : [];
@@ -1376,7 +1408,7 @@ function negatedComparisonClauses(value: string) {
 
 function positiveComparisonTerms(value: string) {
   const withoutNegatedClauses = value.replace(
-    /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
+    /\b(?:cannot|can't|does not|doesn't|do not|don't|is not|isn't|never|no longer|without|disabled|excludes?|prevents?|rejects?|denies?|forbids?|blocks?|disallows?)\b\s+([^,.;:]+?)(?=\b(?:but|while|whereas|although)\b|[,.;:]|$)/gi,
     " ",
   );
   return tokens(withoutNegatedClauses, comparisonContradictionStopWords);
@@ -1399,6 +1431,10 @@ const comparisonExclusiveScopePairs = [
     new Set(["input", "prompt"]),
     new Set(["output", "completion"]),
   ],
+  [
+    new Set(["interactive", "foreground", "synchronous"]),
+    new Set(["background", "asynchronous", "offline"]),
+  ],
 ] as const;
 
 function hasComparisonScopeTerm(
@@ -1412,6 +1448,16 @@ function comparisonScopesDisjoint(
   left: ReadonlySet<string>,
   right: ReadonlySet<string>,
 ) {
+  const leftNonIdempotent = left.has("non") && left.has("idempotent");
+  const rightNonIdempotent = right.has("non") && right.has("idempotent");
+  const leftIdempotent = left.has("idempotent") && !leftNonIdempotent;
+  const rightIdempotent = right.has("idempotent") && !rightNonIdempotent;
+  if (
+    (leftIdempotent && rightNonIdempotent) ||
+    (leftNonIdempotent && rightIdempotent)
+  ) {
+    return true;
+  }
   return comparisonExclusiveScopePairs.some(([first, second]) => {
     const leftFirst = hasComparisonScopeTerm(left, first);
     const leftSecond = hasComparisonScopeTerm(left, second);
