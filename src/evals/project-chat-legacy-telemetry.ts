@@ -22,8 +22,22 @@ export function buildLegacyProjectChatModelTelemetry(
     metrics.modelAttribution.profiles,
   ).filter((profile) => profile.providerAttempts > 0);
   const openRouter = input.provider.toLowerCase() === "openrouter";
+  const cleanZeroCallResult =
+    metrics.modelCalls === 0 &&
+    metrics.totalTokens === 0 &&
+    metrics.estimatedCostUsd === 0 &&
+    metrics.usageComplete &&
+    metrics.modelAttribution.providerAttempts === 0 &&
+    metrics.modelAttribution.failedProviderAttempts === 0 &&
+    metrics.modelAttribution.failedModelIds.length === 0 &&
+    metrics.modelAttribution.requestIds.length === 0 &&
+    metrics.modelAttribution.routedProviders.length === 0 &&
+    !metrics.modelAttribution.fallbackUsed &&
+    metrics.modelAttribution.authoritativeAttributionComplete &&
+    invokedProfiles.length === 0;
   const authoritativeAttributionComplete =
     !openRouter ||
+    cleanZeroCallResult ||
     (
       metrics.modelCalls > 0 &&
       metrics.usageComplete &&
@@ -48,6 +62,7 @@ export function buildLegacyProjectChatModelTelemetry(
     );
   const profileRoutingMatches =
     !openRouter ||
+    cleanZeroCallResult ||
     (
       invokedProfiles.length > 0 &&
       invokedProfiles.every(

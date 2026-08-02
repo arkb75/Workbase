@@ -497,12 +497,13 @@ async function main() {
   );
   const requiredEditorialAnchors = ["product_surface", "repository_knowledge_lifecycle"];
   const prioritizedLedgerSelectionHealthy =
-    ledgerCoverage.length > 0 &&
-    representedLedger.length >= Math.min(4, ledgerCoverage.length) &&
-    requiredEditorialAnchors.every((capabilityKey) =>
-      !ledgerCoverage.some((entry) => entry.capabilityKey === capabilityKey) ||
-      representedLedger.some((entry) => entry.capabilityKey === capabilityKey)
-    );
+    ledgerCoverage.length === 0
+      ? null
+      : representedLedger.length >= Math.min(4, ledgerCoverage.length) &&
+        requiredEditorialAnchors.every((capabilityKey) =>
+          !ledgerCoverage.some((entry) => entry.capabilityKey === capabilityKey) ||
+          representedLedger.some((entry) => entry.capabilityKey === capabilityKey)
+        );
   const checks = {
     latestCommitPinned: targets.length > 0 && targets.every((target) => typeof target.commitSha === "string" && target.commitSha.length === 40),
     allEligibleFilesMapped: coverage.length > 0 && coverage.every((entry) => Number(entry.analyzedPaths) + Number(entry.excludedPaths) === Number(entry.totalPaths)),
@@ -619,7 +620,7 @@ async function main() {
   }, null, 2)}\n`);
   if (
     Object.values(checks).some((passed) => !passed) ||
-    Object.values(diagnostics).some((passed) => !passed)
+    Object.values(diagnostics).some((passed) => passed === false)
   ) process.exitCode = 2;
 }
 

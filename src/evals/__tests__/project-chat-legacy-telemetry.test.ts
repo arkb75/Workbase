@@ -47,6 +47,29 @@ function buildOpenRouter(
 }
 
 describe("legacy project-chat live model acceptance", () => {
+  it("accepts an authoritative deterministic result when no model was invoked", () => {
+    const result = buildOpenRouter([]);
+
+    expect(result.metrics).toMatchObject({
+      modelCalls: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 0,
+        failedProviderAttempts: 0,
+        fallbackUsed: false,
+        authoritativeAttributionComplete: true,
+        profiles: {},
+      },
+    });
+    expect(result.acceptance).toEqual({
+      authoritativeAttributionComplete: true,
+      noFallbackAttempts: true,
+      profileRoutingMatches: true,
+    });
+  });
+
   it("accepts complete authoritative OpenRouter attribution", () => {
     const result = buildOpenRouter([openRouterEvent()]);
 
