@@ -12,6 +12,10 @@ import type {
 } from "@/src/lib/bedrock-converse-agent";
 import type { ConverseTextRuntime } from "@/src/lib/bedrock-structured-llm-client";
 import type { OpenRouterTextConfig } from "@/src/lib/llm-config";
+import {
+  toAnthropicCompatibleJsonSchema,
+  type JsonSchemaObject,
+} from "@/src/lib/llm-json-schemas";
 
 type FetchImplementation = typeof fetch;
 
@@ -246,6 +250,21 @@ function providerRouting(config: OpenRouterTextConfig) {
       ? { order: config.providerOrder }
       : {}),
   };
+}
+
+function modelCompatibleJsonSchema<T>(modelId: string, schema: T): T {
+  if (
+    modelId.trim().toLowerCase().startsWith("anthropic/") &&
+    schema &&
+    typeof schema === "object" &&
+    !Array.isArray(schema)
+  ) {
+    return toAnthropicCompatibleJsonSchema(
+      schema as JsonSchemaObject,
+    ) as T;
+  }
+
+  return schema;
 }
 
 function headers(config: OpenRouterTextConfig) {
@@ -674,6 +693,12 @@ export class OpenRouterChatCompletionsRuntime
     input: Parameters<ConverseTextRuntime["converse"]>[0],
   ): Promise<Awaited<ReturnType<ConverseTextRuntime["converse"]>>> {
     const structuredOutput = input.structuredOutput;
+    const compatibleJsonSchema = structuredOutput
+      ? modelCompatibleJsonSchema(
+          this.modelId,
+          structuredOutput.jsonSchema,
+        )
+      : null;
     const strictTool =
       structuredOutput?.mode === "strict_tool_use"
         ? {
@@ -683,7 +708,7 @@ export class OpenRouterChatCompletionsRuntime
                 function: {
                   name: structuredOutput.schemaName,
                   description: structuredOutput.schemaDescription,
-                  parameters: structuredOutput.jsonSchema,
+                  parameters: compatibleJsonSchema,
                   strict: true,
                 },
               },
@@ -705,7 +730,7 @@ export class OpenRouterChatCompletionsRuntime
                 name: structuredOutput.schemaName,
                 description: structuredOutput.schemaDescription,
                 strict: true,
-                schema: structuredOutput.jsonSchema,
+                schema: compatibleJsonSchema,
               },
             },
           }
@@ -944,7 +969,7 @@ function reasoningDetailsFromContent(content: ContentBlock[] | undefined) {
     : {};
 }
 
-function agentToolConfig(input: ConverseCommandInput) {
+function agentToolConfig(input: ConverseCommandInput, modelId: string) {
   const tools = (input.toolConfig?.tools ?? []).flatMap((tool) => {
     if (!("toolSpec" in tool) || !tool.toolSpec) return [];
     return [
@@ -956,7 +981,10 @@ function agentToolConfig(input: ConverseCommandInput) {
           parameters:
             tool.toolSpec.inputSchema &&
             "json" in tool.toolSpec.inputSchema
-              ? tool.toolSpec.inputSchema.json
+              ? modelCompatibleJsonSchema(
+                  modelId,
+                  tool.toolSpec.inputSchema.json,
+                )
               : {},
           strict: tool.toolSpec.strict ?? false,
         },
@@ -1038,7 +1066,7 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
         ...(typeof effort === "string"
           ? { reasoning: { effort } }
           : {}),
-        ...agentToolConfig(input),
+        ...agentToolConfig(input, this.modelId),
       },
     });
     const choice = result.response.choices![0]!;
