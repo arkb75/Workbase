@@ -3,6 +3,7 @@ import {
   evaluateEmbeddingIndexQualityGate,
   type EmbeddingQualityGateMode,
 } from "@/src/evals/embedding-index-quality-gate";
+import { embeddingIndexEvaluationErrorMessage } from "@/src/evals/embedding-index-error";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import {
@@ -462,7 +463,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(embeddingIndexEvaluationErrorMessage(error));
     process.exitCode = 1;
   })
   .finally(async () => {
