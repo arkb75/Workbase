@@ -641,7 +641,9 @@ async function analyzeChunk(input: {
       repairMappings: ["Map facts or observations to findings without inventing content.", "Map category to the closest supported finding kind."],
       maxTokens: Math.min(input.budget?.model.limits.maxOutputTokens ?? 4_000, 4_000),
       temperature: 0,
-      effort: "medium",
+      // Reserve the completion allowance for exact-line structured evidence;
+      // deeper reasoning here reduces reliability without adding authority.
+      effort: "low",
       repairStrategy: "repair_last_failure",
       transportPreference: ["json_schema"],
       budget: input.budget?.model,
@@ -1128,7 +1130,13 @@ export async function analyzeRepositoryFileBatch(
         ],
         maxTokens: Math.min(sharedBudget?.model.limits.maxOutputTokens ?? 6_000, 6_000),
         temperature: 0,
-        effort: "medium",
+        // Semantic extraction is a transcription/grounding task with a strict
+        // schema, not an open-ended reasoning task. On reasoning models,
+        // medium effort can consume nearly the entire completion allowance
+        // before emitting JSON, turning valid cold imports into deterministic
+        // fallbacks. Low effort preserves the output budget for the grounded
+        // file observations the workflow actually needs.
+        effort: "low",
         repairStrategy: "repair_last_failure",
         transportPreference: ["json_schema"],
         budget: sharedBudget?.model,

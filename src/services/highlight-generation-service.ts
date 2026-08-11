@@ -6,6 +6,9 @@ import type {
 } from "@/src/domain/types";
 import {
   createGenerationRun,
+  createGenerationRunIdempotently,
+  findSuccessfulGenerationRunReplay,
+  GenerationRunReplayError,
   generationRunFailureTokenUsage,
   isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
@@ -111,6 +114,68 @@ function buildBatchInputSummary(params: {
     systemPrompt: params.systemPrompt,
     userPrompt: params.userPrompt,
   };
+}
+
+function highlightGenerationIdempotencyKey(
+  agentRunId: string,
+  batchKey: string,
+) {
+  return `agent-run:${agentRunId}:highlight-generation:${batchKey}`;
+}
+
+function validateHighlightBatchEvidenceRefs(
+  value: { highlights: Array<{ sourceRefs: unknown[] }> },
+  allowedEvidenceIds: Set<string>,
+) {
+  const errors: string[] = [];
+
+  value.highlights.forEach((highlight, highlightIndex) => {
+    highlight.sourceRefs.forEach((sourceRef, sourceRefIndex) => {
+      const evidenceItemId =
+        typeof sourceRef === "string"
+          ? sourceRef
+          : sourceRef && typeof sourceRef === "object" &&
+              "evidenceItemId" in sourceRef &&
+              typeof sourceRef.evidenceItemId === "string"
+            ? sourceRef.evidenceItemId
+            : sourceRef && typeof sourceRef === "object" &&
+                "id" in sourceRef &&
+                typeof sourceRef.id === "string"
+              ? sourceRef.id
+              : null;
+
+      if (!evidenceItemId || !allowedEvidenceIds.has(evidenceItemId)) {
+        errors.push(
+          `highlights[${highlightIndex}].sourceRefs[${sourceRefIndex}] uses an unknown evidence reference.`,
+        );
+      }
+    });
+  });
+
+  return errors;
+}
+
+function parseHighlightGenerationReplay(
+  parsedOutput: unknown,
+  allowedEvidenceIds: Set<string>,
+  idempotencyKey: string,
+) {
+  const parsed = batchHighlightGenerationLlmOutputSchema.safeParse(parsedOutput);
+  if (!parsed.success) {
+    throw new GenerationRunReplayError(
+      `Successful generation replay ${idempotencyKey} has invalid parsed output.`,
+    );
+  }
+  const validationErrors = validateHighlightBatchEvidenceRefs(
+    parsed.data,
+    allowedEvidenceIds,
+  );
+  if (validationErrors.length) {
+    throw new GenerationRunReplayError(
+      `Successful generation replay ${idempotencyKey} is outside its evidence scope.`,
+    );
+  }
+  return parsed.data;
 }
 
 const bedrockHighlightGenerationService: HighlightGenerationService = {
@@ -249,6 +314,27 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         systemPrompt,
         userPrompt,
       });
+      const idempotencyKey = agentRunId
+        ? highlightGenerationIdempotencyKey(agentRunId, batch.batchKey)
+        : null;
+      const replay = idempotencyKey
+        ? await findSuccessfulGenerationRunReplay({
+            workItemId: workItem.id,
+            idempotencyKey,
+            kind: "highlight_generation",
+          })
+        : null;
+
+      if (replay && idempotencyKey) {
+        const replayed = parseHighlightGenerationReplay(
+          replay.parsedOutput,
+          allowedEvidenceIds,
+          idempotencyKey,
+        );
+        generationRunIds.push(replay.id);
+        highlights.push(...normalizeResearchDrafts(replayed, sourceCatalog));
+        continue;
+      }
 
       try {
         const result = await structuredClient.generateStructured({
@@ -264,38 +350,15 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           requiredFieldPaths: highlightGenerationRequiredFields,
           repairMappings,
           maxTokens: 1800,
-          extraValidation: (value) => {
-            const errors: string[] = [];
-
-            value.highlights.forEach((highlight, highlightIndex) => {
-              highlight.sourceRefs.forEach((sourceRef, sourceRefIndex) => {
-                const evidenceItemId =
-                  typeof sourceRef === "string"
-                    ? sourceRef
-                    : "evidenceItemId" in sourceRef &&
-                        typeof sourceRef.evidenceItemId === "string"
-                      ? sourceRef.evidenceItemId
-                      : "id" in sourceRef && typeof sourceRef.id === "string"
-                        ? sourceRef.id
-                        : null;
-
-                if (!evidenceItemId || !allowedEvidenceIds.has(evidenceItemId)) {
-                  errors.push(
-                    `highlights[${highlightIndex}].sourceRefs[${sourceRefIndex}] uses an unknown evidence reference.`,
-                  );
-                }
-              });
-            });
-
-            return errors;
-          },
+          extraValidation: (value) =>
+            validateHighlightBatchEvidenceRefs(value, allowedEvidenceIds),
         });
 
-        const drafts = normalizeResearchDrafts(result.data, sourceCatalog);
-        const generationRun = await createGenerationRun({
+        const generationRunData = {
           workItemId: workItem.id,
           kind: "highlight_generation",
           status: "success",
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           provider: result.provider,
           modelId: result.modelId,
           inputSummary: {
@@ -309,19 +372,42 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
           validationErrors: null,
           resultRefs: {
-            ...(agentRunId ? { agentRunId } : {}),
+            ...(agentRunId
+              ? {
+                  agentRunId,
+                  phase: "highlight_generation",
+                  batchIdempotencyKey: idempotencyKey,
+                }
+              : {}),
             profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
-            generatedHighlightCount: drafts.length,
+            generatedHighlightCount: result.data.highlights.length,
           } as Prisma.InputJsonValue,
           tokenUsage: (result.tokenUsage as Prisma.InputJsonValue | null) ?? null,
           estimatedCostUsd: result.estimatedCostUsd,
-        });
+        } as const;
+        const generationRun = idempotencyKey
+          ? await createGenerationRunIdempotently({
+              ...generationRunData,
+              idempotencyKey,
+            })
+          : await createGenerationRun(generationRunData);
+        const drafts = idempotencyKey
+          ? normalizeResearchDrafts(
+              parseHighlightGenerationReplay(
+                generationRun.parsedOutput,
+                allowedEvidenceIds,
+                idempotencyKey,
+              ),
+              sourceCatalog,
+            )
+          : normalizeResearchDrafts(result.data, sourceCatalog);
 
         generationRunIds.push(generationRun.id);
         highlights.push(...drafts);
       } catch (error) {
+        if (error instanceof GenerationRunReplayError) throw error;
         const failure = error instanceof StructuredOutputError ? error : null;
         const admissionFailure =
           isStructuredGenerationAdmissionFailure(error);
@@ -345,7 +431,13 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           validationErrors:
             (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
           resultRefs: {
-            ...(agentRunId ? { agentRunId } : {}),
+            ...(agentRunId
+              ? {
+                  agentRunId,
+                  phase: "highlight_generation",
+                  batchIdempotencyKey: idempotencyKey,
+                }
+              : {}),
             profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             ...(admissionFailure ? { admissionFailure: true } : {}),

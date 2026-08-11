@@ -609,9 +609,41 @@ type HighlightReconciliationSnapshot = {
   lifecycleStatus: string;
   reviewState: string;
   approvalSource: string;
+  metadata?: unknown;
   supersedesHighlightId?: string | null;
   updatedAt?: Date;
 };
+
+export function repositoryMayReconcileHighlight(
+  highlight: Pick<HighlightReconciliationSnapshot, "metadata">,
+) {
+  const metadata = highlight.metadata &&
+    typeof highlight.metadata === "object" &&
+    !Array.isArray(highlight.metadata)
+    ? highlight.metadata as Record<string, unknown>
+    : null;
+  // Manual-Evidence output is owned by its originating AgentRun and may be
+  // supplemented only through a reviewable suggestion. Repository refreshes
+  // must never revalidate, supersede, or replace it as canonical repo memory.
+  return metadata?.managedBy !== "manual_evidence_highlight_workflow";
+}
+
+export function repositoryHighlightOwnershipDecision(input: {
+  highlight: Pick<HighlightReconciliationSnapshot, "metadata">;
+  similarityScore: number;
+  unsafe: boolean;
+  allowCanonicalReplacement: boolean;
+}) {
+  if (repositoryMayReconcileHighlight(input.highlight)) {
+    return "repository_reconcile" as const;
+  }
+  if (input.similarityScore < STRONG_KNOWLEDGE_IDENTITY_THRESHOLD) {
+    return "unrelated_manual" as const;
+  }
+  return !input.unsafe && input.allowCanonicalReplacement
+    ? "supersede_manual" as const
+    : "preserve_manual" as const;
+}
 
 type ExistingProjectFactForReconciliation = Prisma.ProjectFactGetPayload<{
   include: { evidence: { include: { evidenceItem: true } } };
@@ -651,7 +683,9 @@ function closestHighlight(input: {
         !Array.isArray(highlight.metadata)
         ? highlight.metadata as Record<string, unknown>
         : null;
-      return metadata?.subsystemKey === input.subsystemKey;
+      return repositoryMayReconcileHighlight(highlight)
+        ? metadata?.subsystemKey === input.subsystemKey
+        : true;
     })
     .map((highlight) => ({
       highlight,
@@ -694,6 +728,15 @@ export function highlightReconciliationCasWhere(
     lifecycleStatus: highlight.lifecycleStatus as Prisma.EnumKnowledgeLifecycleStatusFilter,
     reviewState: highlight.reviewState as Prisma.EnumKnowledgeReviewStateFilter,
     approvalSource: highlight.approvalSource as Prisma.EnumKnowledgeApprovalSourceFilter,
+    ...(highlight.metadata !== undefined
+      ? {
+          metadata: {
+            equals: highlight.metadata === null
+              ? Prisma.DbNull
+              : highlight.metadata as Prisma.InputJsonValue,
+          },
+        }
+      : {}),
     supersedesHighlightId: highlight.supersedesHighlightId ?? null,
     ...(highlight.updatedAt ? { updatedAt: highlight.updatedAt } : {}),
   };
@@ -951,7 +994,20 @@ async function applyHighlight(input: {
       summary: closest.highlight.summary,
     }, input.sourceEntries),
   );
-  if ((exact || validatesUserEdit) && !unsafe && closest) {
+  const ownershipDecision = closest
+    ? repositoryHighlightOwnershipDecision({
+        highlight: closest.highlight,
+        similarityScore: closest.score,
+        unsafe,
+        allowCanonicalReplacement: input.allowCanonicalReplacement,
+      })
+    : null;
+  if (
+    (exact || validatesUserEdit) &&
+    !unsafe &&
+    closest &&
+    ownershipDecision === "repository_reconcile"
+  ) {
     const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       const validatedAt = new Date();
       const claimed = await tx.highlight.updateMany({
@@ -1025,9 +1081,16 @@ async function applyHighlight(input: {
     });
     return applied ? closest.highlight.id : null;
   }
-  const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+  const supersedes = input.allowCanonicalReplacement && !unsafe && closest &&
+      closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.highlight
     : null;
+  if (ownershipDecision === "preserve_manual") {
+    // Incomplete or unsafe repository evidence cannot rewrite manual
+    // provenance, and creating a second active near-duplicate would make
+    // retrieval nondeterministic. Preserve the manual canonical row.
+    return null;
+  }
   const tags = inferHighlightTags({
     text,
     summary: input.candidate.summary,
@@ -1237,6 +1300,7 @@ async function revalidateExistingKnowledge(input: {
     if (
       unsafe ||
       !closest ||
+      !repositoryMayReconcileHighlight(closest.highlight) ||
       (!exact && !validatesUserEdit) ||
       claimedHighlightIds.has(closest.highlight.id)
     ) return [];

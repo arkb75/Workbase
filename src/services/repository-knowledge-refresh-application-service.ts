@@ -58,7 +58,10 @@ async function waitForAttachedKnowledgeRefreshWorkflow(runId: string) {
     const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
       where: { id: runId },
       select: { workflowId: true, status: true, updatedAt: true },
-    });
+    }).catch(() => null);
+    // Deletion cascades this row after terminalizing it, so absence is a
+    // completed ownership fence rather than a workflow attachment to await.
+    if (!current) return null;
     const attached = attachedWorkflowId(current.workflowId);
     if (attached) return attached;
     if (isTerminalRefreshStatus(current.status) || current.workflowId == null) {
@@ -147,8 +150,10 @@ export async function startKnowledgeRefreshWorkflowOnce(input: {
     }
   }
 
+  let startedWorkflowId: string | null = null;
   try {
     const workflow = await input.startWorkflow();
+    startedWorkflowId = workflow.runId;
     const attached = await prisma.knowledgeRefreshRun.updateMany({
       where: {
         id: input.runId,
@@ -169,7 +174,6 @@ export async function startKnowledgeRefreshWorkflowOnce(input: {
       await getRun(workflow.runId).cancel().catch(() => undefined);
       return winner;
     }
-    await getRun(workflow.runId).cancel().catch(() => undefined);
     throw new Error(
       "The repository refresh became terminal while its workflow was starting.",
     );
@@ -181,12 +185,22 @@ export async function startKnowledgeRefreshWorkflowOnce(input: {
         status: "queued",
       },
       data: { workflowId: null },
-    });
+    }).catch(() => ({ count: 0 }));
     if (!released.count) {
       // start() may throw after the control plane accepted the run. The
       // workflow's exact-ID handshake is the durable acknowledgement.
       const winner = await waitForAttachedKnowledgeRefreshWorkflow(input.runId);
-      if (winner) return winner;
+      if (winner) {
+        if (startedWorkflowId && startedWorkflowId !== winner) {
+          await getRun(startedWorkflowId).cancel().catch(() => undefined);
+        }
+        return winner;
+      }
+    }
+    // If start() returned an exact ID but the active refresh owner disappeared
+    // (including a Work Item deletion), the accepted run is now an orphan.
+    if (startedWorkflowId) {
+      await getRun(startedWorkflowId).cancel().catch(() => undefined);
     }
     throw error;
   }

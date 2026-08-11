@@ -55,6 +55,19 @@ Every OpenRouter request requires zero-data-retention routing and provider
 support for all supplied parameters. `WORKBASE_LLM_PROVIDER=bedrock` plus the
 retained `WORKBASE_BEDROCK_*` values provides the migration rollback switch.
 
+Production and representative cold-import runs must exercise the configured
+`deep_synthesis` model while keeping semantic work-package planning
+deterministic:
+
+```bash
+WORKBASE_REPOSITORY_SYNTHESIS_MODE=model
+WORKBASE_SEMANTIC_PLANNER_MODE=deterministic
+```
+
+`WORKBASE_REPOSITORY_SYNTHESIS_MODE=deterministic` is available only as a
+cost/debug alternative. It does not call the main `deep_synthesis` model and
+therefore cannot pass the representative live lifecycle gate.
+
 For proactive production refreshes, also set:
 
 - `WORKBASE_GITHUB_WEBHOOK_URL` to the public HTTPS

@@ -77,9 +77,31 @@ function successfulObservation(
       statement: "The workflow retries a bounded step because doing so preserves durable progress.",
     }],
     tools: [],
+    knowledgeRefresh:
+      scenario.id === "strongest_accomplishments_freshness_follow_up"
+        ? {
+            trigger: "chat_freshness",
+            status: "completed",
+            qualityStatus: "verified",
+            targetHeads: [{
+              sourceId: "source-workbase",
+              repository: "arkb75/Workbase",
+              commitSha: "a".repeat(40),
+            }],
+            completedHeads: [{
+              sourceId: "source-workbase",
+              repository: "arkb75/Workbase",
+              commitSha: "a".repeat(40),
+            }],
+            coverageGapCount: 0,
+          }
+        : null,
     historyMessageCount,
     historyCharacterCount: historyMessageCount * 200,
-    historyCitationManifestCount: Math.floor(historyMessageCount / 2),
+    historyCitationManifestCount:
+      scenario.id === "strongest_accomplishments_freshness_follow_up"
+        ? 5
+        : Math.floor(historyMessageCount / 2),
     rollingSummaryCharacterCount: 0,
     rollingSummaryPreservedOpeningDecision: false,
     rollingSummaryPreservedCitationManifest: false,
@@ -97,7 +119,12 @@ function successfulObservation(
         "The career-content product uses repository knowledge refresh and grounded multi-turn project chat. [citation:1][citation:2][citation:3]",
       );
     case "strongest_accomplishments":
-      return citedProjectAnswer(base, `## Strongest accomplishments
+    case "strongest_accomplishments_freshness_follow_up":
+      return citedProjectAnswer(
+        scenario.id === "strongest_accomplishments_freshness_follow_up"
+          ? { ...base, knowledgeRefreshRunId: "refresh-current-head" }
+          : base,
+        `## Strongest accomplishments
 
 ### 1. Career-content product and trusted artifacts
 Built a career-content platform that turns repository evidence into resume bullets, LinkedIn content, and project summaries. It does this by routing reusable Highlights into artifact generation, which keeps outputs useful while preserving source-backed trust. [citation:1]
@@ -112,7 +139,8 @@ Implemented multi-turn project chat using retrieval, claim-local citations, and 
 Combined Bedrock structured generation with durable workflow orchestration, explicit budgets, and retry-safe boundaries. This allows long-running AI work to recover from transient failures without losing progress or silently returning unsupported claims. [citation:4]
 
 ### 5. Governed knowledge lifecycle
-Built review, supersession, staleness reconciliation, and provenance handling around Highlights and Project Facts. By preserving reviewed successors and evidence links, Workbase can update what it knows while keeping downstream artifacts and answers auditable. [citation:5]`);
+Built review, supersession, staleness reconciliation, and provenance handling around Highlights and Project Facts. By preserving reviewed successors and evidence links, Workbase can update what it knows while keeping downstream artifacts and answers auditable. [citation:5]`,
+      );
     case "recruiter_top_three":
       return citedProjectAnswer(base, `## Top three accomplishments
 
@@ -385,6 +413,7 @@ describe("project-chat application scenario runner", () => {
     expect(projectChatApplicationScenarios.map((scenario) => scenario.id)).toEqual([
       "memory_answer",
       "strongest_accomplishments",
+      "strongest_accomplishments_freshness_follow_up",
       "recruiter_top_three",
       "concise_project_overview",
       "repository_knowledge_data_flow",
@@ -446,7 +475,8 @@ describe("project-chat application scenario runner", () => {
       ),
     )).toEqual([]);
     expect(suite.passed).toBe(true);
-    expect(suite.results).toHaveLength(40);
+    expect(suite.results).toHaveLength(41);
+    expect(suite.results.find((result) => result.scenario.id === "strongest_accomplishments_freshness_follow_up")?.observation.historyMessageCount).toBe(2);
     expect(suite.results.find((result) => result.scenario.id === "conversation_follow_up")?.observation.historyMessageCount).toBe(2);
     expect(suite.results.find((result) => result.scenario.id === "prior_turn_provenance")?.observation.historyMessageCount).toBe(4);
     expect(cleanup).toHaveBeenCalledOnce();
@@ -713,6 +743,80 @@ describe("project-chat application scenario runner", () => {
     }
   });
 
+  it("rejects the exact irrelevant one-line Bedrock implementation-detail regression", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "strongest_accomplishments_freshness_follow_up",
+    )!;
+    const observation = successfulObservation(scenario, 2);
+    const answer =
+      "src/lib/bedrock-converse-agent.ts contains the explicit conditional exit throw under iterations >= limits.maxIterations at line 956. [citation:1]";
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      answer,
+      citationCount: 1,
+      citationKinds: ["project_fact"],
+      citationOrdinals: [1],
+      citationMetadata: [{
+        ordinal: 1,
+        type: "project_fact",
+        title: "Project Fact · behavior",
+        statement: answer,
+      }],
+    });
+
+    expect(result.passed).toBe(false);
+    const failedChecks = result.checks.filter((check) => !check.passed);
+    expect(failedChecks.map((check) => check.name)).toEqual(expect.arrayContaining([
+      "answer has sufficient substance",
+      "answer contains enough primary items",
+      "answer develops its major points",
+      "answer grounds its major points with claim-local citations",
+      "freshness follow-up remained a multi-source synthesis",
+    ]));
+    expect(failedChecks.some((check) =>
+      check.name.includes("bedrock-converse-agent")
+    )).toBe(true);
+    expect(failedChecks.some((check) =>
+      check.name.includes("maxIterations")
+    )).toBe(true);
+  });
+
+  it("rejects a freshness follow-up backed by degraded or mismatched refresh heads", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "strongest_accomplishments_freshness_follow_up",
+    )!;
+    const observation = successfulObservation(scenario, 2);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      knowledgeRefresh: {
+        ...observation.knowledgeRefresh!,
+        qualityStatus: "degraded",
+        completedHeads: [{
+          sourceId: "source-workbase",
+          repository: "arkb75/Workbase",
+          commitSha: "b".repeat(40),
+        }],
+        coverageGapCount: 4,
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "freshness follow-up required verified semantic coverage",
+        passed: false,
+      }),
+      expect.objectContaining({
+        name: "freshness follow-up completed the exact target heads",
+        passed: false,
+      }),
+      expect.objectContaining({
+        name: "freshness follow-up retained no refresh coverage gaps",
+        passed: false,
+      }),
+    ]));
+  });
+
   it("enforces exact requested counts, claim-local citations, and reader-facing prioritization", () => {
     const scenario = projectChatApplicationScenarios.find((entry) => entry.id === "recruiter_top_three")!;
     const observation = successfulObservation(scenario, 0);
@@ -782,6 +886,46 @@ describe("project-chat application scenario runner", () => {
       },
     });
     expect(executed).toEqual(["memory_answer", "conversation_follow_up", "prior_turn_provenance"]);
+    expect(suite.passed).toBe(true);
+  });
+
+  it("runs the literal accomplishments turn before its exact freshness follow-up on one thread", async () => {
+    const executed: string[] = [];
+    const threadIds: string[] = [];
+    const messageCountByThread = new Map<string, number>();
+    const suite = await runProjectChatApplicationScenarios({
+      scenarioIds: ["strongest_accomplishments_freshness_follow_up"],
+      driver: {
+        async run(scenario) {
+          executed.push(scenario.id);
+          const history = messageCountByThread.get(scenario.threadKey) ?? 0;
+          messageCountByThread.set(scenario.threadKey, history + 2);
+          const observation = successfulObservation(scenario, history);
+          threadIds.push(observation.threadId);
+          return observation;
+        },
+        async cleanup() {},
+      },
+    });
+
+    expect(executed).toEqual([
+      "strongest_accomplishments",
+      "strongest_accomplishments_freshness_follow_up",
+    ]);
+    expect(new Set(threadIds).size).toBe(1);
+    expect(suite.results[0]?.scenario.question).toBe("Summarize my strongest accomplishments");
+    expect(suite.results[1]?.scenario.question).toBe("make sure your understanding is up to date");
+    expect(suite.results[1]?.observation.historyMessageCount).toBe(2);
+    expect(suite.results[1]?.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "freshness follow-up reused the exact accomplishments thread",
+        passed: true,
+      }),
+      expect.objectContaining({
+        name: "freshness follow-up received the baseline citation manifest intact",
+        passed: true,
+      }),
+    ]));
     expect(suite.passed).toBe(true);
   });
 

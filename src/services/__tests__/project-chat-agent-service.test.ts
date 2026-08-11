@@ -11,6 +11,7 @@ import {
   isRetryFollowUp,
   projectAnswerGroundingModeForQuestion,
   requiresLiveRepositoryResearch,
+  resolveProjectChatAnswerObjective,
   selectProjectChatHistory,
   usesDeterministicEditorialSynthesis,
 } from "@/src/services/project-chat-agent-service";
@@ -95,6 +96,11 @@ describe("project chat repository intent", () => {
     "Inspect arkb75/PrivateOtherRepo and compare its architecture.",
     "Can you check the repo for the latest implementation?",
     "Summarize my strongest accomplishments and make sure your information is up to date.",
+    "make sure your understanding is up to date",
+    "Please ensure your knowledge is current before answering.",
+    "Update your understanding before you respond.",
+    "Is the information you are using up to date?",
+    "Make sure your context reflects the latest changes.",
   ])("forces live research for %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(true);
   });
@@ -186,6 +192,15 @@ describe("project chat repository intent", () => {
     "What are the current review statuses?",
     "Show the latest message in this thread.",
   ])("does not refresh repositories for conversational freshness in %s", (question) => {
+    expect(requiresLiveRepositoryResearch(question)).toBe(false);
+  });
+
+  it.each([
+    "What is the current status of the repository refresh?",
+    "Is the repository refresh still running?",
+    "When did the latest knowledge refresh finish?",
+    "Check the repository refresh status.",
+  ])("does not recursively start repository work for refresh-status question %s", (question) => {
     expect(requiresLiveRepositoryResearch(question)).toBe(false);
   });
 
@@ -301,6 +316,52 @@ describe("project chat repository intent", () => {
     expect(query).toContain("Prior assistant answer: A durable workflow coordinates project chat and artifact generation.");
     expect(query).toContain('"type":"project_fact","title":"Durable workflow orchestration"');
     expect(query.length).toBeLessThanOrEqual(4_000);
+  });
+
+  it("carries the exact accomplishments objective through an epistemic freshness follow-up", () => {
+    const history = [
+      {
+        id: "user-accomplishments",
+        role: "user" as const,
+        content: "Summarize my strongest accomplishments",
+        citations: [],
+      },
+      {
+        id: "assistant-accomplishments",
+        role: "assistant" as const,
+        content: "A broad five-part accomplishments summary.",
+        citations: [
+          { ordinal: 1, kind: "project_fact", label: "Career artifact pipeline" },
+          { ordinal: 2, kind: "highlight", label: "Repository intelligence" },
+        ],
+      },
+    ];
+    const currentQuestion = "make sure your understanding is up to date";
+    const objective = resolveProjectChatAnswerObjective({ currentQuestion, history });
+    const query = buildContextualRetrievalQuery({ currentQuestion, history });
+
+    expect(objective).toBe("Summarize my strongest accomplishments");
+    expect(classifyProjectAnswerEditorialProfile(objective)).toMatchObject({
+      kind: "accomplishment",
+      targetItemCount: { minimum: 4, preferred: 5, maximum: 6 },
+    });
+    expect(query).toContain(`Current question: ${currentQuestion}`);
+    expect(query).toContain("Prior user objective: Summarize my strongest accomplishments");
+    expect(query).toContain("Prior assistant answer: A broad five-part accomplishments summary.");
+    expect(query).toContain('"title":"Career artifact pipeline"');
+  });
+
+  it("does not replace an explicit refresh-status question with the prior accomplishments objective", () => {
+    const currentQuestion = "What is the current status of the repository refresh?";
+    const history = [{
+      id: "user-accomplishments",
+      role: "user" as const,
+      content: "Summarize my strongest accomplishments",
+      citations: [],
+    }];
+
+    expect(resolveProjectChatAnswerObjective({ currentQuestion, history })).toBe(currentQuestion);
+    expect(buildContextualRetrievalQuery({ currentQuestion, history })).toBe(currentQuestion);
   });
 
   it("keeps an independent turn free of unrelated history", () => {

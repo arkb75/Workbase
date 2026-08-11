@@ -17,6 +17,7 @@ import {
 export type ProjectChatApplicationScenarioId =
   | "memory_answer"
   | "strongest_accomplishments"
+  | "strongest_accomplishments_freshness_follow_up"
   | "recruiter_top_three"
   | "concise_project_overview"
   | "repository_knowledge_data_flow"
@@ -107,6 +108,34 @@ export interface ProjectChatApplicationArtifactObservation {
   usedEvidenceCount: number;
 }
 
+export interface ProjectChatApplicationKnowledgeRefreshObservation {
+  trigger: string;
+  status: string;
+  qualityStatus: string;
+  targetHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  completedHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  coverageGapCount: number;
+}
+
+export interface ProjectChatApplicationRepositoryCitationFreshnessObservation {
+  targetHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  repositoryDerivedCitationCount: number;
+  currentRepositoryDerivedCitationCount: number;
+  staleCitationOrdinals: number[];
+}
+
 export interface ProjectChatApplicationModelAttribution {
   providers: string[];
   configuredModelIds: string[];
@@ -164,6 +193,9 @@ export interface ProjectChatApplicationObservation {
   tools: string[];
   /** A refresh attached to this turn, even when it reused a completed run. */
   knowledgeRefreshRunId?: string | null;
+  knowledgeRefresh?: ProjectChatApplicationKnowledgeRefreshObservation | null;
+  repositoryCitationFreshness?:
+    ProjectChatApplicationRepositoryCitationFreshnessObservation | null;
   historyMessageCount: number;
   historyCharacterCount: number;
   historyCitationManifestCount: number;
@@ -204,6 +236,30 @@ const noRepositoryWork = {
   maxRepositoryVisibleBytes: 0,
 } as const;
 
+const strongestAccomplishmentsAnswerContract = {
+  minCharacters: 900,
+  maxCharacters: 5_500,
+  minReaderThemes: 5,
+  minPrimaryItems: 4,
+  maxPrimaryItems: 6,
+  minDevelopedItems: 4,
+  minMechanismValueItems: 3,
+  minCitedItems: 4,
+  requirePrioritizedOpening: true,
+  forbidInternalInventory: true,
+  format: "markdown",
+  requiredPatterns: [
+    "career content|resume|artifact",
+    "repository (?:knowledge|refresh|intelligence)|semantic analys",
+    "project chat|retriev|ground",
+    "workflow|openrouter|model runtime|structured generation",
+  ],
+  forbiddenPatterns: [
+    "\\b(?:every|all) (?:file|subsystem|capability)\\b",
+    "\\b512[- ]dimension(?:al)?\\b",
+  ],
+} satisfies ProjectChatAnswerQualityContract;
+
 export const projectChatApplicationScenarios = [
   {
     id: "memory_answer",
@@ -223,33 +279,37 @@ export const projectChatApplicationScenarios = [
   },
   {
     id: "strongest_accomplishments",
-    title: "Prioritized, current strongest-accomplishments synthesis",
-    question: "Summarize my strongest accomplishments and make sure your information is up to date.",
+    title: "Prioritized strongest-accomplishments synthesis",
+    question: "Summarize my strongest accomplishments",
+    workspace: "project_memory",
+    threadKey: "strongest_accomplishments",
+    allowResearch: false,
+    captureUserContext: false,
+    answerContract: strongestAccomplishmentsAnswerContract,
+    envelope: {
+      maxLatencyMs: 30_000,
+      maxModelCalls: 2,
+      maxTotalTokens: 35_000,
+      maxEstimatedCostUsd: 0.28,
+      ...noRepositoryWork,
+    },
+  },
+  {
+    id: "strongest_accomplishments_freshness_follow_up",
+    title: "Exact freshness follow-up preserves the accomplishments objective",
+    question: "make sure your understanding is up to date",
     workspace: "project_memory",
     threadKey: "strongest_accomplishments",
     allowResearch: false,
     captureUserContext: false,
     answerContract: {
-      minCharacters: 900,
-      maxCharacters: 5_500,
-      minReaderThemes: 5,
-      minPrimaryItems: 4,
-      maxPrimaryItems: 6,
-      minDevelopedItems: 4,
-      minMechanismValueItems: 3,
-      minCitedItems: 4,
-      requirePrioritizedOpening: true,
-      forbidInternalInventory: true,
-      format: "markdown",
-      requiredPatterns: [
-        "career content|resume|artifact",
-        "repository (?:knowledge|refresh|intelligence)|semantic analys",
-        "project chat|retriev|ground",
-        "workflow|openrouter|model runtime|structured generation",
-      ],
+      ...strongestAccomplishmentsAnswerContract,
       forbiddenPatterns: [
-        "\\b(?:every|all) (?:file|subsystem|capability)\\b",
-        "\\b512[- ]dimension(?:al)?\\b",
+        ...strongestAccomplishmentsAnswerContract.forbiddenPatterns,
+        "src/lib/bedrock-converse-agent\\.ts",
+        "iterations\\s*>=\\s*(?:limits\\.)?maxIterations",
+        "\\bline\\s+956\\b",
+        "explicit conditional exit (?:`?throw`?|condition)",
       ],
     },
     envelope: {
@@ -1150,6 +1210,16 @@ function canonicalCitationSetMatches(observation: ProjectChatApplicationObservat
   return used.length === observation.citationCount && used.every((ordinal, index) => ordinal === index + 1);
 }
 
+function knowledgeRefreshHeadIdentity(
+  heads: ProjectChatApplicationKnowledgeRefreshObservation["targetHeads"],
+) {
+  return heads
+    .map((head) =>
+      `${head.sourceId}:${head.repository.toLowerCase()}@${head.commitSha.toLowerCase()}`
+    )
+    .sort();
+}
+
 function architectureAreaCount(answer: string) {
   return [
     /career content|resume|linkedin|project summar/i,
@@ -1317,6 +1387,22 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "general project answer is grounded", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "current memory answer avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
       break;
+    case "strongest_accomplishments_freshness_follow_up":
+      {
+      const minimumCitedItems = scenario.answerContract?.minCitedItems ?? 4;
+      addCheck(checks, "freshness follow-up completed", observation.outcome === "answered", observation.outcome, "answered");
+      addCheck(checks, "freshness follow-up received exactly the preceding user and assistant messages", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
+      addCheck(checks, "freshness follow-up retained the prior cited-source manifest", observation.historyCitationManifestCount >= minimumCitedItems, observation.historyCitationManifestCount, minimumCitedItems);
+      addCheck(checks, "freshness follow-up attached the latest-head repository barrier", Boolean(observation.knowledgeRefreshRunId), Boolean(observation.knowledgeRefreshRunId), true);
+      addCheck(checks, "freshness follow-up used the chat-freshness trigger", observation.knowledgeRefresh?.trigger === "chat_freshness", observation.knowledgeRefresh?.trigger ?? "missing", "chat_freshness");
+      addCheck(checks, "freshness follow-up waited for refresh completion", observation.knowledgeRefresh?.status === "completed", observation.knowledgeRefresh?.status ?? "missing", "completed");
+      addCheck(checks, "freshness follow-up required verified semantic coverage", observation.knowledgeRefresh?.qualityStatus === "verified", observation.knowledgeRefresh?.qualityStatus ?? "missing", "verified");
+      addCheck(checks, "freshness follow-up completed the exact target heads", Boolean(observation.knowledgeRefresh?.targetHeads.length) && JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? [])) === JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? [])), knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? []).join(", ") || "missing", knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? []).join(", ") || "non-empty exact target heads");
+      addCheck(checks, "freshness follow-up retained no refresh coverage gaps", observation.knowledgeRefresh?.coverageGapCount === 0, observation.knowledgeRefresh?.coverageGapCount ?? -1, 0);
+      addCheck(checks, "freshness follow-up remained a multi-source synthesis", observation.citationCount >= minimumCitedItems, observation.citationCount, minimumCitedItems);
+      addCheck(checks, "freshness follow-up avoided redundant targeted repository research", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
+      break;
+      }
     case "insufficient_context_follow_up":
       addCheck(checks, "evidence-gap follow-up completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "evidence-gap follow-up received the prior turn", observation.historyMessageCount >= 2, observation.historyMessageCount, 2);
@@ -1580,12 +1666,16 @@ function mergeProfileAttribution(
 export async function runProjectChatApplicationScenarios(input: {
   driver: ProjectChatApplicationDriver;
   scenarioIds?: readonly ProjectChatApplicationScenarioId[];
+  scenarioCatalog?: readonly ProjectChatApplicationScenario[];
 }) {
   const requested = new Set(input.scenarioIds ?? []);
   // Referential scenarios must execute against the real preceding turns; a
   // standalone fabricated prior message would defeat the purpose of this
   // application-level suite.
   if (requested.has("conversation_follow_up")) requested.add("memory_answer");
+  if (requested.has("strongest_accomplishments_freshness_follow_up")) {
+    requested.add("strongest_accomplishments");
+  }
   if (requested.has("prior_turn_provenance")) {
     requested.add("memory_answer");
     requested.add("conversation_follow_up");
@@ -1596,14 +1686,51 @@ export async function runProjectChatApplicationScenarios(input: {
   if (requested.has("insufficient_context_follow_up")) {
     requested.add("unsupported_deployment_topology");
   }
+  const scenarioCatalog = input.scenarioCatalog ?? projectChatApplicationScenarios;
   const selected = requested.size
-    ? projectChatApplicationScenarios.filter((scenario) => requested.has(scenario.id))
-    : [...projectChatApplicationScenarios];
+    ? scenarioCatalog.filter((scenario) => requested.has(scenario.id))
+    : [...scenarioCatalog];
   const results: ProjectChatApplicationScenarioResult[] = [];
   try {
     for (const scenario of selected) {
       const observation = await input.driver.run(scenario);
       results.push(evaluateProjectChatApplicationObservation(scenario, observation));
+    }
+    const accomplishmentsBaseline = results.find(
+      (result) => result.scenario.id === "strongest_accomplishments",
+    );
+    const accomplishmentsFreshnessFollowUp = results.find(
+      (result) =>
+        result.scenario.id ===
+          "strongest_accomplishments_freshness_follow_up",
+    );
+    if (accomplishmentsBaseline && accomplishmentsFreshnessFollowUp) {
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up reused the exact accomplishments thread",
+        accomplishmentsFreshnessFollowUp.observation.threadId ===
+          accomplishmentsBaseline.observation.threadId,
+        accomplishmentsFreshnessFollowUp.observation.threadId,
+        accomplishmentsBaseline.observation.threadId,
+      );
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up remained on the same Work Item",
+        accomplishmentsFreshnessFollowUp.observation.workItemId ===
+          accomplishmentsBaseline.observation.workItemId,
+        accomplishmentsFreshnessFollowUp.observation.workItemId,
+        accomplishmentsBaseline.observation.workItemId,
+      );
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up received the baseline citation manifest intact",
+        accomplishmentsFreshnessFollowUp.observation.historyCitationManifestCount ===
+          accomplishmentsBaseline.observation.citationCount,
+        accomplishmentsFreshnessFollowUp.observation.historyCitationManifestCount,
+        accomplishmentsBaseline.observation.citationCount,
+      );
+      accomplishmentsFreshnessFollowUp.passed =
+        accomplishmentsFreshnessFollowUp.checks.every((check) => check.passed);
     }
   } finally {
     await input.driver.cleanup();

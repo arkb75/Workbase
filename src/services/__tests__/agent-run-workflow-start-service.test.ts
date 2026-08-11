@@ -200,6 +200,59 @@ describe("startAgentRunWorkflowOnce", () => {
     expect(failAgentRun).not.toHaveBeenCalled();
   });
 
+  it("cancels late remote acceptance after the application timeout fences the reservation as failed", async () => {
+    cancel.mockResolvedValue(undefined);
+    prismaMock.agentRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        workflowId: null,
+        status: "queued",
+        updatedAt: new Date(),
+      })
+      .mockResolvedValue({
+        workflowId: null,
+        status: "failed",
+        updatedAt: new Date(),
+      });
+    prismaMock.agentRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    const startWorkflow = vi.fn().mockResolvedValue({
+      runId: "wrun-late-after-manual-timeout",
+    });
+
+    await expect(startAgentRunWorkflowOnce({
+      runId: "manual-run-timeout",
+      startWorkflow,
+    })).rejects.toThrow("became terminal");
+    expect(cancel).toHaveBeenCalledWith("wrun-late-after-manual-timeout");
+    expect(failAgentRun).not.toHaveBeenCalled();
+  });
+
+  it("cancels an accepted workflow when Work Item deletion removes its run before attachment", async () => {
+    cancel.mockResolvedValue(undefined);
+    prismaMock.agentRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        workflowId: null,
+        status: "queued",
+        updatedAt: new Date(),
+      })
+      .mockRejectedValue(new Error("AgentRun not found"));
+    prismaMock.agentRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    const startWorkflow = vi.fn().mockResolvedValue({ runId: "wrun-delete-orphan" });
+
+    await expect(
+      startAgentRunWorkflowOnce({ runId: "run-deleted", startWorkflow }),
+    ).rejects.toThrow("deleted while its workflow was starting");
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledWith("wrun-delete-orphan");
+    expect(failAgentRun).not.toHaveBeenCalled();
+  });
+
   it("clears its temporary reservation and terminalizes the run when workflow startup fails", async () => {
     prismaMock.agentRun.findUniqueOrThrow.mockResolvedValue({
       workflowId: null,

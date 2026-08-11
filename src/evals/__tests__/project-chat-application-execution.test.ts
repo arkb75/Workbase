@@ -26,7 +26,7 @@ describe("project-chat application execution", () => {
   it("routes Bedrock freshness-required general chat through the durable workflow", () => {
     expect(projectChatApplicationExecutionMode({
       provider: "bedrock",
-      scenario: scenario("strongest_accomplishments"),
+      scenario: scenario("strongest_accomplishments_freshness_follow_up"),
     })).toBe("durable_workflow");
     expect(projectChatApplicationExecutionMode({
       provider: "bedrock",
@@ -37,7 +37,7 @@ describe("project-chat application execution", () => {
   it("routes OpenRouter freshness-required general chat through the same durable workflow", () => {
     expect(projectChatApplicationExecutionMode({
       provider: "openrouter",
-      scenario: scenario("strongest_accomplishments"),
+      scenario: scenario("strongest_accomplishments_freshness_follow_up"),
     })).toBe("durable_workflow");
     expect(projectChatApplicationExecutionMode({
       provider: "openrouter",
@@ -49,6 +49,10 @@ describe("project-chat application execution", () => {
     expect(projectChatApplicationExecutionMode({
       provider: "bedrock",
       scenario: scenario("memory_answer"),
+    })).toBe("inline_agent");
+    expect(projectChatApplicationExecutionMode({
+      provider: "bedrock",
+      scenario: scenario("strongest_accomplishments"),
     })).toBe("inline_agent");
     expect(projectChatApplicationExecutionMode({
       provider: "bedrock",
@@ -67,7 +71,7 @@ describe("project-chat application execution", () => {
 
     await expect(executeProjectChatApplicationTurn({
       provider: "bedrock",
-      scenario: scenario("strongest_accomplishments"),
+      scenario: scenario("strongest_accomplishments_freshness_follow_up"),
       runInline,
       startDurable,
       waitForDurable,
@@ -85,7 +89,7 @@ describe("project-chat application execution", () => {
     const runInline = vi.fn();
     await expect(executeProjectChatApplicationTurn({
       provider: "bedrock",
-      scenario: scenario("strongest_accomplishments"),
+      scenario: scenario("strongest_accomplishments_freshness_follow_up"),
       runInline,
       startDurable: vi.fn().mockRejectedValue(new Error("start failed")),
       waitForDurable: vi.fn(),
@@ -94,7 +98,7 @@ describe("project-chat application execution", () => {
 
     await expect(executeProjectChatApplicationTurn({
       provider: "bedrock",
-      scenario: scenario("strongest_accomplishments"),
+      scenario: scenario("strongest_accomplishments_freshness_follow_up"),
       runInline,
       startDurable: vi.fn().mockResolvedValue("wrun-failed"),
       waitForDurable: vi.fn().mockRejectedValue(new Error("workflow failed")),

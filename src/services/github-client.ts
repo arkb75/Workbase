@@ -26,6 +26,48 @@ const defaultHeaders = {
   "X-GitHub-Api-Version": "2022-11-28",
 } as const;
 
+export const DEFAULT_GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+
+export class GitHubApiError extends Error {
+  readonly status: number | null;
+  readonly path: string;
+  readonly retryable: boolean;
+
+  constructor(input: {
+    message: string;
+    status: number | null;
+    path: string;
+    retryable: boolean;
+  }) {
+    super(input.message);
+    this.name = "GitHubApiError";
+    this.status = input.status;
+    this.path = input.path;
+    this.retryable = input.retryable;
+  }
+}
+
+function githubRequestTimeoutMs() {
+  const configured = Number(process.env.WORKBASE_GITHUB_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_GITHUB_REQUEST_TIMEOUT_MS;
+}
+
+function requestSignal(callerSignal?: AbortSignal) {
+  const timeoutSignal = AbortSignal.timeout(githubRequestTimeoutMs());
+  return callerSignal
+    ? AbortSignal.any([callerSignal, timeoutSignal])
+    : timeoutSignal;
+}
+
+function rateLimitResetAt(value: string | null) {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp * 1_000).toISOString()
+    : "unknown";
+}
+
 function mapRepositorySummary(
   repository: z.infer<typeof githubRepositorySummarySchema>,
 ): GitHubRepositorySummary {
@@ -55,23 +97,44 @@ async function fetchJson<T>({
   init?: RequestInit;
   transientRetries?: number;
 }) {
+  const callerSignal = init?.signal ?? undefined;
+  const signal = requestSignal(callerSignal);
+
   for (let attempt = 0; ; attempt += 1) {
-    const response = await fetch(`${resolveGitHubConfig().apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        ...defaultHeaders,
-        Authorization: `Bearer ${token}`,
-        ...(init?.headers ?? {}),
-      },
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${resolveGitHubConfig().apiBaseUrl}${path}`, {
+        ...init,
+        signal,
+        headers: {
+          ...defaultHeaders,
+          Authorization: `Bearer ${token}`,
+          ...(init?.headers ?? {}),
+        },
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (callerSignal?.aborted) throw error;
+      throw new GitHubApiError({
+        message: signal.aborted
+          ? `GitHub API request timed out for ${path}.`
+          : `GitHub API request failed before a response was received for ${path}.`,
+        status: null,
+        path,
+        retryable: true,
+      });
+    }
 
     if (!response.ok) {
       const remaining = response.headers.get("x-ratelimit-remaining");
       const reset = response.headers.get("x-ratelimit-reset");
       if (response.status === 429 || (response.status === 403 && remaining === "0")) {
-        const resetAt = reset ? new Date(Number(reset) * 1_000).toISOString() : "unknown";
-        throw new Error(`GitHub API rate limit exceeded for ${path}; reset at ${resetAt}.`);
+        throw new GitHubApiError({
+          message: `GitHub API rate limit exceeded for ${path}; reset at ${rateLimitResetAt(reset)}.`,
+          status: response.status,
+          path,
+          retryable: true,
+        });
       }
       if (
         response.status >= 500 &&
@@ -82,24 +145,28 @@ async function fetchJson<T>({
         // single object. Keep retries bounded and inside the same logical
         // repository read so they cannot consume the agent's file-read budget.
         await new Promise<void>((resolve, reject) => {
-          const signal = init?.signal;
           const onAbort = () => {
             clearTimeout(timeout);
-            reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
           };
           const timeout = setTimeout(() => {
-            signal?.removeEventListener("abort", onAbort);
+            signal.removeEventListener("abort", onAbort);
             resolve();
           }, 100 * (2 ** attempt));
-          if (signal?.aborted) {
+          if (signal.aborted) {
             onAbort();
             return;
           }
-          signal?.addEventListener("abort", onAbort, { once: true });
+          signal.addEventListener("abort", onAbort, { once: true });
         });
         continue;
       }
-      throw new Error(`GitHub API request failed (${response.status}) for ${path}`);
+      throw new GitHubApiError({
+        message: `GitHub API request failed (${response.status}) for ${path}`,
+        status: response.status,
+        path,
+        retryable: response.status >= 500 && response.status <= 599,
+      });
     }
 
     const json = await response.json();
@@ -243,29 +310,20 @@ export async function fetchGitHubReadme(input: {
   owner: string;
   repo: string;
 }) {
-  const readmeCandidates = [
-    "README.md",
-    "README.mdx",
-    "README.rst",
-    "README.txt",
-    "readme.md",
-  ];
-
-  for (const path of readmeCandidates) {
-    try {
-      const file = await fetchJson({
-        path: `/repos/${input.owner}/${input.repo}/contents/${path}`,
-        token: input.token,
-        schema: githubContentFileSchema,
-      });
-
-      return file;
-    } catch {
-      continue;
+  try {
+    return await fetchJson({
+      path: `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+        input.repo,
+      )}/readme`,
+      token: input.token,
+      schema: githubContentFileSchema,
+    });
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 404) {
+      return null;
     }
+    throw error;
   }
-
-  return null;
 }
 
 export async function fetchGitHubCommitList(input: {

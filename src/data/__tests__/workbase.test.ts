@@ -22,6 +22,9 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     count: vi.fn(),
   },
+  knowledgeRefreshRun: {
+    findMany: vi.fn(),
+  },
   $transaction: vi.fn(async (queries: Array<Promise<unknown>>) => Promise.all(queries)),
 }));
 
@@ -46,6 +49,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
     prismaMock.highlight.findMany.mockResolvedValue([]);
     prismaMock.projectFact.count.mockResolvedValue(0);
     prismaMock.projectFact.findMany.mockResolvedValue([]);
+    prismaMock.knowledgeRefreshRun.findMany.mockResolvedValue([]);
   });
 
   it("loads only bounded full review records while returning exact pending counts", async () => {
@@ -88,6 +92,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
       updatedAt: new Date("2026-07-16T00:00:00.000Z"),
       highlights: [{ id: "sensitive-highlight" }],
       projectFacts: [],
+      agentRuns: [{ id: "manual-run-active", status: "running" }],
     });
 
     const result = await getWorkItemChatShellForUser("user-1", "work-item-1");
@@ -118,6 +123,11 @@ describe("getWorkItemForUser knowledge review loading", () => {
           },
           take: 1,
         },
+        agentRuns: {
+          where: { kind: "manual_evidence_highlights" },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: 1,
+        },
       },
     });
     expect(result.sensitiveContextAvailable).toBe(true);
@@ -129,10 +139,11 @@ describe("getWorkItemForUser knowledge review loading", () => {
       evidenceItems: [],
       artifacts: [],
       knowledgeChanges: [],
+      agentRuns: [{ id: "manual-run-active", status: "running" }],
     });
   });
 
-  it("loads only sources and evidence for the Sources workspace", async () => {
+  it("loads Sources evidence plus active or import-linked refresh state", async () => {
     prismaMock.workItem.findFirstOrThrow.mockResolvedValue({
       id: "work-item-1",
       userId: "user-1",
@@ -143,9 +154,27 @@ describe("getWorkItemForUser knowledge review loading", () => {
       updatedAt: new Date("2026-07-16T00:00:00.000Z"),
       sources: [
         { id: "description", metadata: { kind: "work_item_description" } },
-        { id: "repository", metadata: { repository: "owner/repo" } },
+        {
+          id: "repository",
+          metadata: {
+            repository: "owner/repo",
+            repositoryImport: {
+              requestId: "request-1",
+              status: "evidence_ready",
+              requestedAt: "2026-08-09T00:00:00.000Z",
+              refreshRunId: "refresh-1",
+            },
+          },
+        },
       ],
+      agentRuns: [{ id: "manual-run-active", status: "running" }],
     });
+    prismaMock.knowledgeRefreshRun.findMany.mockResolvedValue([{
+      id: "refresh-1",
+      workItemId: "work-item-1",
+      status: "reconciling",
+      progress: { analyzedFiles: 20 },
+    }]);
     prismaMock.evidenceItem.count
       .mockResolvedValueOnce(62)
       .mockResolvedValueOnce(41);
@@ -166,11 +195,39 @@ describe("getWorkItemForUser knowledge review loading", () => {
 
     const query = prismaMock.workItem.findFirstOrThrow.mock.calls[0]?.[0];
     expect(query.where).toEqual({ id: "work-item-1", userId: "user-1" });
-    expect(Object.keys(query.include)).toEqual(["sources"]);
+    expect(Object.keys(query.include)).toEqual(["sources", "agentRuns"]);
+    expect(prismaMock.knowledgeRefreshRun.findMany).toHaveBeenCalledWith({
+      where: {
+        workItemId: "work-item-1",
+        OR: [
+          {
+            status: {
+              in: [
+                "queued",
+                "inventorying",
+                "analyzing",
+                "routing",
+                "semantic_analysis",
+                "auditing",
+                "reconciling",
+              ],
+            },
+          },
+          { id: { in: ["refresh-1"] } },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
     expect(result.visibleSourceCount).toBe(1);
     expect(result.includedEvidenceCount).toBe(41);
     expect(result.workItem.sources).toHaveLength(2);
     expect(result.workItem.evidenceItems).toHaveLength(2);
+    expect(result.workItem.knowledgeRefreshRuns).toEqual([
+      expect.objectContaining({ id: "refresh-1", status: "reconciling", snapshots: [] }),
+    ]);
+    expect(result.workItem.agentRuns).toEqual([
+      { id: "manual-run-active", status: "running" },
+    ]);
     expect(result.evidenceTypeCounts).toEqual({ github_commit: 62 });
     expect(prismaMock.evidenceItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 30, take: 30 }),
@@ -192,6 +249,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
       evidenceItems: [],
       generationRuns: [],
       artifacts: [],
+      agentRuns: [{ id: "manual-run-failed", status: "failed" }],
     });
 
     const result = await getWorkItemWorkspaceForUser("user-1", "work-item-1", "artifacts");
@@ -202,6 +260,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
       "evidenceItems",
       "generationRuns",
       "artifacts",
+      "agentRuns",
     ]);
     expect(query.include.generationRuns.where.kind.in).toEqual([
       "artifact_retrieval",
@@ -210,6 +269,9 @@ describe("getWorkItemForUser knowledge review loading", () => {
     expect(prismaMock.knowledgeChange.findMany).not.toHaveBeenCalled();
     expect(result.workItem.projectFacts).toEqual([]);
     expect(result.workItem.knowledgeRefreshRuns).toEqual([]);
+    expect(result.workItem.agentRuns).toEqual([
+      { id: "manual-run-failed", status: "failed" },
+    ]);
   });
 
   it("loads the review inbox only for the Highlights workspace", async () => {
@@ -227,6 +289,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
       highlightSuggestions: [],
       generationRuns: [],
       knowledgeRefreshRuns: [],
+      agentRuns: [],
       _count: { evidenceItems: 7, highlightSuggestions: 4 },
     });
     prismaMock.knowledgeChange.findMany
@@ -273,6 +336,7 @@ describe("getWorkItemForUser knowledge review loading", () => {
       "highlightSuggestions",
       "generationRuns",
       "knowledgeRefreshRuns",
+      "agentRuns",
       "_count",
     ]);
     expect(query.include).not.toHaveProperty("evidenceItems");

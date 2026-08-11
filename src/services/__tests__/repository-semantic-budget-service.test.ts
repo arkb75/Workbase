@@ -107,6 +107,7 @@ describe("repository semantic task and budget", () => {
     expect(analysis.summary).toHaveLength(1_200);
     expect(analysis.facts[0]?.statement).toHaveLength(500);
     expect(analysis.unresolvedQuestions[0]).toHaveLength(300);
+    expect(generateStructuredMock.mock.calls[0]?.[0].effort).toBe("low");
   });
 
   it("reduces three uncached semantic files to one structured model call", async () => {
@@ -203,6 +204,7 @@ describe("repository semantic task and budget", () => {
     });
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("fileKey");
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
+    expect(request.effort).toBe("low");
   });
 
   it("degrades only missing or invalid file members and retains their exact gaps", async () => {

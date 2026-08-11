@@ -1,0 +1,274 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildRepositoryAccomplishmentsReport,
+  buildRepositoryAccomplishmentsScenarioCatalog,
+  parseRepositoryAccomplishmentsProfile,
+  resolveExactRepositoryAccomplishmentsTarget,
+} from "@/src/evals/repository-accomplishments-quality";
+import type {
+  ProjectChatApplicationMetrics,
+  ProjectChatApplicationScenarioResult,
+} from "@/src/evals/project-chat-application-runner";
+
+const sha = "a".repeat(40);
+
+function profile(overrides: Record<string, unknown> = {}) {
+  return parseRepositoryAccomplishmentsProfile({
+    workItemTitle: "CircleFund",
+    repository: "arkb75/CircleFund",
+    requiredCapabilityPatterns: [
+      "funding|contribution",
+      "circle|member",
+    ],
+    ...overrides,
+  });
+}
+
+const metrics: ProjectChatApplicationMetrics = {
+  latencyMs: 1_250,
+  modelCalls: 2,
+  totalTokens: 2_500,
+  estimatedCostUsd: 0.0125,
+  usageComplete: true,
+  modelAttribution: {
+    providers: ["openrouter"],
+    configuredModelIds: ["openai/gpt-5.6-terra"],
+    actualModelIds: ["openai/gpt-5.6-terra"],
+    routedProviders: ["openai"],
+    requestIds: ["request-1"],
+    failedModelIds: [],
+    providerAttempts: 2,
+    failedProviderAttempts: 0,
+    fallbackUsed: false,
+    authoritativeAttributionComplete: true,
+    profiles: {},
+  },
+  repositoryTreeLookups: 0,
+  repositorySearches: 0,
+  repositoryFileReads: 0,
+  repositoryVisibleBytes: 0,
+};
+
+function scenarioResult(
+  staleCitationOrdinals: number[] = [],
+): ProjectChatApplicationScenarioResult {
+  const scenario = buildRepositoryAccomplishmentsScenarioCatalog(
+    profile({ includeFreshnessFollowUp: false }),
+  )[0]!;
+  return {
+    scenario,
+    passed: true,
+    checks: [
+      { name: "answer develops its major points", passed: true, actual: 4, expected: 4 },
+      {
+        name: "answer grounds its major points with claim-local citations",
+        passed: true,
+        actual: 4,
+        expected: 4,
+      },
+    ],
+    observation: {
+      scenarioId: scenario.id,
+      runId: "run-1",
+      threadId: "thread-1",
+      workItemId: "work-item-circle",
+      outcome: "answered",
+      answer: [
+        "### 1. Funding workflow",
+        "Built a funding and contribution workflow that lets members coordinate durable pooled decisions. [citation:1]",
+        "### 2. Circle membership",
+        "Implemented circle and member lifecycle controls that preserve access boundaries. [citation:2]",
+        "### 3. Ledger",
+        "Designed a typed ledger that reconciles contribution state and keeps funding history auditable. [citation:3]",
+        "### 4. Recovery",
+        "Added recovery paths that allow circle operations to resume without duplicating a member action. [citation:4]",
+      ].join("\n\n"),
+      citationCount: 4,
+      citationKinds: ["project_fact", "project_fact", "highlight", "highlight"],
+      citationOrdinals: [1, 2, 3, 4],
+      tools: [],
+      repositoryCitationFreshness: {
+        targetHeads: [{
+          sourceId: "source-circle",
+          repository: "arkb75/CircleFund",
+          commitSha: sha,
+        }],
+        repositoryDerivedCitationCount: 4,
+        currentRepositoryDerivedCitationCount:
+          4 - staleCitationOrdinals.length,
+        staleCitationOrdinals,
+      },
+      historyMessageCount: 0,
+      historyCharacterCount: 0,
+      historyCitationManifestCount: 0,
+      rollingSummaryCharacterCount: 0,
+      rollingSummaryPreservedOpeningDecision: false,
+      rollingSummaryPreservedCitationManifest: false,
+      historyPreservedCurrentRuntimeContext: false,
+      candidate: null,
+      artifact: null,
+      coverageGaps: [],
+      metrics,
+      error: null,
+    },
+  };
+}
+
+describe("repository accomplishments quality harness", () => {
+  it("normalizes a reusable profile and validates every capability regex", () => {
+    expect(profile()).toMatchObject({
+      includeFreshnessFollowUp: true,
+      minimumPrimaryItems: 4,
+      maximumPrimaryItems: 6,
+      minimumDevelopedItems: 4,
+      minimumCitedItems: 4,
+    });
+    expect(() => profile({ requiredCapabilityPatterns: ["["] })).toThrow(
+      "not a valid regular expression",
+    );
+    expect(() => profile({ includeFreshnessFollowUp: "false" })).toThrow(
+      "must be a boolean",
+    );
+  });
+
+  it("selects one exact title/repository/current-head tuple with no fallback", () => {
+    const exactProfile = profile();
+    const candidates = [{
+      id: "work-item-circle",
+      title: "CircleFund",
+      sources: [{
+        id: "source-circle",
+        type: "github_repo",
+        metadata: {
+          repository: { fullName: "arkb75/CircleFund" },
+          revision: { commitSha: sha },
+        },
+        evidenceItemCount: 77,
+      }],
+    }, {
+      id: "work-item-wrong-case",
+      title: "circlefund",
+      sources: [{
+        id: "source-wrong-case",
+        type: "github_repo",
+        metadata: {
+          repository: { fullName: "arkb75/CircleFund" },
+          revision: { commitSha: sha },
+        },
+      }],
+    }];
+
+    expect(resolveExactRepositoryAccomplishmentsTarget({
+      profile: exactProfile,
+      candidates,
+    })).toEqual({
+      workItemId: "work-item-circle",
+      workItemTitle: "CircleFund",
+      sourceId: "source-circle",
+      repository: "arkb75/CircleFund",
+      commitSha: sha,
+      evidenceItemCount: 77,
+    });
+    expect(() => resolveExactRepositoryAccomplishmentsTarget({
+      profile: profile({ workItemTitle: "circlefund" }),
+      candidates: candidates.slice(0, 1),
+    })).toThrow("No fallback was attempted");
+    expect(() => resolveExactRepositoryAccomplishmentsTarget({
+      profile: profile({ repository: "arkb75/circlefund" }),
+      candidates: candidates.slice(0, 1),
+    })).toThrow("No fallback was attempted");
+  });
+
+  it("builds only the literal accomplishments prompt and optional exact follow-up", () => {
+    const scenarios = buildRepositoryAccomplishmentsScenarioCatalog(profile());
+    expect(scenarios.map((scenario) => scenario.question)).toEqual([
+      "Summarize my strongest accomplishments",
+      "make sure your understanding is up to date",
+    ]);
+    expect(scenarios[0]?.answerContract).toMatchObject({
+      minReaderThemes: 0,
+      minPrimaryItems: 4,
+      maxPrimaryItems: 6,
+      minDevelopedItems: 4,
+      requiredPatterns: ["funding|contribution", "circle|member"],
+    });
+    expect(buildRepositoryAccomplishmentsScenarioCatalog(
+      profile({ includeFreshnessFollowUp: false }),
+    )).toHaveLength(1);
+  });
+
+  it("emits comparison-ready attribution, performance, capability, and current-head results", () => {
+    const exactProfile = profile({ includeFreshnessFollowUp: false });
+    const result = scenarioResult();
+    const report = buildRepositoryAccomplishmentsReport({
+      provider: "openrouter",
+      profile: exactProfile,
+      target: {
+        workItemId: "work-item-circle",
+        workItemTitle: "CircleFund",
+        sourceId: "source-circle",
+        repository: "arkb75/CircleFund",
+        commitSha: sha,
+        evidenceItemCount: 77,
+      },
+      suite: {
+        passed: true,
+        results: [result],
+        aggregate: metrics,
+      },
+      keepEvaluationData: false,
+    });
+
+    expect(report).toMatchObject({
+      schemaVersion: "workbase-repository-accomplishments-report-v1",
+      passed: true,
+      provider: "openrouter",
+      target: { repository: "arkb75/CircleFund", commitSha: sha },
+      retention: { workItemRetained: true, evaluationDataRetained: false },
+      performance: {
+        latencyMs: 1_250,
+        totalTokens: 2_500,
+        estimatedCostUsd: 0.0125,
+      },
+      attribution: {
+        actualModelIds: ["openai/gpt-5.6-terra"],
+        authoritativeAttributionComplete: true,
+      },
+      scenarios: [{
+        passed: true,
+        quality: {
+          primaryItemCount: 4,
+          requiredCapabilityRecall: 1,
+          repositoryCitationFreshness: {
+            repositoryDerivedCitationCount: 4,
+            currentRepositoryDerivedCitationCount: 4,
+          },
+        },
+      }],
+    });
+    expect(report.comparisonKey).toMatch(
+      /^arkb75\/circlefund@[a-f0-9]{40}:[a-f0-9]{16}$/u,
+    );
+
+    const staleReport = buildRepositoryAccomplishmentsReport({
+      provider: "openrouter",
+      profile: exactProfile,
+      target: report.target,
+      suite: {
+        passed: true,
+        results: [scenarioResult([3])],
+        aggregate: metrics,
+      },
+      keepEvaluationData: false,
+    });
+    expect(staleReport.passed).toBe(false);
+    expect(staleReport.scenarios[0]?.quality.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "every repository-derived citation was current",
+          passed: false,
+        }),
+      ]),
+    );
+  });
+});

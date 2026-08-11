@@ -170,6 +170,7 @@ enum AgentRunKind {
   chat_turn
   project_research
   artifact_workflow
+  manual_evidence_highlights
   repository_refresh
   semantic_worker
   coverage_audit

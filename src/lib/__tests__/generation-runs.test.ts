@@ -4,6 +4,7 @@ import { StructuredGenerationBudgetError } from "@/src/lib/bedrock-structured-ll
 const prismaMock = vi.hoisted(() => ({
   generationRun: {
     create: vi.fn(),
+    findUnique: vi.fn(),
     findUniqueOrThrow: vi.fn(),
     update: vi.fn(),
   },
@@ -13,6 +14,9 @@ vi.mock("@/src/lib/prisma", () => ({ prisma: prismaMock }));
 
 import {
   createGenerationRun,
+  createGenerationRunIdempotently,
+  findSuccessfulGenerationRunReplay,
+  GenerationRunReplayError,
   generationRunFailureTokenUsage,
   isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
@@ -21,6 +25,96 @@ describe("generation run telemetry privacy", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetAllMocks();
+  });
+
+  it("loads only the successful parsed result bound to a workflow key", async () => {
+    prismaMock.generationRun.findUnique.mockResolvedValue({
+      id: "generation-replay",
+      workItemId: "work-item-1",
+      idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+      kind: "highlight_generation",
+      status: "success",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      inputSummary: {},
+      rawOutput: "{}",
+      parsedOutput: { highlights: [] },
+      validationErrors: null,
+      resultRefs: { agentRunId: "agent-1" },
+      tokenUsage: null,
+      estimatedCostUsd: null,
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const replay = await findSuccessfulGenerationRunReplay({
+      workItemId: "work-item-1",
+      idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+      kind: "highlight_generation",
+    });
+
+    expect(replay?.id).toBe("generation-replay");
+    expect(prismaMock.generationRun.findUnique).toHaveBeenCalledWith({
+      where: {
+        workItemId_idempotencyKey: {
+          workItemId: "work-item-1",
+          idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+        },
+      },
+    });
+  });
+
+  it("rejects a conflicting replay row before a caller can spend again", async () => {
+    prismaMock.generationRun.findUnique.mockResolvedValue({
+      id: "generation-running",
+      workItemId: "work-item-1",
+      kind: "highlight_generation",
+      status: "running",
+      parsedOutput: null,
+    });
+
+    await expect(findSuccessfulGenerationRunReplay({
+      workItemId: "work-item-1",
+      idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+      kind: "highlight_generation",
+    })).rejects.toBeInstanceOf(GenerationRunReplayError);
+  });
+
+  it("returns the successful unique-key winner after a concurrent create", async () => {
+    prismaMock.generationRun.create.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed."), { code: "P2002" }),
+    );
+    prismaMock.generationRun.findUnique.mockResolvedValue({
+      id: "generation-winner",
+      workItemId: "work-item-1",
+      idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+      kind: "highlight_generation",
+      status: "success",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      inputSummary: {},
+      rawOutput: "{}",
+      parsedOutput: { highlights: [] },
+      validationErrors: null,
+      resultRefs: { agentRunId: "agent-1" },
+      tokenUsage: null,
+      estimatedCostUsd: null,
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const winner = await createGenerationRunIdempotently({
+      workItemId: "work-item-1",
+      kind: "highlight_generation",
+      status: "success",
+      idempotencyKey: "agent-run:agent-1:highlight-generation:batch-0",
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      inputSummary: {},
+      parsedOutput: { highlights: [] },
+    });
+
+    expect(winner.id).toBe("generation-winner");
+    expect(prismaMock.generationRun.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.generationRun.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it("keeps prompt and generated content out of deployment logs", async () => {

@@ -29,7 +29,11 @@ async function waitForDisplacingWorkflow(input: {
     const current = await prisma.agentRun.findUniqueOrThrow({
       where: { id: input.runId },
       select: { workflowId: true, status: true, updatedAt: true },
-    });
+    }).catch(() => null);
+    // Work Item deletion cascades AgentRun after first terminalizing it. A
+    // missing row is therefore a valid fence outcome, not a reason to keep
+    // waiting for a workflow attachment that can no longer be admitted.
+    if (!current) return null;
     if (current.workflowId && !current.workflowId.startsWith("starting:")) {
       return current.workflowId;
     }
@@ -122,8 +126,10 @@ export async function startAgentRunWorkflowOnce(input: {
     }
   }
 
+  let startedWorkflowId: string | null = null;
   try {
     const workflow = await input.startWorkflow();
+    startedWorkflowId = workflow.runId;
     const attached = await prisma.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -136,7 +142,10 @@ export async function startAgentRunWorkflowOnce(input: {
       const current = await prisma.agentRun.findUniqueOrThrow({
         where: { id: input.runId },
         select: { workflowId: true, status: true, updatedAt: true },
-      });
+      }).catch(() => null);
+      if (!current) {
+        throw new Error("The agent run was deleted while its workflow was starting.");
+      }
       const winner =
         current.workflowId && !current.workflowId.startsWith("starting:")
           ? current.workflowId
@@ -157,7 +166,6 @@ export async function startAgentRunWorkflowOnce(input: {
         await getRun(workflow.runId).cancel().catch(() => undefined);
         return winner;
       }
-      await getRun(workflow.runId).cancel().catch(() => undefined);
       throw new Error("The agent run became terminal while its workflow was starting.");
     }
     return workflow.runId;
@@ -165,13 +173,26 @@ export async function startAgentRunWorkflowOnce(input: {
     const released = await prisma.agentRun.updateMany({
       where: { id: input.runId, workflowId: reservation, status: "queued" },
       data: { workflowId: null },
-    });
+    }).catch(() => ({ count: 0 }));
     if (!released.count) {
       const winner = await waitForDisplacingWorkflow({
         runId: input.runId,
         displacedReservation: reservation,
       });
-      if (winner) return winner;
+      if (winner) {
+        if (startedWorkflowId && startedWorkflowId !== winner) {
+          await getRun(startedWorkflowId).cancel().catch(() => undefined);
+        }
+        return winner;
+      }
+    }
+    // start() returned an accepted run, but no durable active owner remains.
+    // This includes Work Item deletion winning between remote acceptance and
+    // the exact-ID attachment CAS. Cancel the known orphan best-effort.
+    if (startedWorkflowId) {
+      await getRun(startedWorkflowId).cancel().catch(() => undefined);
+    }
+    if (!released.count) {
       throw error;
     }
     const failure = classifyWorkflowFailure(error);

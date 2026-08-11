@@ -235,6 +235,7 @@ export const AgentRunKind = {
   chat_turn: 'chat_turn',
   project_research: 'project_research',
   artifact_workflow: 'artifact_workflow',
+  manual_evidence_highlights: 'manual_evidence_highlights',
   repository_refresh: 'repository_refresh',
   semantic_worker: 'semantic_worker',
   coverage_audit: 'coverage_audit'

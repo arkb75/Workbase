@@ -306,6 +306,7 @@ vi.mock("@/src/services/research-event-persistence-service", () => ({
 vi.mock("@/src/services/project-chat-agent-service", () => ({
   finalizeProjectChatAfterFactReview: mocks.runAgent,
   requiresLiveRepositoryResearch: (question: string) =>
+    !/(?:\brefresh\b.{0,80}\b(?:status|running|complete(?:d)?)\b)|(?:\b(?:status|running|complete(?:d)?)\b.{0,80}\brefresh\b)/i.test(question) &&
     /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i.test(question),
   runProjectChatAgent: mocks.runAgent,
 }));
@@ -460,6 +461,35 @@ describe("project chat latest-commit freshness orchestration", () => {
     );
     expect(JSON.stringify(completion)).not.toContain("fact-h1-stale");
     expect(mocks.failRun).not.toHaveBeenCalled();
+  });
+
+  it("runs the latest-head barrier for a standalone epistemic freshness follow-up", async () => {
+    mocks.state.currentQuestion = "make sure your understanding is up to date";
+
+    await expect(projectChatTurnWorkflow("run-h2")).resolves.toEqual({
+      status: "completed",
+    });
+
+    expect(mocks.startRefresh).toHaveBeenCalledWith({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      trigger: "chat_freshness",
+      idempotencyKey: "agent-run:run-h2:freshness",
+    });
+    expect(mocks.timeline.at(-1)).toBe("answer_from_h2_memory");
+  });
+
+  it("does not recursively refresh for an explicit refresh-status question", async () => {
+    mocks.state.currentQuestion = "What is the current status of the repository refresh?";
+
+    await expect(projectChatTurnWorkflow("run-h2")).resolves.toEqual({
+      status: "completed",
+    });
+
+    expect(mocks.startRefresh).not.toHaveBeenCalled();
+    expect(mocks.inventory).not.toHaveBeenCalled();
+    expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(mocks.runAgent).toHaveBeenCalledOnce();
   });
 
   it("repairs failed embeddings when reusing a completed latest-commit refresh", async () => {

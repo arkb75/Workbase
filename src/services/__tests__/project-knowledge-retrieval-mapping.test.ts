@@ -70,6 +70,7 @@ function approvedHighlight() {
     lifecycleStatus: "active",
     publicSafetyStatus: "verified",
     validatedThroughSha: commitSha,
+    validationHeads: { "source-1": commitSha },
     createdAt: now,
     updatedAt: now,
     tags: [],
@@ -94,6 +95,57 @@ function approvedHighlight() {
           url: `https://github.com/arkb75/Workbase/blob/${commitSha}/src/services/project-chat-agent-service.ts#L130-L210`,
         },
         source: { id: "source-1", label: "Workbase", type: "github_repo" },
+      },
+    }],
+  };
+}
+
+function approvedProjectFact(input: {
+  id: string;
+  statement: string;
+  commitSha: string;
+  validationHeads: Record<string, string> | null;
+}) {
+  return {
+    id: input.id,
+    workItemId: "work-item-1",
+    statement: input.statement,
+    searchText: input.statement,
+    category: "architecture",
+    confidence: "high",
+    status: "approved",
+    reviewNotes: null,
+    sensitivityFlag: false,
+    subsystemKey: input.id,
+    productImportance: 4,
+    implementationBreadth: 4,
+    technicalDifficulty: 4,
+    distinctiveness: 4,
+    lifecycleStatus: "active",
+    validatedThroughSha: input.commitSha,
+    validationHeads: input.validationHeads,
+    createdAt: now,
+    updatedAt: now,
+    evidence: [{
+      evidenceItemId: `evidence-${input.id}`,
+      evidenceItem: {
+        id: `evidence-${input.id}`,
+        sourceId: "source-1",
+        included: true,
+        type: "github_file_excerpt",
+        title: `${input.id}.ts`,
+        content: input.statement,
+        searchText: input.statement,
+        metadata: {
+          repository: "arkb75/Workbase",
+          commitSha: input.commitSha,
+          path: `src/${input.id}.ts`,
+        },
+        source: {
+          id: "source-1",
+          label: "Workbase",
+          type: "github_repo",
+        },
       },
     }],
   };
@@ -209,6 +261,7 @@ describe("project knowledge retrieval mappings", () => {
       workItemId: "work-item-1",
       query: "Summarize my strongest accomplishments and make sure your information is up to date",
       purpose: "private_chat",
+      currentRepositoryHeads: [{ sourceId: "source-1", commitSha }],
     });
 
     expect(mocks.findWorkItem).toHaveBeenNthCalledWith(1, {
@@ -273,6 +326,101 @@ describe("project knowledge retrieval mappings", () => {
       authority: "included_evidence",
       ownershipAuthority: 3,
     });
+  });
+
+  it("excludes H1 repository Highlights and Facts from H2 freshness retrieval", async () => {
+    const h1 = "1".repeat(40);
+    const h2 = "2".repeat(40);
+    const highlightAt = (id: string, sha: string) => {
+      const highlight = approvedHighlight();
+      return {
+        ...highlight,
+        id,
+        text: `${id} repository capability`,
+        summary: `${id} repository capability implementation details.`,
+        searchText: `${id} repository capability implementation details`,
+        validatedThroughSha: sha,
+        validationHeads: { "source-1": sha },
+        evidence: highlight.evidence.map((entry) => ({
+          ...entry,
+          evidenceItemId: `evidence-${id}`,
+          evidenceItem: {
+            ...entry.evidenceItem,
+            id: `evidence-${id}`,
+            title: `src/${id}.ts`,
+            metadata: {
+              ...entry.evidenceItem.metadata,
+              commitSha: sha,
+              path: `src/${id}.ts`,
+            },
+          },
+        })),
+      };
+    };
+    const staleHighlight = highlightAt("highlight-h1", h1);
+    const currentHighlight = highlightAt("highlight-h2", h2);
+    const staleFact = approvedProjectFact({
+      id: "fact-h1",
+      statement: "H1 used the legacy repository knowledge runtime.",
+      commitSha: h1,
+      // Exercise the legacy single-SHA fallback as well as validationHeads.
+      validationHeads: null,
+    });
+    const currentFact = approvedProjectFact({
+      id: "fact-h2",
+      statement: "H2 uses the current repository knowledge runtime.",
+      commitSha: h2,
+      validationHeads: { "source-1": h2 },
+    });
+    mocks.findWorkItem.mockResolvedValue({
+      id: "work-item-1",
+      sources: [{
+        id: "source-1",
+        metadata: { revision: { commitSha: h2 } },
+      }],
+      highlights: [staleHighlight, currentHighlight],
+      projectFacts: [staleFact, currentFact],
+      evidenceItems: [],
+      artifacts: [],
+    });
+
+    const freshnessRequired = await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Summarize my strongest accomplishments with up-to-date information",
+      purpose: "private_chat",
+      requireCurrentRepositoryKnowledge: true,
+    });
+
+    expect(freshnessRequired.hits.map((hit) => hit.id)).toEqual(
+      expect.arrayContaining(["highlight-h2", "fact-h2"]),
+    );
+    expect(freshnessRequired.hits.map((hit) => hit.id)).not.toEqual(
+      expect.arrayContaining(["highlight-h1", "fact-h1"]),
+    );
+    expect(
+      freshnessRequired.hits.find((hit) => hit.id === "highlight-h2")
+        ?.accomplishmentRanking?.freshness,
+    ).toBe(5);
+    expect(
+      freshnessRequired.hits.find((hit) => hit.id === "fact-h2")
+        ?.accomplishmentRanking?.freshness,
+    ).toBe(5);
+
+    const ordinaryRetrieval = await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Summarize my strongest accomplishments",
+      purpose: "private_chat",
+    });
+    expect(
+      ordinaryRetrieval.hits.find((hit) => hit.id === "highlight-h1")
+        ?.accomplishmentRanking?.freshness,
+    ).toBe(1);
+    expect(
+      ordinaryRetrieval.hits.find((hit) => hit.id === "fact-h1")
+        ?.accomplishmentRanking?.freshness,
+    ).toBe(1);
   });
 
   it("hydrates the combined semantic shortlist instead of a recency-truncated subset", async () => {

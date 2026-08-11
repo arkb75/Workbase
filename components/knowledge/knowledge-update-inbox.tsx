@@ -19,6 +19,7 @@ export interface KnowledgeUpdateInboxProps {
     trigger: string;
     targetHeads: unknown;
     progress: unknown;
+    error: unknown;
     qualityStatus: string;
     coverage: unknown;
     orchestration: unknown;
@@ -91,10 +92,27 @@ function coverageSummary(value: unknown): { semanticPaths: number; analyzedPaths
   }, { semanticPaths: 0, analyzedPaths: 0, gaps: [] as string[] });
 }
 
+function progressSummary(value: unknown) {
+  const progress = objectRecord(value);
+  if (!progress) return [];
+  return Object.entries(progress)
+    .filter(([key, field]) =>
+      key !== "terminalOutcome" &&
+      (typeof field === "string" || typeof field === "number" || typeof field === "boolean")
+    )
+    .slice(0, 10)
+    .map(([key, field]) => `${titleCase(key)}: ${String(field)}`);
+}
+
+function refreshErrorMessage(value: unknown) {
+  const error = objectRecord(value);
+  return typeof error?.message === "string" ? error.message : null;
+}
+
 function toneForStatus(status: string) {
   if (status === "completed" || status === "active" || status === "verified") return "success" as const;
   if (status === "failed" || status === "quarantined" || status === "retired") return "danger" as const;
-  if (status === "pending" || status === "pending_review" || status === "analyzing" || status === "inventorying" || status === "reconciling") return "warning" as const;
+  if (status === "pending" || status === "pending_review" || status === "queued" || status === "analyzing" || status === "inventorying" || status === "routing" || status === "semantic_analysis" || status === "auditing" || status === "reconciling") return "warning" as const;
   return "neutral" as const;
 }
 
@@ -199,6 +217,9 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes, counts }:
   const latest = refreshes[0] ?? null;
   const targets = latest ? targetLabels(latest.targetHeads) : [];
   const coverage = coverageSummary(latest?.coverage);
+  const progress = progressSummary(latest?.progress);
+  const terminalOutcome = objectRecord(objectRecord(latest?.progress)?.terminalOutcome);
+  const refreshError = refreshErrorMessage(latest?.error);
   const queue = buildKnowledgeReviewInbox(changes, { counts });
   return (
     <section id="knowledge-updates" className="scroll-mt-24 border-t border-black/8 pt-7">
@@ -247,6 +268,21 @@ export function KnowledgeUpdateInbox({ workItemId, refreshes, changes, counts }:
                   {coverage.gaps.slice(0, 20).map((gap) => <li key={gap}>{gap}</li>)}
                 </ul>
               </details>
+            ) : null}
+            {progress.length ? (
+              <p className="mt-2" aria-live="polite">{progress.join(" · ")}</p>
+            ) : null}
+            {typeof terminalOutcome?.status === "string" ? (
+              <p className="mt-2 font-medium text-[color:var(--ink-strong)]">
+                Outcome: {terminalOutcome.status === "no_safe_candidates"
+                  ? "No safe automatic Highlights were supported by the imported evidence."
+                  : titleCase(terminalOutcome.status)}
+              </p>
+            ) : null}
+            {refreshError ? (
+              <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900" role="alert">
+                Refresh failed: {refreshError}
+              </p>
             ) : null}
             {latest.orchestration || latest.budgetUsage ? (
               <details className="mt-2">

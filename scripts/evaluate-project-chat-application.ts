@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { Prisma } from "../src/generated/prisma/client";
 import { start } from "workflow/api";
 import { getWorld } from "workflow/runtime";
@@ -29,6 +31,14 @@ import {
   runProjectChatApplicationScenarios,
 } from "../src/evals/project-chat-application-runner";
 import {
+  buildRepositoryAccomplishmentsReport,
+  buildRepositoryAccomplishmentsScenarioCatalog,
+  parseRepositoryAccomplishmentsProfile,
+  resolveExactRepositoryAccomplishmentsTarget,
+  type ExactRepositoryAccomplishmentsTarget,
+  type RepositoryAccomplishmentsProfile,
+} from "../src/evals/repository-accomplishments-quality";
+import {
   buildLongThreadEvaluationCitationRows,
   currentRunGroundedComparisonEvaluationFacts,
   groundedComparisonEvaluationFixtureForScenario,
@@ -58,6 +68,15 @@ interface CliOptions {
   scenarioIds: ProjectChatApplicationScenarioId[];
   keepData: boolean;
   compact: boolean;
+  accomplishmentsConfig: string | null;
+  exactWorkItemTitle: string | null;
+  exactRepository: string | null;
+  requiredCapabilityPatterns: string[];
+  includeFreshnessFollowUp: boolean | null;
+  minimumPrimaryItems: number | null;
+  maximumPrimaryItems: number | null;
+  minimumDevelopedItems: number | null;
+  minimumCitedItems: number | null;
 }
 
 async function waitForAgentRunTerminal(runId: string, timeoutMs = 10 * 60_000) {
@@ -84,9 +103,19 @@ async function waitForAgentRunTerminal(runId: string, timeoutMs = 10 * 60_000) {
 
 function parseArguments(argv: string[]): CliOptions {
   const valueAfter = (name: string) => {
+    const equalsPrefix = `${name}=`;
+    const equalsValue = argv.find((argument) => argument.startsWith(equalsPrefix));
+    if (equalsValue) return equalsValue.slice(equalsPrefix.length);
     const index = argv.indexOf(name);
     return index >= 0 ? argv[index + 1] : undefined;
   };
+  const valuesAfter = (name: string) => argv.flatMap((argument, index) => {
+    const equalsPrefix = `${name}=`;
+    if (argument.startsWith(equalsPrefix)) {
+      return [argument.slice(equalsPrefix.length)];
+    }
+    return argument === name && argv[index + 1] ? [argv[index + 1]!] : [];
+  });
   const provider = valueAfter("--provider") ?? "mock";
   if (
     provider !== "mock" &&
@@ -104,13 +133,89 @@ function parseArguments(argv: string[]): CliOptions {
   if (unknownScenarioIds.length) {
     throw new Error(`Unknown application scenario${unknownScenarioIds.length === 1 ? "" : "s"}: ${unknownScenarioIds.join(", ")}.`);
   }
+  const includeFreshness = argv.includes("--freshness-follow-up");
+  const excludeFreshness = argv.includes("--no-freshness-follow-up");
+  if (includeFreshness && excludeFreshness) {
+    throw new Error(
+      "--freshness-follow-up and --no-freshness-follow-up are mutually exclusive.",
+    );
+  }
+  const numberAfter = (name: string) => {
+    const value = valueAfter(name);
+    return value === undefined ? null : Number(value);
+  };
   return {
     provider,
     workItemTitle: valueAfter("--work-item") ?? process.env.EVAL_WORK_ITEM_TITLE ?? "Workbase",
     scenarioIds,
     keepData: argv.includes("--keep"),
     compact: argv.includes("--compact"),
+    accomplishmentsConfig: valueAfter("--accomplishments-config") ?? null,
+    exactWorkItemTitle: valueAfter("--work-item-exact") ?? null,
+    exactRepository: valueAfter("--repository-exact") ?? null,
+    requiredCapabilityPatterns: [
+      ...valuesAfter("--required-capability"),
+      ...valuesAfter("--required-capability-regex"),
+    ],
+    includeFreshnessFollowUp: includeFreshness
+      ? true
+      : excludeFreshness
+        ? false
+        : null,
+    minimumPrimaryItems: numberAfter("--minimum-primary-items"),
+    maximumPrimaryItems: numberAfter("--maximum-primary-items"),
+    minimumDevelopedItems: numberAfter("--minimum-developed-items"),
+    minimumCitedItems: numberAfter("--minimum-cited-items"),
   };
+}
+
+async function repositoryAccomplishmentsProfile(
+  options: CliOptions,
+): Promise<RepositoryAccomplishmentsProfile | null> {
+  const requested = Boolean(
+    options.accomplishmentsConfig ||
+      options.exactWorkItemTitle ||
+      options.exactRepository ||
+      options.requiredCapabilityPatterns.length,
+  );
+  if (!requested) return null;
+  if (options.scenarioIds.length) {
+    throw new Error(
+      "--scenarios cannot be combined with the repository accomplishments harness; its exact scenario set comes from the profile.",
+    );
+  }
+
+  let fromConfig: Record<string, unknown> = {};
+  if (options.accomplishmentsConfig) {
+    const raw = options.accomplishmentsConfig.trim();
+    const serialized = raw.startsWith("{")
+      ? raw
+      : await readFile(resolve(raw), "utf8");
+    const parsed = JSON.parse(serialized) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("--accomplishments-config must resolve to a JSON object.");
+    }
+    fromConfig = parsed as Record<string, unknown>;
+  }
+
+  const override = <T>(value: T | null, key: string) =>
+    value === null ? {} : { [key]: value };
+  return parseRepositoryAccomplishmentsProfile({
+    ...fromConfig,
+    ...override(options.exactWorkItemTitle, "workItemTitle"),
+    ...override(options.exactRepository, "repository"),
+    ...(options.requiredCapabilityPatterns.length
+      ? { requiredCapabilityPatterns: options.requiredCapabilityPatterns }
+      : {}),
+    ...override(
+      options.includeFreshnessFollowUp,
+      "includeFreshnessFollowUp",
+    ),
+    ...override(options.minimumPrimaryItems, "minimumPrimaryItems"),
+    ...override(options.maximumPrimaryItems, "maximumPrimaryItems"),
+    ...override(options.minimumDevelopedItems, "minimumDevelopedItems"),
+    ...override(options.minimumCitedItems, "minimumCitedItems"),
+  });
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -141,6 +246,212 @@ function researchCoverageGaps(result: unknown, researchState: unknown) {
     ...stringArray(record(result).coverageGaps),
     ...stringArray(record(researchState).coverageGaps),
   ]));
+}
+
+function knowledgeRefreshHeads(value: unknown) {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const head = record(entry);
+        return typeof head.sourceId === "string" &&
+            typeof head.repository === "string" &&
+            typeof head.commitSha === "string"
+          ? [{
+              sourceId: head.sourceId,
+              repository: head.repository,
+              commitSha: head.commitSha,
+            }]
+          : [];
+      })
+    : [];
+}
+
+function knowledgeRefreshCoverageGapCount(value: unknown) {
+  if (!Array.isArray(value)) return 0;
+  return new Set(value.flatMap((entry) =>
+    stringArray(record(entry).coverageGaps)
+  )).size;
+}
+
+interface RepositoryCitationTargetHead {
+  sourceId: string;
+  repository: string;
+  commitSha: string;
+}
+
+interface RepositoryValidatedCitationEntity {
+  validatedThroughSha: string | null;
+  validationHeads: unknown;
+  evidence: Array<{
+    evidenceItem: {
+      sourceId: string;
+      type: string;
+      source: { type: string };
+    };
+  }>;
+}
+
+function nestedString(value: unknown, path: readonly string[]) {
+  let current: unknown = value;
+  for (const key of path) current = record(current)[key];
+  return typeof current === "string" && current.trim()
+    ? current.trim()
+    : null;
+}
+
+function repositoryCitationTargetHeads(
+  sources: Array<{ id: string; metadata: unknown }>,
+): RepositoryCitationTargetHead[] {
+  return sources.flatMap((source) => {
+    const repository = nestedString(source.metadata, ["repository", "fullName"]);
+    const commitSha = nestedString(source.metadata, ["revision", "commitSha"])
+      ?? nestedString(source.metadata, ["commitSha"]);
+    return repository && commitSha
+      ? [{ sourceId: source.id, repository, commitSha: commitSha.toLowerCase() }]
+      : [];
+  }).sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+}
+
+function repositoryValidatedCitationState(
+  entity: RepositoryValidatedCitationEntity,
+  targetHeads: RepositoryCitationTargetHead[],
+) {
+  const targetBySource = new Map(
+    targetHeads.map((target) => [target.sourceId, target.commitSha]),
+  );
+  const validationHeads = record(entity.validationHeads);
+  const recordedHeads = Object.entries(validationHeads).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[1] === "string" && Boolean(entry[1]),
+  );
+  const repositorySourceIds = Array.from(new Set(entity.evidence.flatMap(
+    ({ evidenceItem }) =>
+      evidenceItem.source.type === "github_repo" ||
+          evidenceItem.type.startsWith("github_")
+        ? [evidenceItem.sourceId]
+        : [],
+  )));
+  const repositoryDerived = Boolean(
+    recordedHeads.length ||
+      repositorySourceIds.length ||
+      entity.validatedThroughSha,
+  );
+  if (!repositoryDerived) return { repositoryDerived: false, current: false };
+  if (recordedHeads.length) {
+    return {
+      repositoryDerived: true,
+      current: recordedHeads.every(([sourceId, commitSha]) =>
+        targetBySource.get(sourceId) === commitSha.toLowerCase()
+      ),
+    };
+  }
+  if (!entity.validatedThroughSha) {
+    return { repositoryDerived: true, current: false };
+  }
+  const validatedThroughSha = entity.validatedThroughSha.toLowerCase();
+  return {
+    repositoryDerived: true,
+    current: repositorySourceIds.length
+      ? repositorySourceIds.every(
+          (sourceId) => targetBySource.get(sourceId) === validatedThroughSha,
+        )
+      : targetHeads.length === 1 &&
+        targetHeads[0]?.commitSha === validatedThroughSha,
+  };
+}
+
+function repositoryCitationFreshness(input: {
+  targetHeads: RepositoryCitationTargetHead[];
+  citations: Array<{
+    ordinal: number;
+    kind: string;
+    repository: string | null;
+    commitSha: string | null;
+    metadata: unknown;
+    highlight: RepositoryValidatedCitationEntity | null;
+    projectFact: RepositoryValidatedCitationEntity | null;
+    evidenceItem: {
+      sourceId: string;
+      type: string;
+      validatedThroughSha: string | null;
+      metadata: unknown;
+      source: { type: string };
+    } | null;
+  }>;
+}) {
+  const targetBySource = new Map(
+    input.targetHeads.map((target) => [target.sourceId, target.commitSha]),
+  );
+  const targetByRepository = new Map(
+    input.targetHeads.map((target) => [
+      target.repository.toLowerCase(),
+      target.commitSha,
+    ]),
+  );
+  const statuses = input.citations.flatMap((citation) => {
+    const entity = citation.highlight ?? citation.projectFact;
+    if (entity) {
+      const status = repositoryValidatedCitationState(entity, input.targetHeads);
+      if (status.repositoryDerived) return [{ ordinal: citation.ordinal, ...status }];
+    }
+    if (
+      citation.evidenceItem &&
+      (citation.evidenceItem.source.type === "github_repo" ||
+        citation.evidenceItem.type.startsWith("github_"))
+    ) {
+      const commitSha = citation.evidenceItem.validatedThroughSha
+        ?? nestedString(citation.evidenceItem.metadata, ["commitSha"]);
+      return [{
+        ordinal: citation.ordinal,
+        repositoryDerived: true,
+        current: Boolean(
+          commitSha &&
+            targetBySource.get(citation.evidenceItem.sourceId) ===
+              commitSha.toLowerCase(),
+        ),
+      }];
+    }
+    if (citation.repository || citation.kind === "github_file") {
+      return [{
+        ordinal: citation.ordinal,
+        repositoryDerived: true,
+        current: Boolean(
+          citation.repository &&
+            citation.commitSha &&
+            targetByRepository.get(citation.repository.toLowerCase()) ===
+              citation.commitSha.toLowerCase(),
+        ),
+      }];
+    }
+    const provenance = Array.isArray(record(citation.metadata).provenance)
+      ? record(citation.metadata).provenance as unknown[]
+      : [];
+    const repositoryCoordinates = provenance.flatMap((entry) => {
+      const repository = nestedString(entry, ["repository"]);
+      const commitSha = nestedString(entry, ["commitSha"]);
+      return repository && commitSha ? [{ repository, commitSha }] : [];
+    });
+    return repositoryCoordinates.length
+      ? [{
+          ordinal: citation.ordinal,
+          repositoryDerived: true,
+          current: repositoryCoordinates.every(({ repository, commitSha }) =>
+            targetByRepository.get(repository.toLowerCase()) ===
+              commitSha.toLowerCase()
+          ),
+        }]
+      : [];
+  });
+  return {
+    targetHeads: input.targetHeads,
+    repositoryDerivedCitationCount: statuses.length,
+    currentRepositoryDerivedCitationCount: statuses.filter(
+      (status) => status.current,
+    ).length,
+    staleCitationOrdinals: statuses
+      .filter((status) => !status.current)
+      .map((status) => status.ordinal)
+      .sort((left, right) => left - right),
+  };
 }
 
 function applicationOutcomeFromAgentRunStatus(
@@ -819,7 +1130,13 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       await failAgentRun({ runId: run.id, message: error }).catch(() => null);
     }
     const finishedAt = new Date();
-    const [storedRun, assistantMessage, events, candidate] = await Promise.all([
+    const [
+      storedRun,
+      assistantMessage,
+      events,
+      candidate,
+      repositorySources,
+    ] = await Promise.all([
       prisma.agentRun.findUniqueOrThrow({
         where: { id: run.id },
         select: {
@@ -827,6 +1144,16 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
           result: true,
           researchState: true,
           knowledgeRefreshRunId: true,
+          knowledgeRefreshRun: {
+            select: {
+              trigger: true,
+              status: true,
+              qualityStatus: true,
+              targetHeads: true,
+              completedHeads: true,
+              coverage: true,
+            },
+          },
           artifact: {
             select: {
               lifecycleStatus: true,
@@ -838,7 +1165,56 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       }),
       prisma.chatMessage.findFirstOrThrow({
         where: { agentRunId: run.id, role: "assistant" },
-        include: { citations: { orderBy: { ordinal: "asc" } } },
+        include: {
+          citations: {
+            orderBy: { ordinal: "asc" },
+            include: {
+              highlight: {
+                select: {
+                  validatedThroughSha: true,
+                  validationHeads: true,
+                  evidence: {
+                    select: {
+                      evidenceItem: {
+                        select: {
+                          sourceId: true,
+                          type: true,
+                          source: { select: { type: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              projectFact: {
+                select: {
+                  validatedThroughSha: true,
+                  validationHeads: true,
+                  evidence: {
+                    select: {
+                      evidenceItem: {
+                        select: {
+                          sourceId: true,
+                          type: true,
+                          source: { select: { type: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              evidenceItem: {
+                select: {
+                  sourceId: true,
+                  type: true,
+                  validatedThroughSha: true,
+                  metadata: true,
+                  source: { select: { type: true } },
+                },
+              },
+            },
+          },
+        },
       }),
       prisma.agentRunEvent.findMany({
         where: { agentRunId: run.id },
@@ -860,7 +1236,13 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         },
         orderBy: [{ batchNumber: "asc" }, { ordinal: "asc" }],
       }),
+      prisma.source.findMany({
+        where: { workItemId, type: "github_repo" },
+        select: { id: true, metadata: true },
+        orderBy: { id: "asc" },
+      }),
     ]);
+    const citationTargetHeads = repositoryCitationTargetHeads(repositorySources);
     const metrics = await this.metrics({
       runId: run.id,
       workItemId,
@@ -896,6 +1278,24 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       })),
       tools: events.flatMap((event) => event.type === "tool_call" && event.toolName ? [event.toolName] : []),
       knowledgeRefreshRunId: storedRun.knowledgeRefreshRunId,
+      knowledgeRefresh: storedRun.knowledgeRefreshRun ? {
+        trigger: storedRun.knowledgeRefreshRun.trigger,
+        status: storedRun.knowledgeRefreshRun.status,
+        qualityStatus: storedRun.knowledgeRefreshRun.qualityStatus,
+        targetHeads: knowledgeRefreshHeads(
+          storedRun.knowledgeRefreshRun.targetHeads,
+        ),
+        completedHeads: knowledgeRefreshHeads(
+          storedRun.knowledgeRefreshRun.completedHeads,
+        ),
+        coverageGapCount: knowledgeRefreshCoverageGapCount(
+          storedRun.knowledgeRefreshRun.coverage,
+        ),
+      } : null,
+      repositoryCitationFreshness: repositoryCitationFreshness({
+        targetHeads: citationTargetHeads,
+        citations: assistantMessage.citations,
+      }),
       historyMessageCount: history.length,
       historyCharacterCount: history.reduce((total, message) => total + message.content.length, 0),
       historyCitationManifestCount: history.reduce((total, message) => total + message.citations.length, 0),
@@ -956,57 +1356,112 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  const accomplishmentsProfile = await repositoryAccomplishmentsProfile(options);
   process.env.WORKFLOW_LOCAL_BASE_URL ??=
     process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ?? "http://localhost:3000";
   process.env.WORKBASE_LLM_PROVIDER = options.provider;
   const user = await ensureDemoUser();
-  const workItem = await prisma.workItem.findFirst({
-    where: {
-      userId: user.id,
-      title: { equals: options.workItemTitle, mode: "insensitive" },
-      sources: { some: { type: "github_repo" } },
-    },
-    orderBy: { updatedAt: "desc" },
-  }) ?? await prisma.workItem.findFirstOrThrow({
-    where: { userId: user.id, sources: { some: { type: "github_repo" } } },
-    orderBy: { updatedAt: "desc" },
-  });
+  let exactTarget: ExactRepositoryAccomplishmentsTarget | null = null;
+  const workItem = accomplishmentsProfile
+    ? await (async () => {
+        const candidates = await prisma.workItem.findMany({
+          where: {
+            userId: user.id,
+            // Deliberately use PostgreSQL's exact comparison. The resolver
+            // repeats this fence and rejects ambiguity without a latest-row or
+            // repository-label fallback.
+            title: accomplishmentsProfile.workItemTitle,
+          },
+          select: {
+            id: true,
+            title: true,
+            sources: {
+              where: { type: "github_repo" },
+              select: {
+                id: true,
+                type: true,
+                metadata: true,
+                _count: { select: { evidenceItems: true } },
+              },
+            },
+          },
+        });
+        exactTarget = resolveExactRepositoryAccomplishmentsTarget({
+          profile: accomplishmentsProfile,
+          candidates: candidates.map((candidate) => ({
+            id: candidate.id,
+            title: candidate.title,
+            sources: candidate.sources.map((source) => ({
+              id: source.id,
+              type: source.type,
+              metadata: source.metadata,
+              evidenceItemCount: source._count.evidenceItems,
+            })),
+          })),
+        });
+        return prisma.workItem.findUniqueOrThrow({
+          where: { id: exactTarget.workItemId },
+        });
+      })()
+    : await prisma.workItem.findFirstOrThrow({
+        where: {
+          userId: user.id,
+          title: { equals: options.workItemTitle, mode: "insensitive" },
+          sources: { some: { type: "github_repo" } },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
   const driver = new PrismaProjectChatApplicationDriver({
     userId: user.id,
     mainWorkItemId: workItem.id,
     provider: options.provider,
     keepData: options.keepData,
   });
+  const scenarioCatalog = accomplishmentsProfile
+    ? buildRepositoryAccomplishmentsScenarioCatalog(accomplishmentsProfile)
+    : undefined;
   const suite = await runProjectChatApplicationScenarios({
     driver,
-    scenarioIds: options.scenarioIds,
+    scenarioIds: accomplishmentsProfile
+      ? scenarioCatalog?.map((scenario) => scenario.id)
+      : options.scenarioIds,
+    scenarioCatalog,
   });
-  const output = {
-    passed: suite.passed,
-    provider: options.provider,
-    workItem: { id: workItem.id, title: workItem.title },
-    aggregate: suite.aggregate,
-    scenarios: suite.results.map((result) => ({
-      id: result.scenario.id,
-      passed: result.passed,
-      outcome: result.observation.outcome,
-      executionMode: result.observation.executionMode,
-      metrics: result.observation.metrics,
-      tools: result.observation.tools,
-      knowledgeRefreshRunId: result.observation.knowledgeRefreshRunId ?? null,
-      citationCount: result.observation.citationCount,
-      candidate: result.observation.candidate,
-      artifact: result.observation.artifact,
-      coverageGaps: result.observation.coverageGaps,
-      failedChecks: result.checks.filter((check) => !check.passed),
-      answer: options.compact
-        ? result.observation.answer.slice(0, 800)
-        : result.observation.answer,
-      error: result.observation.error,
-    })),
-  };
+  const output = accomplishmentsProfile && exactTarget
+    ? buildRepositoryAccomplishmentsReport({
+        provider: options.provider,
+        profile: accomplishmentsProfile,
+        target: exactTarget,
+        suite,
+        keepEvaluationData: options.keepData,
+      })
+    : {
+        passed: suite.passed,
+        provider: options.provider,
+        workItem: { id: workItem.id, title: workItem.title },
+        aggregate: suite.aggregate,
+        scenarios: suite.results.map((result) => ({
+          id: result.scenario.id,
+          passed: result.passed,
+          outcome: result.observation.outcome,
+          executionMode: result.observation.executionMode,
+          metrics: result.observation.metrics,
+          tools: result.observation.tools,
+          knowledgeRefreshRunId: result.observation.knowledgeRefreshRunId ?? null,
+          knowledgeRefresh: result.observation.knowledgeRefresh ?? null,
+          citationCount: result.observation.citationCount,
+          candidate: result.observation.candidate,
+          artifact: result.observation.artifact,
+          coverageGaps: result.observation.coverageGaps,
+          failedChecks: result.checks.filter((check) => !check.passed),
+          answer: options.compact
+            ? result.observation.answer.slice(0, 800)
+            : result.observation.answer,
+          error: result.observation.error,
+        })),
+      };
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-  if (!suite.passed) process.exitCode = 2;
+  if (!output.passed) process.exitCode = 2;
 }
 
 main()

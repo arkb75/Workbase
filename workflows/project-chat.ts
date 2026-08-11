@@ -578,7 +578,11 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
     durationMs: Date.now() - stalenessStartedAt,
   };
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
-  await knowledgeRefreshService.complete(refreshRunId);
+  await knowledgeRefreshService.complete(refreshRunId, {
+    appliedFactCount: reconciled.appliedFactIds.length,
+    appliedHighlightCount: reconciled.appliedHighlightIds.length,
+    promotedEvidenceCount: reconciled.promotedEvidenceIds.length,
+  });
   return {
     appliedFactIds: reconciled.appliedFactIds,
     appliedHighlightIds: reconciled.appliedHighlightIds,

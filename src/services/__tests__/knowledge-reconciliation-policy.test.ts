@@ -7,6 +7,8 @@ import {
   isNewerKnowledgeRefreshGeneration,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
+  repositoryHighlightOwnershipDecision,
+  repositoryMayReconcileHighlight,
   repositoryHighlightPublicDisposition,
   runBoundedKnowledgeEmbeddingTasks,
   shouldQuarantineSynthesizedCandidate,
@@ -89,6 +91,37 @@ describe("repository knowledge auto-apply policy", () => {
     });
   });
 
+  it("preserves manual ownership until verified repository coverage can create a successor", () => {
+    const manual = {
+      metadata: {
+        managedBy: "manual_evidence_highlight_workflow",
+        originatingAgentRunId: "manual-run-1",
+      },
+    };
+    expect(repositoryMayReconcileHighlight(manual)).toBe(false);
+    expect(repositoryMayReconcileHighlight({
+      metadata: { managedBy: "repository_knowledge_sync" },
+    })).toBe(true);
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 1,
+      unsafe: false,
+      allowCanonicalReplacement: false,
+    })).toBe("preserve_manual");
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 1,
+      unsafe: false,
+      allowCanonicalReplacement: true,
+    })).toBe("supersede_manual");
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 0.1,
+      unsafe: false,
+      allowCanonicalReplacement: true,
+    })).toBe("unrelated_manual");
+  });
+
   it("expires a reconciliation selection after a concurrent user edit", () => {
     const selectedAt = new Date("2026-07-21T10:00:00.000Z");
     const editedAt = new Date("2026-07-21T10:00:01.000Z");
@@ -107,6 +140,7 @@ describe("repository knowledge auto-apply policy", () => {
       reviewState: "pending_review",
       approvalSource: "automation",
     });
+    const highlightMetadata = { managedBy: "repository_knowledge_sync" };
     expect(highlightReconciliationCasWhere({
       id: "highlight-1",
       workItemId: "work-1",
@@ -116,12 +150,14 @@ describe("repository knowledge auto-apply policy", () => {
       lifecycleStatus: "needs_validation",
       reviewState: "pending_review",
       approvalSource: "automation",
+      metadata: highlightMetadata,
       supersedesHighlightId: null,
       updatedAt: selectedAt,
     })).toMatchObject({
       updatedAt: selectedAt,
       text: "Original text",
       reviewState: "pending_review",
+      metadata: { equals: highlightMetadata },
     });
 
     // Postgres updateMany uses every field above as one compare-and-swap. A
