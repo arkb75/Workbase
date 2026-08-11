@@ -41,6 +41,29 @@ const scenarioQualitySchema = z.object({
   unsupportedClaimCount: z.number().int().nonnegative(),
   staleClaimCount: z.number().int().nonnegative(),
   duplicateHighlightCount: z.number().int().nonnegative(),
+  rubricEvidence: z.object(Object.fromEntries(
+    providerQualityDimensions.map((dimension) => [
+      dimension,
+      z.object({
+        passed: z.boolean(),
+        evidenceIds: z.array(z.string().trim().min(1).max(300)).min(1),
+      }),
+    ]),
+  ) as Record<
+    ProviderQualityDimension,
+    z.ZodObject<{
+      passed: z.ZodBoolean;
+      evidenceIds: z.ZodArray<z.ZodString>;
+    }>
+  >).optional(),
+});
+
+const observedPerformanceSchema = z.object({
+  latencyMs: z.number().nonnegative(),
+  observedEstimatedCostUsd: z.number().nonnegative(),
+  observedGenerationRunCount: z.number().int().nonnegative(),
+  costCoverageComplete: z.boolean(),
+  usageComplete: z.boolean(),
 });
 
 const scenarioSchema = z.object({
@@ -49,6 +72,7 @@ const scenarioSchema = z.object({
   lifecycleGatePassed: z.boolean(),
   hardGateFailures: z.array(z.string().trim().min(1).max(300)),
   quality: scenarioQualitySchema,
+  performance: observedPerformanceSchema.optional(),
 });
 
 export const providerQualityReportSchema = z.object({
@@ -68,6 +92,7 @@ export const providerQualityReportSchema = z.object({
   }),
   requiredScenarioIds: z.array(scenarioIdSchema).min(1),
   scenarios: z.array(scenarioSchema).min(1),
+  performance: observedPerformanceSchema.optional(),
 });
 
 export type ProviderQualityReport = z.infer<typeof providerQualityReportSchema>;

@@ -102,8 +102,24 @@ Treat its output as evaluation data and keep it out of source control.
 
 ## Paired quality comparison
 
-After the same scenario/rubric process produces one `workbase-provider-quality-report-v1`
-JSON file per provider, compare them with:
+Assemble each provider report from the evaluated lifecycle gate, its raw
+observation evidence (needed for model/cost attribution), and the exact
+repository accomplishments report:
+
+```bash
+npx tsx scripts/assemble-provider-quality-report.ts \
+  --provider openrouter \
+  --git-commit "$TESTED_GIT_COMMIT" \
+  --lifecycle-gate /tmp/openrouter-lifecycle-gate.json \
+  --lifecycle-observations /tmp/openrouter-lifecycle.json \
+  --accomplishments /tmp/openrouter-accomplishments.json \
+  --output /tmp/openrouter-quality.json
+```
+
+The assembler rejects commit metadata, repository heads, providers, scenario
+sets, and gate/observation telemetry that do not match. Repeat it for the
+Bedrock control, then compare the two `workbase-provider-quality-report-v1`
+files:
 
 ```bash
 npx tsx scripts/compare-provider-quality.ts \
