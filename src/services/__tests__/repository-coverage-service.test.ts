@@ -43,6 +43,19 @@ describe("complete repository coverage", () => {
     expect(inferSubsystemsFromPath("src/services/unrelated-store.ts")).not.toContain("workflow_orchestration");
   });
 
+  it("distinguishes App Router API handlers from user-facing UI modules", () => {
+    expect(inferSubsystemsFromPath("src/app/api/v1/circles/[circleId]/route.ts"))
+      .not.toContain("review_ui");
+    expect(inferSubsystemsFromPath("src/app/api/v1/circles/[circleId]/route.test.ts"))
+      .not.toContain("review_ui");
+    expect(inferSubsystemsFromPath("src/app/circles/[circleId]/page.tsx"))
+      .toContain("review_ui");
+    expect(inferSubsystemsFromPath("src/components/circle/circle-dashboard.tsx"))
+      .toContain("review_ui");
+    expect(inferSubsystemsFromPath("app/work-items/[id]/layout.tsx"))
+      .toContain("review_ui");
+  });
+
   it("does not mistake repository agent instructions for an AI model runtime", () => {
     expect(inferSubsystemsFromPath("AGENTS.md")).not.toContain("ai_runtime");
     expect(inferSubsystemsFromPath("docs/agent-workflow.md")).not.toContain("ai_runtime");

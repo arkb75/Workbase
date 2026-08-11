@@ -714,19 +714,22 @@ function rebaseCachedAnalysis(value: unknown, path: string): RepositoryFileAnaly
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
   if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.subsystemKeys)) return null;
+  const inferredSubsystemKeys = inferSubsystemsFromPath(path);
   return {
     ...analysis,
     path,
     subsystemKeys: Array.from(new Set([
       ...analysis.subsystemKeys,
-      ...inferSubsystemsFromPath(path),
+      ...inferredSubsystemKeys,
     ])).slice(0, 16),
     facts: analysis.facts.map((fact) => ({
       ...fact,
       path,
       subsystemKeys: Array.from(new Set([
         ...(fact.subsystemKeys ?? []),
-        ...inferSubsystemsFromPath(path),
+        ...(analysis.analysisMode === "static" || fact.evidenceMode === "static"
+          ? inferredSubsystemKeys
+          : []),
       ])).slice(0, 16),
     })),
   };

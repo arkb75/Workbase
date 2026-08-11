@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v7";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v8";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -363,7 +363,15 @@ export function inferSubsystemsFromPath(path: string) {
     /workflow|orchestrat|run-|queue|job/.test(value) ||
     value === "src/services/project-chat-store.ts"
   ) keys.push("workflow_orchestration");
-  if (/app\/|component|page\.tsx|review|workspace|ui/.test(value)) keys.push("review_ui");
+  const appUiPath = /(?:^|\/)(?:src\/)?app\/(?!api(?:\/|$))/u.test(value);
+  const componentUiPath = /(?:^|\/)components?(?:\/|$)/u.test(value);
+  const namedUiModule = /(?:^|[/_.-])(?:review|workspace|ui)(?:[/_.-]|$)/u.test(value);
+  if (
+    appUiPath ||
+    componentUiPath ||
+    namedUiModule ||
+    /(?:^|\/)(?:page|layout)\.[cm]?[jt]sx$/u.test(value)
+  ) keys.push("review_ui");
   if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
   const projectDomain = inferProjectDomainCapability(path);
   if (projectDomain) keys.push(projectDomain);
