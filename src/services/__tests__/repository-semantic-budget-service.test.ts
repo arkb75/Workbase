@@ -522,6 +522,98 @@ describe("repository semantic task and budget", () => {
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
   });
 
+  it("deterministically attributes supported test-file findings to tests operations", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The route tests cover authenticated and unauthenticated behavior.",
+            subsystemKeys: ["project_domain:auth"],
+            findings: [{
+              statement: "The tests verify that an unauthenticated request returns an authorization error.",
+              kind: "behavior",
+              capabilityKeys: ["project_domain:auth"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The runtime exports a bounded operation.",
+            subsystemKeys: ["ai_runtime"],
+            findings: [{
+              statement: "The runtime exports a bounded operation.",
+              kind: "behavior",
+              capabilityKeys: ["ai_runtime"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+
+    const [result] = await analyzeRepositoryFileBatch([
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/app/api/auth/route.test.ts",
+        content: "expect(await request()).toMatchObject({ status: 403 });",
+        task: {
+          objective: "Determine authentication behavior and automated test coverage.",
+          capabilityKeys: ["tests_operations", "project_domain:auth"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/runtime.ts",
+        content: "export const operation = () => true;",
+        task: {
+          objective: "Determine the implemented AI runtime behavior.",
+          capabilityKeys: ["ai_runtime"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
+    ]);
+
+    expect(result).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
+    expect(result?.facts[0]?.subsystemKeys).toEqual([
+      "project_domain:auth",
+      "tests_operations",
+    ]);
+    expect(result?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        missingCapabilityKeys: [],
+        structurallyInferredCapabilityKeys: ["tests_operations"],
+      }),
+    ]));
+  });
+
   it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,

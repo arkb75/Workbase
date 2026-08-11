@@ -332,6 +332,17 @@ function unique(values: readonly string[], limit: number) {
   return Array.from(new Set(values.map((value) => normalizeWhitespace(value)).filter(Boolean))).slice(0, limit);
 }
 
+function structurallySupportedSemanticCapabilityKeys(input: {
+  path: string;
+  allowedCapabilityKeys: string[];
+}) {
+  const isTestPath = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/iu
+    .test(input.path);
+  return isTestPath && input.allowedCapabilityKeys.includes("tests_operations")
+    ? ["tests_operations"]
+    : [];
+}
+
 export function inferSubsystemsFromPath(path: string) {
   const value = path.toLowerCase();
   const keys: string[] = [];
@@ -1228,8 +1239,18 @@ export async function analyzeRepositoryFileBatch(
     }));
     const rejected: string[] = [];
     const acceptedFindings: typeof parsedData.findings = [];
+    const structurallyInferredCapabilityKeys = new Set<string>();
     const facts = parsedData.findings.flatMap((finding) => {
-      const invalidKeys = finding.capabilityKeys.filter((key) => !entry.allowedCapabilityKeys.includes(key));
+      const inferredCapabilityKeys = structurallySupportedSemanticCapabilityKeys({
+        path: entry.file.path,
+        allowedCapabilityKeys: entry.allowedCapabilityKeys,
+      }).filter((key) => !finding.capabilityKeys.includes(key));
+      inferredCapabilityKeys.forEach((key) => structurallyInferredCapabilityKeys.add(key));
+      const capabilityKeys = unique([
+        ...finding.capabilityKeys,
+        ...inferredCapabilityKeys,
+      ], 6);
+      const invalidKeys = capabilityKeys.filter((key) => !entry.allowedCapabilityKeys.includes(key));
       if (invalidKeys.length) {
         rejected.push(`Rejected finding with capabilities outside this file task: ${invalidKeys.join(", ")}.`);
         return [];
@@ -1269,7 +1290,7 @@ export async function analyzeRepositoryFileBatch(
         productImportance: finding.kind === "user_capability" ? 4 : 3,
         implementationBreadth: 2,
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
-        subsystemKeys: unique(finding.capabilityKeys, 6),
+        subsystemKeys: capabilityKeys,
         semanticSignals: unique(finding.signalKeys ?? [], 12),
         evidenceMode: "semantic" as const,
         path: entry.file.path,
@@ -1315,6 +1336,7 @@ export async function analyzeRepositoryFileBatch(
         duplicateExactPathMembers: 0,
         malformedExactPathMembers: 0,
         missingCapabilityKeys,
+        structurallyInferredCapabilityKeys: Array.from(structurallyInferredCapabilityKeys).sort(),
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],

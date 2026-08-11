@@ -131,7 +131,7 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v16",
-      semanticAnalyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v18",
       coveragePolicyVersion: "repository-coverage-v8",
       orchestrationPolicyVersion: "repository-orchestration-v12",
       synthesisPolicyVersion: "repository-synthesis-v28",
@@ -363,7 +363,7 @@ describe("latest-commit freshness barrier", () => {
     };
     const warnings = {
       analyzerVersion: "repository-coverage-v16",
-      semanticAnalyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v18",
       coveragePolicyVersion: "repository-coverage-v8",
       orchestrationPolicyVersion: "repository-orchestration-v12",
       synthesisPolicyVersion: "repository-synthesis-v28",
@@ -465,7 +465,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v16",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -519,7 +519,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v16",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -555,7 +555,7 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v16",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           coveragePolicyVersion: "repository-coverage-v8",
           orchestrationPolicyVersion: "repository-orchestration-v12",
           synthesisPolicyVersion: "repository-synthesis-v28",
@@ -613,7 +613,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v16",
           analysis: staticAnalysis,
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           semanticRefreshRunId: "refresh-auth",
           semanticAnalysis,
         }],
@@ -661,7 +661,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v16",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v18",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });
