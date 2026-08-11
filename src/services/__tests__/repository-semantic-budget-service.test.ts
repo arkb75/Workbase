@@ -554,6 +554,20 @@ describe("repository semantic task and budget", () => {
             }],
             unresolvedQuestions: [],
           },
+          "file-3": {
+            summary: "The root layout defines the application UI shell.",
+            subsystemKeys: ["ui_shell"],
+            findings: [{
+              statement: "The root layout wraps routed content in the application UI shell.",
+              kind: "integration",
+              capabilityKeys: ["ui_shell"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
         },
       },
       rawOutput: "{}",
@@ -572,7 +586,7 @@ describe("repository semantic task and budget", () => {
       maxTotalTokens: 20_000,
     });
 
-    const [result] = await analyzeRepositoryFileBatch([
+    const results = await analyzeRepositoryFileBatch([
       {
         repository: "workbase/demo",
         commitSha: "e".repeat(40),
@@ -599,7 +613,21 @@ describe("repository semantic task and budget", () => {
         },
         budget,
       },
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/app/layout.tsx",
+        content: "export default function RootLayout({ children }) { return children; }",
+        task: {
+          objective: "Determine the implemented review and UI surface.",
+          capabilityKeys: ["review_ui"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
     ]);
+    const [result, , layoutResult] = results;
 
     expect(result).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
     expect(result?.facts[0]?.subsystemKeys).toEqual([
@@ -610,6 +638,16 @@ describe("repository semantic task and budget", () => {
       expect.objectContaining({
         missingCapabilityKeys: [],
         structurallyInferredCapabilityKeys: ["tests_operations"],
+        strippedUnsupportedCapabilityKeys: [],
+      }),
+    ]));
+    expect(layoutResult).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
+    expect(layoutResult?.facts[0]?.subsystemKeys).toEqual(["review_ui"]);
+    expect(layoutResult?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        missingCapabilityKeys: [],
+        structurallyInferredCapabilityKeys: ["review_ui"],
+        strippedUnsupportedCapabilityKeys: ["ui_shell"],
       }),
     ]));
   });

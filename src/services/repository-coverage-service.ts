@@ -336,11 +336,19 @@ function structurallySupportedSemanticCapabilityKeys(input: {
   path: string;
   allowedCapabilityKeys: string[];
 }) {
+  const inferred: string[] = [];
   const isTestPath = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/iu
     .test(input.path);
-  return isTestPath && input.allowedCapabilityKeys.includes("tests_operations")
-    ? ["tests_operations"]
-    : [];
+  if (isTestPath && input.allowedCapabilityKeys.includes("tests_operations")) {
+    inferred.push("tests_operations");
+  }
+  if (
+    input.allowedCapabilityKeys.includes("review_ui") &&
+    inferSubsystemsFromPath(input.path).includes("review_ui")
+  ) {
+    inferred.push("review_ui");
+  }
+  return inferred;
 }
 
 export function inferSubsystemsFromPath(path: string) {
@@ -1240,21 +1248,28 @@ export async function analyzeRepositoryFileBatch(
     const rejected: string[] = [];
     const acceptedFindings: typeof parsedData.findings = [];
     const structurallyInferredCapabilityKeys = new Set<string>();
+    const strippedUnsupportedCapabilityKeys = new Set<string>();
     const facts = parsedData.findings.flatMap((finding) => {
       const inferredCapabilityKeys = structurallySupportedSemanticCapabilityKeys({
         path: entry.file.path,
         allowedCapabilityKeys: entry.allowedCapabilityKeys,
       }).filter((key) => !finding.capabilityKeys.includes(key));
       inferredCapabilityKeys.forEach((key) => structurallyInferredCapabilityKeys.add(key));
+      const allowedModelCapabilityKeys = finding.capabilityKeys.filter((key) =>
+        entry.allowedCapabilityKeys.includes(key)
+      );
+      const invalidKeys = finding.capabilityKeys.filter((key) =>
+        !entry.allowedCapabilityKeys.includes(key)
+      );
       const capabilityKeys = unique([
-        ...finding.capabilityKeys,
+        ...allowedModelCapabilityKeys,
         ...inferredCapabilityKeys,
       ], 6);
-      const invalidKeys = capabilityKeys.filter((key) => !entry.allowedCapabilityKeys.includes(key));
-      if (invalidKeys.length) {
+      if (invalidKeys.length && !capabilityKeys.length) {
         rejected.push(`Rejected finding with capabilities outside this file task: ${invalidKeys.join(", ")}.`);
         return [];
       }
+      invalidKeys.forEach((key) => strippedUnsupportedCapabilityKeys.add(key));
       const invalidSignalKeys = (finding.signalKeys ?? []).filter((key) =>
         !(entry.file.task.semanticSignalKeys ?? []).includes(key)
       );
@@ -1337,6 +1352,7 @@ export async function analyzeRepositoryFileBatch(
         malformedExactPathMembers: 0,
         missingCapabilityKeys,
         structurallyInferredCapabilityKeys: Array.from(structurallyInferredCapabilityKeys).sort(),
+        strippedUnsupportedCapabilityKeys: Array.from(strippedUnsupportedCapabilityKeys).sort(),
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],

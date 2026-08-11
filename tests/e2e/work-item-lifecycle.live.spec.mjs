@@ -456,7 +456,7 @@ function normalizeValidationHeads(value, observedRepositoryId, observedRepositor
   );
 }
 
-async function loadLifecycleState(workItemId) {
+async function loadLifecycleStateOnce(workItemId) {
   const [sourceResult, refreshResult, snapshotResult, highlightRows, generationResult] =
     await Promise.all([
       pool.query(
@@ -545,6 +545,45 @@ async function loadLifecycleState(workItemId) {
       automationRows.length > 0 && runningGenerationRows.length === 0,
     automationStatus,
   };
+}
+
+const TRANSIENT_DATABASE_ERROR_CODES = new Set([
+  "EADDRNOTAVAIL",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "57P01",
+  "57P02",
+  "57P03",
+]);
+
+function isTransientDatabaseError(error) {
+  if (!error || typeof error !== "object") return false;
+  if (TRANSIENT_DATABASE_ERROR_CODES.has(error.code)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:connection terminated unexpectedly|connection timeout|socket hang up)/iu
+    .test(message);
+}
+
+async function loadLifecycleState(workItemId) {
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await loadLifecycleStateOnce(workItemId);
+    } catch (error) {
+      if (!isTransientDatabaseError(error)) throw error;
+      lastError = error;
+      if (attempt < 4) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 250 * (2 ** attempt))
+        );
+      }
+    }
+  }
+  throw lastError;
 }
 
 function sourceRevisionSha(source) {
