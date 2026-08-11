@@ -5,6 +5,8 @@ import {
   parseRepositoryAccomplishmentsProfile,
   resolveExactRepositoryAccomplishmentsTarget,
 } from "@/src/evals/repository-accomplishments-quality";
+import { parseProjectChatApplicationCliOptions } from "@/src/evals/project-chat-application-cli";
+import { evaluateProjectChatAnswerQuality } from "@/src/evals/project-chat-answer-quality";
 import type {
   ProjectChatApplicationMetrics,
   ProjectChatApplicationScenarioResult,
@@ -115,6 +117,85 @@ function scenarioResult(
 }
 
 describe("repository accomplishments quality harness", () => {
+  it("maps short and long threshold flags into the same explicit profile fields", () => {
+    const short = parseProjectChatApplicationCliOptions([
+      "--provider", "openrouter",
+      "--work-item-exact", "CircleFund",
+      "--repository-exact=arkb75/CircleFund",
+      "--required-capability-regex", "circle|membership|invite",
+      "--required-capability-regex=contribution|lending|fund",
+      "--min-primary-items", "3",
+      "--max-primary-items=5",
+      "--min-developed-items", "3",
+      "--min-cited-items=3",
+    ]);
+    const long = parseProjectChatApplicationCliOptions([
+      "--minimum-primary-items=3",
+      "--maximum-primary-items", "5",
+      "--minimum-developed-items=3",
+      "--minimum-cited-items", "3",
+    ]);
+
+    expect(short).toMatchObject({
+      provider: "openrouter",
+      exactWorkItemTitle: "CircleFund",
+      exactRepository: "arkb75/CircleFund",
+      requiredCapabilityPatterns: [
+        "circle|membership|invite",
+        "contribution|lending|fund",
+      ],
+      minimumPrimaryItems: 3,
+      maximumPrimaryItems: 5,
+      minimumDevelopedItems: 3,
+      minimumCitedItems: 3,
+    });
+    expect(long).toMatchObject({
+      minimumPrimaryItems: 3,
+      maximumPrimaryItems: 5,
+      minimumDevelopedItems: 3,
+      minimumCitedItems: 3,
+    });
+
+    const explicitProfile = parseRepositoryAccomplishmentsProfile({
+      workItemTitle: short.exactWorkItemTitle,
+      repository: short.exactRepository,
+      requiredCapabilityPatterns: short.requiredCapabilityPatterns,
+      minimumPrimaryItems: short.minimumPrimaryItems,
+      maximumPrimaryItems: short.maximumPrimaryItems,
+      minimumDevelopedItems: short.minimumDevelopedItems,
+      minimumCitedItems: short.minimumCitedItems,
+    });
+    expect(explicitProfile).toMatchObject({
+      minimumPrimaryItems: 3,
+      maximumPrimaryItems: 5,
+      minimumDevelopedItems: 3,
+      minimumCitedItems: 3,
+    });
+    expect(buildRepositoryAccomplishmentsScenarioCatalog(explicitProfile)[0]
+      ?.answerContract).toMatchObject({
+        minPrimaryItems: 3,
+        maxPrimaryItems: 5,
+        minDevelopedItems: 3,
+        minCitedItems: 3,
+      });
+  });
+
+  it("rejects unknown, missing-value, and conflicting application-eval options", () => {
+    expect(() => parseProjectChatApplicationCliOptions([
+      "--min-prmary-items", "3",
+    ])).toThrow("Unknown application evaluation option: --min-prmary-items");
+    expect(() => parseProjectChatApplicationCliOptions([
+      "--min-primary-items",
+    ])).toThrow("--min-primary-items requires a value");
+    expect(() => parseProjectChatApplicationCliOptions([
+      "--minimum-primary-items", "4",
+      "--min-primary-items", "3",
+    ])).toThrow("conflicts with an already supplied value");
+    expect(() => parseProjectChatApplicationCliOptions([
+      "CircleFund",
+    ])).toThrow("Unexpected positional argument");
+  });
+
   it("normalizes a reusable profile and validates every capability regex", () => {
     expect(profile()).toMatchObject({
       includeFreshnessFollowUp: true,
@@ -129,6 +210,36 @@ describe("repository accomplishments quality harness", () => {
     expect(() => profile({ includeFreshnessFollowUp: "false" })).toThrow(
       "must be a boolean",
     );
+    expect(() => profile({ minimumPrimayItems: 3 })).toThrow(
+      "Unknown repository accomplishments profile field: minimumPrimayItems",
+    );
+  });
+
+  it("keeps the mechanism-to-value rubric repository agnostic", () => {
+    const circleProfile = profile({
+      includeFreshnessFollowUp: false,
+      minimumPrimaryItems: 3,
+      maximumPrimaryItems: 5,
+      minimumDevelopedItems: 3,
+      minimumCitedItems: 3,
+    });
+    const contract = buildRepositoryAccomplishmentsScenarioCatalog(
+      circleProfile,
+    )[0]!.answerContract!;
+    const answer = `### 1. Coordinated contribution rounds
+Built a circle contribution workflow by recording each member payment atomically and enforcing the active turn, which prevents duplicate disbursements and keeps a shared fund auditable. [citation:1]
+
+### 2. Safe membership onboarding
+Created invite-based membership using expiring tokens and server-side authorization checks, which lets a circle admit intended members without exposing private lending activity. [citation:2]
+
+### 3. Recoverable lending operations
+Designed fund recovery through idempotent lending commands and a durable operation ledger, which allows interrupted circle activity to resume without applying a contribution twice. [citation:3]`;
+    const checks = evaluateProjectChatAnswerQuality({ answer, contract });
+
+    expect(checks.find((check) =>
+      check.name === "answer connects implementation mechanisms to their value"
+    )).toMatchObject({ passed: true, actual: 3, expected: 3 });
+    expect(checks.filter((check) => !check.passed)).toEqual([]);
   });
 
   it("selects one exact title/repository/current-head tuple with no fallback", () => {

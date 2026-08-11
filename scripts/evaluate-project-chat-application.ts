@@ -26,10 +26,12 @@ import {
   type ProjectChatApplicationObservation,
   type ProjectChatApplicationOutcome,
   type ProjectChatApplicationScenario,
-  type ProjectChatApplicationScenarioId,
-  projectChatApplicationScenarios,
   runProjectChatApplicationScenarios,
 } from "../src/evals/project-chat-application-runner";
+import {
+  parseProjectChatApplicationCliOptions,
+  type ProjectChatApplicationCliOptions,
+} from "../src/evals/project-chat-application-cli";
 import {
   buildRepositoryAccomplishmentsReport,
   buildRepositoryAccomplishmentsScenarioCatalog,
@@ -62,23 +64,6 @@ import { persistResearchAgentEvent } from "../src/services/research-event-persis
 import { executeArtifactAttempt } from "../src/services/artifact-workflow-service";
 import { startAgentRunWorkflowOnce } from "../src/services/agent-run-workflow-start-service";
 
-interface CliOptions {
-  provider: "mock" | "bedrock" | "openrouter";
-  workItemTitle: string;
-  scenarioIds: ProjectChatApplicationScenarioId[];
-  keepData: boolean;
-  compact: boolean;
-  accomplishmentsConfig: string | null;
-  exactWorkItemTitle: string | null;
-  exactRepository: string | null;
-  requiredCapabilityPatterns: string[];
-  includeFreshnessFollowUp: boolean | null;
-  minimumPrimaryItems: number | null;
-  maximumPrimaryItems: number | null;
-  minimumDevelopedItems: number | null;
-  minimumCitedItems: number | null;
-}
-
 async function waitForAgentRunTerminal(runId: string, timeoutMs = 10 * 60_000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -101,82 +86,19 @@ async function waitForAgentRunTerminal(runId: string, timeoutMs = 10 * 60_000) {
   );
 }
 
-function parseArguments(argv: string[]): CliOptions {
-  const valueAfter = (name: string) => {
-    const equalsPrefix = `${name}=`;
-    const equalsValue = argv.find((argument) => argument.startsWith(equalsPrefix));
-    if (equalsValue) return equalsValue.slice(equalsPrefix.length);
-    const index = argv.indexOf(name);
-    return index >= 0 ? argv[index + 1] : undefined;
-  };
-  const valuesAfter = (name: string) => argv.flatMap((argument, index) => {
-    const equalsPrefix = `${name}=`;
-    if (argument.startsWith(equalsPrefix)) {
-      return [argument.slice(equalsPrefix.length)];
-    }
-    return argument === name && argv[index + 1] ? [argv[index + 1]!] : [];
-  });
-  const provider = valueAfter("--provider") ?? "mock";
-  if (
-    provider !== "mock" &&
-    provider !== "bedrock" &&
-    provider !== "openrouter"
-  ) {
-    throw new Error("--provider must be mock, bedrock, or openrouter.");
-  }
-  const scenarioValue = valueAfter("--scenarios");
-  const scenarioIds = scenarioValue
-    ? scenarioValue.split(",").map((entry) => entry.trim()).filter(Boolean) as ProjectChatApplicationScenarioId[]
-    : [];
-  const knownScenarioIds = new Set(projectChatApplicationScenarios.map((scenario) => scenario.id));
-  const unknownScenarioIds = scenarioIds.filter((id) => !knownScenarioIds.has(id));
-  if (unknownScenarioIds.length) {
-    throw new Error(`Unknown application scenario${unknownScenarioIds.length === 1 ? "" : "s"}: ${unknownScenarioIds.join(", ")}.`);
-  }
-  const includeFreshness = argv.includes("--freshness-follow-up");
-  const excludeFreshness = argv.includes("--no-freshness-follow-up");
-  if (includeFreshness && excludeFreshness) {
-    throw new Error(
-      "--freshness-follow-up and --no-freshness-follow-up are mutually exclusive.",
-    );
-  }
-  const numberAfter = (name: string) => {
-    const value = valueAfter(name);
-    return value === undefined ? null : Number(value);
-  };
-  return {
-    provider,
-    workItemTitle: valueAfter("--work-item") ?? process.env.EVAL_WORK_ITEM_TITLE ?? "Workbase",
-    scenarioIds,
-    keepData: argv.includes("--keep"),
-    compact: argv.includes("--compact"),
-    accomplishmentsConfig: valueAfter("--accomplishments-config") ?? null,
-    exactWorkItemTitle: valueAfter("--work-item-exact") ?? null,
-    exactRepository: valueAfter("--repository-exact") ?? null,
-    requiredCapabilityPatterns: [
-      ...valuesAfter("--required-capability"),
-      ...valuesAfter("--required-capability-regex"),
-    ],
-    includeFreshnessFollowUp: includeFreshness
-      ? true
-      : excludeFreshness
-        ? false
-        : null,
-    minimumPrimaryItems: numberAfter("--minimum-primary-items"),
-    maximumPrimaryItems: numberAfter("--maximum-primary-items"),
-    minimumDevelopedItems: numberAfter("--minimum-developed-items"),
-    minimumCitedItems: numberAfter("--minimum-cited-items"),
-  };
-}
-
 async function repositoryAccomplishmentsProfile(
-  options: CliOptions,
+  options: ProjectChatApplicationCliOptions,
 ): Promise<RepositoryAccomplishmentsProfile | null> {
   const requested = Boolean(
     options.accomplishmentsConfig ||
       options.exactWorkItemTitle ||
       options.exactRepository ||
-      options.requiredCapabilityPatterns.length,
+      options.requiredCapabilityPatterns.length ||
+      options.includeFreshnessFollowUp !== null ||
+      options.minimumPrimaryItems !== null ||
+      options.maximumPrimaryItems !== null ||
+      options.minimumDevelopedItems !== null ||
+      options.minimumCitedItems !== null,
   );
   if (!requested) return null;
   if (options.scenarioIds.length) {
@@ -1355,7 +1277,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
 }
 
 async function main() {
-  const options = parseArguments(process.argv.slice(2));
+  const options = parseProjectChatApplicationCliOptions(process.argv.slice(2));
   const accomplishmentsProfile = await repositoryAccomplishmentsProfile(options);
   process.env.WORKFLOW_LOCAL_BASE_URL ??=
     process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ?? "http://localhost:3000";

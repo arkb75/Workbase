@@ -111,6 +111,27 @@ export function parseRepositoryAccomplishmentsProfile(
   if (!value) {
     throw new Error("The repository accomplishments profile must be a JSON object.");
   }
+  const supportedKeys = new Set([
+    "schemaVersion",
+    "workItemTitle",
+    "repository",
+    "requiredCapabilityPatterns",
+    "includeFreshnessFollowUp",
+    "minimumPrimaryItems",
+    "maximumPrimaryItems",
+    "minimumDevelopedItems",
+    "minimumCitedItems",
+    "minimumCharacters",
+    "maximumCharacters",
+  ]);
+  const unknownKeys = Object.keys(value)
+    .filter((key) => !supportedKeys.has(key))
+    .sort();
+  if (unknownKeys.length) {
+    throw new Error(
+      `Unknown repository accomplishments profile field${unknownKeys.length === 1 ? "" : "s"}: ${unknownKeys.join(", ")}.`,
+    );
+  }
   if (
     value.schemaVersion !== undefined &&
     value.schemaVersion !== REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION

@@ -100,6 +100,36 @@ npx tsx scripts/evaluate-work-item-lifecycle-release-gate.ts \
 The browser spec records raw Highlight text so duplicate detection is exact.
 Treat its output as evaluation data and keep it out of source control.
 
+## Exact repository accomplishments benchmark
+
+Run the literal accomplishments prompt and its exact freshness follow-up
+against one explicitly named Work Item/repository pair. Repository-specific
+capability expressions and item thresholds are part of the comparison profile,
+so use the same arguments for both providers:
+
+```bash
+npx tsx scripts/evaluate-project-chat-application.ts \
+  --provider openrouter \
+  --work-item-exact CircleFund \
+  --repository-exact arkb75/CircleFund \
+  --required-capability-regex 'circle|membership|invite' \
+  --required-capability-regex 'contribution|lending|fund' \
+  --min-primary-items 3 \
+  --max-primary-items 5 \
+  --min-developed-items 3 \
+  --min-cited-items 3 \
+  > /tmp/openrouter-accomplishments.json
+```
+
+The equivalent long threshold names are `--minimum-primary-items`,
+`--maximum-primary-items`, `--minimum-developed-items`, and
+`--minimum-cited-items`. The CLI rejects unknown options, missing values, and
+duplicate aliases rather than silently falling back to profile defaults. A
+JSON object or path passed with `--accomplishments-config` can set the same
+camel-case fields (`minimumPrimaryItems`, `maximumPrimaryItems`,
+`minimumDevelopedItems`, and `minimumCitedItems`); unknown profile fields are
+also rejected.
+
 ## Paired quality comparison
 
 Assemble each provider report from the evaluated lifecycle gate, its raw
