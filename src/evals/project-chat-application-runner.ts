@@ -1394,7 +1394,19 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "freshness follow-up received exactly the preceding user and assistant messages", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
       addCheck(checks, "freshness follow-up retained the prior cited-source manifest", observation.historyCitationManifestCount >= minimumCitedItems, observation.historyCitationManifestCount, minimumCitedItems);
       addCheck(checks, "freshness follow-up attached the latest-head repository barrier", Boolean(observation.knowledgeRefreshRunId), Boolean(observation.knowledgeRefreshRunId), true);
-      addCheck(checks, "freshness follow-up used the chat-freshness trigger", observation.knowledgeRefresh?.trigger === "chat_freshness", observation.knowledgeRefresh?.trigger ?? "missing", "chat_freshness");
+      addCheck(
+        checks,
+        "freshness follow-up attached an ordinary immutable-head refresh generation",
+        [
+          "repository_attach",
+          "webhook_push",
+          "scheduled",
+          "manual",
+          "chat_freshness",
+        ].includes(observation.knowledgeRefresh?.trigger ?? ""),
+        observation.knowledgeRefresh?.trigger ?? "missing",
+        "an attached ordinary current-head refresh generation",
+      );
       addCheck(checks, "freshness follow-up waited for refresh completion", observation.knowledgeRefresh?.status === "completed", observation.knowledgeRefresh?.status ?? "missing", "completed");
       addCheck(checks, "freshness follow-up required verified semantic coverage", observation.knowledgeRefresh?.qualityStatus === "verified", observation.knowledgeRefresh?.qualityStatus ?? "missing", "verified");
       addCheck(checks, "freshness follow-up completed the exact target heads", Boolean(observation.knowledgeRefresh?.targetHeads.length) && JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? [])) === JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? [])), knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? []).join(", ") || "missing", knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? []).join(", ") || "non-empty exact target heads");

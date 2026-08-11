@@ -176,6 +176,26 @@ ${repeated} [citation:4]`;
     )).toMatchObject({ passed: false, actual: 1, expected: 4 });
   });
 
+  it("recognizes a selection-and-reuse workflow followed by its explicit value", () => {
+    const answer = `### Career Content Product & Trustworthy Artifact Pipeline
+- The workflow reviews resume branches and selects the closest existing variant for the job description.
+- It favors constrained edits; when a new variant is justified, it reuses an existing branch and edits main.tex minimally.
+
+**Why it matters:** This keeps career output tied to reviewed project knowledge without uncontrolled rewrites. [citation:1]`;
+
+    const checks = evaluateProjectChatAnswerQuality({
+      answer,
+      contract: {
+        minPrimaryItems: 1,
+        minDevelopedItems: 1,
+        minMechanismValueItems: 1,
+        minCitedItems: 1,
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
   it("rejects a low-value opening even when higher-value keywords occur soon afterward", () => {
     const answer = `## Architecture assessment
 

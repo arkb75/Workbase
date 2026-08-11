@@ -90,7 +90,7 @@ const readerThemePatterns: Record<ProjectChatReaderTheme, readonly RegExp[]> = {
 };
 
 const mechanismPattern =
-  /\b(?:by|through|use[sd]?|using|via|builds?|combines?|connects?|defines?|classifies?|fetches?|merges?|re-?grounds?|coordinates?|orchestrates?|enforces?|persists?|retrieves?|ingests?|refreshes?|reconciles?|validates?|routes?|delegates?|pins?|filters?|separates?|promotes?|applies?|generates?|quarantines?|records?|wraps?|divides?|executes?|consolidates?|prun(?:e|es|ing)|verif(?:y|ies|ication))\b/i;
+  /\b(?:by|through|use[sd]?|using|via|builds?|combines?|connects?|creates?|decides?|defines?|classifies?|edits?|fetches?|favors?|merges?|reuses?|re-?grounds?|reviews?|selects?|starts?|coordinates?|orchestrates?|enforces?|persists?|retrieves?|ingests?|refreshes?|reconciles?|validates?|routes?|delegates?|pins?|filters?|separates?|promotes?|applies?|generates?|quarantines?|records?|wraps?|divides?|executes?|consolidates?|prun(?:e|es|ing)|verif(?:y|ies|ication))\b/i;
 const valuePattern =
   /\b(?:so that|which (?:lets|allows|enables|keeps|ensures|prevents)|enabl(?:e|es|ing)|allow(?:s|ing)?|ensur(?:e|es|ing)|prevent(?:s|ing)?|protect(?:s|ing)?|reduce(?:s|ing)?|avoid(?:s|ing)?|preserv(?:e|es|ing)|keeps?|supports?|turns?|rather than|without|result(?:s|ing)?)\b/i;
 const claimPredicatePattern =

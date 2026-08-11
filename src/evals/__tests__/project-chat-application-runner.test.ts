@@ -817,6 +817,30 @@ describe("project-chat application scenario runner", () => {
     ]));
   });
 
+  it("accepts a same-head attach generation reused by the explicit freshness barrier", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (candidate) =>
+        candidate.id === "strongest_accomplishments_freshness_follow_up",
+    )!;
+    const observation = successfulObservation(scenario, 2);
+    observation.knowledgeRefresh = {
+      ...observation.knowledgeRefresh!,
+      trigger: "repository_attach",
+    };
+
+    const result = evaluateProjectChatApplicationObservation(
+      scenario,
+      observation,
+    );
+
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name:
+        "freshness follow-up attached an ordinary immutable-head refresh generation",
+      passed: true,
+      actual: "repository_attach",
+    }));
+  });
+
   it("enforces exact requested counts, claim-local citations, and reader-facing prioritization", () => {
     const scenario = projectChatApplicationScenarios.find((entry) => entry.id === "recruiter_top_three")!;
     const observation = successfulObservation(scenario, 0);
