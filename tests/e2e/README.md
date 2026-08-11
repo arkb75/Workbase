@@ -31,6 +31,7 @@ export WORKBASE_LLM_PROVIDER=openrouter
 export WORKBASE_LIVE_REPOSITORY_ID='the GitHub repository ID'
 export WORKBASE_LIVE_REPOSITORY_FULL_NAME='owner/repository'
 export WORKBASE_LIVE_EXPECTED_HEAD_SHA='40-character commit SHA'
+export WORKBASE_TESTED_GIT_COMMIT="$(git rev-parse HEAD)"
 export WORKBASE_LIFECYCLE_OBSERVATIONS_OUTPUT=/tmp/openrouter-lifecycle.json
 # Defaults shown here are release bounds; tune the long stages deliberately.
 export WORKBASE_LIFECYCLE_EVIDENCE_READY_SLO_MS=120000
@@ -83,6 +84,12 @@ manual-managed automatic Highlight and requires every final row to be either
 that preserved/explicitly transitioned baseline or a new current-head
 `repository_knowledge_sync` row. Unknown ownership, dropped baseline IDs,
 ungrounded current-head transitions, and active duplicates fail the gate.
+Every current-lineage GenerationRun is summarized with actual/configured
+provider and model, sanitized token usage, request and attempt identity, failed
+attempt count, truncation state, usage completeness, and measured cost. The
+delete/re-add scenario captures the first completed lineage's run telemetry
+before cascade deletion; missing semantic, synthesis, manual, or deleted-lineage
+cost evidence fails closed.
 
 Use a fresh database clone for each provider. Restart the server and workflow
 runtime with `WORKBASE_LLM_PROVIDER=bedrock` for the Bedrock control; never
@@ -147,7 +154,9 @@ npx tsx scripts/assemble-provider-quality-report.ts \
 ```
 
 The assembler rejects commit metadata, repository heads, providers, scenario
-sets, and gate/observation telemetry that do not match. Repeat it for the
+sets, and gate/observation telemetry that do not match. All three input
+artifacts must embed the same full Git commit; `--git-commit` is an assertion,
+not a substitute for artifact identity. Repeat it for the
 Bedrock control, then compare the two `workbase-provider-quality-report-v1`
 files:
 
@@ -163,4 +172,9 @@ The comparator requires the same code commit, repository heads, and scenario
 set. OpenRouter must pass every absolute gate, use no fallback, have complete
 attribution, retain perfect grounded-claim precision, meet or exceed Bedrock
 capability recall, and remain within the rubric margin in every dimension of
-every scenario. Aggregate wins cannot hide an individual regression.
+every scenario. Every scenario and report must have complete usage and cost
+coverage, and OpenRouter's matched measured total cost must not exceed
+Bedrock's. The output reports lifecycle, accomplishments, and combined cost
+and latency deltas/ratios; latency remains governed by the absolute lifecycle
+SLOs rather than a relative faster-than-Bedrock requirement. Aggregate wins
+cannot hide an individual regression.

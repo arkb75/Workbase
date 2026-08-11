@@ -16,19 +16,27 @@ function usage() {
   return [
     "Usage: npx tsx scripts/evaluate-work-item-lifecycle-release-gate.ts --input observations.json [--output report.json]",
     "",
-    "The input may be an observation array or { \"observations\": [...] }.",
+    "The input must be a live observation report with a full gitCommit and an observations array.",
     "This command evaluates recorded lifecycle evidence; it does not label a mocked observation as live.",
   ].join("\n");
 }
 
-function observationsFromJson(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object" && "observations" in value) {
-    const observations = (value as { observations?: unknown }).observations;
-    if (Array.isArray(observations)) return observations;
+function reportFromJson(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const report = value as { gitCommit?: unknown; observations?: unknown };
+    if (
+      typeof report.gitCommit === "string" &&
+      /^[a-f0-9]{40}$/iu.test(report.gitCommit) &&
+      Array.isArray(report.observations)
+    ) {
+      return {
+        gitCommit: report.gitCommit.toLowerCase(),
+        observations: report.observations,
+      };
+    }
   }
   throw new Error(
-    "Lifecycle observation input must be an array or an object with an observations array.",
+    "Lifecycle observation input must include a full 40-character gitCommit and an observations array.",
   );
 }
 
@@ -42,11 +50,13 @@ async function main() {
   const parsed: unknown = JSON.parse(
     await readFile(resolve(inputPath), "utf8"),
   );
+  const inputReport = reportFromJson(parsed);
   const result = evaluateWorkItemLifecycleReleaseGate({
-    observations: observationsFromJson(parsed),
+    observations: inputReport.observations,
   });
   const report = {
     schemaVersion: result.schemaVersion,
+    gitCommit: inputReport.gitCommit,
     passed: result.passed,
     evaluatedScenarios: result.results.length,
     missingScenarioIds: result.missingScenarioIds,

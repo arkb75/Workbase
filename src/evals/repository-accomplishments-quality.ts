@@ -444,6 +444,7 @@ function scenarioQuality(input: {
 
 export function buildRepositoryAccomplishmentsReport(input: {
   provider: "mock" | "bedrock" | "openrouter";
+  gitCommit: string;
   profile: RepositoryAccomplishmentsProfile;
   target: ExactRepositoryAccomplishmentsTarget;
   suite: {
@@ -461,6 +462,9 @@ export function buildRepositoryAccomplishmentsReport(input: {
   };
   keepEvaluationData: boolean;
 }) {
+  if (!/^[a-f0-9]{40}$/iu.test(input.gitCommit)) {
+    throw new Error("Repository accomplishments require a full 40-character gitCommit.");
+  }
   const scenarios = input.suite.results.map((result) => {
     const quality = scenarioQuality({
       result,
@@ -501,6 +505,7 @@ export function buildRepositoryAccomplishmentsReport(input: {
     .slice(0, 16);
   return {
     schemaVersion: REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION,
+    gitCommit: input.gitCommit.toLowerCase(),
     passed: input.suite.passed && scenarios.every((scenario) => scenario.passed),
     provider: input.provider,
     comparisonKey:

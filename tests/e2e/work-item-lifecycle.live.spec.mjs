@@ -22,6 +22,9 @@ const expectedHeadSha = (
   process.env.WORKBASE_LIVE_EXPECTED_HEAD_SHA ?? ""
 ).toLowerCase();
 const provider = process.env.WORKBASE_LLM_PROVIDER ?? "";
+const testedGitCommit = (
+  process.env.WORKBASE_TESTED_GIT_COMMIT ?? ""
+).toLowerCase();
 const repositorySynthesisMode =
   process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "deterministic";
 const expectedDeepSynthesisModelId = provider === "openrouter"
@@ -74,6 +77,9 @@ const configurationErrors = [
     : null,
   provider !== "bedrock" && provider !== "openrouter"
     ? "WORKBASE_LLM_PROVIDER (bedrock or openrouter)"
+    : null,
+  !/^[a-f0-9]{40}$/u.test(testedGitCommit)
+    ? "WORKBASE_TESTED_GIT_COMMIT (full 40-character SHA)"
     : null,
   !databaseUrl ? "DIRECT_URL or DATABASE_URL" : null,
   ...[
@@ -268,16 +274,6 @@ function failedProviderAttemptCount(value) {
     : optionalNonNegativeInteger(value);
 }
 
-function requestIdsFromResultRefs(value) {
-  const refs = objectRecord(value);
-  return Array.from(new Set([
-    optionalString(refs.requestId),
-    ...(Array.isArray(refs.requestIds)
-      ? refs.requestIds.map(optionalString)
-      : []),
-  ].filter(Boolean)));
-}
-
 function requestIdsFromAuditEvidence(...values) {
   const requestIds = new Set();
   const visited = new WeakSet();
@@ -340,16 +336,26 @@ function failedAttemptsFromAuditEvidence(...values) {
   return identities.size;
 }
 
-function normalizeCapabilitySynthesisRun(run) {
+function normalizeProviderGenerationRun(run) {
   const refs = objectRecord(run.resultRefs);
+  const verificationAggregate = refs.aggregate === true;
   return {
     id: run.id,
+    kind: run.kind,
     status: run.status,
     provider: run.provider,
+    configuredProvider: optionalString(refs.configuredProvider) ?? (
+      verificationAggregate ? null : provider
+    ),
     modelId: run.modelId,
     profile: optionalString(refs.profile),
     configuredModelId: optionalString(refs.configuredModelId),
-    requestIds: requestIdsFromResultRefs(refs),
+    requestIds: requestIdsFromAuditEvidence(
+      run.resultRefs,
+      run.inputSummary,
+      run.tokenUsage,
+    ),
+    tokenUsage: run.tokenUsage ?? null,
     tokenUsagePresent: run.tokenUsage != null,
     estimatedCostUsd:
       typeof run.estimatedCostUsd === "number" &&
@@ -364,14 +370,27 @@ function normalizeCapabilitySynthesisRun(run) {
     providerAttemptCount:
       optionalNonNegativeInteger(refs.providerAttemptCount),
     failedProviderAttempts:
-      failedProviderAttemptCount(refs.failedProviderAttempts),
+      failedProviderAttemptCount(refs.failedProviderAttempts) ??
+        failedAttemptsFromAuditEvidence(run.inputSummary, run.tokenUsage),
     unknownUsageAttempts:
       optionalNonNegativeInteger(refs.unknownUsageAttempts),
     auditEvidenceTruncated:
       typeof refs.auditEvidenceTruncated === "boolean"
         ? refs.auditEvidenceTruncated
         : null,
+    agentRunId: optionalString(refs.agentRunId),
+    role: verificationAggregate
+      ? "verification_aggregate"
+      : "provider_call",
+    authoritativeGenerationRunId:
+      optionalString(refs.authoritativeGenerationRunId),
+    providerBatchGenerationRunIds:
+      stringArray(refs.providerBatchGenerationRunIds),
   };
+}
+
+function normalizeCapabilitySynthesisRun(run) {
+  return normalizeProviderGenerationRun(run);
 }
 
 function normalizeManualGenerationRun(run) {
@@ -383,6 +402,9 @@ function normalizeManualGenerationRun(run) {
     kind: run.kind,
     status: run.status,
     provider: run.provider,
+    configuredProvider: optionalString(refs.configuredProvider) ?? (
+      verificationAggregate ? optionalString(refs.configuredProvider) : provider
+    ),
     modelId: run.modelId,
     profile: optionalString(refs.profile),
     configuredModelId: optionalString(refs.configuredModelId),
@@ -391,6 +413,7 @@ function normalizeManualGenerationRun(run) {
       run.inputSummary,
       run.tokenUsage,
     ),
+    tokenUsage: run.tokenUsage ?? null,
     tokenUsagePresent: run.tokenUsage != null,
     estimatedCostUsd:
       typeof run.estimatedCostUsd === "number" &&
@@ -417,7 +440,6 @@ function normalizeManualGenerationRun(run) {
     role: verificationAggregate
       ? "verification_aggregate"
       : "provider_call",
-    configuredProvider: optionalString(refs.configuredProvider),
     authoritativeGenerationRunId:
       optionalString(refs.authoritativeGenerationRunId),
     providerBatchGenerationRunIds:
@@ -1060,6 +1082,8 @@ async function buildObservation(input) {
         current.failedSemanticExtractionRows.map((run) => run.id),
       capabilitySynthesisRuns:
         current.capabilitySynthesisRows.map(normalizeCapabilitySynthesisRun),
+      generationRuns:
+        current.generationRows.map(normalizeProviderGenerationRun),
       observedProviders: Array.from(new Set(
         current.automationRows.map((run) => run.provider),
       )).sort(),
@@ -1214,6 +1238,7 @@ async function appendObservation(observation) {
   const report = appendLifecycleObservationToReport({
     priorReport,
     schemaVersion: SCHEMA_VERSION,
+    gitCommit: testedGitCommit,
     baseUrl,
     observation,
   });
@@ -1343,11 +1368,13 @@ function assertManualObservation(observation) {
     expect(run.status).toBe("success");
     expect(run.agentRunId).toBe(observation.manualAgentRun.id);
     expect(run.provider).toBe(provider);
+    expect(run.configuredProvider).toBe(provider);
     expect(run.profile).toBe(expectedProfile);
     expect(run.configuredModelId).toBe(expectedModelId);
     expect(run.modelId).toBe(expectedModelId);
     expect(run.requestIds.length).toBeGreaterThan(0);
     expect(run.tokenUsagePresent).toBe(true);
+    expect(run.tokenUsage).not.toBeNull();
     expect(run.estimatedCostUsd).toEqual(expect.any(Number));
     expect(run.usageComplete).toBe(true);
     expect(run.auditAttemptCount).toBeGreaterThan(0);
@@ -1493,10 +1520,38 @@ function assertCoreObservation(observation) {
   );
   expect(successfulDeepSynthesisRuns.length).toBeGreaterThan(0);
   for (const run of successfulDeepSynthesisRuns) {
+    expect(run.kind).toBe("capability_synthesis");
+    expect(run.role).toBe("provider_call");
     expect(run.provider).toBe(provider);
+    expect(run.configuredProvider).toBe(provider);
     expect(run.configuredModelId).toBe(expectedDeepSynthesisModelId);
     expect(run.modelId).toBe(expectedDeepSynthesisModelId);
     expect(run.requestIds.length).toBeGreaterThan(0);
+    expect(run.tokenUsagePresent).toBe(true);
+    expect(run.tokenUsage).not.toBeNull();
+    expect(run.estimatedCostUsd).toEqual(expect.any(Number));
+    expect(run.usageComplete).toBe(true);
+    expect(run.auditAttemptCount).toBeGreaterThan(0);
+    expect(run.providerAttemptCount).toBeGreaterThan(0);
+    expect(run.failedProviderAttempts).toBe(0);
+    expect(run.unknownUsageAttempts).toBe(0);
+    expect(run.auditEvidenceTruncated).toBe(false);
+  }
+  const lineageGenerationRuns = observation.automation.generationRuns;
+  expect(sorted(lineageGenerationRuns.map((run) => run.id))).toEqual(
+    sorted(observation.currentLineage.generationRunIds),
+  );
+  const providerGenerationRuns = lineageGenerationRuns.filter((run) =>
+    run.role === "provider_call"
+  );
+  expect(providerGenerationRuns.length).toBeGreaterThan(0);
+  for (const run of providerGenerationRuns) {
+    expect(run.status).toBe("success");
+    expect(run.provider).toBe(provider);
+    expect(run.configuredProvider).toBe(provider);
+    expect(run.configuredModelId).toBe(run.modelId);
+    expect(run.requestIds.length).toBeGreaterThan(0);
+    expect(run.tokenUsage).not.toBeNull();
     expect(run.tokenUsagePresent).toBe(true);
     expect(run.estimatedCostUsd).toEqual(expect.any(Number));
     expect(run.usageComplete).toBe(true);
@@ -1506,6 +1561,11 @@ function assertCoreObservation(observation) {
     expect(run.unknownUsageAttempts).toBe(0);
     expect(run.auditEvidenceTruncated).toBe(false);
   }
+  expect(sorted(lineageGenerationRuns.filter((run) =>
+    run.kind === "semantic_extraction"
+  ).map((run) => run.id))).toEqual(
+    sorted(observation.automation.semanticExtractionRunIds),
+  );
   expect(observation.automation.observedProviders).toEqual([provider]);
   expect(observation.automation.observedModelIds.length).toBeGreaterThan(0);
   expect(observation.timingsMs.actionAcknowledged).toBeLessThanOrEqual(5_000);
@@ -1716,6 +1776,7 @@ test.describe("live Work Item lifecycle release gate", () => {
       : null;
     const priorLineage = {
       ...await captureLineage(prior.currentLineage.workItemId),
+      generationRuns: prior.automation.generationRuns,
       completedBeforeDeletion:
         prior.terminalOutcome.status === "completed" &&
         prior.refresh.status === "completed" &&
@@ -1748,6 +1809,13 @@ test.describe("live Work Item lifecycle release gate", () => {
       expect(replacement.priorLineage.automaticHighlightCount)
         .toBeGreaterThan(0);
       expect(replacement.priorLineage.deleted).toBe(true);
+      expect(sorted(replacement.priorLineage.generationRuns.map((run) => run.id)))
+        .toEqual(sorted(replacement.priorLineage.generationRunIds));
+      expect(replacement.priorLineage.generationRuns.filter((run) =>
+        run.role === "provider_call"
+      ).every((run) =>
+        run.usageComplete === true && run.estimatedCostUsd !== null
+      )).toBe(true);
       expect(replacement.leakedPriorEntityIds).toEqual([]);
       expect(replacement.currentLineage.workItemId)
         .not.toBe(priorLineage.workItemId);

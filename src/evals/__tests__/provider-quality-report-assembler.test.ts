@@ -13,21 +13,36 @@ const lifecycleScenarioIds = [
   "completed_delete_readd_same_repo",
 ] as const;
 
-function generationRun(id: string, modelId: string, cost: number) {
+function generationRun(
+  id: string,
+  kind: string,
+  modelId: string,
+  cost: number,
+  profile: string,
+) {
   return {
     id,
+    kind,
+    status: "success",
     provider: "openrouter",
+    configuredProvider: "openrouter",
     modelId,
+    profile,
     configuredModelId: modelId,
     requestIds: [`request-${id}`],
+    tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
     tokenUsagePresent: true,
     estimatedCostUsd: cost,
     usageComplete: true,
+    auditAttemptCount: 1,
     providerAttemptCount: 1,
     failedProviderAttempts: 0,
     unknownUsageAttempts: 0,
     auditEvidenceTruncated: false,
     role: "provider_call",
+    agentRunId: null,
+    authoritativeGenerationRunId: null,
+    providerBatchGenerationRunIds: [],
   };
 }
 
@@ -62,6 +77,7 @@ function fixtures() {
   }));
   const lifecycleGate = {
     schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    gitCommit: GIT_COMMIT,
     passed: true,
     evaluatedScenarios: scenarios.length,
     missingScenarioIds: [],
@@ -75,13 +91,17 @@ function fixtures() {
   };
   const lifecycleObservations = {
     schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    gitCommit: GIT_COMMIT,
     observations: lifecycleScenarioIds.map((scenarioId, index) => {
       const sourceId = `source-${scenarioId}`;
       const runId = `run-${scenarioId}`;
+      const semanticRunId = `${runId}-semantic`;
+      const synthesisRunId = `${runId}-synthesis`;
       const common = {
         schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
         scenarioId,
         provider: "openrouter",
+        currentLineage: { generationRunIds: [runId] },
         timingsMs: { total: 100 },
         automaticHighlights: [highlight(
           `highlight-${scenarioId}`,
@@ -100,29 +120,76 @@ function fixtures() {
             result: { generationRunIds: [runId] },
             generationRuns: [generationRun(
               runId,
+              "highlight_generation",
               "openai/gpt-5.6-luna",
               0.01,
+              "drafting",
             )],
           },
         };
       }
       return {
         ...common,
+        currentLineage: {
+          generationRunIds: [semanticRunId, synthesisRunId],
+        },
         repository: {
           sourceId,
           fullName: REPOSITORY,
           expectedHeadSha: HEAD_SHA,
         },
         automation: {
-          generationRunIds: [runId],
+          generationRunIds: [semanticRunId, synthesisRunId],
           observedProviders: ["openrouter"],
-          observedModelIds: ["openai/gpt-5.6-terra"],
+          observedModelIds: ["openai/gpt-5.4-mini", "openai/gpt-5.6-terra"],
           capabilitySynthesisRuns: [generationRun(
-            runId,
+            synthesisRunId,
+            "capability_synthesis",
             "openai/gpt-5.6-terra",
             0.02 + index * 0,
+            "deep_synthesis",
           )],
+          generationRuns: [
+            generationRun(
+              semanticRunId,
+              "semantic_extraction",
+              "openai/gpt-5.4-mini",
+              0.005,
+              "code_extraction",
+            ),
+            generationRun(
+              synthesisRunId,
+              "capability_synthesis",
+              "openai/gpt-5.6-terra",
+              0.02,
+              "deep_synthesis",
+            ),
+          ],
         },
+        priorLineage: scenarioId === "completed_delete_readd_same_repo"
+          ? {
+              generationRunIds: [
+                `${runId}-prior-semantic`,
+                `${runId}-prior-synthesis`,
+              ],
+              generationRuns: [
+                generationRun(
+                  `${runId}-prior-semantic`,
+                  "semantic_extraction",
+                  "openai/gpt-5.4-mini",
+                  0.005,
+                  "code_extraction",
+                ),
+                generationRun(
+                  `${runId}-prior-synthesis`,
+                  "capability_synthesis",
+                  "openai/gpt-5.6-terra",
+                  0.02,
+                  "deep_synthesis",
+                ),
+              ],
+            }
+          : null,
       };
     }),
   };
@@ -168,6 +235,7 @@ function fixtures() {
   });
   const accomplishments = {
     schemaVersion: "workbase-repository-accomplishments-report-v1",
+    gitCommit: GIT_COMMIT,
     passed: true,
     provider: "openrouter",
     comparisonKey: `${REPOSITORY.toLowerCase()}@${HEAD_SHA}:profile-hash`,
@@ -229,12 +297,16 @@ describe("provider quality report assembler", () => {
       authoritative: true,
       fallbackUsed: false,
       failedProviderAttempts: 0,
-      actualModelIds: ["openai/gpt-5.6-luna", "openai/gpt-5.6-terra"],
+      actualModelIds: [
+        "openai/gpt-5.4-mini",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+      ],
     });
     expect(report.performance).toEqual({
       latencyMs: 440,
-      observedEstimatedCostUsd: 0.076,
-      observedGenerationRunCount: 6,
+      observedEstimatedCostUsd: 0.116,
+      observedGenerationRunCount: 11,
       costCoverageComplete: true,
       usageComplete: true,
     });
@@ -254,6 +326,37 @@ describe("provider quality report assembler", () => {
     Object.assign(fixture.accomplishments, { gitCommit: "c".repeat(40) });
 
     expect(() => assemble(fixture)).toThrow(/commit mismatch/iu);
+  });
+
+  it("rejects artifacts that do not embed the tested build commit", () => {
+    const fixture = fixtures();
+    delete (fixture.lifecycleGate as { gitCommit?: string }).gitCommit;
+
+    expect(() => assemble(fixture)).toThrow(/missing gitCommit/iu);
+  });
+
+  it("counts semantic extraction and deleted-prior provider runs in cost coverage", () => {
+    const fixture = fixtures();
+    const repositoryObservation = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "empty_create_attach",
+    );
+    if (!repositoryObservation || !("automation" in repositoryObservation)) {
+      throw new Error("Expected repository lifecycle fixture.");
+    }
+    const semanticRun = repositoryObservation.automation.generationRuns.find(
+      (run) => run.kind === "semantic_extraction",
+    );
+    Object.assign(semanticRun!, {
+      estimatedCostUsd: null,
+      usageComplete: false,
+    });
+
+    const report = assemble(fixture);
+    expect(report.attribution.authoritative).toBe(false);
+    expect(report.performance.costCoverageComplete).toBe(false);
+    expect(report.scenarios.find((scenario) =>
+      scenario.id === "empty_create_attach"
+    )?.performance.costCoverageComplete).toBe(false);
   });
 
   it("fails closed on a provider mismatch", () => {

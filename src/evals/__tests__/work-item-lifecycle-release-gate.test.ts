@@ -38,6 +38,38 @@ type RepositoryObservation = Exclude<
   ManualObservation
 >;
 
+function repositoryGenerationRun(
+  id: string,
+  kind: string,
+  modelId: string,
+  profile: string,
+): RepositoryObservation["automation"]["generationRuns"][number] {
+  return {
+    id,
+    kind,
+    status: "success",
+    provider: "openrouter",
+    configuredProvider: "openrouter",
+    modelId,
+    profile,
+    configuredModelId: modelId,
+    requestIds: [`request-${id}`],
+    tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    tokenUsagePresent: true,
+    estimatedCostUsd: 0.01,
+    usageComplete: true,
+    auditAttemptCount: 1,
+    providerAttemptCount: 1,
+    failedProviderAttempts: 0,
+    unknownUsageAttempts: 0,
+    auditEvidenceTruncated: false,
+    agentRunId: null,
+    role: "provider_call",
+    authoritativeGenerationRunId: null,
+    providerBatchGenerationRunIds: [],
+  };
+}
+
 function manualObservation(): ManualObservation {
   const current = lineage("current-manual-only-create");
   const sourceId = current.sourceIds[0];
@@ -57,6 +89,7 @@ function manualObservation(): ManualObservation {
     kind,
     status: "success",
     provider: "openrouter",
+    configuredProvider: "openrouter",
     modelId: kind === "highlight_generation"
       ? "openai/gpt-5.4-mini"
       : "openai/gpt-5.4-nano",
@@ -65,6 +98,7 @@ function manualObservation(): ManualObservation {
       ? "openai/gpt-5.4-mini"
       : "openai/gpt-5.4-nano",
     requestIds: [`request-${id}`],
+    tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
     tokenUsagePresent: true,
     estimatedCostUsd: 0.001,
     usageComplete: true,
@@ -75,7 +109,6 @@ function manualObservation(): ManualObservation {
     auditEvidenceTruncated: false,
     agentRunId,
     role: "provider_call",
-    configuredProvider: null,
     authoritativeGenerationRunId: null,
     providerBatchGenerationRunIds: [],
   });
@@ -175,10 +208,10 @@ function observation(
   const current = lineage(`current-${scenarioId}`);
   const semanticExtractionRunId = `${scenarioId}-semantic-extraction`;
   const capabilitySynthesisRunId = `${scenarioId}-capability-synthesis`;
-  current.generationRunIds.push(
+  current.generationRunIds = [
     semanticExtractionRunId,
     capabilitySynthesisRunId,
-  );
+  ];
   const sourceId = current.sourceIds[0];
   const head = {
     sourceId,
@@ -314,23 +347,26 @@ function observation(
       failedGenerationRunIds: [],
       semanticExtractionRunIds: [semanticExtractionRunId],
       failedSemanticExtractionRunIds: [],
-      capabilitySynthesisRuns: [{
-        id: capabilitySynthesisRunId,
-        status: "success",
-        provider: "openrouter",
-        modelId: "openai/gpt-5.6-terra",
-        profile: "deep_synthesis",
-        configuredModelId: "openai/gpt-5.6-terra",
-        requestIds: [`request-${capabilitySynthesisRunId}`],
-        tokenUsagePresent: true,
-        estimatedCostUsd: 0.031,
-        usageComplete: true,
-        auditAttemptCount: 1,
-        providerAttemptCount: 1,
-        failedProviderAttempts: 0,
-        unknownUsageAttempts: 0,
-        auditEvidenceTruncated: false,
-      }],
+      capabilitySynthesisRuns: [repositoryGenerationRun(
+        capabilitySynthesisRunId,
+        "capability_synthesis",
+        "openai/gpt-5.6-terra",
+        "deep_synthesis",
+      ) as RepositoryObservation["automation"]["capabilitySynthesisRuns"][number]],
+      generationRuns: [
+        repositoryGenerationRun(
+          semanticExtractionRunId,
+          "semantic_extraction",
+          "openai/gpt-5.4-mini",
+          "code_extraction",
+        ),
+        repositoryGenerationRun(
+          capabilitySynthesisRunId,
+          "capability_synthesis",
+          "openai/gpt-5.6-terra",
+          "deep_synthesis",
+        ),
+      ],
       observedProviders: ["openrouter"],
       observedModelIds: ["openai/gpt-5.6-terra"],
     },
@@ -340,15 +376,35 @@ function observation(
     },
     currentLineage: current,
     priorLineage: scenarioId === "completed_delete_readd_same_repo"
-      ? {
-          ...lineage("prior"),
-          repositoryId: "repo-workbase",
-          repository: "arkb75/Workbase",
-          completedBeforeDeletion: true,
-          completedHeadSha: CURRENT_SHA,
-          automaticHighlightCount: 2,
-          deleted: true,
-        }
+      ? (() => {
+          const prior = lineage("prior");
+          const priorSemanticRunId = "prior-semantic-extraction";
+          const priorSynthesisRunId = "prior-capability-synthesis";
+          prior.generationRunIds = [priorSemanticRunId, priorSynthesisRunId];
+          return {
+            ...prior,
+            repositoryId: "repo-workbase",
+            repository: "arkb75/Workbase",
+            completedBeforeDeletion: true,
+            completedHeadSha: CURRENT_SHA,
+            automaticHighlightCount: 2,
+            generationRuns: [
+              repositoryGenerationRun(
+                priorSemanticRunId,
+                "semantic_extraction",
+                "openai/gpt-5.4-mini",
+                "code_extraction",
+              ),
+              repositoryGenerationRun(
+                priorSynthesisRunId,
+                "capability_synthesis",
+                "openai/gpt-5.6-terra",
+                "deep_synthesis",
+              ),
+            ],
+            deleted: true,
+          };
+        })()
       : null,
     leakedPriorEntityIds: [],
     sloMs: {
@@ -458,6 +514,7 @@ describe("work-item lifecycle release gate", () => {
       requestIds: firstVerification.requestIds.concat(
         secondVerification.requestIds,
       ),
+      tokenUsage: null,
       tokenUsagePresent: false,
       estimatedCostUsd: null,
       usageComplete: true,
@@ -741,6 +798,36 @@ describe("work-item lifecycle release gate", () => {
     expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({
       id: "semantic_extraction_has_no_failed_runs",
+      passed: false,
+    }));
+  });
+
+  it("fails closed when semantic extraction cost telemetry is missing", () => {
+    const input = observation("empty_create_attach");
+    const semanticRun = input.automation.generationRuns.find((run) =>
+      run.kind === "semantic_extraction"
+    )!;
+    semanticRun.estimatedCostUsd = null;
+    semanticRun.usageComplete = false;
+
+    const result = evaluateWorkItemLifecycleObservation(input);
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      id: "all_repository_provider_runs_have_complete_attribution_and_cost",
+      passed: false,
+    }));
+  });
+
+  it("requires deleted-lineage provider costs to be captured before cascade deletion", () => {
+    const input = observation("completed_delete_readd_same_repo");
+    input.priorLineage!.generationRuns = [];
+
+    const result = evaluateWorkItemLifecycleObservation(input);
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      id: "deleted_prior_lineage_provider_cost_was_captured_before_deletion",
       passed: false,
     }));
   });

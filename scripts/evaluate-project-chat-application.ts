@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Prisma } from "../src/generated/prisma/client";
@@ -138,6 +139,24 @@ async function repositoryAccomplishmentsProfile(
     ...override(options.minimumDevelopedItems, "minimumDevelopedItems"),
     ...override(options.minimumCitedItems, "minimumCitedItems"),
   });
+}
+
+function currentCleanGitCommit() {
+  const status = execFileSync("git", ["status", "--porcelain"], {
+    encoding: "utf8",
+  }).trim();
+  if (status) {
+    throw new Error(
+      "Repository accomplishments evidence requires a clean Git worktree.",
+    );
+  }
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim().toLowerCase();
+  if (!/^[a-f0-9]{40}$/u.test(commit)) {
+    throw new Error("Could not resolve a full Git commit for accomplishments evidence.");
+  }
+  return commit;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -1352,6 +1371,7 @@ async function main() {
   const output = accomplishmentsProfile && exactTarget
     ? buildRepositoryAccomplishmentsReport({
         provider: options.provider,
+        gitCommit: currentCleanGitCommit(),
         profile: accomplishmentsProfile,
         target: exactTarget,
         suite,
