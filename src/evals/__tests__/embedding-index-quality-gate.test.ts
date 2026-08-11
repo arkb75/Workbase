@@ -36,6 +36,8 @@ describe("embedding index quality gates", () => {
     const result = evaluateEmbeddingIndexQualityGate({
       ...historicalTitanQuality,
       mode: "rollback",
+      activeRecallAt10: null,
+      activeMrr: null,
     });
 
     expect(result.thresholds).toMatchObject({
@@ -46,7 +48,7 @@ describe("embedding index quality gates", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("rejects rollback when the candidate loses a required active source", () => {
+  it("rejects rollback when the candidate loses a required fixture source", () => {
     const result = evaluateEmbeddingIndexQualityGate({
       ...historicalTitanQuality,
       mode: "rollback",
@@ -65,6 +67,39 @@ describe("embedding index quality gates", () => {
     });
 
     expect(result.checks.candidateReconciled).toBe(false);
+    expect(result.passed).toBe(false);
+  });
+
+  it("fails closed on invalid quality or source-integrity inputs", () => {
+    const invalidQuality = evaluateEmbeddingIndexQualityGate({
+      ...historicalTitanQuality,
+      mode: "rollback",
+      activeRecallAt10: null,
+      activeMrr: null,
+      candidateMrr: Number.NaN,
+    });
+    const invalidIntegrity = evaluateEmbeddingIndexQualityGate({
+      ...historicalTitanQuality,
+      mode: "rollback",
+      activeRecallAt10: null,
+      activeMrr: null,
+      requiredSourceLoss: -1,
+    });
+
+    expect(invalidQuality.checks.qualityMetricsValid).toBe(false);
+    expect(invalidQuality.passed).toBe(false);
+    expect(invalidIntegrity.checks.sourceIntegrityInputValid).toBe(false);
+    expect(invalidIntegrity.passed).toBe(false);
+  });
+
+  it("still requires active metrics for promotion", () => {
+    const result = evaluateEmbeddingIndexQualityGate({
+      ...historicalTitanQuality,
+      activeRecallAt10: null,
+      activeMrr: null,
+    });
+
+    expect(result.checks.qualityMetricsValid).toBe(false);
     expect(result.passed).toBe(false);
   });
 });

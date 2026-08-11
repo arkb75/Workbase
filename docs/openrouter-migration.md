@@ -275,14 +275,24 @@ traffic.
 
 For embedding rollback:
 
-1. keep the active small index serving while Titan is checked;
+1. leave the active-index control row unchanged while Titan is checked;
 2. backfill and reconcile `legacy-bedrock-titan-v2-512`;
 3. run the rollback-mode embedding quality gate and require zero missing rows,
-   zero input-hash mismatches, and no required-source loss;
+   zero input-hash mismatches, and no missing fixture-required source groups;
 4. read the current activation epoch with the `list` command;
 5. atomically run `rollback --key legacy-bedrock-titan-v2-512
    --expected-epoch N`; and
 6. restart the application and confirm Titan is active and write-enabled.
+
+Rollback-mode evaluation embeds queries only with the requested rollback
+candidate and searches only that candidate's stored vectors. It does not call
+the active embedding provider, so a complete OpenRouter outage cannot prevent
+Titan from being re-gated. The recorded report marks `activeQueried: false`,
+leaves active baseline metrics and telemetry as `null`, and compares candidate
+recall/MRR with the fixture's recorded absolute thresholds. Every required
+fixture source group must also have at least one candidate hit in the top 10.
+Promotion mode continues to query both indexes and enforce active-index as well
+as historical non-inferiority.
 
 The readiness endpoint proves database and text-runtime readiness; the
 embedding-index `list` command is authoritative for embedding identity. Neither

@@ -3,6 +3,13 @@ import {
   evaluateEmbeddingIndexQualityGate,
   type EmbeddingQualityGateMode,
 } from "@/src/evals/embedding-index-quality-gate";
+import {
+  assertEmbeddingEvaluationQueries,
+  evaluateEmbeddingIndexQueries,
+  scoreEmbeddingRankingResult,
+  type EmbeddingQueryReport,
+  type EmbeddingRequiredSources,
+} from "@/src/evals/embedding-index-query-evaluation";
 import { embeddingIndexEvaluationErrorMessage } from "@/src/evals/embedding-index-error";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/src/lib/prisma";
@@ -12,13 +19,6 @@ import {
   resolveEmbeddingQualityValidationContext,
 } from "@/src/services/embedding-index-service";
 import { rankProjectKnowledgeForIndex } from "@/src/services/knowledge-embedding-service";
-
-type RequiredSources = {
-  highlights?: Array<string | string[]>;
-  projectFacts?: Array<string | string[]>;
-  evidence?: Array<string | string[]>;
-  artifacts?: Array<string | string[]>;
-};
 
 type Fixture = {
   name?: string;
@@ -31,26 +31,8 @@ type Fixture = {
   queries: Array<{
     id: string;
     query: string;
-    required: RequiredSources;
+    required: EmbeddingRequiredSources;
   }>;
-};
-
-type RankedSource = {
-  key: string;
-  kind: keyof RequiredSources;
-  id: string;
-  similarity: number;
-};
-
-type RankedResult = Awaited<ReturnType<typeof rankProjectKnowledgeForIndex>>;
-type ScoredRanking = ReturnType<typeof scoreRanking>;
-type QueryReport = {
-  id: string;
-  query: string;
-  required: RequiredSources;
-  baseline: ScoredRanking & { telemetry: RankedResult["telemetry"] };
-  candidate: ScoredRanking & { telemetry: RankedResult["telemetry"] };
-  requiredSourceLoss: string[];
 };
 
 function usage() {
@@ -61,7 +43,7 @@ Usage:
 
 Modes:
   promotion  Require the candidate to meet or exceed both the active index and historical fixture thresholds (default).
-  rollback   Re-gate a ready, reconciled rollback index against historical fixture thresholds without losing sources found by the active index.
+  rollback   Re-gate a ready, reconciled rollback index using only its provider, historical fixture thresholds, and absolute required-source checks.
 `.trim();
 }
 
@@ -84,22 +66,9 @@ function qualityGateMode(): EmbeddingQualityGateMode {
   return value;
 }
 
-function requiredGroups(required: RequiredSources) {
-  return (
-    Object.entries(required) as Array<
-      [keyof RequiredSources, Array<string | string[]> | undefined]
-    >
-  ).flatMap(([kind, entries]) =>
-    (entries ?? []).map((entry) => {
-      const ids = Array.isArray(entry) ? entry : [entry];
-      return ids.map((id) => `${kind}:${id}`);
-    })
-  );
-}
-
 function requiredIdsForKind(
   fixture: Fixture,
-  kind: keyof RequiredSources,
+  kind: keyof EmbeddingRequiredSources,
 ) {
   return Array.from(new Set(fixture.queries.flatMap((query) =>
     query.required[kind]?.flatMap((entry) =>
@@ -176,57 +145,6 @@ async function validateFixtureSources(fixture: Fixture) {
   return resolvedWorkItemId;
 }
 
-function flattenMatches(matches: Awaited<ReturnType<typeof rankProjectKnowledgeForIndex>>["matches"]) {
-  const groups: Array<[keyof RequiredSources, Map<string, number>]> = [
-    ["highlights", matches.highlights],
-    ["projectFacts", matches.projectFacts],
-    ["evidence", matches.evidence],
-    ["artifacts", matches.artifacts],
-  ];
-  return groups
-    .flatMap(([kind, values]) =>
-      Array.from(values, ([id, similarity]) => ({
-        key: `${kind}:${id}`,
-        kind,
-        id,
-        similarity,
-      } satisfies RankedSource))
-    )
-    .sort((left, right) => right.similarity - left.similarity);
-}
-
-function scoreRanking(ranking: RankedSource[], required: RequiredSources) {
-  const expected = requiredGroups(required);
-  const requiredKinds = new Set(
-    (Object.entries(required) as Array<
-      [keyof RequiredSources, Array<string | string[]> | undefined]
-    >)
-      .filter(([, entries]) => Boolean(entries?.length))
-      .map(([kind]) => kind),
-  );
-  const scopedRanking = ranking.filter((source) => requiredKinds.has(source.kind));
-  const top10 = scopedRanking.slice(0, 10);
-  const top10Keys = new Set(top10.map((source) => source.key));
-  const hitGroups = expected
-    .filter((alternatives) => alternatives.some((key) => top10Keys.has(key)))
-    .map((alternatives) => alternatives.join("|"));
-  const expectedKeys = new Set(expected.flat());
-  const firstRelevantRank = scopedRanking.findIndex((source) =>
-    expectedKeys.has(source.key)
-  );
-  return {
-    requiredCount: expected.length,
-    hitGroups,
-    recallAt10: expected.length ? hitGroups.length / expected.length : 1,
-    reciprocalRank: expected.length && firstRelevantRank >= 0
-      ? 1 / (firstRelevantRank + 1)
-      : expected.length
-        ? 0
-        : 1,
-    top10,
-  };
-}
-
 function average(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
@@ -250,6 +168,7 @@ async function main() {
   if (!fixture.queries?.length) {
     throw new Error("Embedding fixture must include at least one query.");
   }
+  assertEmbeddingEvaluationQueries(fixture.queries);
   if (
     fixture.baselineThresholds?.recallAt10 === undefined ||
     fixture.baselineThresholds.mrr === undefined ||
@@ -280,7 +199,7 @@ async function main() {
         id: query.id,
         query: query.query,
         required: query.required,
-        ...scoreRanking(flattenMatches(result.matches), query.required),
+        ...scoreEmbeddingRankingResult(result, query.required),
         telemetry: result.telemetry,
       });
     }
@@ -335,45 +254,34 @@ async function main() {
     );
   }
 
-  const queryReports: QueryReport[] = [];
-  for (const query of fixture.queries) {
-    const [baselineResult, candidateResult] = await Promise.all([
-      rankProjectKnowledgeForIndex({
+  const queryReports = await evaluateEmbeddingIndexQueries({
+    mode,
+    queries: fixture.queries,
+    rankActive: mode === "promotion"
+      ? (query) => rankProjectKnowledgeForIndex({
         workItemId,
         query: query.query,
         index: active,
         limit: 30,
-      }),
-      rankProjectKnowledgeForIndex({
-        workItemId,
-        query: query.query,
-        index: candidate,
-        limit: 30,
-      }),
-    ]);
-    const baseline = scoreRanking(flattenMatches(baselineResult.matches), query.required);
-    const challenger = scoreRanking(flattenMatches(candidateResult.matches), query.required);
-    const baselineHits = new Set(baseline.hitGroups);
-    const candidateHits = new Set(challenger.hitGroups);
-    queryReports.push({
-      id: query.id,
+      })
+      : undefined,
+    rankCandidate: (query) => rankProjectKnowledgeForIndex({
+      workItemId,
       query: query.query,
-      required: query.required,
-      baseline: { ...baseline, telemetry: baselineResult.telemetry },
-      candidate: { ...challenger, telemetry: candidateResult.telemetry },
-      requiredSourceLoss: Array.from(baselineHits).filter((key) => !candidateHits.has(key)),
-    });
-  }
+      index: candidate,
+      limit: 30,
+    }),
+  });
 
-  const baselineRecallAt10 = average(
-    queryReports.map((entry) => entry.baseline.recallAt10),
-  );
+  const baselineRecallAt10 = mode === "promotion"
+    ? average(queryReports.map((entry) => entry.baseline!.recallAt10))
+    : null;
   const candidateRecallAt10 = average(
     queryReports.map((entry) => entry.candidate.recallAt10),
   );
-  const baselineMrr = average(
-    queryReports.map((entry) => entry.baseline.reciprocalRank),
-  );
+  const baselineMrr = mode === "promotion"
+    ? average(queryReports.map((entry) => entry.baseline!.reciprocalRank))
+    : null;
   const candidateMrr = average(
     queryReports.map((entry) => entry.candidate.reciprocalRank),
   );
@@ -382,12 +290,18 @@ async function main() {
     0,
   );
   const latencySummary = (side: "baseline" | "candidate") => {
-    const values = queryReports.map((entry) => entry[side].telemetry.latencyMs);
-    const costs = queryReports
-      .map((entry) => entry[side].telemetry.costUsd)
+    const rankings = queryReports
+      .map((entry) => entry[side])
+      .filter((entry): entry is NonNullable<EmbeddingQueryReport[typeof side]> =>
+        entry !== null
+      );
+    if (!rankings.length) return null;
+    const values = rankings.map((entry) => entry.telemetry.latencyMs);
+    const costs = rankings
+      .map((entry) => entry.telemetry.costUsd)
       .filter((value): value is number => value !== null);
-    const inputTokens = queryReports
-      .map((entry) => entry[side].telemetry.inputTokens)
+    const inputTokens = rankings
+      .map((entry) => entry.telemetry.inputTokens)
       .filter((value): value is number => value !== null);
     return {
       averageMs: average(values),
@@ -423,6 +337,10 @@ async function main() {
     recordedAt: new Date().toISOString(),
     workItemId,
     active: { key: active.key, provider: active.provider, modelId: active.modelId },
+    providerEvaluation: {
+      activeQueried: mode === "promotion",
+      candidateQueried: true,
+    },
     candidate: {
       key: candidate.key,
       provider: candidate.provider,
