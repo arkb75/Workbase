@@ -436,8 +436,13 @@ export function shouldQuarantineSynthesizedCandidate(candidate: {
   // establish by themselves. They require a narrower claim rather than silent
   // auto-approval.
   if (/\b(?:tamper[- ]evident|production[- ]grade|always produces?|guarantees?)\b/i.test(claim)) return true;
-  const modalTerms = Array.from(claim.matchAll(/\b(?:mandatory|always|never|exclusively|every|all|only)\b/gi))
-    .map((match) => match[0]!.toLowerCase());
+  const modalTerms = [
+    ...claim.matchAll(/\b(?:mandatory|always|never|exclusively|every|all)\b/gi),
+    // Product descriptors such as "invite-only" and "read-only" are not
+    // standalone universal qualifiers. Treating their suffix as an absolute
+    // would quarantine an otherwise evidence-backed capability statement.
+    ...claim.matchAll(/(?<![-\u2010-\u2015])\bonly\b/gi),
+  ].map((match) => match[0]!.toLowerCase());
   if (!modalTerms.length) return false;
   // An unrelated executable file is not evidence for an absolute qualifier.
   // At least one executable exact-line observation must itself state every

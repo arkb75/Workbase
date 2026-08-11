@@ -103,6 +103,18 @@ describe("repository knowledge auto-apply policy", () => {
     }])).toBe(false);
   });
 
+  it("does not mistake a hyphenated product descriptor for an absolute claim", () => {
+    expect(shouldQuarantineSynthesizedCandidate({
+      statement: "The product is an invite-only lending-circle MVP.",
+      confidence: "high",
+      sensitivityFlag: false,
+    }, [{
+      path: "README.md",
+      statement: "CircleFund is an invite-only lending-circle MVP.",
+      semanticStatus: "succeeded",
+    }])).toBe(false);
+  });
+
   it("blocks unprovable overclaims even when code is cited", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       statement: "The fallback always produces calibrated output with tamper-evident provenance.",
