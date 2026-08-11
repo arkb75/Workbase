@@ -10,6 +10,8 @@ import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-reposi
 
 const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v3";
 const liveEnabled = process.env.WORKBASE_LIFECYCLE_LIVE_E2E === "1";
+const retainCreatedWorkItems =
+  process.env.WORKBASE_LIFECYCLE_RETAIN_CREATED_WORK_ITEMS === "1";
 const baseUrl = process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ??
   "http://127.0.0.1:3000";
 const repositoryId = process.env.WORKBASE_LIVE_REPOSITORY_ID ?? "";
@@ -1589,11 +1591,13 @@ test.describe("live Work Item lifecycle release gate", () => {
     try {
       assertManualObservation(observation);
     } finally {
-      await deleteCreatedWorkItem(
-        page,
-        observation.currentLineage.workItemId,
-        title,
-      );
+      if (!retainCreatedWorkItems) {
+        await deleteCreatedWorkItem(
+          page,
+          observation.currentLineage.workItemId,
+          title,
+        );
+      }
     }
   });
 
@@ -1608,11 +1612,13 @@ test.describe("live Work Item lifecycle release gate", () => {
     try {
       assertCoreObservation(observation);
     } finally {
-      await deleteCreatedWorkItem(
-        page,
-        observation.currentLineage.workItemId,
-        title,
-      );
+      if (!retainCreatedWorkItems) {
+        await deleteCreatedWorkItem(
+          page,
+          observation.currentLineage.workItemId,
+          title,
+        );
+      }
     }
   });
 
@@ -1653,7 +1659,9 @@ test.describe("live Work Item lifecycle release gate", () => {
     try {
       assertCoreObservation(observation);
     } finally {
-      await deleteCreatedWorkItem(page, workItem.id, title);
+      if (!retainCreatedWorkItems) {
+        await deleteCreatedWorkItem(page, workItem.id, title);
+      }
     }
   });
 
@@ -1705,11 +1713,13 @@ test.describe("live Work Item lifecycle release gate", () => {
       expect(replacement.currentLineage.workItemId)
         .not.toBe(priorLineage.workItemId);
     } finally {
-      await deleteCreatedWorkItem(
-        page,
-        replacement.currentLineage.workItemId,
-        replacementTitle,
-      );
+      if (!retainCreatedWorkItems) {
+        await deleteCreatedWorkItem(
+          page,
+          replacement.currentLineage.workItemId,
+          replacementTitle,
+        );
+      }
     }
   });
 });

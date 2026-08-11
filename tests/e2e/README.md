@@ -41,6 +41,12 @@ export WORKBASE_LIFECYCLE_TOTAL_SLO_MS=600000
 npx playwright test --config playwright.lifecycle.config.mjs
 ```
 
+For a separate retained chat-quality benchmark, run one explicitly selected
+scenario with `WORKBASE_LIFECYCLE_RETAIN_CREATED_WORK_ITEMS=1`. This flag is
+off by default and must not be used for the four-scenario release run above;
+the retained item is evaluation data that must be deleted explicitly after the
+paired provider report is captured.
+
 The repository ID is the stable release-gate identity. Workbase resolves that
 ID through the authenticated GitHub connection and the gate uses the returned
 canonical `owner/repository` name for its UI, import, and current-head checks.
