@@ -15,7 +15,14 @@ import {
   selectProjectChatHistory,
   usesDeterministicEditorialSynthesis,
 } from "@/src/services/project-chat-agent-service";
-import { classifyProjectAnswerEditorialProfile } from "@/src/services/project-answer-editorial-service";
+import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
+import {
+  addSourceBoundedEditorialContext,
+  auditProjectAnswerEditorialQuality,
+  buildExactSourceEditorialFallbackBlocks,
+  classifyProjectAnswerEditorialProfile,
+  selectProjectAnswerEditorialThemes,
+} from "@/src/services/project-answer-editorial-service";
 
 describe("project chat repository intent", () => {
   it.each([
@@ -349,6 +356,116 @@ describe("project chat repository intent", () => {
     expect(query).toContain("Prior user objective: Summarize my strongest accomplishments");
     expect(query).toContain("Prior assistant answer: A broad five-part accomplishments summary.");
     expect(query).toContain('"title":"Career artifact pipeline"');
+  });
+
+  it("applies the inherited accomplishments objective to repository-native CircleFund framing", () => {
+    const history = [
+      {
+        id: "user-accomplishments",
+        role: "user" as const,
+        content: "Summarize my strongest accomplishments",
+        citations: [],
+      },
+      {
+        id: "assistant-accomplishments",
+        role: "assistant" as const,
+        content: "Earlier cited summary.",
+        citations: [],
+      },
+    ];
+    const objective = resolveProjectChatAnswerObjective({
+      currentQuestion: "make sure your understanding is up to date",
+      history,
+    });
+    const circleEntry = (
+      index: number,
+      subsystemKey: string,
+      content: string,
+    ): ProjectAnswerGroundingEntry => ({
+      kind: "project_fact",
+      authority: "verified_project_fact",
+      title: content,
+      content,
+      currentRun: true,
+      citationIndexes: [index],
+      supportingSources: [],
+      subsystemKey,
+      accomplishmentRanking: {
+        evidenceStrength: 5,
+        productImportance: 4,
+        implementationBreadth: 4,
+        technicalDifficulty: 4,
+        ownershipAuthority: 0,
+        distinctiveness: 4,
+        freshness: 5,
+        impactBonus: 0,
+        uncertainty: null,
+      },
+    });
+    const entries = [
+      circleEntry(
+        1,
+        "product_surface",
+        "The account flow connects sign-in, onboarding, circle creation, and invite-based membership activation.",
+      ),
+      circleEntry(
+        2,
+        "domain_data",
+        "The relational schema models circles, memberships, contributions, and their foreign-key relationships.",
+      ),
+      circleEntry(
+        3,
+        "tests_operations",
+        "Route tests exercise HTTP success and authorization failures at the login and circle boundaries.",
+      ),
+      circleEntry(
+        4,
+        "project_domain:auth",
+        "The login route sets a signed session cookie after a successful email request.",
+      ),
+      circleEntry(
+        5,
+        "project_domain:circles",
+        "The circle route returns AUTH_REQUIRED before dashboard access when no session user is available.",
+      ),
+      circleEntry(
+        6,
+        "project_domain:validations",
+        "The create-circle schema validates contribution, reserve, duration, and loan constraints.",
+      ),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({
+      question: objective,
+      entries,
+      repositoryNames: ["arkb75/CircleFund"],
+    });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+    const answer = blocks.map((block) =>
+      `### ${block.heading}\n${block.bodyMarkdown}`
+    ).join("\n\n");
+    const audit = auditProjectAnswerEditorialQuality({
+      profile: selection.profile,
+      selection,
+      blocks,
+      rawAnswer: answer,
+    });
+
+    expect(objective).toBe("Summarize my strongest accomplishments");
+    expect(selection.repositoryContext?.presentation).toBe("generic");
+    expect(answer).toMatch(/sign-in[\s\S]*onboarding/i);
+    expect(answer).toMatch(/circle[\s\S]*(?:membership|contribution)/i);
+    expect(answer).toContain("Authentication");
+    expect(answer).toContain("**What this enables:**");
+    expect(answer).not.toMatch(
+      /Career Content Product|Reviewable and Versioned Project Knowledge|\*\*Why it matters:/i,
+    );
+    expect(audit.passed).toBe(true);
+    expect(audit.checks.depth).toBe(true);
+    expect(audit.mechanismBlockCount).toBeGreaterThanOrEqual(3);
+    expect(audit.valueBlockCount).toBeGreaterThanOrEqual(3);
   });
 
   it("does not replace an explicit refresh-status question with the prior accomplishments objective", () => {

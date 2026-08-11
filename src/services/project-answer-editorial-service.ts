@@ -108,6 +108,15 @@ export interface ProjectAnswerComparisonBinding {
 
 export interface ProjectAnswerEditorialSelection {
   profile: ProjectAnswerEditorialProfile;
+  /**
+   * Reader framing is Workbase-specific only when the attached repository
+   * scope establishes that the answer is about Workbase. The legacy mode
+   * preserves callers that do not yet have repository capability context.
+   */
+  repositoryContext?: {
+    names: string[];
+    presentation: "workbase" | "generic" | "legacy";
+  };
   rankedEntries: RankedEditorialEntry[];
   themes: ProjectAnswerEditorialTheme[];
   selectedThemes: ProjectAnswerEditorialTheme[];
@@ -896,6 +905,45 @@ const readerThemeDefinitions = [
   },
 ] as const;
 
+const genericReaderThemeDefinitions = [
+  {
+    key: "product_outcomes",
+    label: "Core Product Workflows",
+    subsystemKeys: ["product_surface", "artifact_generation"],
+    readerValue: 0,
+  },
+  {
+    key: "repository_intelligence",
+    label: "Repository and Integration Capabilities",
+    subsystemKeys: ["repository_knowledge_lifecycle", "ingestion_integrations"],
+    readerValue: 0,
+  },
+  {
+    key: "grounded_project_agent",
+    label: "Grounded Project Assistance",
+    subsystemKeys: ["project_chat_grounding", "retrieval_provenance"],
+    readerValue: 0,
+  },
+  {
+    key: "trusted_knowledge_lifecycle",
+    label: "Application Experience and Review",
+    subsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
+    readerValue: 0,
+  },
+  {
+    key: "durable_ai_platform",
+    label: "Durable, Bounded Execution",
+    subsystemKeys: ["workflow_orchestration", "ai_runtime"],
+    readerValue: 0,
+  },
+  {
+    key: "engineering_foundation",
+    label: "Data Model and Quality",
+    subsystemKeys: ["domain_data", "tests_operations"],
+    readerValue: 0,
+  },
+] as const;
+
 const inventoryThemeDefinitions = [
   {
     key: "product_and_artifact_generation",
@@ -948,6 +996,50 @@ const inventoryThemeDefinitions = [
     subsystemKeys: ["tests_operations"],
   },
 ] as const;
+
+const genericInventoryThemeDefinitions = [
+  {
+    key: "product_and_artifact_generation",
+    label: "Product Experience and Generated Output",
+    subsystemKeys: ["product_surface", "artifact_generation"],
+  },
+  ...inventoryThemeDefinitions.slice(1),
+] as const;
+
+function repositoryEditorialContext(repositoryNames?: readonly string[]) {
+  if (repositoryNames === undefined) {
+    return {
+      names: [],
+      presentation: "legacy" as const,
+    };
+  }
+  const names = Array.from(new Set(repositoryNames.map((name) => name.trim()).filter(Boolean)));
+  const isWorkbaseOnly = names.length > 0 && names.every((name) =>
+    name.split("/").at(-1)?.toLocaleLowerCase() === "workbase"
+  );
+  return {
+    names,
+    presentation: isWorkbaseOnly ? "workbase" as const : "generic" as const,
+  };
+}
+
+function humanizeSubsystemLabel(subsystemKey: string) {
+  const raw = subsystemKey
+    .replace(/^(?:module|project_domain):/i, "")
+    .replace(/^project_domain[_-]/i, "");
+  const aliases: Record<string, string> = {
+    auth: "Authentication",
+    validation: "Input Validation",
+    validations: "Input Validation",
+  };
+  const normalized = raw.toLocaleLowerCase();
+  if (aliases[normalized]) return aliases[normalized];
+  return raw
+    .split(/[_:/-]+/)
+    .filter(Boolean)
+    .map((term) => `${term.slice(0, 1).toUpperCase()}${term.slice(1)}`)
+    .join(" ");
+}
 
 function diverseRepresentatives(members: RankedEditorialEntry[], limit = 3) {
   const remaining = [...members];
@@ -1067,12 +1159,7 @@ function unknownThemes(
     );
     return {
       key: subsystemKey,
-      label: subsystemKey
-        .replace(/^module:/, "")
-        .split(/[_-]+/)
-        .filter(Boolean)
-        .map((term) => `${term.slice(0, 1).toUpperCase()}${term.slice(1)}`)
-        .join(" "),
+      label: humanizeSubsystemLabel(subsystemKey),
       subsystemKeys: [subsystemKey],
       members,
       highPriorityMembers: members.filter((member) => member.highPriority),
@@ -1863,8 +1950,11 @@ export function selectProjectAnswerEditorialThemes(input: {
   question: string;
   entries: ProjectAnswerGroundingEntry[];
   profile?: ProjectAnswerEditorialProfile;
+  repositoryNames?: readonly string[];
 }): ProjectAnswerEditorialSelection {
   const profile = input.profile ?? classifyProjectAnswerEditorialProfile(input.question);
+  const repositoryContext = repositoryEditorialContext(input.repositoryNames);
+  const useWorkbasePresentation = repositoryContext.presentation !== "generic";
   const rankedEntries = rankProjectAnswerEditorialEntries({
     question: input.question,
     entries: input.entries,
@@ -1921,8 +2011,12 @@ export function selectProjectAnswerEditorialThemes(input: {
     profile.comprehensive ||
       profile.kind === "focused" ||
       preserveExplicitTechnicalFacets
-    ? inventoryThemeDefinitions
-    : readerThemeDefinitions;
+    ? useWorkbasePresentation
+      ? inventoryThemeDefinitions
+      : genericInventoryThemeDefinitions
+    : useWorkbasePresentation
+      ? readerThemeDefinitions
+      : genericReaderThemeDefinitions;
   const knownSubsystems = new Set(definitions.flatMap((definition) => [...definition.subsystemKeys]));
   const themes = [
     ...definitions.flatMap((definition) => {
@@ -2087,14 +2181,16 @@ export function selectProjectAnswerEditorialThemes(input: {
   // then review lifecycle. Explicit facet requests above still win.
   const defaultAccomplishmentPriorityKeys =
     profile.kind === "accomplishment"
-      ? [
-          "product_outcomes",
-          "repository_intelligence",
-          "grounded_project_agent",
-          "durable_ai_platform",
-          "trusted_knowledge_lifecycle",
-          "engineering_foundation",
-        ]
+      ? useWorkbasePresentation
+        ? [
+            "product_outcomes",
+            "repository_intelligence",
+            "grounded_project_agent",
+            "durable_ai_platform",
+            "trusted_knowledge_lifecycle",
+            "engineering_foundation",
+          ]
+        : ["product_outcomes"]
       : [];
   const priorityKeys = comparisonPriorityKeys.length
     ? comparisonPriorityKeys
@@ -2148,6 +2244,7 @@ export function selectProjectAnswerEditorialThemes(input: {
   ));
   return {
     profile,
+    repositoryContext,
     rankedEntries,
     themes,
     selectedThemes,
@@ -2304,6 +2401,75 @@ const valueByTheme: Record<string, string> = {
     "This checks user-visible chat, research, review, artifact, security, and recovery behavior across regressions.",
 };
 
+function genericValueForTheme(theme: ProjectAnswerEditorialTheme) {
+  const sourceText = theme.representativeMembers
+    .map((member) => `${member.entry.title} ${member.entry.content}`)
+    .join(" ");
+  switch (theme.key) {
+    case "product_outcomes":
+    case "product_and_artifact_generation":
+      return /\b(?:account|sign[- ]?in)\b[\s\S]{0,240}\bonboarding\b[\s\S]{0,240}\b(?:join|membership|circle)\b/i.test(
+        sourceText,
+      )
+        ? "By connecting the cited account, onboarding, and membership actions into one flow, this supports an end-to-end path from sign-in to active product participation."
+        : "By connecting the cited user-facing behaviors into an end-to-end flow, this supports a coherent product experience rather than a set of isolated features.";
+    case "repository_intelligence":
+    case "repository_knowledge_lifecycle":
+      return "By turning the cited repository inputs into bounded, reusable project knowledge, this supports current implementation decisions without treating every source file as equally relevant.";
+    case "grounded_project_agent":
+    case "project_chat_grounding":
+    case "retrieval_provenance":
+      return "By connecting the cited project context to traceable answer sources, this supports useful follow-up work without separating the response from its evidence.";
+    case "trusted_knowledge_lifecycle":
+    case "knowledge_review_experience":
+      return /\b(?:root layout|document shell|html|font|metadata)\b/i.test(sourceText)
+        ? "By centralizing the cited document shell and shared presentation settings, this supports consistent behavior across routed product screens."
+        : "By exposing the cited application and review behavior through a shared product surface, this supports consistent changes across the user experience.";
+    case "durable_ai_platform":
+    case "workflow_orchestration":
+    case "ai_runtime":
+      return "By coordinating the cited execution controls through an explicit runtime boundary, this supports observable long-running work without hiding its stopping conditions.";
+    case "engineering_foundation":
+    case "domain_data": {
+      const hasDataModel = /\b(?:schema|model|relation|foreign key|enum|database|prisma|index)\w*/i.test(
+        sourceText,
+      );
+      const hasTests = /\b(?:test|spec|assert|expect|success path|failure path|http [1-5]\d\d)\w*/i.test(
+        sourceText,
+      );
+      if (hasDataModel && hasTests) {
+        return "By modeling the cited domain state and exercising its request boundaries, this supports consistent behavior while making regressions easier to catch.";
+      }
+      if (hasDataModel) {
+        return "By defining the cited entities, relationships, and constraints in the data model, this supports consistent domain state across the product.";
+      }
+      if (hasTests) {
+        return "By exercising the cited request paths, this supports predictable boundary behavior and makes regressions easier to catch.";
+      }
+      return "By making the cited foundation explicit in the implementation, this supports predictable changes in the surrounding product behavior.";
+    }
+    case "tests_operations":
+      return "By exercising the cited request paths, this supports predictable boundary behavior and makes regressions easier to catch.";
+    case "ingestion_integrations":
+      return "By constraining the cited integration at an explicit import boundary, this supports useful external context without granting unbounded access.";
+    default: {
+      const subject = theme.label.toLocaleLowerCase();
+      if (/\b(?:validat|schema|constraint|required|minimum|maximum|bounded)\w*/i.test(sourceText)) {
+        return `By enforcing the cited ${subject} constraints at the request boundary, this prevents invalid state from moving deeper into the product.`;
+      }
+      if (/\b(?:test|http [1-5]\d\d|request|response|route|session|cookie|error)\w*/i.test(sourceText)) {
+        return `By exercising the cited ${subject} behavior at the request boundary, this supports predictable handling for that flow and makes regressions easier to catch.`;
+      }
+      if (/\b(?:upsert|lookup|select|read|write|query|record|view model)\w*/i.test(sourceText)) {
+        return /\b(?:minimal|only|bounded|constrain|unnecessary|selected fields?)\w*/i.test(sourceText)
+          ? `By shaping the cited ${subject} reads and writes around explicit records, this supports consistent domain behavior without exposing unnecessary data.`
+          : `By shaping the cited ${subject} reads and writes around explicit records, this supports consistent behavior through a clear data-access boundary.`;
+      }
+      return `By making the cited ${subject} behavior explicit in the implementation, this supports predictable changes at that product boundary.`;
+    }
+  }
+}
+
 /**
  * Keeps the recovery path useful for analytical prompts without presenting
  * model-free conclusions as observed facts. The evidence text remains
@@ -2344,13 +2510,18 @@ export function addSourceBoundedEditorialContext(
       heading: contract?.subjects[index]?.heading ?? block.heading,
     }));
   }
+  const useGenericPresentation = selection.repositoryContext?.presentation === "generic";
   const contextualized = blocks.map((block, index) => {
     const theme = selection.selectedThemes[index];
-    const value = theme ? valueByTheme[theme.key] : null;
+    const value = theme
+      ? useGenericPresentation
+        ? genericValueForTheme(theme)
+        : valueByTheme[theme.key]
+      : null;
     if (!value) return block;
     return {
       ...block,
-      bodyMarkdown: `${block.bodyMarkdown}\n\n**Why it matters:** ${value}`,
+      bodyMarkdown: `${block.bodyMarkdown}\n\n**${useGenericPresentation ? "What this enables" : "Why it matters"}:** ${value}`,
     };
   });
   if (selection.profile.kind !== "focused" || !contextualized.length) {

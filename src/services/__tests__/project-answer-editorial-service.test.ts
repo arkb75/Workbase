@@ -1720,6 +1720,124 @@ describe("project answer editorial ranking and grouping", () => {
 });
 
 describe("project answer editorial output contracts", () => {
+  it("uses repository-native framing and source-bounded value for CircleFund-like accomplishments", () => {
+    const entries = [
+      entry(1, "product_surface", {
+        title: "Account-to-circle product workflow",
+        content:
+          "The documented user flow supports account creation and sign-in, routes users without a circle into onboarding, and lets signed-in users create or join circles.",
+      }),
+      entry(2, "product_surface", {
+        title: "Invite membership activation",
+        content:
+          "For the documented invite-code join path, joining creates an ACTIVE membership immediately.",
+      }),
+      entry(3, "domain_data", {
+        title: "Lending-circle relational model",
+        content:
+          "The Prisma schema models users, circles, memberships, and contributions as relational records with foreign-key relationships.",
+      }),
+      entry(4, "tests_operations", {
+        title: "Authenticated login route coverage",
+        content:
+          "Login-route tests cover HTTP success and failure responses and assert the signed session cookie returned to the user.",
+      }),
+      entry(5, "review_ui", {
+        title: "Shared document shell",
+        content:
+          "The root layout provides a shared HTML document shell, font variables, and a full-height body.",
+        scores: {
+          productImportance: 1,
+          implementationBreadth: 1,
+          technicalDifficulty: 1,
+          distinctiveness: 1,
+        },
+      }),
+      entry(6, "project_domain:auth", {
+        title: "Authentication request boundary",
+        content:
+          "The success-path test posts an email to the login route, receives HTTP 200, and sets the session cookie for the signed-in user.",
+      }),
+      entry(7, "project_domain:circles", {
+        title: "Circle authorization boundary",
+        content:
+          "When no session user is available, the circle route returns HTTP 403 with an AUTH_REQUIRED error before dashboard access.",
+      }),
+      entry(8, "project_domain:validations", {
+        title: "Create-circle request validation",
+        content:
+          "The create-circle schema validates required approval mode and bounded contribution, reserve, duration, and loan fields.",
+      }),
+    ];
+    const selection = selectProjectAnswerEditorialThemes({
+      question: "Summarize my strongest accomplishments",
+      entries,
+      repositoryNames: ["arkb75/CircleFund"],
+    });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+    const rendered = blocks.map((block) =>
+      `### ${block.heading}\n${block.bodyMarkdown}`
+    ).join("\n\n");
+    const audit = auditProjectAnswerEditorialQuality({
+      profile: selection.profile,
+      selection,
+      blocks,
+      rawAnswer: rendered,
+    });
+
+    expect(selection.repositoryContext).toEqual({
+      names: ["arkb75/CircleFund"],
+      presentation: "generic",
+    });
+    expect(selection.selectedThemes.map((theme) => theme.key)).toEqual([
+      "product_outcomes",
+      "engineering_foundation",
+      "project_domain:auth",
+      "project_domain:circles",
+      "project_domain:validations",
+    ]);
+    expect(blocks.map((block) => block.heading)).toEqual([
+      "Core Product Workflows",
+      "Data Model and Quality",
+      "Authentication",
+      "Circles",
+      "Input Validation",
+    ]);
+    expect(rendered).toContain("account creation and sign-in");
+    expect(rendered).toContain("memberships, and contributions");
+    expect(rendered).toContain("AUTH_REQUIRED");
+    expect(rendered).toContain("bounded contribution");
+    expect(rendered).toContain("**What this enables:**");
+    expect(rendered).not.toMatch(
+      /Career Content Product|Reviewable and Versioned Project Knowledge|project knowledge, conversations|\*\*Why it matters:/i,
+    );
+    expect(audit.checks.depth).toBe(true);
+    expect(audit.mechanismBlockCount).toBeGreaterThanOrEqual(3);
+    expect(audit.valueBlockCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("retains Workbase-specific accomplishment framing for an explicit Workbase repository", () => {
+    const selection = selectProjectAnswerEditorialThemes({
+      question: "Summarize my strongest accomplishments",
+      entries: completeEntries(),
+      repositoryNames: ["arkb75/Workbase"],
+    });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+
+    expect(selection.repositoryContext?.presentation).toBe("workbase");
+    expect(blocks[0]?.heading).toBe(
+      "Career Content Product & Trustworthy Artifact Pipeline",
+    );
+    expect(blocks[0]?.bodyMarkdown).toContain("**Why it matters:**");
+    expect(blocks[0]?.bodyMarkdown).toContain("career output");
+  });
+
   it("builds bounded exact-source fallback blocks from selected themes only", () => {
     const selection = selectProjectAnswerEditorialThemes({
       question: "Rank my top three strongest accomplishments.",

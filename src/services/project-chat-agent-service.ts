@@ -1392,6 +1392,7 @@ async function executeProjectChatAgent(
     question: answerObjective,
     entries: memoryCatalog.entries,
     profile: editorialProfile,
+    repositoryNames: capabilityInputs.repositories.map((repository) => repository.name),
   });
   if (
     editorialProfile.kind === "comparison" &&
