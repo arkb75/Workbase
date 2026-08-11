@@ -10,9 +10,18 @@ function observationsFromReport(report) {
 
 export function appendLifecycleObservationToReport(input) {
   const prior = objectRecord(input.priorReport);
+  if (
+    typeof prior.gitCommit === "string" &&
+    prior.gitCommit.toLowerCase() !== input.gitCommit.toLowerCase()
+  ) {
+    throw new Error(
+      `Lifecycle observation report commit changed from ${prior.gitCommit} to ${input.gitCommit}.`,
+    );
+  }
   return {
     ...prior,
     schemaVersion: input.schemaVersion,
+    gitCommit: input.gitCommit.toLowerCase(),
     live: true,
     baseUrl: input.baseUrl,
     observations: [...observationsFromReport(prior), input.observation],

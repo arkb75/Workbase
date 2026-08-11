@@ -67,14 +67,16 @@ const failedProviderAttemptCountSchema = z.preprocess(
   z.number().int().nonnegative().nullable(),
 );
 
-const capabilitySynthesisRunSchema = z.object({
+const generationRunTelemetrySchema = z.object({
   id: identifierSchema,
   status: identifierSchema,
   provider: identifierSchema,
+  configuredProvider: identifierSchema.nullable(),
   modelId: identifierSchema,
   profile: identifierSchema.nullable(),
   configuredModelId: identifierSchema.nullable(),
   requestIds: z.array(identifierSchema),
+  tokenUsage: z.unknown().nullable(),
   tokenUsagePresent: z.boolean(),
   estimatedCostUsd: z.number().nonnegative().nullable(),
   usageComplete: z.boolean().nullable(),
@@ -85,13 +87,24 @@ const capabilitySynthesisRunSchema = z.object({
   auditEvidenceTruncated: z.boolean().nullable(),
 });
 
-const manualGenerationRunSchema = capabilitySynthesisRunSchema.extend({
-  kind: z.enum(["highlight_generation", "highlight_verification"]),
+const lineageGenerationRunSchema = generationRunTelemetrySchema.extend({
+  kind: identifierSchema,
   agentRunId: identifierSchema.nullable(),
   role: z.enum(["provider_call", "verification_aggregate"]),
-  configuredProvider: identifierSchema.nullable(),
   authoritativeGenerationRunId: identifierSchema.nullable(),
   providerBatchGenerationRunIds: z.array(identifierSchema),
+});
+
+const providerGenerationRunSchema = lineageGenerationRunSchema.extend({
+  role: z.literal("provider_call"),
+});
+
+const capabilitySynthesisRunSchema = providerGenerationRunSchema.extend({
+  kind: z.literal("capability_synthesis"),
+});
+
+const manualGenerationRunSchema = lineageGenerationRunSchema.extend({
+  kind: z.enum(["highlight_generation", "highlight_verification"]),
 });
 
 const observationIdentitySchema = z.object({
@@ -161,6 +174,7 @@ const repositoryObservationSchema = observationIdentitySchema.extend({
     semanticExtractionRunIds: z.array(identifierSchema),
     failedSemanticExtractionRunIds: z.array(identifierSchema),
     capabilitySynthesisRuns: z.array(capabilitySynthesisRunSchema),
+    generationRuns: z.array(lineageGenerationRunSchema),
     observedProviders: z.array(identifierSchema),
     observedModelIds: z.array(identifierSchema),
   }),
@@ -170,6 +184,7 @@ const repositoryObservationSchema = observationIdentitySchema.extend({
     completedBeforeDeletion: z.boolean(),
     completedHeadSha: shaSchema.nullable(),
     automaticHighlightCount: z.number().int().nonnegative(),
+    generationRuns: z.array(lineageGenerationRunSchema),
     deleted: z.boolean(),
   }).nullable(),
   sloMs: z.object({
@@ -387,12 +402,24 @@ function capabilitySynthesisRunIsAuthoritative(
   run: z.infer<typeof capabilitySynthesisRunSchema>,
   observation: RepositoryWorkItemLifecycleObservation,
 ) {
-  return run.status === "success" &&
+  return providerGenerationRunIsAuthoritative(run, observation.provider) &&
     run.profile === "deep_synthesis" &&
-    run.provider.toLowerCase() === observation.provider &&
     run.configuredModelId === observation.automation.expectedDeepSynthesisModelId &&
-    run.modelId === observation.automation.expectedDeepSynthesisModelId &&
+    run.modelId === observation.automation.expectedDeepSynthesisModelId;
+}
+
+function providerGenerationRunIsAuthoritative(
+  run: z.infer<typeof lineageGenerationRunSchema>,
+  provider: string,
+) {
+  return run.role === "provider_call" &&
+    run.status === "success" &&
+    run.provider.toLowerCase() === provider &&
+    run.configuredProvider?.toLowerCase() === provider &&
+    run.configuredModelId === run.modelId &&
     run.requestIds.length > 0 &&
+    unique(run.requestIds) &&
+    run.tokenUsage !== null &&
     run.tokenUsagePresent &&
     run.estimatedCostUsd !== null &&
     run.usageComplete === true &&
@@ -493,10 +520,12 @@ function manualGenerationRunIsAuthoritative(
     run.status === "success" &&
     run.agentRunId === observation.manualAgentRun.id &&
     run.provider.toLowerCase() === observation.provider &&
+    run.configuredProvider?.toLowerCase() === observation.provider &&
     run.profile === expectedProfile &&
     run.configuredModelId === expectedModelId &&
     run.modelId === expectedModelId &&
     run.requestIds.length > 0 &&
+    run.tokenUsage !== null &&
     run.tokenUsagePresent &&
     run.estimatedCostUsd !== null &&
     run.usageComplete === true &&
@@ -1029,6 +1058,47 @@ function evaluateRepositoryObservation(
       (successfulDeepSynthesisRuns.length ? "none" : "missing"),
     "none",
   );
+  const lineageGenerationRuns = observation.automation.generationRuns;
+  const lineageGenerationRunIds = lineageGenerationRuns.map((run) => run.id);
+  const providerGenerationRuns = lineageGenerationRuns.filter((run) =>
+    run.role === "provider_call"
+  );
+  const providerGenerationRunIds = providerGenerationRuns.map((run) => run.id);
+  const unauthoritativeProviderGenerationRuns = providerGenerationRuns.filter(
+    (run) => !providerGenerationRunIsAuthoritative(run, observation.provider),
+  );
+  addCheck(
+    checks,
+    "all_repository_provider_runs_have_complete_attribution_and_cost",
+    providerGenerationRuns.length > 0 &&
+      unique(lineageGenerationRunIds) &&
+      sameIds(
+        lineageGenerationRunIds,
+        observation.currentLineage.generationRunIds,
+      ) &&
+      unique(providerGenerationRunIds) &&
+      unauthoritativeProviderGenerationRuns.length === 0,
+    unauthoritativeProviderGenerationRuns.map((run) => run.id).join(", ") ||
+      (sameIds(lineageGenerationRunIds, observation.currentLineage.generationRunIds)
+        ? "none"
+        : "generation run telemetry does not match lineage"),
+    "none",
+  );
+  addCheck(
+    checks,
+    "semantic_and_synthesis_run_summaries_match_lineage",
+    sameIds(
+      lineageGenerationRuns.filter((run) => run.kind === "semantic_extraction")
+        .map((run) => run.id),
+      observation.automation.semanticExtractionRunIds,
+    ) && sameIds(
+      lineageGenerationRuns.filter((run) => run.kind === "capability_synthesis")
+        .map((run) => run.id),
+      observation.automation.capabilitySynthesisRuns.map((run) => run.id),
+    ),
+    `${observation.automation.semanticExtractionRunIds.length}/${observation.automation.capabilitySynthesisRuns.length}`,
+    "exact semantic/synthesis telemetry coverage",
+  );
   const observedProviders = Array.from(new Set(
     observation.automation.observedProviders.map((value) =>
       value.toLowerCase()
@@ -1366,6 +1436,31 @@ function evaluateRepositoryObservation(
       priorLineage?.deleted === true,
       priorLineage?.deleted ?? false,
       true,
+    );
+    const priorGenerationRuns = priorLineage?.generationRuns ?? [];
+    const priorGenerationRunIds = priorGenerationRuns.map((run) => run.id);
+    const priorProviderRuns = priorGenerationRuns.filter((run) =>
+      run.role === "provider_call"
+    );
+    const priorProviderRunIds = priorProviderRuns.map((run) => run.id);
+    addCheck(
+      checks,
+      "deleted_prior_lineage_provider_cost_was_captured_before_deletion",
+      priorLineage !== null &&
+        priorProviderRuns.length > 0 &&
+        unique(priorGenerationRunIds) &&
+        sameIds(priorGenerationRunIds, priorLineage.generationRunIds) &&
+        unique(priorProviderRunIds) &&
+        priorProviderRuns.every((run) =>
+          providerGenerationRunIsAuthoritative(run, observation.provider)
+        ),
+      priorProviderRuns.filter((run) =>
+        !providerGenerationRunIsAuthoritative(run, observation.provider)
+      ).map((run) => run.id).join(", ") ||
+        (priorLineage && sameIds(priorGenerationRunIds, priorLineage.generationRunIds)
+          ? "none"
+          : "prior telemetry does not match deleted lineage"),
+      "none",
     );
     addCheck(
       checks,

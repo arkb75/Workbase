@@ -37,6 +37,7 @@ const lifecycleGateScenarioSchema = z.object({
 
 const lifecycleGateReportSchema = z.object({
   schemaVersion: z.literal(WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION),
+  gitCommit: shaSchema,
   passed: z.boolean(),
   evaluatedScenarios: nonnegativeInteger,
   missingScenarioIds: z.array(z.enum(workItemLifecycleScenarioIds)),
@@ -51,18 +52,23 @@ const lifecycleGateReportSchema = z.object({
 
 const generationRunSchema = z.object({
   id: identifierSchema,
+  kind: identifierSchema,
+  status: identifierSchema,
   provider: identifierSchema,
+  configuredProvider: identifierSchema.nullable(),
   modelId: identifierSchema,
   configuredModelId: identifierSchema.nullable(),
   requestIds: z.array(identifierSchema),
+  tokenUsage: z.unknown().nullable(),
   tokenUsagePresent: z.boolean(),
   estimatedCostUsd: z.number().nonnegative().nullable(),
   usageComplete: z.boolean().nullable(),
+  auditAttemptCount: nonnegativeInteger.nullable(),
   providerAttemptCount: nonnegativeInteger.nullable(),
   failedProviderAttempts: nonnegativeInteger.nullable(),
   unknownUsageAttempts: nonnegativeInteger.nullable(),
   auditEvidenceTruncated: z.boolean().nullable(),
-  role: z.enum(["provider_call", "verification_aggregate"]).optional(),
+  role: z.enum(["provider_call", "verification_aggregate"]),
 }).passthrough();
 
 const lifecycleHighlightSchema = z.object({
@@ -86,6 +92,9 @@ const lifecycleObservationBaseSchema = z.object({
   schemaVersion: z.literal(WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION),
   scenarioId: z.enum(workItemLifecycleScenarioIds),
   provider: providerSchema,
+  currentLineage: z.object({
+    generationRunIds: z.array(identifierSchema),
+  }).passthrough(),
   timingsMs: z.object({ total: z.number().nonnegative() }).passthrough(),
   automaticHighlights: z.array(lifecycleHighlightSchema),
 }).passthrough();
@@ -120,7 +129,12 @@ const repositoryLifecycleObservationSchema = lifecycleObservationBaseSchema.exte
     observedProviders: z.array(identifierSchema),
     observedModelIds: z.array(identifierSchema),
     capabilitySynthesisRuns: z.array(generationRunSchema),
+    generationRuns: z.array(generationRunSchema),
   }).passthrough(),
+  priorLineage: z.object({
+    generationRunIds: z.array(identifierSchema),
+    generationRuns: z.array(generationRunSchema),
+  }).passthrough().nullable(),
 });
 
 const lifecycleObservationSchema = z.discriminatedUnion("scenarioId", [
@@ -130,6 +144,7 @@ const lifecycleObservationSchema = z.discriminatedUnion("scenarioId", [
 
 const lifecycleObservationReportSchema = z.object({
   schemaVersion: z.literal(WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION),
+  gitCommit: shaSchema,
   observations: z.array(lifecycleObservationSchema),
 }).passthrough();
 
@@ -184,6 +199,7 @@ const accomplishmentsScenarioSchema = z.object({
 
 const accomplishmentsReportSchema = z.object({
   schemaVersion: z.literal(REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION),
+  gitCommit: shaSchema,
   passed: z.boolean(),
   provider: providerSchema,
   comparisonKey: identifierSchema,
@@ -250,7 +266,9 @@ function assertArtifactCommit(
   label: string,
 ) {
   const value = recordValue(artifact)?.gitCommit;
-  if (value === undefined) return;
+  if (value === undefined) {
+    throw new Error(`${label} is missing gitCommit; rerun it from the tested revision.`);
+  }
   if (typeof value !== "string" || !shaSchema.safeParse(value).success) {
     throw new Error(`${label} gitCommit is not a full 40-character SHA.`);
   }
@@ -314,23 +332,66 @@ function qualityRubric(
 function providerRuns(observation: LifecycleObservation) {
   return observation.scenarioId === "manual_only_create"
     ? observation.manualAgentRun.generationRuns.filter((run) =>
-        run.role !== "verification_aggregate"
+        run.role === "provider_call"
       )
-    : observation.automation.capabilitySynthesisRuns;
+    : [
+        ...observation.automation.generationRuns,
+        ...(observation.priorLineage?.generationRuns ?? []),
+      ].filter((run) => run.role === "provider_call");
 }
 
 function generationRunIds(observation: LifecycleObservation) {
-  return observation.scenarioId === "manual_only_create"
-    ? observation.manualAgentRun.result?.generationRunIds ?? []
-    : observation.automation.generationRunIds;
+  return providerRuns(observation).map((run) => run.id);
+}
+
+function assertGenerationRunCoverage(observation: LifecycleObservation) {
+  const currentRuns = observation.scenarioId === "manual_only_create"
+    ? observation.manualAgentRun.generationRuns
+    : observation.automation.generationRuns;
+  if (
+    !sameStrings(
+      currentRuns.map((run) => run.id),
+      observation.currentLineage.generationRunIds,
+    ) || new Set(currentRuns.map((run) => run.id)).size !== currentRuns.length
+  ) {
+    throw new Error(
+      `Lifecycle GenerationRun telemetry does not cover current lineage for ${observation.scenarioId}.`,
+    );
+  }
+  if (observation.scenarioId === "manual_only_create") return;
+  if (!observation.automation.generationRunIds.every((id) =>
+    currentRuns.some((run) => run.id === id)
+  )) {
+    throw new Error(
+      `Lifecycle automation GenerationRun telemetry is incomplete for ${observation.scenarioId}.`,
+    );
+  }
+  const prior = observation.priorLineage;
+  if (prior && (
+    !sameStrings(
+      prior.generationRuns.map((run) => run.id),
+      prior.generationRunIds,
+    ) || new Set(prior.generationRuns.map((run) => run.id)).size !==
+      prior.generationRuns.length
+  )) {
+    throw new Error(
+      `Lifecycle GenerationRun telemetry does not cover deleted prior lineage for ${observation.scenarioId}.`,
+    );
+  }
 }
 
 function runIsAuthoritative(run: z.infer<typeof generationRunSchema>) {
-  return run.configuredModelId === run.modelId &&
+  return run.role === "provider_call" &&
+    run.status === "success" &&
+    run.configuredProvider?.toLowerCase() === run.provider.toLowerCase() &&
+    run.configuredModelId === run.modelId &&
     run.requestIds.length > 0 &&
+    new Set(run.requestIds).size === run.requestIds.length &&
+    run.tokenUsage !== null &&
     run.tokenUsagePresent &&
     run.estimatedCostUsd !== null &&
     run.usageComplete === true &&
+    (run.auditAttemptCount ?? 0) > 0 &&
     (run.providerAttemptCount ?? 0) > 0 &&
     run.failedProviderAttempts === 0 &&
     run.unknownUsageAttempts === 0 &&
@@ -611,6 +672,7 @@ export function assembleProviderQualityReport(input: {
   for (const scenarioId of workItemLifecycleScenarioIds) {
     const gateScenario = gatesById.get(scenarioId)!;
     const observation = observationsById.get(scenarioId)!;
+    assertGenerationRunCoverage(observation);
     if (
       gateScenario.totalLatencyMs !== observation.timingsMs.total ||
       gateScenario.automaticHighlightCount !== observation.automaticHighlights.length
@@ -650,8 +712,37 @@ export function assembleProviderQualityReport(input: {
       throw new Error(`Accomplishments head mismatch for ${scenario.id}.`);
     }
   }
+  const accomplishmentLatencyMs = accomplishments.scenarios.reduce(
+    (sum, scenario) => sum + scenario.metrics.latencyMs,
+    0,
+  );
+  const accomplishmentModelCalls = accomplishments.scenarios.reduce(
+    (sum, scenario) => sum + scenario.metrics.modelCalls,
+    0,
+  );
+  const accomplishmentCostUsd = roundedCost(accomplishments.scenarios.reduce(
+    (sum, scenario) => sum + scenario.metrics.estimatedCostUsd,
+    0,
+  ));
+  if (
+    accomplishments.performance.latencyMs !== accomplishmentLatencyMs ||
+    accomplishments.performance.modelCalls !== accomplishmentModelCalls ||
+    roundedCost(accomplishments.performance.estimatedCostUsd) !==
+      accomplishmentCostUsd ||
+    accomplishments.performance.usageComplete !==
+      accomplishments.scenarios.every((scenario) =>
+        scenario.metrics.usageComplete
+      )
+  ) {
+    throw new Error(
+      "Accomplishments aggregate performance does not match its scenarios.",
+    );
+  }
 
   const detailedRuns = observationsReport.observations.flatMap(providerRuns);
+  if (new Set(detailedRuns.map((run) => run.id)).size !== detailedRuns.length) {
+    throw new Error("Lifecycle provider GenerationRun telemetry contains duplicate IDs.");
+  }
   for (const run of detailedRuns) {
     if (run.provider.toLowerCase() !== input.provider) {
       throw new Error(`Provider mismatch in generation run ${run.id}.`);
@@ -681,13 +772,17 @@ export function assembleProviderQualityReport(input: {
     throw new Error("Authoritative provider quality output requires an observed model ID.");
   }
   const fallbackUsed = accomplishments.attribution.fallbackUsed ||
-    detailedRuns.some((run) => run.configuredModelId !== run.modelId);
+    detailedRuns.some((run) =>
+      run.configuredProvider?.toLowerCase() !== run.provider.toLowerCase() ||
+      run.configuredModelId !== run.modelId
+    );
   const failedProviderAttempts = detailedRuns.reduce(
     (sum, run) => sum + (run.failedProviderAttempts ?? 0),
     accomplishments.attribution.failedProviderAttempts,
   );
   const authoritative = gate.passed &&
     accomplishments.attribution.authoritativeAttributionComplete &&
+    accomplishments.performance.usageComplete &&
     detailedRuns.length > 0 && detailedRuns.every(runIsAuthoritative) &&
     !fallbackUsed && failedProviderAttempts === 0;
 
@@ -695,10 +790,6 @@ export function assembleProviderQualityReport(input: {
     const gateScenario = gatesById.get(scenarioId)!;
     const observation = observationsById.get(scenarioId)!;
     const runs = providerRuns(observation);
-    const idsWithCost = new Set(
-      runs.filter((run) => run.estimatedCostUsd !== null).map((run) => run.id),
-    );
-    const allGenerationRunIds = generationRunIds(observation);
     return {
       id: scenarioId,
       passed: gateScenario.passed,
@@ -711,8 +802,9 @@ export function assembleProviderQualityReport(input: {
           (sum, run) => sum + (run.estimatedCostUsd ?? 0),
           0,
         )),
-        observedGenerationRunCount: allGenerationRunIds.length,
-        costCoverageComplete: allGenerationRunIds.every((id) => idsWithCost.has(id)),
+        observedGenerationRunCount: runs.length,
+        costCoverageComplete:
+          runs.length > 0 && runs.every(runIsAuthoritative),
         usageComplete: runs.length > 0 && runs.every((run) => run.usageComplete === true),
       },
     };
@@ -741,9 +833,6 @@ export function assembleProviderQualityReport(input: {
     0,
   );
   const lifecycleRunIds = observationsReport.observations.flatMap(generationRunIds);
-  const costedRunIds = new Set(
-    detailedRuns.filter((run) => run.estimatedCostUsd !== null).map((run) => run.id),
-  );
   const report = {
     schemaVersion: PROVIDER_QUALITY_REPORT_SCHEMA_VERSION,
     provider: input.provider,
@@ -769,7 +858,8 @@ export function assembleProviderQualityReport(input: {
       observedGenerationRunCount:
         lifecycleRunIds.length + accomplishments.performance.modelCalls,
       costCoverageComplete:
-        lifecycleRunIds.every((id) => costedRunIds.has(id)) &&
+        lifecycleRunIds.length > 0 &&
+        detailedRuns.every(runIsAuthoritative) &&
         accomplishments.performance.usageComplete,
       usageComplete:
         detailedRuns.every((run) => run.usageComplete === true) &&

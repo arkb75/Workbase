@@ -72,7 +72,7 @@ const scenarioSchema = z.object({
   lifecycleGatePassed: z.boolean(),
   hardGateFailures: z.array(z.string().trim().min(1).max(300)),
   quality: scenarioQualitySchema,
-  performance: observedPerformanceSchema.optional(),
+  performance: observedPerformanceSchema,
 });
 
 export const providerQualityReportSchema = z.object({
@@ -92,7 +92,7 @@ export const providerQualityReportSchema = z.object({
   }),
   requiredScenarioIds: z.array(scenarioIdSchema).min(1),
   scenarios: z.array(scenarioSchema).min(1),
-  performance: observedPerformanceSchema.optional(),
+  performance: observedPerformanceSchema,
 });
 
 export type ProviderQualityReport = z.infer<typeof providerQualityReportSchema>;
@@ -144,6 +144,74 @@ function duplicateScenarioIds(report: ProviderQualityReport) {
     .filter(([, count]) => count > 1)
     .map(([scenarioId]) => scenarioId)
     .sort();
+}
+
+function roundedMetric(value: number) {
+  return Number(value.toFixed(12));
+}
+
+function performanceForScenarioIds(
+  report: ProviderQualityReport,
+  scenarioIds: ReadonlySet<string>,
+) {
+  const scenarios = report.scenarios.filter((scenario) =>
+    scenarioIds.has(scenario.id)
+  );
+  return {
+    latencyMs: scenarios.reduce(
+      (sum, scenario) => sum + scenario.performance.latencyMs,
+      0,
+    ),
+    observedEstimatedCostUsd: roundedMetric(scenarios.reduce(
+      (sum, scenario) =>
+        sum + scenario.performance.observedEstimatedCostUsd,
+      0,
+    )),
+    observedGenerationRunCount: scenarios.reduce(
+      (sum, scenario) =>
+        sum + scenario.performance.observedGenerationRunCount,
+      0,
+    ),
+    costCoverageComplete:
+      scenarios.length > 0 &&
+      scenarios.every((scenario) => scenario.performance.costCoverageComplete),
+    usageComplete:
+      scenarios.length > 0 &&
+      scenarios.every((scenario) => scenario.performance.usageComplete),
+  };
+}
+
+function samePerformance(
+  left: z.infer<typeof observedPerformanceSchema>,
+  right: z.infer<typeof observedPerformanceSchema>,
+) {
+  return left.latencyMs === right.latencyMs &&
+    roundedMetric(left.observedEstimatedCostUsd) ===
+      roundedMetric(right.observedEstimatedCostUsd) &&
+    left.observedGenerationRunCount === right.observedGenerationRunCount &&
+    left.costCoverageComplete === right.costCoverageComplete &&
+    left.usageComplete === right.usageComplete;
+}
+
+function performanceDelta(
+  baseline: z.infer<typeof observedPerformanceSchema>,
+  candidate: z.infer<typeof observedPerformanceSchema>,
+) {
+  return {
+    costDeltaUsd: roundedMetric(
+      candidate.observedEstimatedCostUsd - baseline.observedEstimatedCostUsd,
+    ),
+    costRatio: baseline.observedEstimatedCostUsd === 0
+      ? null
+      : Number((
+          candidate.observedEstimatedCostUsd /
+          baseline.observedEstimatedCostUsd
+        ).toFixed(6)),
+    latencyDeltaMs: candidate.latencyMs - baseline.latencyMs,
+    latencyRatio: baseline.latencyMs === 0
+      ? null
+      : Number((candidate.latencyMs / baseline.latencyMs).toFixed(6)),
+  };
 }
 
 export function compareProviderQualityReports(input: {
@@ -270,6 +338,36 @@ export function compareProviderQualityReports(input: {
       report.attribution.failedProviderAttempts === 0,
       report.attribution.failedProviderAttempts,
       0,
+    );
+    const scenarioAggregate = performanceForScenarioIds(
+      report,
+      new Set(report.scenarios.map((scenario) => scenario.id)),
+    );
+    const incompleteScenarioCostIds = report.scenarios.filter((scenario) =>
+      !scenario.performance.costCoverageComplete ||
+      !scenario.performance.usageComplete
+    ).map((scenario) => scenario.id).sort();
+    addCheck(
+      globalChecks,
+      `${label}_every_scenario_has_complete_cost_coverage`,
+      incompleteScenarioCostIds.length === 0,
+      incompleteScenarioCostIds.join(", ") || "none",
+      "none",
+    );
+    addCheck(
+      globalChecks,
+      `${label}_report_has_complete_cost_coverage`,
+      report.performance.costCoverageComplete &&
+        report.performance.usageComplete,
+      `${report.performance.costCoverageComplete}/${report.performance.usageComplete}`,
+      "true/true",
+    );
+    addCheck(
+      globalChecks,
+      `${label}_performance_aggregate_matches_scenarios`,
+      samePerformance(report.performance, scenarioAggregate),
+      JSON.stringify(report.performance),
+      JSON.stringify(scenarioAggregate),
     );
   }
 
@@ -400,6 +498,60 @@ export function compareProviderQualityReports(input: {
     },
   );
 
+  const lifecycleScenarioIdSet = new Set<string>(workItemLifecycleScenarioIds);
+  const accomplishmentScenarioIdSet = new Set<string>([
+    "strongest_accomplishments",
+    "strongest_accomplishments_freshness_follow_up",
+  ]);
+  const allBedrockScenarioIds = new Set(
+    bedrock.scenarios.map((scenario) => scenario.id),
+  );
+  const allOpenRouterScenarioIds = new Set(
+    openrouter.scenarios.map((scenario) => scenario.id),
+  );
+  const bedrockPerformance = {
+    lifecycle: performanceForScenarioIds(bedrock, lifecycleScenarioIdSet),
+    accomplishments: performanceForScenarioIds(
+      bedrock,
+      accomplishmentScenarioIdSet,
+    ),
+    total: performanceForScenarioIds(bedrock, allBedrockScenarioIds),
+  };
+  const openrouterPerformance = {
+    lifecycle: performanceForScenarioIds(openrouter, lifecycleScenarioIdSet),
+    accomplishments: performanceForScenarioIds(
+      openrouter,
+      accomplishmentScenarioIdSet,
+    ),
+    total: performanceForScenarioIds(openrouter, allOpenRouterScenarioIds),
+  };
+  addCheck(
+    globalChecks,
+    "openrouter_measured_total_cost_does_not_exceed_bedrock",
+    openrouterPerformance.total.observedEstimatedCostUsd <=
+      bedrockPerformance.total.observedEstimatedCostUsd,
+    openrouterPerformance.total.observedEstimatedCostUsd,
+    bedrockPerformance.total.observedEstimatedCostUsd,
+  );
+  const performance = {
+    bedrock: bedrockPerformance,
+    openrouter: openrouterPerformance,
+    matchedDeltas: {
+      lifecycle: performanceDelta(
+        bedrockPerformance.lifecycle,
+        openrouterPerformance.lifecycle,
+      ),
+      accomplishments: performanceDelta(
+        bedrockPerformance.accomplishments,
+        openrouterPerformance.accomplishments,
+      ),
+      total: performanceDelta(
+        bedrockPerformance.total,
+        openrouterPerformance.total,
+      ),
+    },
+  };
+
   return {
     schemaVersion: PROVIDER_QUALITY_COMPARISON_SCHEMA_VERSION,
     passed: globalChecks.every((check) => check.passed) &&
@@ -415,6 +567,7 @@ export function compareProviderQualityReports(input: {
       gitCommit: openrouter.gitCommit,
       actualModelIds: openrouter.attribution.actualModelIds,
     },
+    performance,
     globalChecks,
     scenarios,
   };

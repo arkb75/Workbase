@@ -313,6 +313,7 @@ Designed fund recovery through idempotent lending commands and a durable operati
     const result = scenarioResult();
     const report = buildRepositoryAccomplishmentsReport({
       provider: "openrouter",
+      gitCommit: "c".repeat(40),
       profile: exactProfile,
       target: {
         workItemId: "work-item-circle",
@@ -363,6 +364,7 @@ Designed fund recovery through idempotent lending commands and a durable operati
 
     const staleReport = buildRepositoryAccomplishmentsReport({
       provider: "openrouter",
+      gitCommit: "c".repeat(40),
       profile: exactProfile,
       target: report.target,
       suite: {

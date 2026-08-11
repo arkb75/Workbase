@@ -24,6 +24,30 @@ function quality(score: number) {
 }
 
 function report(provider: "bedrock" | "openrouter"): ProviderQualityReport {
+  const scenarioIds = [
+    "empty_create_attach",
+    "strongest_accomplishments",
+    "strongest_accomplishments_freshness_follow_up",
+    "existing_attach",
+    "completed_delete_readd_same_repo",
+    "manual_only_create",
+  ];
+  const costPerScenario = provider === "bedrock" ? 0.02 : 0.01;
+  const latencyPerScenario = provider === "bedrock" ? 100 : 120;
+  const scenarios = scenarioIds.map((id, index) => ({
+    id,
+    passed: true,
+    lifecycleGatePassed: true,
+    hardGateFailures: [],
+    quality: quality(index === 1 || index === 2 ? 4.4 : 4.5),
+    performance: {
+      latencyMs: latencyPerScenario,
+      observedEstimatedCostUsd: costPerScenario,
+      observedGenerationRunCount: 1,
+      costCoverageComplete: true,
+      usageComplete: true,
+    },
+  }));
   return {
     schemaVersion: PROVIDER_QUALITY_REPORT_SCHEMA_VERSION,
     provider,
@@ -42,50 +66,14 @@ function report(provider: "bedrock" | "openrouter"): ProviderQualityReport {
         : ["openai/gpt-5.6-terra"],
     },
     requiredScenarioIds: [...providerQualityReleaseGateRequiredScenarioIds],
-    scenarios: [
-      {
-        id: "empty_create_attach",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.5),
-      },
-      {
-        id: "strongest_accomplishments",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.4),
-      },
-      {
-        id: "strongest_accomplishments_freshness_follow_up",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.4),
-      },
-      {
-        id: "existing_attach",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.5),
-      },
-      {
-        id: "completed_delete_readd_same_repo",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.5),
-      },
-      {
-        id: "manual_only_create",
-        passed: true,
-        lifecycleGatePassed: true,
-        hardGateFailures: [],
-        quality: quality(4.5),
-      },
-    ],
+    scenarios,
+    performance: {
+      latencyMs: latencyPerScenario * scenarios.length,
+      observedEstimatedCostUsd: costPerScenario * scenarios.length,
+      observedGenerationRunCount: scenarios.length,
+      costCoverageComplete: true,
+      usageComplete: true,
+    },
   };
 }
 
@@ -104,6 +92,73 @@ describe("paired Bedrock/OpenRouter quality non-inferiority", () => {
 
     expect(result.passed).toBe(true);
     expect(result.scenarios.every((scenario) => scenario.passed)).toBe(true);
+    expect(result.performance.matchedDeltas).toEqual({
+      lifecycle: {
+        costDeltaUsd: -0.04,
+        costRatio: 0.5,
+        latencyDeltaMs: 80,
+        latencyRatio: 1.2,
+      },
+      accomplishments: {
+        costDeltaUsd: -0.02,
+        costRatio: 0.5,
+        latencyDeltaMs: 40,
+        latencyRatio: 1.2,
+      },
+      total: {
+        costDeltaUsd: -0.06,
+        costRatio: 0.5,
+        latencyDeltaMs: 120,
+        latencyRatio: 1.2,
+      },
+    });
+  });
+
+  it("fails closed when any lineage cost coverage is incomplete", () => {
+    const baseline = report("bedrock");
+    const candidate = report("openrouter");
+    candidate.scenarios[0].performance.costCoverageComplete = false;
+    candidate.performance.costCoverageComplete = false;
+
+    const result = compareProviderQualityReports({
+      bedrock: baseline,
+      openrouter: candidate,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.globalChecks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "openrouter_every_scenario_has_complete_cost_coverage",
+        passed: false,
+      }),
+      expect.objectContaining({
+        id: "openrouter_report_has_complete_cost_coverage",
+        passed: false,
+      }),
+    ]));
+  });
+
+  it("blocks a provider migration whose matched measured total cost exceeds Bedrock", () => {
+    const baseline = report("bedrock");
+    const candidate = report("openrouter");
+    for (const scenario of candidate.scenarios) {
+      scenario.performance.observedEstimatedCostUsd = 0.03;
+    }
+    candidate.performance.observedEstimatedCostUsd = 0.18;
+
+    const result = compareProviderQualityReports({
+      bedrock: baseline,
+      openrouter: candidate,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.globalChecks).toContainEqual(expect.objectContaining({
+      id: "openrouter_measured_total_cost_does_not_exceed_bedrock",
+      passed: false,
+      actual: 0.18,
+      expected: 0.12,
+    }));
+    expect(result.performance.matchedDeltas.total.costRatio).toBe(1.5);
   });
 
   it("rejects one inferior scenario even when another scenario raises the aggregate", () => {

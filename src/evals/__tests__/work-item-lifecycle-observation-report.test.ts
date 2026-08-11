@@ -5,6 +5,7 @@ import {
 } from "@/tests/e2e/work-item-lifecycle-observation-report.mjs";
 
 const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v3";
+const GIT_COMMIT = "a".repeat(40);
 
 function observation(scenarioId: string, workItemId: string) {
   return {
@@ -19,6 +20,7 @@ describe("live lifecycle observation report persistence", () => {
     const first = appendLifecycleObservationToReport({
       priorReport: undefined,
       schemaVersion: SCHEMA_VERSION,
+      gitCommit: GIT_COMMIT,
       baseUrl: "http://127.0.0.1:3100",
       observation: observation("manual_only_create", "work-item-1"),
     });
@@ -28,12 +30,14 @@ describe("live lifecycle observation report persistence", () => {
     const afterRestart = appendLifecycleObservationToReport({
       priorReport: JSON.parse(JSON.stringify(first)),
       schemaVersion: SCHEMA_VERSION,
+      gitCommit: GIT_COMMIT,
       baseUrl: "http://127.0.0.1:3100",
       observation: observation("empty_create_attach", "work-item-2"),
     });
 
     expect(afterRestart).toMatchObject({
       schemaVersion: SCHEMA_VERSION,
+      gitCommit: GIT_COMMIT,
       live: true,
       baseUrl: "http://127.0.0.1:3100",
     });
@@ -46,6 +50,7 @@ describe("live lifecycle observation report persistence", () => {
   it("removes only the temporary completed lineage observation", () => {
     const priorReport = {
       schemaVersion: SCHEMA_VERSION,
+      gitCommit: GIT_COMMIT,
       live: true,
       baseUrl: "http://127.0.0.1:3100",
       runLabel: "retained diagnostic",
@@ -62,5 +67,15 @@ describe("live lifecycle observation report persistence", () => {
       ...priorReport,
       observations: [observation("manual_only_create", "work-item-1")],
     });
+  });
+
+  it("refuses to mix observations from different application commits", () => {
+    expect(() => appendLifecycleObservationToReport({
+      priorReport: { gitCommit: GIT_COMMIT, observations: [] },
+      schemaVersion: SCHEMA_VERSION,
+      gitCommit: "b".repeat(40),
+      baseUrl: "http://127.0.0.1:3100",
+      observation: observation("empty_create_attach", "work-item-2"),
+    })).toThrow(/commit changed/iu);
   });
 });
