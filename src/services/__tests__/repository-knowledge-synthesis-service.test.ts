@@ -6,13 +6,16 @@ import {
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
   fallbackSubsystemSynthesis,
+  finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
   modelEligibleSynthesisNotebook,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
+  repositorySynthesisSafetyGuidance,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
+  substantialFactHighlightFallback,
   synthesisNotebookSourceCoverageGaps,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
@@ -46,6 +49,14 @@ function entry(path: string, statement = `${path} defines supported repository b
 describe("repository synthesis limit fallback", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("aligns model synthesis wording with the deterministic absolute-claim safety gate", () => {
+    expect(repositorySynthesisSafetyGuidance).toContain("exact executable");
+    for (const qualifier of ["always", "never", "exclusively", "every", "all", "only", "guarantees"]) {
+      expect(repositorySynthesisSafetyGuidance).toContain(qualifier);
+    }
+    expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
   });
 
   it("admits only exact high-confidence static lifecycle anchors", () => {
@@ -106,6 +117,195 @@ describe("repository synthesis limit fallback", () => {
     })]);
     expect(result?.highlights).toEqual([]);
     expect(exactSinglePathProjectDomainSynthesis("ai_runtime", [entry("src/payments/charge-service.ts", statement)])).toBeNull();
+  });
+
+  it("promotes one substantial semantic fact when model synthesis returns no Highlight", () => {
+    const notebook = [
+      {
+        ...entry(
+          "src/auth/session-service.ts",
+          "The session service validates signed credentials and rotates durable refresh state across requests.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+      {
+        ...entry(
+          "src/auth/policy.ts",
+          "The authorization policy enforces scoped access before protected project data is returned.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+    ];
+    const highlights = substantialFactHighlightFallback([{
+      statement:
+        "The application combines signed-session rotation with scoped authorization for protected project data.",
+      category: "architecture",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+      reviewNotes: null,
+    }], notebook);
+
+    expect(highlights).toEqual([expect.objectContaining({
+      text: expect.stringContaining("signed-session rotation"),
+      citationIndexes: [1, 2],
+      visibility: "private",
+      confidence: "high",
+    })]);
+  });
+
+  it("applies the substantial-fact fallback in final synthesis while preserving failed-model eligibility", () => {
+    const statement =
+      "The application combines signed-session rotation with scoped authorization for protected project data.";
+    const notebook = [
+      {
+        ...entry("src/auth/session-service.ts", statement),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+      {
+        ...entry(
+          "src/auth/policy.ts",
+          "The authorization policy enforces scoped access before protected project data is returned.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+    ];
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "project_domain:auth",
+      notebook,
+      coverageGaps: [],
+      result: {
+        facts: [{
+          statement,
+          category: "architecture",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1, 2],
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+          reviewNotes: null,
+        }],
+        highlights: [],
+        unresolvedQuestions: ["Model synthesis fell back after a structured-output failure."],
+        approvalEligible: false,
+      },
+      tokenUsage: [],
+    });
+
+    expect(finalized).toMatchObject({
+      approvalEligible: false,
+      highlights: [{
+        text: statement,
+        citationIndexes: [1, 2],
+        confidence: "high",
+        sensitivityFlag: false,
+        visibility: "private",
+      }],
+    });
+  });
+
+  it("does not promote low-value or deterministic-anchor facts", () => {
+    const lowValue = {
+      statement: "The repository includes a small formatting helper.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      productImportance: 2,
+      implementationBreadth: 1,
+      technicalDifficulty: 1,
+      distinctiveness: 1,
+      reviewNotes: null,
+    };
+    expect(substantialFactHighlightFallback(
+      [lowValue],
+      [{ ...entry("src/format.ts"), evidenceMode: "semantic", semanticStatus: "succeeded" }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 4,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      }],
+      [{ ...entry("README.md"), evidenceMode: "deterministic_anchor" }],
+    )).toEqual([]);
+  });
+
+  it("fails closed for sensitive, uncertain, degraded, invalid, or overlong fact promotion", () => {
+    const semanticNotebook = [{
+      ...entry("src/auth/session-service.ts"),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+    }];
+    const substantial = {
+      statement: "The session service rotates durable signed-session state across authenticated requests.",
+      category: "architecture" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+      reviewNotes: null,
+    };
+
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, sensitivityFlag: true }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, confidence: "medium" }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [substantial],
+      [{ ...semanticNotebook[0]!, semanticStatus: "degraded" }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, citationIndexes: [2] }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, statement: `A substantial claim ${"with supported detail ".repeat(20)}` }],
+      semanticNotebook,
+    )).toEqual([]);
+  });
+
+  it("promotes a substantial exact fact for a generic selected project domain", () => {
+    const notebook = [{
+      ...entry(
+        "src/payments/charge-service.ts",
+        "The charge service idempotently records a payment before publishing its receipt.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+    }];
+    const synthesis = exactSinglePathProjectDomainSynthesis(
+      "project_domain:payments",
+      notebook,
+    );
+
+    expect(substantialFactHighlightFallback(
+      synthesis?.facts ?? [],
+      notebook,
+    )).toEqual([expect.objectContaining({
+      text: notebook[0]!.statement,
+      citationIndexes: [1],
+      visibility: "private",
+    })]);
   });
 
   it("admits only project domains persisted by the bounded orchestration plan", () => {

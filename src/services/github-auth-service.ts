@@ -7,7 +7,10 @@ import {
   githubViewerSchema,
 } from "@/src/lib/github-schemas";
 import type { GitHubAuthService } from "@/src/services/types";
-import { listGitHubRepositoriesForUser } from "@/src/services/github-client";
+import {
+  fetchGitHubRepositoryByIdForUser,
+  listGitHubRepositoriesForUser,
+} from "@/src/services/github-client";
 
 function mapGitHubConnection(connection: {
   id: string;
@@ -84,6 +87,10 @@ export const githubAuthService: GitHubAuthService = {
 
   async listRepositories({ userId, query, limit }) {
     return listGitHubRepositoriesForUser(userId, query, limit);
+  },
+
+  async getRepositoryById({ userId, repositoryId }) {
+    return fetchGitHubRepositoryByIdForUser(userId, repositoryId);
   },
 
   async exchangeCodeForUser({ userId, code }) {

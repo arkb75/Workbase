@@ -19,7 +19,7 @@ import {
 // They currently share a value for backward-compatible cache reuse, but a
 // future prompt/schema/window change can advance semantic extraction without
 // forcing every unchanged repository blob through static analysis again.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v14";
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v15";
 export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v17";
 /** @deprecated Prefer the layer-specific analyzer version. */
 export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = REPOSITORY_STATIC_ANALYZER_VERSION;

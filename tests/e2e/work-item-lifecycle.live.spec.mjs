@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import pg from "pg";
+import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-repository-identity.mjs";
 
 const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v2";
 const liveEnabled = process.env.WORKBASE_LIFECYCLE_LIVE_E2E === "1";
 const baseUrl = process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ??
   "http://127.0.0.1:3000";
 const repositoryId = process.env.WORKBASE_LIVE_REPOSITORY_ID ?? "";
-const repositoryFullName = process.env.WORKBASE_LIVE_REPOSITORY_FULL_NAME ?? "";
+const configuredRepositoryFullName =
+  process.env.WORKBASE_LIVE_REPOSITORY_FULL_NAME ?? "";
+let repositoryFullName = configuredRepositoryFullName;
 const expectedHeadSha = (
   process.env.WORKBASE_LIVE_EXPECTED_HEAD_SHA ?? ""
 ).toLowerCase();
@@ -59,7 +62,7 @@ const highlightStartupGraceMs = Number(
 
 const configurationErrors = [
   !repositoryId ? "WORKBASE_LIVE_REPOSITORY_ID" : null,
-  !repositoryFullName ? "WORKBASE_LIVE_REPOSITORY_FULL_NAME" : null,
+  !configuredRepositoryFullName ? "WORKBASE_LIVE_REPOSITORY_FULL_NAME" : null,
   !/^[a-f0-9]{40}$/u.test(expectedHeadSha)
     ? "WORKBASE_LIVE_EXPECTED_HEAD_SHA (full 40-character SHA)"
     : null,
@@ -806,7 +809,7 @@ async function prepareCreateWorkItem(
   manualNotes = null,
 ) {
   const query = attachRepository
-    ? `?repoId=${encodeURIComponent(repositoryId)}&repoFullName=${encodeURIComponent(repositoryFullName)}&attachRepositoryOnCreate=true`
+    ? `?repoId=${encodeURIComponent(repositoryId)}&attachRepositoryOnCreate=true`
     : "";
   await page.goto(`${baseUrl}/work-items/new${query}`);
   await page.getByLabel("Title").fill(title);
@@ -814,10 +817,26 @@ async function prepareCreateWorkItem(
     "Live lifecycle release-gate fixture created only for cold import and automatic Highlight verification.",
   );
   if (attachRepository) {
-    const checkbox = page.getByRole("checkbox", {
-      name: new RegExp(`Attach and import ${repositoryFullName}`, "iu"),
+    const form = page.locator("#new-work-item-form");
+    const identity = resolveLifecycleRepositoryIdentity({
+      expectedRepositoryId: repositoryId,
+      configuredRepositoryFullName,
+      selectedRepositoryId: await form
+        .locator('input[name="repositoryId"]')
+        .inputValue(),
+      selectedRepositoryFullName: await form
+        .locator('input[name="repositoryFullName"]')
+        .inputValue(),
     });
+    repositoryFullName = identity.fullName;
+    const checkbox = form.getByRole("checkbox");
     await expect(checkbox).toBeVisible();
+    await expect(checkbox).toHaveAccessibleName(
+      new RegExp(
+        `Attach and import ${repositoryFullName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`,
+        "iu",
+      ),
+    );
     await checkbox.check();
   }
   if (manualNotes) {
@@ -841,12 +860,23 @@ async function submitCreateWorkItem(page, attachRepository) {
 
 async function prepareAttachRepository(page, workItemId) {
   await page.goto(
-    `${baseUrl}/work-items/${workItemId}?tab=sources&repoQuery=${encodeURIComponent(repositoryFullName)}`,
+    `${baseUrl}/work-items/${workItemId}?tab=sources&repoId=${encodeURIComponent(repositoryId)}`,
   );
   const form = page.locator(
-    `form:has(input[name="repositoryFullName"][value="${repositoryFullName}"])`,
+    `form:has(input[name="repositoryId"][value="${repositoryId}"])`,
   );
   await expect(form).toHaveCount(1);
+  const identity = resolveLifecycleRepositoryIdentity({
+    expectedRepositoryId: repositoryId,
+    configuredRepositoryFullName,
+    selectedRepositoryId: await form
+      .locator('input[name="repositoryId"]')
+      .inputValue(),
+    selectedRepositoryFullName: await form
+      .locator('input[name="repositoryFullName"]')
+      .inputValue(),
+  });
+  repositoryFullName = identity.fullName;
   return form;
 }
 
@@ -922,6 +952,9 @@ async function buildObservation(input) {
     repository: {
       repositoryId: observedRepositoryId,
       fullName: observedRepository,
+      configuredFullName: configuredRepositoryFullName,
+      canonicalized:
+        configuredRepositoryFullName !== observedRepository,
       expectedHeadSha,
       sourceId: current.source?.id ?? "missing-source",
       sourceRevisionSha: sourceRevisionSha(current.source),

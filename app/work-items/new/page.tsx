@@ -86,12 +86,10 @@ export default async function NewWorkItemPage({
   const selectedRepository =
     repositories.find((repository) => repository.id === repoId) ??
     (githubConnection && repoId
-      ? (
-          await githubAuthService.listRepositories({
-            userId: demoUser.id,
-            limit: 60,
-          })
-        ).find((repository) => repository.id === repoId)
+      ? await githubAuthService.getRepositoryById({
+          userId: demoUser.id,
+          repositoryId: repoId,
+        })
       : null);
 
   const effectiveTitle =

@@ -31,6 +31,8 @@ import {
   buildRepairEvidenceRefHints,
   buildResearchSourceCatalog,
   normalizeResearchDrafts,
+  readResearchRefEvidenceItemId,
+  type ResearchSourceCatalog,
 } from "@/src/services/claim-research-shared";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimResearchService } from "@/src/services/mock-claim-research-service";
@@ -41,6 +43,53 @@ const highlightBatchJsonSchema = buildHighlightGenerationJsonSchema({
   minHighlights: 0,
   maxHighlights: 2,
 });
+type HighlightGenerationBatchOutput = ReturnType<
+  (typeof batchHighlightGenerationLlmOutputSchema)["parse"]
+>;
+
+function normalizedModelEvidenceAlias(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * Reasoning models can corrupt long opaque database IDs even when every other
+ * field is valid (for example by inserting spaces into a CUID). Give the model
+ * short batch-local references and resolve them back to durable IDs before any
+ * output is replayed or persisted. This also keeps the example output inside
+ * the exact evidence scope instead of teaching placeholder IDs such as ev_01.
+ */
+function buildModelEvidenceScope(sourceCatalog: ResearchSourceCatalog) {
+  const evidenceItemIdByAlias = new Map<string, string>();
+  const modelSourceCatalog = sourceCatalog.map((sourceRef, index) => {
+    const alias = `E${index + 1}`;
+    evidenceItemIdByAlias.set(
+      normalizedModelEvidenceAlias(alias),
+      sourceRef.evidenceItemId,
+    );
+    return { ...sourceRef, evidenceItemId: alias };
+  });
+  return { modelSourceCatalog, evidenceItemIdByAlias };
+}
+
+function canonicalizeModelEvidenceRefs(
+  value: HighlightGenerationBatchOutput,
+  evidenceItemIdByAlias: ReadonlyMap<string, string>,
+): HighlightGenerationBatchOutput {
+  return {
+    highlights: value.highlights.map((highlight) => ({
+      ...highlight,
+      sourceRefs: highlight.sourceRefs.map((sourceRef) => {
+        const modelReference = readResearchRefEvidenceItemId(sourceRef);
+        const evidenceItemId = modelReference
+          ? evidenceItemIdByAlias.get(
+              normalizedModelEvidenceAlias(modelReference),
+            )
+          : null;
+        return evidenceItemId ? { evidenceItemId } : sourceRef;
+      }),
+    })),
+  };
+}
 
 function isRejectedGuidanceSource(item: NormalizedEvidenceItem) {
   return (
@@ -195,13 +244,25 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
 
     for (const batch of batches) {
       const sourceCatalog = buildResearchSourceCatalog(batch.evidenceItems);
+      const { modelSourceCatalog, evidenceItemIdByAlias } =
+        buildModelEvidenceScope(sourceCatalog);
       const allowedEvidenceIds = new Set(
         sourceCatalog.map((sourceRef) => sourceRef.evidenceItemId),
       );
       const repairMappings = [
         ...highlightGenerationRepairMappings,
-        ...buildRepairEvidenceRefHints(sourceCatalog),
+        ...buildRepairEvidenceRefHints(modelSourceCatalog),
       ];
+      const scopedExampleOutput = {
+        highlights: highlightGenerationExampleOutput.highlights
+          .slice(0, 1)
+          .map((highlight) => ({
+            ...highlight,
+            sourceRefs: modelSourceCatalog.slice(0, 2).map((sourceRef) => ({
+              evidenceItemId: sourceRef.evidenceItemId,
+            })),
+          })),
+      };
       const systemPrompt = [
         "You generate Workbase reusable highlights from technical evidence.",
         "Return JSON that matches the provided schema exactly.",
@@ -219,7 +280,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             "Return a top-level JSON object with a `highlights` array.",
             "Each item must include text, category, confidence, ownershipClarity, summary, rationaleSummary, sourceRefs, risksSummary, missingInfo.",
             "Use `text`, not `claimText`, `title`, or `claim`.",
-            "Only cite provided evidenceItemId values.",
+            "For sourceRefs[].evidenceItemId, copy only the short E1, E2, ... reference values provided in evidence_refs.",
             "It is valid to return an empty array if this evidence batch does not support a defensible highlight.",
             "Classify candidates mentally against existing highlights as new, revision, or skip.",
             "Return new highlights and meaningful revisions only; skip candidates that mostly restate an approved or rejected highlight.",
@@ -236,13 +297,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         },
         {
           tag: "example_output",
-          content: JSON.stringify(
-            {
-              highlights: highlightGenerationExampleOutput.highlights.slice(0, 1),
-            },
-            null,
-            2,
-          ),
+          content: JSON.stringify(scopedExampleOutput, null, 2),
         },
         {
           tag: "work_item",
@@ -304,7 +359,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         },
         {
           tag: "evidence_refs",
-          content: JSON.stringify(sourceCatalog, null, 2),
+          content: JSON.stringify(modelSourceCatalog, null, 2),
         },
       ]);
       const baseInputSummary = buildBatchInputSummary({
@@ -344,15 +399,19 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           schemaName: highlightGenerationSchemaName,
           schemaDescription: highlightGenerationSchemaDescription,
           jsonSchema: highlightBatchJsonSchema,
-          exampleOutput: {
-            highlights: highlightGenerationExampleOutput.highlights.slice(0, 1),
-          },
+          exampleOutput: scopedExampleOutput,
           requiredFieldPaths: highlightGenerationRequiredFields,
           repairMappings,
           maxTokens: 1800,
-          extraValidation: (value) =>
-            validateHighlightBatchEvidenceRefs(value, allowedEvidenceIds),
+          extraValidation: (value) => validateHighlightBatchEvidenceRefs(
+            canonicalizeModelEvidenceRefs(value, evidenceItemIdByAlias),
+            allowedEvidenceIds,
+          ),
         });
+        const canonicalResult = canonicalizeModelEvidenceRefs(
+          result.data,
+          evidenceItemIdByAlias,
+        );
 
         const generationRunData = {
           workItemId: workItem.id,
@@ -369,7 +428,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             ) as Prisma.InputJsonValue,
           } as Prisma.InputJsonValue,
           rawOutput: result.rawOutput,
-          parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
+          parsedOutput: canonicalResult as Prisma.InputJsonValue,
           validationErrors: null,
           resultRefs: {
             ...(agentRunId
@@ -382,7 +441,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
-            generatedHighlightCount: result.data.highlights.length,
+            generatedHighlightCount: canonicalResult.highlights.length,
           } as Prisma.InputJsonValue,
           tokenUsage: (result.tokenUsage as Prisma.InputJsonValue | null) ?? null,
           estimatedCostUsd: result.estimatedCostUsd,
@@ -402,7 +461,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
               ),
               sourceCatalog,
             )
-          : normalizeResearchDrafts(result.data, sourceCatalog);
+          : normalizeResearchDrafts(canonicalResult, sourceCatalog);
 
         generationRunIds.push(generationRun.id);
         highlights.push(...drafts);

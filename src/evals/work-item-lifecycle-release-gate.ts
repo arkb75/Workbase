@@ -118,6 +118,8 @@ const repositoryObservationSchema = observationIdentitySchema.extend({
   repository: z.object({
     repositoryId: identifierSchema,
     fullName: identifierSchema,
+    configuredFullName: identifierSchema,
+    canonicalized: z.boolean(),
     expectedHeadSha: shaSchema,
     sourceId: identifierSchema,
     sourceRevisionSha: shaSchema.nullable(),
@@ -801,6 +803,16 @@ function evaluateRepositoryObservation(
 ): WorkItemLifecycleReleaseGateResult {
   const checks: WorkItemLifecycleReleaseGateCheck[] = [];
   const expectedHeadSha = observation.repository.expectedHeadSha.toLowerCase();
+
+  addCheck(
+    checks,
+    "canonical_repository_identity_is_explicit",
+    observation.repository.canonicalized ===
+      (observation.repository.configuredFullName !==
+        observation.repository.fullName),
+    `${observation.repository.configuredFullName}->${observation.repository.fullName}/${observation.repository.canonicalized}`,
+    "canonicalized matches configured-versus-resolved identity",
+  );
 
   addCheck(
     checks,

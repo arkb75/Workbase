@@ -4,6 +4,7 @@ import {
   allowsCanonicalKnowledgeReplacement,
   highlightReconciliationCasWhere,
   hasPromotedReconciliationEvidence,
+  isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
@@ -31,6 +32,35 @@ describe("repository knowledge auto-apply policy", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       confidence: "medium",
       sensitivityFlag: false,
+    })).toBe(false);
+  });
+
+  it("quarantines otherwise safe candidates when their synthesis result is not approval eligible", () => {
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: false,
+      candidate: {
+        statement: "The service performs a bounded retry.",
+        confidence: "high",
+        sensitivityFlag: false,
+      },
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
+      }],
+    })).toBe(true);
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: true,
+      candidate: {
+        statement: "The service performs a bounded retry.",
+        confidence: "high",
+        sensitivityFlag: false,
+      },
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
+      }],
     })).toBe(false);
   });
 

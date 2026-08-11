@@ -178,6 +178,72 @@ describe("manual Highlight generation replay", () => {
     expect(result.generationRunIds.generation).toEqual(["generation-new"]);
   });
 
+  it("uses short scoped evidence refs and canonicalizes model whitespace drift before persistence", async () => {
+    const output = generatedOutput();
+    output.highlights[0]!.sourceRefs = [{ evidenceItemId: "E 1" }];
+    mocks.findSuccessfulGenerationRunReplay.mockResolvedValue(null);
+    mocks.generateStructured.mockImplementation(async (input: {
+      userPrompt: string;
+      exampleOutput: {
+        highlights: Array<{
+          sourceRefs: Array<{ evidenceItemId: string }>;
+        }>;
+      };
+      extraValidation: (value: typeof output) => string[];
+    }) => {
+      expect(input.userPrompt).toContain('"evidenceItemId": "E1"');
+      expect(input.userPrompt).not.toContain(
+        '"evidenceItemId": "evidence-1"',
+      );
+      expect(input.exampleOutput.highlights[0]!.sourceRefs).toEqual([
+        { evidenceItemId: "E1" },
+      ]);
+      expect(input.extraValidation(output)).toEqual([]);
+      const unknownRef = generatedOutput();
+      unknownRef.highlights[0]!.sourceRefs = [{ evidenceItemId: "E2" }];
+      expect(input.extraValidation(unknownRef)).toEqual([
+        "highlights[0].sourceRefs[0] uses an unknown evidence reference.",
+      ]);
+      return {
+        data: output,
+        parsedOutput: output,
+        rawOutput: JSON.stringify(output),
+        provider: "openrouter",
+        modelId: "openai/gpt-5.4-mini",
+        transportMode: "json_schema",
+        attempts: [],
+        tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        estimatedCostUsd: 0.0001,
+      };
+    });
+    mocks.createGenerationRunIdempotently.mockImplementation(async (data) => {
+      expect(data.parsedOutput).toMatchObject({
+        highlights: [{
+          sourceRefs: [{ evidenceItemId: "evidence-1" }],
+        }],
+      });
+      return persistedRun({
+        id: "generation-scoped-ref",
+        parsedOutput: data.parsedOutput,
+        idempotencyKey: data.idempotencyKey,
+      });
+    });
+
+    const result = await highlightGenerationService.generate({
+      workItem,
+      evidenceItems: [evidenceItem],
+      existingHighlights: [],
+      agentRunId: "agent-1",
+    });
+
+    expect(result.generationRunIds.generation).toEqual([
+      "generation-scoped-ref",
+    ]);
+    expect(
+      result.highlights[0]?.evidence.sourceRefs[0]?.evidenceItemId,
+    ).toBe("evidence-1");
+  });
+
   it("fails closed on a successful replay outside the original evidence scope", async () => {
     const output = generatedOutput();
     output.highlights[0]!.sourceRefs = [{ evidenceItemId: "evidence-other" }];

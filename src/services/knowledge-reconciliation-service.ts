@@ -449,6 +449,15 @@ export function shouldQuarantineSynthesizedCandidate(candidate: {
   return !hasClauseLevelCorroboration;
 }
 
+export function isSynthesizedCandidateUnsafe(input: {
+  approvalEligible: boolean;
+  candidate: Parameters<typeof shouldQuarantineSynthesizedCandidate>[0];
+  sources?: Parameters<typeof shouldQuarantineSynthesizedCandidate>[1];
+}) {
+  return !input.approvalEligible ||
+    shouldQuarantineSynthesizedCandidate(input.candidate, input.sources);
+}
+
 export function repositoryHighlightPublicDisposition(unsafe: boolean) {
   return {
     eligible: false,
@@ -767,7 +776,11 @@ async function applyFact(input: {
     subsystemKey: input.subsystem.subsystemKey,
     existing,
   });
-  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
+  const unsafe = isSynthesizedCandidateUnsafe({
+    approvalEligible: input.subsystem.approvalEligible,
+    candidate: input.candidate,
+    sources: input.sourceEntries,
+  });
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
   const validatesUserEdit = Boolean(
     closest &&
@@ -958,7 +971,11 @@ async function applyHighlight(input: {
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
-  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
+  const unsafe = isSynthesizedCandidateUnsafe({
+    approvalEligible: input.subsystem.approvalEligible,
+    candidate: input.candidate,
+    sources: input.sourceEntries,
+  });
   // Repository contents can verify implementation but cannot establish who
   // personally performed the work. Running a public-claim verifier for every
   // repository-derived Highlight is both expensive and guaranteed to fail the
@@ -1238,8 +1255,11 @@ async function revalidateExistingKnowledge(input: {
       subsystemKey: entry.subsystem.subsystemKey,
       existing: input.existingFacts,
     });
-    const unsafe = !entry.subsystem.approvalEligible ||
-      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const unsafe = isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    });
     const exact = Boolean(
       closest &&
       closest.score >= 0.9 &&
@@ -1268,8 +1288,11 @@ async function revalidateExistingKnowledge(input: {
   });
   const highlightMatches = input.highlights.flatMap((entry) => {
     if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
-    const unsafe = !entry.subsystem.approvalEligible ||
-      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const unsafe = isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    });
     const publicVerification = repositoryHighlightPublicDisposition(unsafe);
     const text = publicVerification.eligible && publicVerification.correctedText
       ? publicVerification.correctedText

@@ -130,11 +130,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-coverage-v14",
+      analyzerVersion: "repository-coverage-v15",
       semanticAnalyzerVersion: "repository-coverage-v17",
       coveragePolicyVersion: "repository-coverage-v7",
       orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v26",
+      synthesisPolicyVersion: "repository-synthesis-v27",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -362,11 +362,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const warnings = {
-      analyzerVersion: "repository-coverage-v14",
+      analyzerVersion: "repository-coverage-v15",
       semanticAnalyzerVersion: "repository-coverage-v17",
       coveragePolicyVersion: "repository-coverage-v7",
       orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v26",
+      synthesisPolicyVersion: "repository-synthesis-v27",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -462,7 +462,7 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v14",
+          analyzerVersion: "repository-coverage-v15",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
           semanticAnalyzerVersion: "repository-coverage-v17",
@@ -516,7 +516,7 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v14",
+          analyzerVersion: "repository-coverage-v15",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
           semanticAnalyzerVersion: "repository-coverage-v17",
@@ -554,11 +554,11 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-coverage-v14",
+          analyzerVersion: "repository-coverage-v15",
           semanticAnalyzerVersion: "repository-coverage-v17",
           coveragePolicyVersion: "repository-coverage-v7",
           orchestrationPolicyVersion: "repository-orchestration-v12",
-          synthesisPolicyVersion: "repository-synthesis-v26",
+          synthesisPolicyVersion: "repository-synthesis-v27",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
@@ -579,7 +579,7 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-coverage-v14",
+      analyzerVersion: "repository-coverage-v15",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
       semanticAnalyzerVersion: "repository-coverage-v17",

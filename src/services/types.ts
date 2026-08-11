@@ -112,6 +112,10 @@ export interface GitHubAuthService {
     query?: string;
     limit?: number;
   }): Promise<GitHubRepositorySummary[]>;
+  getRepositoryById(input: {
+    userId: string;
+    repositoryId: string;
+  }): Promise<GitHubRepositorySummary | null>;
   exchangeCodeForUser(input: {
     userId: string;
     code: string;

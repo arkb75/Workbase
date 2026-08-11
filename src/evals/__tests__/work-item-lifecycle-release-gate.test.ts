@@ -228,6 +228,8 @@ function observation(
     repository: {
       repositoryId: "repo-workbase",
       fullName: "arkb75/Workbase",
+      configuredFullName: "arkb75/Workbase",
+      canonicalized: false,
       expectedHeadSha: CURRENT_SHA,
       sourceId,
       sourceRevisionSha: CURRENT_SHA,
@@ -615,6 +617,30 @@ describe("work-item lifecycle release gate", () => {
         "completed_heads_are_exactly_current",
         "automatic_highlights_are_validated_at_exact_current_head",
       ]));
+  });
+
+  it("retains canonical repository diagnostics and rejects a contradictory flag", () => {
+    const input = observation("empty_create_attach");
+    input.repository.configuredFullName = "rafaykhurram/Workbase";
+    input.repository.canonicalized = true;
+
+    const canonical = evaluateWorkItemLifecycleObservation(input);
+    expect(canonical.passed).toBe(true);
+    if (canonical.observation.scenarioId === "manual_only_create") {
+      throw new Error("Expected a repository lifecycle observation.");
+    }
+    expect(canonical.observation.repository).toMatchObject({
+      configuredFullName: "rafaykhurram/Workbase",
+      fullName: "arkb75/Workbase",
+      canonicalized: true,
+    });
+
+    input.repository.canonicalized = false;
+    const contradictory = evaluateWorkItemLifecycleObservation(input);
+    expect(contradictory.passed).toBe(false);
+    expect(contradictory.checks.find((check) =>
+      check.id === "canonical_repository_identity_is_explicit"
+    )?.passed).toBe(false);
   });
 
   it("rejects normalized duplicate Highlights", () => {

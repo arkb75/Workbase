@@ -32,6 +32,7 @@ vi.mock("@/src/services/bedrock-runtime", () => ({
 
 import { readGenerationRunMetadata } from "@/src/lib/generation-run-metadata";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
+import { mockClaimVerificationService } from "@/src/services/mock-claim-verification-service";
 
 const workItem = {
   id: "work-item-1",
@@ -184,8 +185,36 @@ describe("manual Highlight verification replay", () => {
       kind: "highlight_verification",
     });
     expect(verified[0]).toEqual(expect.objectContaining({
-      verificationStatus: "draft",
+      verificationStatus: "approved",
       confidence: "high",
+    }));
+  });
+
+  it("keeps verifier warnings flagged instead of approving the generated draft", async () => {
+    const output = verificationOutput(1);
+    output.results[0] = {
+      ...output.results[0],
+      shouldFlag: true,
+      overstatementWarning: true,
+    };
+    mocks.findSuccessfulGenerationRunReplay.mockResolvedValue(
+      persistedRun({
+        id: "verification-flagged",
+        parsedOutput: output,
+        idempotencyKey: "agent-run:agent-1:highlight-verification:0",
+      }),
+    );
+
+    const verified = await claimVerificationService.verify({
+      workItem,
+      evidenceItems: [evidenceItem],
+      highlights: [highlight(0)],
+      agentRunId: "agent-1",
+    });
+
+    expect(verified[0]).toEqual(expect.objectContaining({
+      verificationStatus: "flagged",
+      confidence: "medium",
     }));
   });
 
@@ -329,5 +358,23 @@ describe("manual Highlight verification replay", () => {
         modelId: "openai/gpt-5.4-mini",
       }),
     );
+  });
+});
+
+describe("mock Highlight verification policy", () => {
+  it("approves safe generated drafts while preserving an existing flag", async () => {
+    const verified = await mockClaimVerificationService.verify({
+      workItem,
+      evidenceItems: [evidenceItem],
+      highlights: [
+        highlight(0),
+        { ...highlight(1), verificationStatus: "flagged" },
+      ],
+    });
+
+    expect(verified.map((item) => item.verificationStatus)).toEqual([
+      "approved",
+      "flagged",
+    ]);
   });
 });

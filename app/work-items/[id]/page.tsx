@@ -92,6 +92,7 @@ type WorkItemDetailSearchParams = WorkItemWorkspaceSearchParams & {
   result?: string;
   repoQuery?: string;
   repoList?: string;
+  repoId?: string;
   tab?: string;
   evidencePage?: string;
   knowledgePage?: string;
@@ -902,6 +903,7 @@ export default async function WorkItemDetailPage({
     result,
     repoQuery = "",
     repoList,
+    repoId,
     tab,
     evidencePage: evidencePageValue,
     knowledgePage: knowledgePageValue,
@@ -957,14 +959,22 @@ export default async function WorkItemDetailPage({
   const shouldListRepositories =
     activeTab === "sources" &&
     Boolean(githubConnection) &&
-    (repoList === "1" || repoQuery.trim().length > 0);
+    (Boolean(repoId) || repoList === "1" || repoQuery.trim().length > 0);
 
   if (shouldListRepositories) {
     try {
-      repositories = await githubAuthService.listRepositories({
-        userId: user.id,
-        query: repoQuery,
-      });
+      if (repoId) {
+        const repository = await githubAuthService.getRepositoryById({
+          userId: user.id,
+          repositoryId: repoId,
+        });
+        repositories = repository ? [repository] : [];
+      } else {
+        repositories = await githubAuthService.listRepositories({
+          userId: user.id,
+          query: repoQuery,
+        });
+      }
     } catch {
       repositoryLookupFailed = true;
     }

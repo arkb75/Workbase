@@ -221,6 +221,45 @@ export async function listGitHubRepositoriesForUser(userId: string, query?: stri
     .map(mapRepositorySummary);
 }
 
+export async function fetchGitHubRepositoryById(input: {
+  token: string;
+  repositoryId: string;
+}) {
+  const repositoryId = input.repositoryId.trim();
+  if (!/^\d+$/u.test(repositoryId)) {
+    throw new Error("GitHub repository ID must be numeric.");
+  }
+
+  // GitHub repository IDs remain stable across owner transfers and renames.
+  // Resolve the canonical owner/name at request time so callers never submit
+  // stale repository metadata or depend on a bounded recent-repository page.
+  const repository = await fetchJson({
+    path: `/repositories/${encodeURIComponent(repositoryId)}`,
+    token: input.token,
+    schema: githubRepositorySummarySchema,
+  });
+  if (repository.id !== repositoryId) {
+    throw new GitHubApiError({
+      message: `GitHub returned repository ID ${repository.id} for requested ID ${repositoryId}.`,
+      status: null,
+      path: `/repositories/${repositoryId}`,
+      retryable: false,
+    });
+  }
+
+  return mapRepositorySummary(repository);
+}
+
+export async function fetchGitHubRepositoryByIdForUser(
+  userId: string,
+  repositoryId: string,
+) {
+  const token = await getGitHubAccessTokenForUser(userId);
+  return token
+    ? fetchGitHubRepositoryById({ token, repositoryId })
+    : null;
+}
+
 export async function fetchGitHubRepositoryDetail(input: {
   userId: string;
   repositoryFullName: string;

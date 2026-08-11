@@ -341,7 +341,16 @@ export function inferSubsystemsFromPath(path: string) {
   if (/knowledge-(?:review|update)|candidate-review|highlight-review/.test(value)) keys.push("knowledge_review_lifecycle");
   if (/readme|package\.json|docs?\//.test(value)) keys.push("product_surface");
   if (/prisma|schema|domain|types/.test(value)) keys.push("domain_data");
-  if (/bedrock|openrouter|llm|model|agent|converse/.test(value)) keys.push("ai_runtime");
+  // Repository-root AGENTS.md and prose such as docs/agent-workflow.md are
+  // contributor/workflow instructions, not proof of a model runtime. Keep
+  // executable agent implementations eligible while requiring documentation
+  // to name a concrete provider/model/LLM/converse surface.
+  const executableAgentPath =
+    /(?:^|[/_.-])agent(?:[/_.-]|$)/u.test(value) &&
+    /\.(?:[cm]?[jt]sx?|py|go|rs|java)$/u.test(value);
+  if (/bedrock|openrouter|llm|model|converse/.test(value) || executableAgentPath) {
+    keys.push("ai_runtime");
+  }
   if (/github|source|import|ingest|oauth|integration/.test(value)) keys.push("ingestion_integrations");
   if (/retriev|citation|provenance|embedding|search/.test(value)) keys.push("retrieval_provenance");
   if (

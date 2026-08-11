@@ -41,6 +41,13 @@ export WORKBASE_LIFECYCLE_TOTAL_SLO_MS=600000
 npx playwright test --config playwright.lifecycle.config.mjs
 ```
 
+The repository ID is the stable release-gate identity. Workbase resolves that
+ID through the authenticated GitHub connection and the gate uses the returned
+canonical `owner/repository` name for its UI, import, and current-head checks.
+`WORKBASE_LIVE_REPOSITORY_FULL_NAME` records the expected name for diagnostics;
+a legitimate GitHub rename or transfer cannot make the gate look for a stale
+checkbox label or submit stale repository metadata.
+
 Action acknowledgement and durable Source reservation are hard-gated at five
 seconds and are not configurable upward. The manual path additionally hard
 gates durable AgentRun reservation at five seconds, requires terminal

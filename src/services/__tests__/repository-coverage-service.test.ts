@@ -43,6 +43,16 @@ describe("complete repository coverage", () => {
     expect(inferSubsystemsFromPath("src/services/unrelated-store.ts")).not.toContain("workflow_orchestration");
   });
 
+  it("does not mistake repository agent instructions for an AI model runtime", () => {
+    expect(inferSubsystemsFromPath("AGENTS.md")).not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("docs/agent-workflow.md")).not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/agent.ts")).toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/runtime/agent-runtime.py"))
+      .toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/lib/bedrock-converse-agent.ts"))
+      .toContain("ai_runtime");
+  });
+
   it("extracts exact workflow retry, startup, and persisted-run guards without path-only inference", async () => {
     const [workflow, startup, store] = await analyzeRepositoryFiles([
       {
