@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import pg from "pg";
+import {
+  appendLifecycleObservationToReport,
+  removeLifecycleObservationFromReport,
+} from "./work-item-lifecycle-observation-report.mjs";
 import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-repository-identity.mjs";
 
-const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v2";
+const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v3";
 const liveEnabled = process.env.WORKBASE_LIFECYCLE_LIVE_E2E === "1";
 const baseUrl = process.env.WORKBASE_APPLICATION_EVAL_BASE_URL ??
   "http://127.0.0.1:3000";
@@ -91,7 +95,6 @@ const configurationErrors = [
 ].filter(Boolean);
 
 let pool;
-const observations = [];
 
 function elapsed(startedAt) {
   return Date.now() - startedAt;
@@ -1159,19 +1162,30 @@ async function buildManualObservation(input) {
 }
 
 async function appendObservation(observation) {
-  observations.push(observation);
-  let prior = {};
+  let priorReport = {};
   try {
-    prior = JSON.parse(await readFile(outputPath, "utf8"));
-  } catch {
-    // The first scenario creates the output file.
+    priorReport = JSON.parse(await readFile(outputPath, "utf8"));
+  } catch (error) {
+    if (!error || typeof error !== "object" || error.code !== "ENOENT") {
+      throw error;
+    }
   }
-  await writeFile(outputPath, `${JSON.stringify({
-    ...prior,
-    live: true,
+  const report = appendLifecycleObservationToReport({
+    priorReport,
+    schemaVersion: SCHEMA_VERSION,
     baseUrl,
-    observations,
-  }, null, 2)}\n`, "utf8");
+    observation,
+  });
+  await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+async function removeObservation(workItemId) {
+  const priorReport = JSON.parse(await readFile(outputPath, "utf8"));
+  const report = removeLifecycleObservationFromReport({
+    priorReport,
+    workItemId,
+  });
+  await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }
 
 async function createAndObserve(page, scenarioId, title, priorLineage = null) {
@@ -1671,7 +1685,7 @@ test.describe("live Work Item lifecycle release gate", () => {
 
     // The temporary first observation is not one of the final three gate
     // observations; it exists only to establish a real completed lineage.
-    observations.pop();
+    await removeObservation(prior.currentLineage.workItemId);
     const replacementTitle = `${titlePrefix} replacement`;
     const replacement = await createAndObserve(
       page,

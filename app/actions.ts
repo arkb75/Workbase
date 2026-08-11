@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { start } from "workflow/api";
 import type { Prisma } from "@/src/generated/prisma/client";
 import type { ClaimDraft, JsonValue } from "@/src/domain/types";
@@ -98,11 +99,27 @@ async function queueGitHubRepositoryForWorkItem(input: {
   repositoryId: string;
   repositoryFullName: string;
 }) {
-  return githubRepositoryImportApplicationService.start({
+  const reservation = await githubRepositoryImportApplicationService.reserve({
     userId: input.userId,
     workItemId: input.workItem.id,
     repositoryId: input.repositoryId,
     repositoryFullName: input.repositoryFullName,
+  });
+  after(async () => {
+    await githubRepositoryImportApplicationService.accept(reservation)
+      .catch(() => undefined);
+  });
+  return reservation;
+}
+
+function scheduleManualEvidenceHighlightAcceptance(
+  reservation: Awaited<
+    ReturnType<typeof manualEvidenceHighlightApplicationService.reserve>
+  >,
+) {
+  after(async () => {
+    await manualEvidenceHighlightApplicationService.accept(reservation)
+      .catch(() => undefined);
   });
 }
 
@@ -752,23 +769,9 @@ export async function createWorkItemAction(formData: FormData) {
     },
   });
 
-  await syncWorkItemDescriptionEvidenceForWorkItem(workItem.id);
-
-  if (attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName) {
-    try {
-      await queueGitHubRepositoryForWorkItem({
-        userId: demoUser.id,
-        workItem,
-        repositoryId: selectedRepositoryId,
-        repositoryFullName: selectedRepositoryFullName,
-      });
-    } catch {
-      revalidatePath("/dashboard");
-      redirect(`/work-items/${workItem.id}?error=github-import-failed`);
-    }
-  }
-
-  if (manualNotes) {
+  const descriptionEvidencePromise =
+    syncWorkItemDescriptionEvidenceForWorkItem(workItem.id);
+  const manualNotesEvidencePromise = manualNotes ? (async () => {
     const source = await prisma.source.create({
       data: {
         workItemId: workItem.id,
@@ -782,6 +785,29 @@ export async function createWorkItemAction(formData: FormData) {
       source.id,
       buildManualEvidenceItemsFromSource(mapSourceSnapshot(source)),
     );
+  })() : Promise.resolve();
+  let repositoryQueueFailed = false;
+  const repositoryQueuePromise =
+    attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName
+      ? queueGitHubRepositoryForWorkItem({
+          userId: demoUser.id,
+          workItem,
+          repositoryId: selectedRepositoryId,
+          repositoryFullName: selectedRepositoryFullName,
+        }).catch(() => {
+          repositoryQueueFailed = true;
+          return null;
+        })
+      : Promise.resolve(null);
+
+  await Promise.all([
+    descriptionEvidencePromise,
+    manualNotesEvidencePromise,
+    repositoryQueuePromise,
+  ]);
+  if (repositoryQueueFailed) {
+    revalidatePath("/dashboard");
+    redirect(`/work-items/${workItem.id}?error=github-import-failed`);
   }
 
   let manualHighlightStartFailed = false;
@@ -795,14 +821,17 @@ export async function createWorkItemAction(formData: FormData) {
       // Description Evidence is always persisted above. Plain Work Items and
       // any create carrying manual notes use this workflow; description-only
       // create-with-repository leaves ownership to repository reconciliation.
-      const started = await manualEvidenceHighlightApplicationService.start({
+      const reserved = await manualEvidenceHighlightApplicationService.reserve({
         userId: demoUser.id,
         workItemId: workItem.id,
         trigger: "work_item_create",
       });
       manualHighlightStartFailed = !manualEvidenceHighlightStartSucceeded(
-        started.status,
+        reserved.status,
       );
+      if (!manualHighlightStartFailed) {
+        scheduleManualEvidenceHighlightAcceptance(reserved);
+      }
     } catch {
       // Evidence persistence is authoritative. Workflow startup failure is a
       // visible retry state and never rolls back the user's saved context.
@@ -870,14 +899,17 @@ export async function createManualSourceAction(formData: FormData) {
 
   let manualHighlightStartFailed = false;
   try {
-    const started = await manualEvidenceHighlightApplicationService.start({
+    const reserved = await manualEvidenceHighlightApplicationService.reserve({
       userId: demoUser.id,
       workItemId: parsed.data.workItemId,
       trigger: "manual_source_add",
     });
     manualHighlightStartFailed = !manualEvidenceHighlightStartSucceeded(
-      started.status,
+      reserved.status,
     );
+    if (!manualHighlightStartFailed) {
+      scheduleManualEvidenceHighlightAcceptance(reserved);
+    }
   } catch {
     manualHighlightStartFailed = true;
   }
@@ -1019,14 +1051,15 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
     evidence.source.type === "manual_note"
   ) {
     try {
-      const started = await manualEvidenceHighlightApplicationService.start({
+      const reserved = await manualEvidenceHighlightApplicationService.reserve({
         userId: demoUser.id,
         workItemId: parsed.data.workItemId,
         trigger: "manual_evidence_change",
       });
-      if (!manualEvidenceHighlightStartSucceeded(started.status)) {
+      if (!manualEvidenceHighlightStartSucceeded(reserved.status)) {
         throw new Error("Manual Highlight workflow startup did not complete.");
       }
+      scheduleManualEvidenceHighlightAcceptance(reserved);
     } catch {
       revalidatePath(`/work-items/${parsed.data.workItemId}`);
       redirect(appendRedirectParams(returnTo, {

@@ -89,12 +89,15 @@ function highlight(index: number) {
   };
 }
 
-function verificationOutput(count: number) {
+function verificationOutput(
+  count: number,
+  confidence: "low" | "medium" | "high" = "high",
+) {
   return {
     results: Array.from({ length: count }, (_, claimIndex) => ({
       claimIndex,
       revisedText: null,
-      confidence: "high" as const,
+      confidence,
       ownershipClarity: "clear" as const,
       visibilitySuggestion: "resume_safe" as const,
       sensitivityWarning: false,
@@ -215,6 +218,29 @@ describe("manual Highlight verification replay", () => {
     expect(verified[0]).toEqual(expect.objectContaining({
       verificationStatus: "flagged",
       confidence: "medium",
+    }));
+  });
+
+  it("keeps a generated draft unapproved when the verifier has low confidence", async () => {
+    const output = verificationOutput(1, "low");
+    mocks.findSuccessfulGenerationRunReplay.mockResolvedValue(
+      persistedRun({
+        id: "verification-low-confidence",
+        parsedOutput: output,
+        idempotencyKey: "agent-run:agent-1:highlight-verification:0",
+      }),
+    );
+
+    const verified = await claimVerificationService.verify({
+      workItem,
+      evidenceItems: [evidenceItem],
+      highlights: [highlight(0)],
+      agentRunId: "agent-1",
+    });
+
+    expect(verified[0]).toEqual(expect.objectContaining({
+      verificationStatus: "draft",
+      confidence: "low",
     }));
   });
 
@@ -376,5 +402,18 @@ describe("mock Highlight verification policy", () => {
       "approved",
       "flagged",
     ]);
+  });
+
+  it("keeps a low-confidence generated draft unapproved", async () => {
+    const verified = await mockClaimVerificationService.verify({
+      workItem,
+      evidenceItems: [evidenceItem],
+      highlights: [{ ...highlight(0), confidence: "low" }],
+    });
+
+    expect(verified[0]).toEqual(expect.objectContaining({
+      verificationStatus: "draft",
+      confidence: "low",
+    }));
   });
 });

@@ -13,7 +13,7 @@ export const mockClaimVerificationService: ClaimVerificationService = {
     return highlights.map((highlight) => {
       const risks = [highlight.risksSummary].filter(Boolean);
       let verificationStatus =
-        highlight.verificationStatus === "draft"
+        highlight.verificationStatus === "draft" && highlight.confidence !== "low"
           ? ("approved" as const)
           : highlight.verificationStatus;
       let visibility = highlight.visibility;

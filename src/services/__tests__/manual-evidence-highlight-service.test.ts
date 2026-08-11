@@ -52,10 +52,12 @@ vi.mock("@/src/lib/generation-runs", () => ({
 import {
   MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
   MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
+  MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
   buildManualEvidenceHighlightRequest,
   buildCurrentManualEvidenceHighlightRequest,
   persistManualEvidenceHighlights,
   prepareManualEvidenceHighlights,
+  readManualEvidenceHighlightRequest,
   reconcileManualEvidenceHighlightsForInput,
 } from "@/src/services/manual-evidence-highlight-service";
 
@@ -137,6 +139,7 @@ function existingHighlight(input: {
   row: ReturnType<typeof evidenceRow>;
   request: ReturnType<typeof requestFor>;
   runId?: string;
+  policyVersion?: string;
   lifecycleStatus?: "active" | "needs_validation" | "stale" | "retired" | "quarantined";
   verificationStatus?: "approved" | "draft" | "flagged" | "rejected";
 }) {
@@ -167,6 +170,8 @@ function existingHighlight(input: {
     verificationNotes: draft.verificationNotes,
     metadata: {
       managedBy: MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
+      policyVersion:
+        input.policyVersion ?? MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
       originatingAgentRunId: input.runId ?? "run-prior",
       inputFingerprint: input.request.inputFingerprint,
       evidenceContentHashes: {
@@ -258,8 +263,114 @@ describe("manual Evidence Highlight input fencing", () => {
         included: true,
       }],
       inputFingerprint: expect.any(String),
-      executionKey: expect.stringContaining("manual-evidence-highlights-v1:work-1:"),
+      executionKey: expect.stringContaining("manual-evidence-highlights-v2:work-1:"),
     });
+  });
+
+  it("rejects prior-policy requests and prepared checkpoints before provider replay", async () => {
+    const row = evidenceRow("evidence-1");
+    const currentRequest = requestFor([row]);
+    const priorPolicyRequest = {
+      ...currentRequest,
+      policyVersion: "manual-evidence-highlights-v1",
+      executionKey: currentRequest.executionKey.replace(
+        MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+        "manual-evidence-highlights-v1",
+      ),
+    };
+    expect(readManualEvidenceHighlightRequest(priorPolicyRequest)).toBeNull();
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      id: "run-prior-policy",
+      kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+      status: "running",
+      workItemId: "work-1",
+      request: priorPolicyRequest,
+      researchState: {
+        kind: "manual_evidence_highlight_plan",
+        policyVersion: "manual-evidence-highlights-v1",
+        inputFingerprint: currentRequest.inputFingerprint,
+        drafts: [approvedDraft(row.id)],
+        generationRunIds: ["generation-prior-policy"],
+      },
+      workItem: {
+        id: "work-1",
+        userId: "user-1",
+        title: "Workbase",
+        type: "project",
+        description: "Career knowledge workspace",
+        startDate: null,
+        endDate: null,
+      },
+    });
+
+    await expect(
+      prepareManualEvidenceHighlights("run-prior-policy"),
+    ).rejects.toThrow("invalid evidence request");
+    expect(normalizeMock).not.toHaveBeenCalled();
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  it("regenerates instead of replaying a prior-policy checkpoint on a current run", async () => {
+    const row = evidenceRow("evidence-1");
+    const currentRequest = requestFor([row]);
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      id: "run-current-policy",
+      kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+      status: "running",
+      workItemId: "work-1",
+      request: currentRequest,
+      researchState: {
+        kind: "manual_evidence_highlight_plan",
+        policyVersion: "manual-evidence-highlights-v1",
+        inputFingerprint: currentRequest.inputFingerprint,
+        drafts: [approvedDraft(row.id)],
+        generationRunIds: ["generation-prior-policy"],
+      },
+      workItem: {
+        id: "work-1",
+        userId: "user-1",
+        title: "Workbase",
+        type: "project",
+        description: "Career knowledge workspace",
+        startDate: null,
+        endDate: null,
+      },
+    });
+    prismaMock.evidenceItem.findMany.mockResolvedValue([row]);
+    prismaMock.highlight.findMany.mockResolvedValue([]);
+    normalizeMock.mockResolvedValue([]);
+    generateMock.mockResolvedValue({
+      highlights: [],
+      generationRunIds: {
+        generation: ["generation-current-policy"],
+        verification: null,
+      },
+    });
+    prismaMock.agentRun.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      prepareManualEvidenceHighlights("run-current-policy"),
+    ).resolves.toEqual({
+      status: "prepared",
+      plan: {
+        inputFingerprint: currentRequest.inputFingerprint,
+        drafts: [],
+        generationRunIds: ["generation-current-policy"],
+      },
+    });
+    expect(generateMock).toHaveBeenCalledOnce();
+    expect(verifyMock).not.toHaveBeenCalled();
+    expect(prismaMock.agentRun.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          researchState: expect.objectContaining({
+            policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+            generationRunIds: ["generation-current-policy"],
+          }),
+        },
+      }),
+    );
   });
 
   it("supersedes an old request before provider calls when captured content changes", async () => {
@@ -355,6 +466,99 @@ describe("manual Evidence Highlight input fencing", () => {
     })).resolves.toEqual({ retiredHighlightIds: [highlight.id] });
     expect(generateMock).not.toHaveBeenCalled();
     expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  it("retires a same-input prior-policy draft so the current policy can replace it", async () => {
+    const row = evidenceRow("evidence-1");
+    const currentRequest = requestFor([row]);
+    const priorPolicyDraft = existingHighlight({
+      id: "highlight-prior-policy-draft",
+      row,
+      request: currentRequest,
+      policyVersion: "manual-evidence-highlights-v1",
+      verificationStatus: "draft",
+    });
+    const reconciliationTx = {
+      highlight: {
+        findMany: vi.fn().mockResolvedValue([priorPolicyDraft]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+
+    await expect(reconcileManualEvidenceHighlightsForInput({
+      tx: reconciliationTx as never,
+      workItemId: "work-1",
+      request: currentRequest,
+    })).resolves.toEqual({
+      retiredHighlightIds: [priorPolicyDraft.id],
+    });
+    expect(reconciliationTx.highlight.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lifecycleStatus: "retired",
+          metadata: expect.objectContaining({
+            retiredForPolicyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+          }),
+        }),
+      }),
+    );
+
+    const retiredPriorPolicyDraft = {
+      ...priorPolicyDraft,
+      lifecycleStatus: "retired" as const,
+    };
+    const persistenceTx = {
+      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
+      evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
+      highlight: {
+        findMany: vi.fn().mockResolvedValue([retiredPriorPolicyDraft]),
+        update: vi.fn().mockResolvedValue({ id: "highlight-current-policy" }),
+      },
+      highlightSuggestion: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([{ locked: 1 }])
+        .mockResolvedValueOnce([{
+          status: "running",
+          kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+          request: currentRequest,
+        }])
+        .mockResolvedValueOnce([{ id: row.id }]),
+    };
+    createHighlightMock.mockResolvedValue({ id: "highlight-current-policy" });
+    prismaMock.$transaction.mockImplementationOnce(
+      async (callback: (client: typeof persistenceTx) => unknown) =>
+        callback(persistenceTx),
+    );
+
+    await expect(persistManualEvidenceHighlights({
+      runId: "run-current-policy",
+      plan: {
+        inputFingerprint: currentRequest.inputFingerprint,
+        drafts: [approvedDraft(row.id)],
+        generationRunIds: [],
+      },
+    })).resolves.toMatchObject({
+      status: "persisted",
+      terminalOutcome: "ready",
+      createdHighlightIds: ["highlight-current-policy"],
+      suggestionIds: [],
+    });
+    expect(persistenceTx.highlight.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "highlight-current-policy" },
+        data: expect.objectContaining({
+          lifecycleStatus: "active",
+          supersedesHighlightId: priorPolicyDraft.id,
+        }),
+      }),
+    );
+    expect(persistenceTx.highlightSuggestion.create).not.toHaveBeenCalled();
   });
 
   it("keeps a replayed run terminal-ready when its Highlight was already created", async () => {

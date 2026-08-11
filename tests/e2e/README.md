@@ -48,6 +48,14 @@ canonical `owner/repository` name for its UI, import, and current-head checks.
 a legitimate GitHub rename or transfer cannot make the gate look for a stale
 checkbox label or submit stale repository metadata.
 
+Raw observations and evaluated reports use
+`workbase-work-item-lifecycle-release-gate-v3`. Version 3 makes the configured
+and canonical repository names plus the canonicalization flag part of the
+required release-evidence contract. The evaluator safely normalizes v2 manual
+observations and late v2 repository observations that already recorded those
+fields; earlier v2 repository output cannot prove rename/transfer handling and
+must be rerun instead of being guessed forward.
+
 Action acknowledgement and durable Source reservation are hard-gated at five
 seconds and are not configurable upward. The manual path additionally hard
 gates durable AgentRun reservation at five seconds, requires terminal

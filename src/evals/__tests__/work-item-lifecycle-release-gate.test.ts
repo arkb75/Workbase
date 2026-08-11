@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
   WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
   evaluateWorkItemLifecycleObservation,
   evaluateWorkItemLifecycleReleaseGate,
@@ -641,6 +642,38 @@ describe("work-item lifecycle release gate", () => {
     expect(contradictory.checks.find((check) =>
       check.id === "canonical_repository_identity_is_explicit"
     )?.passed).toBe(false);
+  });
+
+  it("normalizes compatible v2 observations but rejects unverifiable legacy repository identity", () => {
+    const compatibleRepository = {
+      ...observation("empty_create_attach"),
+      schemaVersion:
+        PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    };
+    const compatibleManual = {
+      ...observation("manual_only_create"),
+      schemaVersion:
+        PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    };
+
+    expect(evaluateWorkItemLifecycleObservation(compatibleRepository)
+      .observation.schemaVersion).toBe(
+        WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+      );
+    expect(evaluateWorkItemLifecycleObservation(compatibleManual)
+      .observation.schemaVersion).toBe(
+        WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+      );
+
+    const unverifiable = structuredClone(compatibleRepository) as unknown as {
+      repository: Record<string, unknown>;
+    };
+    delete unverifiable.repository.configuredFullName;
+    delete unverifiable.repository.canonicalized;
+
+    expect(() => evaluateWorkItemLifecycleObservation(unverifiable)).toThrow(
+      /v2 repository observations predate.*canonical.*Rerun.*v3 evidence/iu,
+    );
   });
 
   it("rejects normalized duplicate Highlights", () => {

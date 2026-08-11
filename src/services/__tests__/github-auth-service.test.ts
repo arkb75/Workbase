@@ -11,7 +11,7 @@ vi.mock("@/src/lib/prisma", () => ({
   prisma: prismaMock,
 }));
 
-import { decryptString } from "@/src/lib/encryption";
+import { decryptString, encryptString } from "@/src/lib/encryption";
 import { githubAuthService } from "@/src/services/github-auth-service";
 
 describe("githubAuthService", () => {
@@ -104,5 +104,29 @@ describe("githubAuthService", () => {
     ).rejects.toThrow("WORKBASE_ENCRYPTION_KEY");
 
     expect(prismaMock.gitHubConnection.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not issue GitHub requests for malformed stable repository IDs", async () => {
+    await expect(githubAuthService.getRepositoryById({
+      userId: "demo-user",
+      repositoryId: "owner/repository",
+    })).resolves.toBeNull();
+
+    expect(prismaMock.gitHubConnection.findUnique).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("treats a stale inaccessible repository ID as an unavailable selection", async () => {
+    prismaMock.gitHubConnection.findUnique.mockResolvedValue({
+      accessTokenEncrypted: encryptString("github-token"),
+    });
+    vi.mocked(fetch).mockResolvedValue(new Response("{}", { status: 404 }));
+
+    await expect(githubAuthService.getRepositoryById({
+      userId: "demo-user",
+      repositoryId: "1075120340",
+    })).resolves.toBeNull();
+
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

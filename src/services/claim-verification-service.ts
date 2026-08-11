@@ -198,12 +198,13 @@ function applyVerificationResult(input: {
 }) {
   const { highlight, verification, sourceMentionsSensitivity } = input;
   const risks = [highlight.risksSummary, verification.risksSummary].filter(Boolean);
-  // Generation deliberately emits drafts. A successful verification pass is the
-  // authority that makes a safe draft usable by downstream knowledge retrieval.
+  // Generation deliberately emits drafts. A sufficiently confident successful
+  // verification pass is the authority that makes a safe draft usable by
+  // downstream knowledge retrieval.
   // Preserve pre-existing flagged/rejected decisions; the checks below can still
   // downgrade a newly approved draft when the verifier finds a concrete risk.
   let verificationStatus =
-    highlight.verificationStatus === "draft"
+    highlight.verificationStatus === "draft" && verification.confidence !== "low"
       ? ("approved" as const)
       : highlight.verificationStatus;
   let visibility = verification.visibilitySuggestion;

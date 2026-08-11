@@ -9,6 +9,7 @@ import {
 import type { GitHubAuthService } from "@/src/services/types";
 import {
   fetchGitHubRepositoryByIdForUser,
+  GitHubApiError,
   listGitHubRepositoriesForUser,
 } from "@/src/services/github-client";
 
@@ -90,7 +91,18 @@ export const githubAuthService: GitHubAuthService = {
   },
 
   async getRepositoryById({ userId, repositoryId }) {
-    return fetchGitHubRepositoryByIdForUser(userId, repositoryId);
+    const normalizedRepositoryId = repositoryId.trim();
+    if (!/^\d{1,30}$/u.test(normalizedRepositoryId)) return null;
+
+    try {
+      return await fetchGitHubRepositoryByIdForUser(
+        userId,
+        normalizedRepositoryId,
+      );
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) return null;
+      throw error;
+    }
   },
 
   async exchangeCodeForUser({ userId, code }) {

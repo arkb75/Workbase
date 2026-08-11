@@ -328,48 +328,84 @@ async function reserveManualEvidenceHighlightRun(input: {
   });
 }
 
-export async function startManualEvidenceHighlights(input: {
+export type ManualEvidenceHighlightReservation = {
+  status: string;
+  runId: string | null;
+  workflowId: string | null;
+  supersededWorkflowIds: string[];
+};
+
+export async function reserveManualEvidenceHighlights(input: {
   userId: string;
   workItemId: string;
   trigger: ManualEvidenceHighlightTrigger;
-}) {
+}): Promise<ManualEvidenceHighlightReservation> {
   const reservation = await reserveManualEvidenceHighlightRun(input);
-  await cancelSupersededWorkflows(reservation.supersededWorkflowIds);
   if (!reservation.run) {
-    return { status: "no_evidence" as const, runId: null, workflowId: null };
+    return {
+      status: "no_evidence",
+      runId: null,
+      workflowId: null,
+      supersededWorkflowIds: reservation.supersededWorkflowIds,
+    };
+  }
+  return {
+    status: reservation.run.status,
+    runId: reservation.run.id,
+    workflowId: attachedWorkflowId(reservation.run.workflowId),
+    supersededWorkflowIds: reservation.supersededWorkflowIds,
+  };
+}
+
+export async function acceptManualEvidenceHighlights(
+  reservation: ManualEvidenceHighlightReservation,
+) {
+  await cancelSupersededWorkflows(reservation.supersededWorkflowIds);
+  if (!reservation.runId) {
+    return { status: reservation.status, runId: null, workflowId: null };
   }
   if (!ACTIVE_RUN_STATUSES.includes(
-    reservation.run.status as (typeof ACTIVE_RUN_STATUSES)[number],
+    reservation.status as (typeof ACTIVE_RUN_STATUSES)[number],
   )) {
     return {
-      status: reservation.run.status,
-      runId: reservation.run.id,
-      workflowId: attachedWorkflowId(reservation.run.workflowId),
+      status: reservation.status,
+      runId: reservation.runId,
+      workflowId: reservation.workflowId,
     };
   }
   const started = await settleWithin(startAgentRunWorkflowOnce({
-    runId: reservation.run.id,
-    startWorkflow: () => start(manualEvidenceHighlightWorkflow, [reservation.run!.id]),
+    runId: reservation.runId,
+    startWorkflow: () => start(manualEvidenceHighlightWorkflow, [reservation.runId!]),
   }), WORKFLOW_START_WAIT_MS);
   if (started.status === "rejected") throw started.error;
   if (started.status === "timeout") {
-    const timedOut = await resolveTimedOutWorkflowStart(reservation.run.id);
+    const timedOut = await resolveTimedOutWorkflowStart(reservation.runId);
     return {
       status: timedOut.status,
-      runId: reservation.run.id,
+      runId: reservation.runId,
       workflowId: timedOut.workflowId,
     };
   }
   const workflowId = started.value;
   const latest = await prisma.agentRun.findUnique({
-    where: { id: reservation.run.id },
+    where: { id: reservation.runId },
     select: { status: true },
   });
   return {
     status: latest?.status ?? "cancelled",
-    runId: reservation.run.id,
+    runId: reservation.runId,
     workflowId,
   };
+}
+
+export async function startManualEvidenceHighlights(input: {
+  userId: string;
+  workItemId: string;
+  trigger: ManualEvidenceHighlightTrigger;
+}) {
+  return acceptManualEvidenceHighlights(
+    await reserveManualEvidenceHighlights(input),
+  );
 }
 
 export async function retryManualEvidenceHighlights(input: {
@@ -494,6 +530,8 @@ export async function retryManualEvidenceHighlights(input: {
 }
 
 export const manualEvidenceHighlightApplicationService = {
+  reserve: reserveManualEvidenceHighlights,
+  accept: acceptManualEvidenceHighlights,
   start: startManualEvidenceHighlights,
   retry: retryManualEvidenceHighlights,
 };

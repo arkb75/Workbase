@@ -49,8 +49,20 @@ describe("complete repository coverage", () => {
     expect(inferSubsystemsFromPath("src/agent.ts")).toContain("ai_runtime");
     expect(inferSubsystemsFromPath("src/runtime/agent-runtime.py"))
       .toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/agents/career-coach.ts"))
+      .toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("packages/runtime/src/agents/planner.go"))
+      .toContain("ai_runtime");
     expect(inferSubsystemsFromPath("src/lib/bedrock-converse-agent.ts"))
       .toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/agents/__tests__/planner.test.ts"))
+      .not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/agents/fixtures/planner.ts"))
+      .not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("tests/agents/planner.ts"))
+      .not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("docs/agents/planner.ts"))
+      .not.toContain("ai_runtime");
   });
 
   it("extracts exact workflow retry, startup, and persisted-run guards without path-only inference", async () => {

@@ -341,13 +341,19 @@ export function inferSubsystemsFromPath(path: string) {
   if (/knowledge-(?:review|update)|candidate-review|highlight-review/.test(value)) keys.push("knowledge_review_lifecycle");
   if (/readme|package\.json|docs?\//.test(value)) keys.push("product_surface");
   if (/prisma|schema|domain|types/.test(value)) keys.push("domain_data");
-  // Repository-root AGENTS.md and prose such as docs/agent-workflow.md are
-  // contributor/workflow instructions, not proof of a model runtime. Keep
-  // executable agent implementations eligible while requiring documentation
-  // to name a concrete provider/model/LLM/converse surface.
+  // Repository-root AGENTS.md, docs, fixtures, and tests are not proof of a
+  // production model runtime. Recognize both singular agent modules and common
+  // plural production layouts such as src/agents/planner.ts.
+  const segments = value.split("/");
+  const agentExamplePath = segments.some((segment) =>
+    /^(?:(?:__)?tests?(?:__)?|(?:__)?fixtures?(?:__)?|docs?)$/u.test(segment)
+  ) || /(?:^|[._-])(?:test|spec|fixture)(?:[._-]|$)/u.test(
+    segments.at(-1) ?? "",
+  );
   const executableAgentPath =
-    /(?:^|[/_.-])agent(?:[/_.-]|$)/u.test(value) &&
-    /\.(?:[cm]?[jt]sx?|py|go|rs|java)$/u.test(value);
+    /(?:^|[/_.-])agents?(?:[/_.-]|$)/u.test(value) &&
+    /\.(?:[cm]?[jt]sx?|py|go|rs|java)$/u.test(value) &&
+    !agentExamplePath;
   if (/bedrock|openrouter|llm|model|converse/.test(value) || executableAgentPath) {
     keys.push("ai_runtime");
   }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION =
+  "workbase-work-item-lifecycle-release-gate-v3" as const;
+export const PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION =
   "workbase-work-item-lifecycle-release-gate-v2" as const;
 
 export const workItemLifecycleScenarioIds = [
@@ -245,9 +247,52 @@ const manualObservationSchema = observationIdentitySchema.extend({
   }),
 });
 
-export const workItemLifecycleObservationSchema = z.discriminatedUnion(
+const currentWorkItemLifecycleObservationSchema = z.discriminatedUnion(
   "scenarioId",
   [manualObservationSchema, repositoryObservationSchema],
+);
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function normalizePreviousLifecycleObservation(value: unknown) {
+  const observation = recordValue(value);
+  if (
+    observation?.schemaVersion !==
+      PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION
+  ) {
+    return value;
+  }
+
+  if (observation.scenarioId === "manual_only_create") {
+    return {
+      ...observation,
+      schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    };
+  }
+
+  const repository = recordValue(observation.repository);
+  if (
+    typeof repository?.configuredFullName === "string" &&
+    typeof repository.canonicalized === "boolean"
+  ) {
+    return {
+      ...observation,
+      schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
+    };
+  }
+
+  throw new Error(
+    `${PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} repository observations predate the required canonical configuredFullName/canonicalized identity fields. Rerun the live lifecycle gate to produce ${WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} evidence.`,
+  );
+}
+
+export const workItemLifecycleObservationSchema = z.preprocess(
+  normalizePreviousLifecycleObservation,
+  currentWorkItemLifecycleObservationSchema,
 );
 
 export type WorkItemLifecycleObservation = z.infer<

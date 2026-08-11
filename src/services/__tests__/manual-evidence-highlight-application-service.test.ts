@@ -32,9 +32,14 @@ vi.mock("@/workflows/manual-evidence-highlights", () => ({
   manualEvidenceHighlightWorkflow: vi.fn(),
 }));
 
-import { buildManualEvidenceHighlightRequest } from "@/src/services/manual-evidence-highlight-service";
 import {
+  MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+  buildManualEvidenceHighlightRequest,
+} from "@/src/services/manual-evidence-highlight-service";
+import {
+  acceptManualEvidenceHighlights,
   manualEvidenceHighlightStartSucceeded,
+  reserveManualEvidenceHighlights,
   retryManualEvidenceHighlights,
   shouldStartManualEvidenceHighlightsForCreate,
   startManualEvidenceHighlights,
@@ -147,6 +152,84 @@ describe("manual Evidence Highlight application service", () => {
         kind: "manual_evidence_highlights",
         status: "queued",
         request: expect.objectContaining({ inputFingerprint: expect.any(String) }),
+      }),
+    });
+    expect(startOnceMock).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "manual-run-new",
+    }));
+  });
+
+  it("exposes durable reservation separately from deferred workflow acceptance", async () => {
+    const tx = transactionClient();
+    prismaMock.$transaction.mockImplementationOnce(
+      async (callback: (client: typeof tx) => unknown) => callback(tx),
+    );
+
+    const reservation = await reserveManualEvidenceHighlights({
+      userId: "user-1",
+      workItemId: "work-1",
+      trigger: "work_item_create",
+    });
+
+    expect(reservation).toEqual({
+      status: "queued",
+      runId: "manual-run-new",
+      workflowId: null,
+      supersededWorkflowIds: [],
+    });
+    expect(startOnceMock).not.toHaveBeenCalled();
+
+    await expect(acceptManualEvidenceHighlights(reservation)).resolves.toEqual({
+      status: "queued",
+      runId: "manual-run-new",
+      workflowId: "workflow-new",
+    });
+    expect(startOnceMock).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "manual-run-new",
+    }));
+  });
+
+  it("does not reuse a completed exact-input run from the prior policy", async () => {
+    const currentRequest = request();
+    buildCurrentRequestMock.mockResolvedValue(currentRequest);
+    const priorPolicyRequest = {
+      ...currentRequest,
+      policyVersion: "manual-evidence-highlights-v1",
+      executionKey: currentRequest.executionKey.replace(
+        MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+        "manual-evidence-highlights-v1",
+      ),
+    };
+    const tx = transactionClient([{
+      id: "manual-run-prior-policy",
+      status: "completed",
+      workflowId: "workflow-prior-policy",
+      request: priorPolicyRequest,
+      result: {
+        terminalOutcome: "ready",
+        inputFingerprint: currentRequest.inputFingerprint,
+      },
+    }]);
+    prismaMock.$transaction.mockImplementationOnce(
+      async (callback: (client: typeof tx) => unknown) => callback(tx),
+    );
+
+    await expect(startManualEvidenceHighlights({
+      userId: "user-1",
+      workItemId: "work-1",
+      trigger: "manual_source_add",
+    })).resolves.toEqual({
+      status: "queued",
+      runId: "manual-run-new",
+      workflowId: "workflow-new",
+    });
+
+    expect(tx.agentRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        idempotencyKey: currentRequest.executionKey,
+        request: expect.objectContaining({
+          policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+        }),
       }),
     });
     expect(startOnceMock).toHaveBeenCalledWith(expect.objectContaining({

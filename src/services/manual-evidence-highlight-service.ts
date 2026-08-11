@@ -42,7 +42,7 @@ export const MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND =
 export const MANUAL_EVIDENCE_HIGHLIGHT_MANAGER =
   "manual_evidence_highlight_workflow" as const;
 export const MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION =
-  "manual-evidence-highlights-v1" as const;
+  "manual-evidence-highlights-v2" as const;
 
 const ACTIVE_AGENT_RUN_STATUSES = new Set(["queued", "running", "awaiting_review"]);
 const ACTIVE_REPOSITORY_REFRESH_STATUSES = [
@@ -542,7 +542,11 @@ function manualHighlightStillMatchesInput(
   request: ManualEvidenceHighlightRequest | null,
 ) {
   const metadata = jsonRecord(highlight.metadata);
-  if (metadata?.managedBy !== MANUAL_EVIDENCE_HIGHLIGHT_MANAGER || !request) {
+  if (
+    metadata?.managedBy !== MANUAL_EVIDENCE_HIGHLIGHT_MANAGER ||
+    metadata.policyVersion !== MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION ||
+    !request
+  ) {
     return false;
   }
   const currentHashes = new Map(
@@ -604,6 +608,8 @@ export async function reconcileManualEvidenceHighlightsForInput(input: {
     ) {
       continue;
     }
+    const policyChanged =
+      metadata.policyVersion !== MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION;
     const retiredAt = new Date();
     const claimed = await input.tx.highlight.updateMany({
       where: {
@@ -625,6 +631,7 @@ export async function reconcileManualEvidenceHighlightsForInput(input: {
         metadata: toInputJson({
           ...metadata,
           retiredBy: MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
+          retiredForPolicyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
           retiredForInputFingerprint: currentFingerprint,
           retiredAt: retiredAt.toISOString(),
         }),
@@ -642,26 +649,32 @@ export async function reconcileManualEvidenceHighlightsForInput(input: {
         text: highlight.text,
         lifecycleStatus: highlight.lifecycleStatus,
         inputFingerprint: metadata.inputFingerprint ?? null,
+        policyVersion: metadata.policyVersion ?? null,
       },
       afterSnapshot: {
         id: highlight.id,
         text: highlight.text,
         lifecycleStatus: "retired",
         inputFingerprint: currentFingerprint,
+        policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
       },
-      reason:
-        "The included manual Evidence or its captured content changed, so this automatic Highlight was removed from retrieval pending a grounded successor.",
+      reason: policyChanged
+        ? "The manual Highlight policy changed, so this prior-policy automatic Highlight was removed from retrieval pending current-policy re-verification."
+        : "The included manual Evidence or its captured content changed, so this automatic Highlight was removed from retrieval pending a grounded successor.",
       provenance: {
         managedBy: MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
         originatingAgentRunId: metadata.originatingAgentRunId ?? null,
         previousInputFingerprint: metadata.inputFingerprint ?? null,
         currentInputFingerprint: currentFingerprint,
         currentEvidenceIds: input.request?.evidenceItems.map((item) => item.id) ?? [],
+        previousPolicyVersion: metadata.policyVersion ?? null,
+        currentPolicyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
       },
       policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
       modelId: "deterministic/manual-evidence-input-reconciliation",
       idempotencyKey: [
         "manual-evidence-retired",
+        MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
         highlight.id,
         currentFingerprint.slice(0, 24),
       ].join(":"),
