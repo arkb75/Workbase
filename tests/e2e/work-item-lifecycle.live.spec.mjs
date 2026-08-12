@@ -9,6 +9,7 @@ import {
   removeLifecycleObservationFromReport,
 } from "./work-item-lifecycle-observation-report.mjs";
 import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-repository-identity.mjs";
+import { resolveLifecycleTitlePrefix } from "./work-item-lifecycle-title-prefix.mjs";
 
 const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v4";
 const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
@@ -54,7 +55,10 @@ const databaseUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "";
 const outputPath = process.env.WORKBASE_LIFECYCLE_OBSERVATIONS_OUTPUT ??
   `/tmp/workbase-lifecycle-live-${Date.now()}.json`;
 const suiteId = randomUUID().slice(0, 8);
-const titlePrefix = `Lifecycle eval ${suiteId}`;
+const titlePrefix = resolveLifecycleTitlePrefix(
+  process.env.WORKBASE_LIFECYCLE_TITLE_PREFIX,
+  suiteId,
+);
 const terminalTimeoutMs = Number(
   process.env.WORKBASE_LIFECYCLE_TERMINAL_TIMEOUT_MS ?? 10 * 60_000,
 );

@@ -13,6 +13,7 @@ export interface ProjectChatApplicationCliOptions {
   exactWorkItemTitle: string | null;
   exactRepository: string | null;
   requiredCapabilityPatterns: string[];
+  forbiddenAnswerPatterns: string[];
   includeFreshnessFollowUp: boolean | null;
   minimumPrimaryItems: number | null;
   maximumPrimaryItems: number | null;
@@ -30,6 +31,7 @@ const booleanOptions = new Set([
 const repeatableValueOptions = new Set([
   "--required-capability",
   "--required-capability-regex",
+  "--forbidden-answer-regex",
 ]);
 
 const singleValueOptions = new Set([
@@ -186,6 +188,8 @@ export function parseProjectChatApplicationCliOptions(
       ...(parsed.values.get("--required-capability") ?? []),
       ...(parsed.values.get("--required-capability-regex") ?? []),
     ],
+    forbiddenAnswerPatterns:
+      parsed.values.get("--forbidden-answer-regex") ?? [],
     includeFreshnessFollowUp: includeFreshness
       ? true
       : excludeFreshness

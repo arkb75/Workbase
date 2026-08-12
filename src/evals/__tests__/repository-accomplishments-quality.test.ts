@@ -3,6 +3,7 @@ import {
   buildRepositoryAccomplishmentsReport,
   buildRepositoryAccomplishmentsScenarioCatalog,
   parseRepositoryAccomplishmentsProfile,
+  repositoryAccomplishmentsComparisonKey,
   resolveExactRepositoryAccomplishmentsTarget,
 } from "@/src/evals/repository-accomplishments-quality";
 import { parseProjectChatApplicationCliOptions } from "@/src/evals/project-chat-application-cli";
@@ -124,6 +125,8 @@ describe("repository accomplishments quality harness", () => {
       "--repository-exact=arkb75/CircleFund",
       "--required-capability-regex", "circle|membership|invite",
       "--required-capability-regex=contribution|lending|fund",
+      "--forbidden-answer-regex", "Workbase(?:'s)? documented product flow",
+      "--forbidden-answer-regex=bedrock-converse-agent|career artifacts",
       "--min-primary-items", "3",
       "--max-primary-items=5",
       "--min-developed-items", "3",
@@ -144,6 +147,10 @@ describe("repository accomplishments quality harness", () => {
         "circle|membership|invite",
         "contribution|lending|fund",
       ],
+      forbiddenAnswerPatterns: [
+        "Workbase(?:'s)? documented product flow",
+        "bedrock-converse-agent|career artifacts",
+      ],
       minimumPrimaryItems: 3,
       maximumPrimaryItems: 5,
       minimumDevelopedItems: 3,
@@ -160,6 +167,7 @@ describe("repository accomplishments quality harness", () => {
       workItemTitle: short.exactWorkItemTitle,
       repository: short.exactRepository,
       requiredCapabilityPatterns: short.requiredCapabilityPatterns,
+      forbiddenAnswerPatterns: short.forbiddenAnswerPatterns,
       minimumPrimaryItems: short.minimumPrimaryItems,
       maximumPrimaryItems: short.maximumPrimaryItems,
       minimumDevelopedItems: short.minimumDevelopedItems,
@@ -177,6 +185,10 @@ describe("repository accomplishments quality harness", () => {
         maxPrimaryItems: 5,
         minDevelopedItems: 3,
         minCitedItems: 3,
+        forbiddenPatterns: expect.arrayContaining([
+          "Workbase(?:'s)? documented product flow",
+          "bedrock-converse-agent|career artifacts",
+        ]),
       });
   });
 
@@ -212,6 +224,9 @@ describe("repository accomplishments quality harness", () => {
     );
     expect(() => profile({ minimumPrimayItems: 3 })).toThrow(
       "Unknown repository accomplishments profile field: minimumPrimayItems",
+    );
+    expect(() => profile({ forbiddenAnswerPatterns: ["["] })).toThrow(
+      "forbiddenAnswerPatterns[0] is not a valid regular expression",
     );
   });
 
@@ -332,7 +347,7 @@ Designed fund recovery through idempotent lending commands and a durable operati
     });
 
     expect(report).toMatchObject({
-      schemaVersion: "workbase-repository-accomplishments-report-v1",
+      schemaVersion: "workbase-repository-accomplishments-report-v2",
       passed: true,
       provider: "openrouter",
       target: { repository: "arkb75/CircleFund", commitSha: sha },
@@ -382,6 +397,84 @@ Designed fund recovery through idempotent lending commands and a durable operati
           passed: false,
         }),
       ]),
+    );
+  });
+
+  it("binds every quality-affecting profile field into the comparison key", () => {
+    const exactProfile = profile();
+    const target = {
+      repository: exactProfile.repository,
+      commitSha: sha,
+    };
+    const original = repositoryAccomplishmentsComparisonKey(exactProfile, target);
+
+    for (const changed of [
+      profile({ workItemTitle: "CircleFund current" }),
+      profile({ minimumCharacters: exactProfile.minimumCharacters + 1 }),
+      profile({ maximumCharacters: exactProfile.maximumCharacters + 1 }),
+      profile({ forbiddenAnswerPatterns: ["Workbase"] }),
+    ]) {
+      expect(repositoryAccomplishmentsComparisonKey(changed, {
+        repository: changed.repository,
+        commitSha: sha,
+      })).not.toBe(original);
+    }
+  });
+
+  it("rejects a report target that differs from the normalized profile", () => {
+    const exactProfile = profile({ includeFreshnessFollowUp: false });
+    expect(() => buildRepositoryAccomplishmentsReport({
+      provider: "openrouter",
+      gitCommit: "c".repeat(40),
+      profile: exactProfile,
+      target: {
+        workItemId: "work-item-other",
+        workItemTitle: "Other",
+        sourceId: "source-circle",
+        repository: "arkb75/CircleFund",
+        commitSha: sha,
+        evidenceItemCount: 77,
+      },
+      suite: {
+        passed: true,
+        results: [scenarioResult()],
+        aggregate: metrics,
+      },
+      keepEvaluationData: false,
+    })).toThrow(/profile and exact target title\/repository/iu);
+  });
+
+  it("fails an externally scoped answer that imports Workbase implementation memory", () => {
+    const exactProfile = profile({
+      includeFreshnessFollowUp: false,
+      forbiddenAnswerPatterns: [
+        "Workbase(?:'s)? documented product flow|bedrock-converse-agent|career artifacts",
+      ],
+    });
+    const result = scenarioResult();
+    result.observation.answer = `${result.observation.answer}\n\nWorkbase's documented product flow generates career artifacts.`;
+    const report = buildRepositoryAccomplishmentsReport({
+      provider: "bedrock",
+      gitCommit: "c".repeat(40),
+      profile: exactProfile,
+      target: {
+        workItemId: "work-item-circle",
+        workItemTitle: "CircleFund",
+        sourceId: "source-circle",
+        repository: "arkb75/CircleFund",
+        commitSha: sha,
+        evidenceItemCount: 77,
+      },
+      suite: { passed: true, results: [result], aggregate: metrics },
+      keepEvaluationData: false,
+    });
+
+    expect(report.passed).toBe(false);
+    expect(report.scenarios[0]?.quality.checks).toContainEqual(
+      expect.objectContaining({
+        name: "answer contains no configured cross-repository contamination",
+        passed: false,
+      }),
     );
   });
 });

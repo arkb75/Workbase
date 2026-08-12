@@ -32,6 +32,8 @@ export WORKBASE_LIVE_REPOSITORY_ID='the GitHub repository ID'
 export WORKBASE_LIVE_REPOSITORY_FULL_NAME='owner/repository'
 export WORKBASE_LIVE_EXPECTED_HEAD_SHA='40-character commit SHA'
 export WORKBASE_TESTED_GIT_COMMIT="$(git rev-parse HEAD)"
+# Use the same safe deterministic prefix for both sides of a paired run.
+export WORKBASE_LIFECYCLE_TITLE_PREFIX='Lifecycle eval paired Resume abc1234'
 export WORKBASE_LIFECYCLE_OBSERVATIONS_OUTPUT=/tmp/openrouter-lifecycle.json
 # Defaults shown here are release bounds; tune the long stages deliberately.
 export WORKBASE_LIFECYCLE_EVIDENCE_READY_SLO_MS=120000
@@ -41,6 +43,12 @@ export WORKBASE_LIFECYCLE_HIGHLIGHTS_TERMINAL_SLO_MS=600000
 export WORKBASE_LIFECYCLE_TOTAL_SLO_MS=600000
 npx playwright test --config playwright.lifecycle.config.mjs
 ```
+
+For paired provider runs, `WORKBASE_LIFECYCLE_TITLE_PREFIX` must be identical
+in both isolated database clones. The retained Work Item title is visible to
+the answering system and therefore belongs in the accomplishments comparison
+identity. Standalone runs may omit it and retain the random collision-resistant
+default.
 
 For a separate retained chat-quality benchmark, run one explicitly selected
 scenario with `WORKBASE_LIFECYCLE_RETAIN_CREATED_WORK_ITEMS=1`. This flag is
@@ -123,6 +131,8 @@ npx tsx scripts/evaluate-project-chat-application.ts \
   --repository-exact arkb75/CircleFund \
   --required-capability-regex 'circle|membership|invite' \
   --required-capability-regex 'contribution|lending|fund' \
+  --forbidden-answer-regex "Workbase(?:['’]s)? documented product flow|career artifacts from approved" \
+  --forbidden-answer-regex 'src/lib/bedrock-converse-agent\.ts|\bline\s+956\b' \
   --min-primary-items 3 \
   --max-primary-items 5 \
   --min-developed-items 3 \
@@ -134,10 +144,15 @@ The equivalent long threshold names are `--minimum-primary-items`,
 `--maximum-primary-items`, `--minimum-developed-items`, and
 `--minimum-cited-items`. The CLI rejects unknown options, missing values, and
 duplicate aliases rather than silently falling back to profile defaults. A
+repeatable `--forbidden-answer-regex` fails answers that match known
+cross-repository contamination patterns and is part of the paired comparison
+identity. A
 JSON object or path passed with `--accomplishments-config` can set the same
-camel-case fields (`minimumPrimaryItems`, `maximumPrimaryItems`,
-`minimumDevelopedItems`, and `minimumCitedItems`); unknown profile fields are
-also rejected.
+camel-case fields (`workItemTitle`, `repository`,
+`requiredCapabilityPatterns`, `forbiddenAnswerPatterns`,
+`includeFreshnessFollowUp`, `minimumPrimaryItems`, `maximumPrimaryItems`,
+`minimumDevelopedItems`, `minimumCitedItems`, `minimumCharacters`, and
+`maximumCharacters`); unknown profile fields are also rejected.
 
 ## Paired quality comparison
 
@@ -161,6 +176,13 @@ artifacts must embed the same full Git commit; `--git-commit` is an assertion,
 not a substitute for artifact identity. Repeat it for the
 Bedrock control, then compare the two `workbase-provider-quality-report-v1`
 files:
+
+The Bedrock control may be a quality-failing but telemetry-authoritative
+baseline. In that case the lifecycle evaluator, accomplishments evaluator, or
+assembler can write complete JSON and exit with status 2; preserve the output
+and continue to the paired comparator after validating its schema. Status 1 is
+an execution/harness error and is never baseline evidence. OpenRouter must exit
+0 and pass every absolute gate.
 
 ```bash
 npx tsx scripts/compare-provider-quality.ts \

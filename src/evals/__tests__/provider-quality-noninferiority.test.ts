@@ -345,4 +345,44 @@ describe("paired Bedrock/OpenRouter quality non-inferiority", () => {
       }),
     ]));
   });
+
+  it("accepts a fully attributed failing Bedrock quality baseline when OpenRouter passes", () => {
+    const baseline = report("bedrock");
+    const candidate = report("openrouter");
+    const failedBaselineScenario = baseline.scenarios.find((scenario) =>
+      scenario.id === "completed_delete_readd_same_repo"
+    )!;
+    failedBaselineScenario.passed = false;
+    failedBaselineScenario.lifecycleGatePassed = false;
+    failedBaselineScenario.hardGateFailures = [
+      "automatic_highlights_are_active_approved_automatic_and_grounded",
+    ];
+
+    const result = compareProviderQualityReports({
+      bedrock: baseline,
+      openrouter: candidate,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.globalChecks).toContainEqual(expect.objectContaining({
+      id: "bedrock_attribution_is_authoritative",
+      passed: true,
+    }));
+    expect(result.scenarios.find((scenario) =>
+      scenario.scenarioId === "completed_delete_readd_same_repo"
+    )).toEqual(expect.objectContaining({
+      passed: true,
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          id: "openrouter_passes_every_bedrock_pass",
+          passed: true,
+          expected: false,
+        }),
+        expect.objectContaining({
+          id: "openrouter_absolute_gate_passed",
+          passed: true,
+        }),
+      ]),
+    }));
+  });
 });

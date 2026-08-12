@@ -8,6 +8,8 @@ import {
   fallbackSubsystemSynthesis,
   finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
+  isWorkbaseRepositoryIdentity,
+  matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
@@ -29,7 +31,7 @@ import { REPOSITORY_STATIC_ANALYZER_VERSION } from "@/src/services/repository-kn
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
     sourceId: "source-1",
-    repository: "workbase/demo",
+    repository: "arkb75/Workbase",
     commitSha: "a".repeat(40),
     blobSha: `blob:${path}`,
     path,
@@ -535,6 +537,86 @@ describe("repository synthesis limit fallback", () => {
     ])).toBeNull();
   });
 
+  it("admits Workbase system memory only for the canonical repository identity", () => {
+    expect(isWorkbaseRepositoryIdentity("arkb75/Workbase")).toBe(true);
+    expect(isWorkbaseRepositoryIdentity("/ARKB75/Workbase.git/")).toBe(true);
+    expect(isWorkbaseRepositoryIdentity("attacker/Workbase")).toBe(false);
+
+    const statement = "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.";
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement,
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "product_surface",
+      text: "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow",
+      summary: statement,
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "ingestion_integrations",
+      text: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
+      summary: "Repository exploration enforces tree/search/read/byte/time budgets and returns typed failures for exhausted budgets, oversized or binary files, unsupported encodings, and unavailable paths.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "review_ui",
+      text: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
+      summary: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement: `${statement} User note.`,
+    })).toBe(false);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement: "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "ai_runtime",
+      text: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+      summary: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+    })).toBe(true);
+  });
+
+  it("does not derive Workbase lifecycle memory from external or spoofed notebooks", () => {
+    const structuralEntries = [
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
+      entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
+      entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
+      entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
+      entry("src/services/knowledge-refresh-service.ts", "repairKnowledgeCoverageGaps attempts semantic orchestration and uses the legacy implementation as a fallback."),
+    ];
+    const external = structuralEntries.map((item) => ({
+      ...item,
+      repository: "attacker/Workbase",
+    }));
+    expect(derivedRepositoryKnowledgeLifecycleFact(external)).toBeNull();
+
+    const mixed = structuralEntries.map((item, index) => index === 0
+      ? item
+      : { ...item, repository: "arkb75/Resume" });
+    expect(derivedRepositoryKnowledgeLifecycleFact(mixed)).toBeNull();
+    expect(isBroadSemanticRepositoryLifecycleFact({
+      statement: "Repository refresh and semantic analysis feed synthesis, reconciliation, and stale-knowledge invalidation.",
+      category: "architecture",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2, 3],
+      reviewNotes: null,
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+      distinctiveness: 5,
+    }, external.slice(0, 3))).toBe(false);
+  });
+
   it("does not let high model scores turn one schema detail into a broad lifecycle baseline", () => {
     const notebook = [entry(
       "src/services/repository-knowledge-synthesis-service.ts",
@@ -676,7 +758,7 @@ describe("repository synthesis limit fallback", () => {
       "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
     ].join("\n");
     const [analysis] = await analyzeRepositoryFiles([{
-      repository: "workbase/demo",
+      repository: "arkb75/Workbase",
       commitSha: "a".repeat(40),
       path: "README.md",
       content: readme,
@@ -730,7 +812,7 @@ describe("repository synthesis limit fallback", () => {
       "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
     ].join("\n");
     const [analysis] = await analyzeRepositoryFiles([{
-      repository: "workbase/demo",
+      repository: "arkb75/Workbase",
       commitSha: "a".repeat(40),
       path: "README.md",
       content: readme,
@@ -742,7 +824,7 @@ describe("repository synthesis limit fallback", () => {
       orchestration: null,
       targetHeads: [{
         sourceId: "source-1",
-        repository: "workbase/demo",
+        repository: "arkb75/Workbase",
         branch: "main",
         commitSha: "a".repeat(40),
         treeSha: "b".repeat(40),
@@ -779,6 +861,71 @@ describe("repository synthesis limit fallback", () => {
     });
     expect(product?.notebook).toHaveLength(6);
     expect(product?.notebook.every((item) => item.evidenceMode === "deterministic_anchor")).toBe(true);
+  });
+
+  it("never injects Workbase product memory into another repository", () => {
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "The resume agent selects the closest branch for a job description and edits main.tex with minimal changes.",
+        ),
+        repository: "arkb75/Resume",
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+      },
+      {
+        ...entry(
+          "README.md",
+          "Compiled PDFs are build artifacts; main.tex is the approved source artifact.",
+        ),
+        repository: "arkb75/Resume",
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: [
+          "product_surface.safe_auto_apply",
+          "product_surface.unsafe_quarantine",
+          "product_surface.approved_artifacts",
+        ],
+      },
+    ];
+
+    expect(requiredSemanticBaselineFacts("product_surface", notebook)).toEqual([]);
+    const fallback = fallbackSubsystemSynthesis("product_surface", notebook);
+    expect(fallback.facts).toEqual([
+      expect.objectContaining({
+        statement: notebook[0]!.statement,
+        citationIndexes: [1],
+      }),
+    ]);
+    expect(fallback.facts.map((fact) => fact.statement).join(" "))
+      .not.toMatch(/Workbase|career artifacts|Work Items/u);
+
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "product_surface",
+      notebook,
+      coverageGaps: [],
+      result: {
+        facts: [{
+          statement: notebook[0]!.statement,
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 3,
+          implementationBreadth: 2,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        highlights: [],
+        unresolvedQuestions: [],
+      },
+      tokenUsage: null,
+    });
+    expect(finalized.facts.map((fact) => fact.statement).join(" "))
+      .not.toMatch(/Workbase|career artifacts|Work Items/u);
   });
 
   it("preserves supported workflow retry, idempotency, and recovery facets across all three boundaries", () => {

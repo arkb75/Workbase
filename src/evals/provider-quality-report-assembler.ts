@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   PROVIDER_QUALITY_REPORT_SCHEMA_VERSION,
@@ -7,7 +8,10 @@ import {
   type ProviderQualityDimension,
 } from "@/src/evals/provider-quality-noninferiority";
 import {
+  REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION,
   REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION,
+  parseRepositoryAccomplishmentsProfile,
+  repositoryAccomplishmentsComparisonKey,
 } from "@/src/evals/repository-accomplishments-quality";
 import {
   WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
@@ -18,6 +22,17 @@ const providerSchema = z.enum(["bedrock", "openrouter"]);
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/iu);
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/iu);
 const identifierSchema = z.string().trim().min(1).max(300);
+const regexPatternSchema = z.string().trim().min(1).max(500).refine(
+  (pattern) => {
+    try {
+      new RegExp(pattern, "iu");
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "Invalid regular expression." },
+);
 const nonnegativeInteger = z.number().int().nonnegative();
 const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
   "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
@@ -164,6 +179,21 @@ const modelAttributionSchema = z.object({
   authoritativeAttributionComplete: z.boolean(),
 }).passthrough();
 
+const accomplishmentsProfileSchema = z.object({
+  schemaVersion: z.literal(REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION),
+  workItemTitle: identifierSchema,
+  repository: identifierSchema,
+  requiredCapabilityPatterns: z.array(regexPatternSchema).min(1).max(12),
+  forbiddenAnswerPatterns: z.array(regexPatternSchema).max(12),
+  includeFreshnessFollowUp: z.literal(true),
+  minimumPrimaryItems: z.number().int().min(1).max(6),
+  maximumPrimaryItems: z.number().int().min(1).max(6),
+  minimumDevelopedItems: z.number().int().min(1).max(6),
+  minimumCitedItems: z.number().int().min(1).max(6),
+  minimumCharacters: z.number().int().min(200).max(10_000),
+  maximumCharacters: z.number().int().min(500).max(20_000),
+}).strict();
+
 const accomplishmentsScenarioSchema = z.object({
   id: z.enum([
     "strongest_accomplishments",
@@ -212,20 +242,15 @@ const accomplishmentsReportSchema = z.object({
   passed: z.boolean(),
   provider: providerSchema,
   comparisonKey: identifierSchema,
-  profile: z.object({
-    includeFreshnessFollowUp: z.literal(true),
-    minimumPrimaryItems: z.number().int().positive(),
-    maximumPrimaryItems: z.number().int().positive(),
-    minimumDevelopedItems: z.number().int().positive(),
-    minimumCitedItems: z.number().int().positive(),
-    minimumCharacters: z.number().int().positive(),
-    maximumCharacters: z.number().int().positive(),
-  }).passthrough(),
+  profile: accomplishmentsProfileSchema,
   target: z.object({
+    workItemId: identifierSchema,
+    workItemTitle: identifierSchema,
     sourceId: identifierSchema,
     repository: identifierSchema,
     commitSha: shaSchema,
-  }).passthrough(),
+    evidenceItemCount: nonnegativeInteger.nullable(),
+  }).strict(),
   performance: z.object({
     latencyMs: z.number().nonnegative(),
     modelCalls: nonnegativeInteger,
@@ -401,7 +426,8 @@ function runIsAuthoritative(run: z.infer<typeof generationRunSchema>) {
     run.estimatedCostUsd !== null &&
     run.usageComplete === true &&
     (run.auditAttemptCount ?? 0) > 0 &&
-    (run.providerAttemptCount ?? 0) > 0 &&
+    run.providerAttemptCount === run.auditAttemptCount &&
+    run.requestIds.length === run.auditAttemptCount &&
     run.failedProviderAttempts === 0 &&
     run.unknownUsageAttempts === 0 &&
     run.auditEvidenceTruncated === false;
@@ -510,6 +536,21 @@ function accomplishmentQuality(
   report: AccomplishmentsReport,
 ) {
   const quality = scenario.quality;
+  const requiredCapabilityMatches = report.profile.requiredCapabilityPatterns.map(
+    (pattern) => new RegExp(pattern, "iu").test(scenario.answer),
+  );
+  const requiredCapabilityRecall = Number((
+    requiredCapabilityMatches.filter(Boolean).length /
+    requiredCapabilityMatches.length
+  ).toFixed(6));
+  if (quality.requiredCapabilityRecall !== requiredCapabilityRecall) {
+    throw new Error(
+      `Accomplishments required-capability recall mismatch for ${scenario.id}.`,
+    );
+  }
+  const forbiddenAnswerMatches = report.profile.forbiddenAnswerPatterns.filter(
+    (pattern) => new RegExp(pattern, "iu").test(scenario.answer),
+  );
   const freshness = quality.repositoryCitationFreshness;
   const primaryItems = quality.primaryItemCount;
   const developedItems = quality.developedItemCount ?? 0;
@@ -536,6 +577,9 @@ function accomplishmentQuality(
     ...scenario.failedChecks.map((check) => check.name),
     ...quality.checks.filter((check) => !check.passed).map((check) => check.name),
     ...(scenario.outcome === "answered" ? [] : [`outcome_${scenario.outcome}`]),
+    ...forbiddenAnswerMatches.map((pattern) =>
+      `forbidden_answer_pattern_sha256:${createHash("sha256").update(pattern).digest("hex").slice(0, 16)}`
+    ),
   ]);
   const rubric = qualityRubric({
     correctness: [
@@ -551,7 +595,7 @@ function accomplishmentQuality(
     usefulness: [
       { id: "minimum_primary_items_met", passed: primaryItems >= report.profile.minimumPrimaryItems },
       { id: "minimum_developed_items_met", passed: developedItems >= report.profile.minimumDevelopedItems },
-      { id: "all_required_capabilities_recalled", passed: quality.requiredCapabilityRecall === 1 },
+      { id: "all_required_capabilities_recalled", passed: requiredCapabilityRecall === 1 },
     ],
     prioritization: [
       { id: "minimum_primary_items_met", passed: primaryItems >= report.profile.minimumPrimaryItems },
@@ -559,21 +603,25 @@ function accomplishmentQuality(
     ],
     specificity: [
       { id: "minimum_cited_items_met", passed: citedItems >= report.profile.minimumCitedItems },
-      { id: "all_required_capabilities_recalled", passed: quality.requiredCapabilityRecall === 1 },
+      { id: "all_required_capabilities_recalled", passed: requiredCapabilityRecall === 1 },
     ],
     instructionAdherence: [
       { id: "answer_outcome_is_answered", passed: scenario.outcome === "answered" },
       { id: "answer_meets_minimum_length", passed: scenario.answer.length >= report.profile.minimumCharacters },
       { id: "answer_respects_maximum_length", passed: scenario.answer.length <= report.profile.maximumCharacters },
+      { id: "no_forbidden_answer_patterns", passed: forbiddenAnswerMatches.length === 0 },
       { id: "no_hard_gate_failures", passed: hardGateFailures.length === 0 },
     ],
   });
   return {
+    passed:
+      scenario.passed && quality.passed &&
+      Object.values(rubric.rubric).every((score) => score === 5),
     hardGateFailures,
     quality: {
       ...rubric,
       groundedClaimPrecision,
-      requiredCapabilityRecall: quality.requiredCapabilityRecall,
+      requiredCapabilityRecall,
       unsupportedClaimCount,
       staleClaimCount,
       duplicateHighlightCount: 0,
@@ -668,6 +716,9 @@ export function assembleProviderQualityReport(input: {
     input.lifecycleObservations,
   );
   const accomplishments = accomplishmentsReportSchema.parse(input.accomplishments);
+  const normalizedAccomplishmentsProfile = parseRepositoryAccomplishmentsProfile(
+    accomplishments.profile,
+  );
   assertGateIntegrity(gate);
   const manualObservation = observationsReport.observations.find(
     (observation) => observation.scenarioId === "manual_only_create",
@@ -700,11 +751,26 @@ export function assembleProviderQualityReport(input: {
     throw new Error(`Provider mismatch: every artifact must be ${input.provider}.`);
   }
 
+  if (
+    normalizedAccomplishmentsProfile.workItemTitle !==
+      accomplishments.target.workItemTitle ||
+    normalizedAccomplishmentsProfile.repository !==
+      accomplishments.target.repository
+  ) {
+    throw new Error(
+      "Accomplishments profile and target title/repository do not match exactly.",
+    );
+  }
   const targetRepository = accomplishments.target.repository.toLowerCase();
   const targetHead = accomplishments.target.commitSha.toLowerCase();
-  const expectedComparisonPrefix = `${targetRepository}@${targetHead}:`;
-  if (!accomplishments.comparisonKey.toLowerCase().startsWith(expectedComparisonPrefix)) {
-    throw new Error("Accomplishments comparison key does not match its repository head.");
+  const expectedComparisonKey = repositoryAccomplishmentsComparisonKey(
+    normalizedAccomplishmentsProfile,
+    accomplishments.target,
+  );
+  if (accomplishments.comparisonKey !== expectedComparisonKey) {
+    throw new Error(
+      "Accomplishments comparison key does not match its complete quality profile and repository head.",
+    );
   }
 
   const gatesById = new Map(gate.scenarios.map((scenario) => [scenario.id, scenario]));
@@ -825,7 +891,13 @@ export function assembleProviderQualityReport(input: {
     (sum, run) => sum + (run.failedProviderAttempts ?? 0),
     accomplishments.attribution.failedProviderAttempts,
   );
-  const authoritative = gate.passed &&
+  // Attribution answers whether every measured provider attempt is bound to
+  // the configured provider/model with complete usage and cost evidence. A
+  // Bedrock control is still authoritative when the quality gate correctly
+  // records a model-quality failure (for example, a quarantined Highlight).
+  // Scenario pass/failure remains on the assembled scenarios and the paired
+  // comparator independently requires every OpenRouter absolute gate to pass.
+  const authoritative =
     accomplishments.attribution.authoritativeAttributionComplete &&
     accomplishments.performance.usageComplete &&
     detailedRuns.length > 0 && detailedRuns.every(runIsAuthoritative) &&
@@ -859,8 +931,8 @@ export function assembleProviderQualityReport(input: {
     const assembled = accomplishmentQuality(scenario, accomplishments);
     return {
       id: scenario.id,
-      passed: scenario.passed && scenario.quality.passed,
-      lifecycleGatePassed: scenario.passed && scenario.quality.passed,
+      passed: assembled.passed,
+      lifecycleGatePassed: assembled.passed,
       hardGateFailures: assembled.hardGateFailures,
       quality: assembled.quality,
       performance: {

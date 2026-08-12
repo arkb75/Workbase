@@ -7,15 +7,16 @@ import {
 import { projectChatPrimaryAnswerItems } from "@/src/evals/project-chat-answer-quality";
 
 export const REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION =
-  "workbase-repository-accomplishments-profile-v1" as const;
+  "workbase-repository-accomplishments-profile-v2" as const;
 export const REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION =
-  "workbase-repository-accomplishments-report-v1" as const;
+  "workbase-repository-accomplishments-report-v2" as const;
 
 export interface RepositoryAccomplishmentsProfile {
   schemaVersion: typeof REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION;
   workItemTitle: string;
   repository: string;
   requiredCapabilityPatterns: string[];
+  forbiddenAnswerPatterns: string[];
   includeFreshnessFollowUp: boolean;
   minimumPrimaryItems: number;
   maximumPrimaryItems: number;
@@ -52,6 +53,11 @@ export interface RepositoryAccomplishmentsHarnessCheck {
   expected?: string | number | boolean;
 }
 
+type RepositoryAccomplishmentsComparisonTarget = Pick<
+  ExactRepositoryAccomplishmentsTarget,
+  "repository" | "commitSha"
+>;
+
 function objectValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -84,19 +90,23 @@ function boundedInteger(
   return resolved;
 }
 
-function validPattern(value: unknown, index: number) {
+function validPattern(
+  value: unknown,
+  index: number,
+  field = "requiredCapabilityPatterns",
+) {
   const pattern = nonEmptyString(
     value,
-    `requiredCapabilityPatterns[${index}]`,
+    `${field}[${index}]`,
   );
   if (pattern.length > 500) {
-    throw new Error(`requiredCapabilityPatterns[${index}] exceeds 500 characters.`);
+    throw new Error(`${field}[${index}] exceeds 500 characters.`);
   }
   try {
     new RegExp(pattern, "iu");
   } catch (error) {
     throw new Error(
-      `requiredCapabilityPatterns[${index}] is not a valid regular expression: ${
+      `${field}[${index}] is not a valid regular expression: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -116,6 +126,7 @@ export function parseRepositoryAccomplishmentsProfile(
     "workItemTitle",
     "repository",
     "requiredCapabilityPatterns",
+    "forbiddenAnswerPatterns",
     "includeFreshnessFollowUp",
     "minimumPrimaryItems",
     "maximumPrimaryItems",
@@ -148,6 +159,13 @@ export function parseRepositoryAccomplishmentsProfile(
   }
   if (rawPatterns.length > 12) {
     throw new Error("requiredCapabilityPatterns cannot contain more than 12 expressions.");
+  }
+  const rawForbiddenPatterns = value.forbiddenAnswerPatterns ?? [];
+  if (!Array.isArray(rawForbiddenPatterns)) {
+    throw new Error("forbiddenAnswerPatterns must be an array.");
+  }
+  if (rawForbiddenPatterns.length > 12) {
+    throw new Error("forbiddenAnswerPatterns cannot contain more than 12 expressions.");
   }
 
   const minimumPrimaryItems = boundedInteger(
@@ -216,7 +234,12 @@ export function parseRepositoryAccomplishmentsProfile(
     schemaVersion: REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION,
     workItemTitle: nonEmptyString(value.workItemTitle, "workItemTitle"),
     repository: nonEmptyString(value.repository, "repository"),
-    requiredCapabilityPatterns: rawPatterns.map(validPattern),
+    requiredCapabilityPatterns: rawPatterns.map((pattern, index) =>
+      validPattern(pattern, index)
+    ),
+    forbiddenAnswerPatterns: rawForbiddenPatterns.map((pattern, index) =>
+      validPattern(pattern, index, "forbiddenAnswerPatterns")
+    ),
     includeFreshnessFollowUp:
       value.includeFreshnessFollowUp === undefined
         ? true
@@ -228,6 +251,46 @@ export function parseRepositoryAccomplishmentsProfile(
     minimumCharacters,
     maximumCharacters,
   };
+}
+
+/**
+ * Builds the identity shared by the accomplishments producer and the provider
+ * report assembler. Every profile field that can change answer quality belongs
+ * in this hash so paired runs cannot silently compare different contracts.
+ */
+export function repositoryAccomplishmentsComparisonKey(
+  profile: RepositoryAccomplishmentsProfile,
+  target: RepositoryAccomplishmentsComparisonTarget,
+) {
+  if (profile.repository !== target.repository) {
+    throw new Error(
+      "Repository accomplishments profile and target repositories must match exactly.",
+    );
+  }
+  if (!/^[a-f0-9]{40}$/iu.test(target.commitSha)) {
+    throw new Error(
+      "Repository accomplishments comparison target requires a full 40-character commit SHA.",
+    );
+  }
+  const comparisonProfile = JSON.stringify({
+    schemaVersion: profile.schemaVersion,
+    workItemTitle: profile.workItemTitle,
+    repository: profile.repository,
+    requiredCapabilityPatterns: profile.requiredCapabilityPatterns,
+    forbiddenAnswerPatterns: profile.forbiddenAnswerPatterns,
+    includeFreshnessFollowUp: profile.includeFreshnessFollowUp,
+    minimumPrimaryItems: profile.minimumPrimaryItems,
+    maximumPrimaryItems: profile.maximumPrimaryItems,
+    minimumDevelopedItems: profile.minimumDevelopedItems,
+    minimumCitedItems: profile.minimumCitedItems,
+    minimumCharacters: profile.minimumCharacters,
+    maximumCharacters: profile.maximumCharacters,
+  });
+  const profileHash = createHash("sha256")
+    .update(comparisonProfile)
+    .digest("hex")
+    .slice(0, 16);
+  return `${target.repository.toLowerCase()}@${target.commitSha.toLowerCase()}:${profileHash}`;
 }
 
 function nestedString(value: unknown, path: readonly string[]) {
@@ -326,6 +389,10 @@ export function buildRepositoryAccomplishmentsScenarioCatalog(
         minCitedItems: profile.minimumCitedItems,
         requirePrioritizedOpening: false,
         requiredPatterns: profile.requiredCapabilityPatterns,
+        forbiddenPatterns: [
+          ...(scenario.answerContract?.forbiddenPatterns ?? []),
+          ...profile.forbiddenAnswerPatterns,
+        ],
       },
     }));
 }
@@ -365,6 +432,9 @@ function scenarioQuality(input: {
   const requiredCapabilities = profile.requiredCapabilityPatterns.map(
     (pattern) => ({ pattern, matched: new RegExp(pattern, "iu").test(answer) }),
   );
+  const forbiddenMatches = profile.forbiddenAnswerPatterns.filter((pattern) =>
+    new RegExp(pattern, "iu").test(answer)
+  );
   const matchedCapabilities = requiredCapabilities.filter(
     (capability) => capability.matched,
   ).length;
@@ -383,6 +453,13 @@ function scenarioQuality(input: {
     observedTargetHeads.includes(expectedHead),
     observedTargetHeads.join(", ") || "missing",
     expectedHead,
+  );
+  addCheck(
+    checks,
+    "answer contains no configured cross-repository contamination",
+    forbiddenMatches.length === 0,
+    forbiddenMatches.join(", ") || "none",
+    "none",
   );
   addCheck(
     checks,
@@ -465,6 +542,14 @@ export function buildRepositoryAccomplishmentsReport(input: {
   if (!/^[a-f0-9]{40}$/iu.test(input.gitCommit)) {
     throw new Error("Repository accomplishments require a full 40-character gitCommit.");
   }
+  if (
+    input.profile.workItemTitle !== input.target.workItemTitle ||
+    input.profile.repository !== input.target.repository
+  ) {
+    throw new Error(
+      "Repository accomplishments profile and exact target title/repository must match exactly.",
+    );
+  }
   const scenarios = input.suite.results.map((result) => {
     const quality = scenarioQuality({
       result,
@@ -491,25 +576,15 @@ export function buildRepositoryAccomplishmentsReport(input: {
       error: result.observation.error,
     };
   });
-  const comparisonProfile = JSON.stringify({
-    requiredCapabilityPatterns: input.profile.requiredCapabilityPatterns,
-    includeFreshnessFollowUp: input.profile.includeFreshnessFollowUp,
-    minimumPrimaryItems: input.profile.minimumPrimaryItems,
-    maximumPrimaryItems: input.profile.maximumPrimaryItems,
-    minimumDevelopedItems: input.profile.minimumDevelopedItems,
-    minimumCitedItems: input.profile.minimumCitedItems,
-  });
-  const profileHash = createHash("sha256")
-    .update(comparisonProfile)
-    .digest("hex")
-    .slice(0, 16);
   return {
     schemaVersion: REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION,
     gitCommit: input.gitCommit.toLowerCase(),
     passed: input.suite.passed && scenarios.every((scenario) => scenario.passed),
     provider: input.provider,
-    comparisonKey:
-      `${input.target.repository.toLowerCase()}@${input.target.commitSha}:${profileHash}`,
+    comparisonKey: repositoryAccomplishmentsComparisonKey(
+      input.profile,
+      input.target,
+    ),
     profile: input.profile,
     target: input.target,
     retention: {

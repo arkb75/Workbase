@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { assembleProviderQualityReport } from "@/src/evals/provider-quality-report-assembler";
+import {
+  parseRepositoryAccomplishmentsProfile,
+  repositoryAccomplishmentsComparisonKey,
+} from "@/src/evals/repository-accomplishments-quality";
 import { providerQualityDimensions } from "@/src/evals/provider-quality-noninferiority";
 import { WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION } from "@/src/evals/work-item-lifecycle-release-gate";
 
@@ -215,7 +219,7 @@ function fixtures() {
     id,
     passed: true,
     outcome: "answered",
-    answer: "A grounded and specific repository accomplishment with enough detail.",
+    answer: "A grounded and specific repository accomplishment with enough detail to explain the mechanism, its practical value, and the current implementation evidence. ".repeat(2),
     metrics: {
       latencyMs: 20,
       modelCalls: 1,
@@ -248,26 +252,36 @@ function fixtures() {
     },
     failedChecks: [],
   });
+  const profile = parseRepositoryAccomplishmentsProfile({
+    schemaVersion: "workbase-repository-accomplishments-profile-v2",
+    workItemTitle: "Workbase",
+    repository: REPOSITORY,
+    requiredCapabilityPatterns: ["grounded", "repository"],
+    forbiddenAnswerPatterns: ["cross-repository contamination"],
+    includeFreshnessFollowUp: true,
+    minimumPrimaryItems: 1,
+    maximumPrimaryItems: 3,
+    minimumDevelopedItems: 1,
+    minimumCitedItems: 1,
+    minimumCharacters: 200,
+    maximumCharacters: 1_000,
+  });
+  const target = {
+    workItemId: "work-item-workbase",
+    workItemTitle: "Workbase",
+    sourceId: "accomplishments-source",
+    repository: REPOSITORY,
+    commitSha: HEAD_SHA,
+    evidenceItemCount: 50,
+  };
   const accomplishments = {
-    schemaVersion: "workbase-repository-accomplishments-report-v1",
+    schemaVersion: "workbase-repository-accomplishments-report-v2",
     gitCommit: GIT_COMMIT,
     passed: true,
     provider: "openrouter",
-    comparisonKey: `${REPOSITORY.toLowerCase()}@${HEAD_SHA}:profile-hash`,
-    profile: {
-      includeFreshnessFollowUp: true,
-      minimumPrimaryItems: 1,
-      maximumPrimaryItems: 3,
-      minimumDevelopedItems: 1,
-      minimumCitedItems: 1,
-      minimumCharacters: 20,
-      maximumCharacters: 1_000,
-    },
-    target: {
-      sourceId: "accomplishments-source",
-      repository: REPOSITORY,
-      commitSha: HEAD_SHA,
-    },
+    comparisonKey: repositoryAccomplishmentsComparisonKey(profile, target),
+    profile,
+    target,
     performance: {
       latencyMs: 40,
       modelCalls: 2,
@@ -419,6 +433,99 @@ describe("provider quality report assembler", () => {
     )?.performance.costCoverageComplete).toBe(false);
   });
 
+  it("keeps a quality-failing Bedrock control authoritative when provider telemetry is complete", () => {
+    const fixture = fixtures();
+    const failedScenario = fixture.lifecycleGate.scenarios.find((scenario) =>
+      scenario.id === "completed_delete_readd_same_repo"
+    );
+    if (!failedScenario) throw new Error("Expected delete/re-add gate scenario.");
+    failedScenario.passed = false;
+    (failedScenario.failedChecks as Array<{ id: string; passed: false }>).push({
+      id: "automatic_highlights_are_active_approved_automatic_and_grounded",
+      passed: false,
+    });
+    fixture.lifecycleGate.passed = false;
+    fixture.lifecycleGate.aggregate.failedChecks = 1;
+
+    const report = assemble(fixture);
+
+    expect(report.attribution.authoritative).toBe(true);
+    expect(report.performance).toMatchObject({
+      costCoverageComplete: true,
+      usageComplete: true,
+    });
+    expect(report.scenarios.find((scenario) =>
+      scenario.id === "completed_delete_readd_same_repo"
+    )).toMatchObject({
+      passed: false,
+      lifecycleGatePassed: false,
+      hardGateFailures: [
+        "automatic_highlights_are_active_approved_automatic_and_grounded",
+      ],
+    });
+  });
+
+  it("does not mistake a failing quality gate for complete attribution when telemetry is incomplete", () => {
+    const fixture = fixtures();
+    const failedScenario = fixture.lifecycleGate.scenarios.find((scenario) =>
+      scenario.id === "empty_create_attach"
+    );
+    if (!failedScenario) throw new Error("Expected empty-create gate scenario.");
+    failedScenario.passed = false;
+    (failedScenario.failedChecks as Array<{ id: string; passed: false }>).push({
+      id: "automatic_highlights_are_active_approved_automatic_and_grounded",
+      passed: false,
+    });
+    fixture.lifecycleGate.passed = false;
+    fixture.lifecycleGate.aggregate.failedChecks = 1;
+
+    const repositoryObservation = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "empty_create_attach",
+    );
+    if (!repositoryObservation || !("automation" in repositoryObservation)) {
+      throw new Error("Expected repository lifecycle fixture.");
+    }
+    repositoryObservation.automation.generationRuns[0]!.requestIds = [];
+
+    const report = assemble(fixture);
+
+    expect(report.attribution.authoritative).toBe(false);
+    expect(report.performance.costCoverageComplete).toBe(false);
+    expect(report.scenarios.find((scenario) =>
+      scenario.id === "empty_create_attach"
+    )?.performance.costCoverageComplete).toBe(false);
+  });
+
+  it.each([
+    {
+      name: "the provider attempt count differs from the durable audit count",
+      mutate: (run: ReturnType<typeof generationRun>) => {
+        run.providerAttemptCount = 2;
+      },
+    },
+    {
+      name: "one audited provider attempt has no unique request ID",
+      mutate: (run: ReturnType<typeof generationRun>) => {
+        run.auditAttemptCount = 2;
+        run.providerAttemptCount = 2;
+      },
+    },
+  ])("fails attribution when $name", ({ mutate }) => {
+    const fixture = fixtures();
+    const repositoryObservation = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "empty_create_attach",
+    );
+    if (!repositoryObservation || !("automation" in repositoryObservation)) {
+      throw new Error("Expected repository lifecycle fixture.");
+    }
+    mutate(repositoryObservation.automation.generationRuns[0]!);
+
+    const report = assemble(fixture);
+
+    expect(report.attribution.authoritative).toBe(false);
+    expect(report.performance.costCoverageComplete).toBe(false);
+  });
+
   it("excludes deterministic verification aggregates from provider spend", () => {
     const fixture = fixtures();
     const manualObservation = fixture.lifecycleObservations.observations.find(
@@ -496,6 +603,54 @@ describe("provider quality report assembler", () => {
     repositoryObservation.repository.expectedHeadSha = "d".repeat(40);
 
     expect(() => assemble(fixture)).toThrow(/head mismatch/iu);
+  });
+
+  it("requires a complete normalized v2 accomplishments profile", () => {
+    const missingField = fixtures();
+    delete (missingField.accomplishments.profile as {
+      workItemTitle?: string;
+    }).workItemTitle;
+    expect(() => assemble(missingField)).toThrow();
+
+    const invalidRegex = fixtures();
+    invalidRegex.accomplishments.profile.requiredCapabilityPatterns = ["["];
+    expect(() => assemble(invalidRegex)).toThrow(/regular expression/iu);
+  });
+
+  it("rejects profile/target and complete comparison-key mismatches", () => {
+    const targetMismatch = fixtures();
+    targetMismatch.accomplishments.target.workItemTitle = "Other";
+    expect(() => assemble(targetMismatch)).toThrow(
+      /profile and target title\/repository/iu,
+    );
+
+    const keyMismatch = fixtures();
+    keyMismatch.accomplishments.profile.maximumCharacters = 1_001;
+    expect(() => assemble(keyMismatch)).toThrow(/complete quality profile/iu);
+  });
+
+  it("recomputes required recall and forbidden matches from every answer", () => {
+    const recallMismatch = fixtures();
+    recallMismatch.accomplishments.scenarios[1]!.answer =
+      "A grounded answer without the other configured capability. ".repeat(5);
+    expect(() => assemble(recallMismatch)).toThrow(
+      /required-capability recall mismatch/iu,
+    );
+
+    const contamination = fixtures();
+    contamination.accomplishments.scenarios[1]!.answer +=
+      " cross-repository contamination";
+    const report = assemble(contamination);
+    const scenario = report.scenarios.find((entry) =>
+      entry.id === "strongest_accomplishments_freshness_follow_up"
+    );
+    expect(scenario).toMatchObject({
+      passed: false,
+      hardGateFailures: [
+        "forbidden_answer_pattern_sha256:56b63cc3b7d5212a",
+      ],
+    });
+    expect(scenario?.quality.rubric.instructionAdherence).toBe(0);
   });
 
   it("fails closed on a missing required scenario", () => {

@@ -95,6 +95,7 @@ async function repositoryAccomplishmentsProfile(
       options.exactWorkItemTitle ||
       options.exactRepository ||
       options.requiredCapabilityPatterns.length ||
+      options.forbiddenAnswerPatterns.length ||
       options.includeFreshnessFollowUp !== null ||
       options.minimumPrimaryItems !== null ||
       options.maximumPrimaryItems !== null ||
@@ -129,6 +130,9 @@ async function repositoryAccomplishmentsProfile(
     ...override(options.exactRepository, "repository"),
     ...(options.requiredCapabilityPatterns.length
       ? { requiredCapabilityPatterns: options.requiredCapabilityPatterns }
+      : {}),
+    ...(options.forbiddenAnswerPatterns.length
+      ? { forbiddenAnswerPatterns: options.forbiddenAnswerPatterns }
       : {}),
     ...override(
       options.includeFreshnessFollowUp,
