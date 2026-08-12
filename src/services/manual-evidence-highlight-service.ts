@@ -43,6 +43,8 @@ export const MANUAL_EVIDENCE_HIGHLIGHT_MANAGER =
   "manual_evidence_highlight_workflow" as const;
 export const MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION =
   "manual-evidence-highlights-v2" as const;
+export const MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION =
+  "manual-evidence-highlight-request-v2" as const;
 
 const ACTIVE_AGENT_RUN_STATUSES = new Set(["queued", "running", "awaiting_review"]);
 const ACTIVE_REPOSITORY_REFRESH_STATUSES = [
@@ -77,11 +79,34 @@ export type ManualEvidenceHighlightRequestEvidence = {
 export type ManualEvidenceHighlightRequest = {
   kind: typeof MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND;
   policyVersion: typeof MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION;
+  requestSchemaVersion: typeof MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION;
   trigger: ManualEvidenceHighlightTrigger;
   sourceIds: string[];
   evidenceItems: ManualEvidenceHighlightRequestEvidence[];
+  contextHash: string;
   inputFingerprint: string;
   executionKey: string;
+};
+
+export type ManualEvidenceProviderWorkItemContext = Pick<
+  WorkItemSnapshot,
+  "id" | "title" | "type" | "description"
+>;
+
+export type ManualEvidenceContentHashInput = {
+  externalId: string;
+  title: string;
+  content: string;
+  searchText: string;
+  parentKind: string | null;
+  parentKey: string | null;
+  metadata: unknown;
+  source: {
+    label: string;
+    externalId: string | null;
+    rawContent: string | null;
+    metadata: unknown;
+  };
 };
 
 export type ManualEvidenceHighlightPreparedPlan = {
@@ -163,50 +188,75 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function manualEvidenceContentHash(input: {
-  externalId: string;
-  title: string;
-  content: string;
-  parentKind: string | null;
-  parentKey: string | null;
-}) {
-  return sha256(JSON.stringify({
+function canonicalFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalFingerprintValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalFingerprintValue(entry)]),
+    );
+  }
+  return value ?? null;
+}
+
+export function manualEvidenceProviderContextHash(
+  workItem: ManualEvidenceProviderWorkItemContext,
+) {
+  return sha256(JSON.stringify(canonicalFingerprintValue({
+    workItem: {
+      id: workItem.id,
+      title: workItem.title,
+      type: workItem.type,
+      description: workItem.description,
+    },
+  })));
+}
+
+export function manualEvidenceContentHash(input: ManualEvidenceContentHashInput) {
+  return sha256(JSON.stringify(canonicalFingerprintValue({
     externalId: input.externalId,
     title: input.title,
     content: input.content,
+    searchText: input.searchText,
     parentKind: input.parentKind,
     parentKey: input.parentKey,
-  }));
+    metadata: input.metadata,
+    source: {
+      label: input.source.label,
+      externalId: input.source.externalId,
+      rawContent: input.source.rawContent,
+      metadata: input.source.metadata,
+    },
+  })));
 }
 
 export function manualEvidenceInputFingerprint(
   evidenceItems: readonly ManualEvidenceHighlightRequestEvidence[],
+  contextHash: string,
 ) {
   return sha256(
-    evidenceItems
-      .map((item) => [
-        item.id,
-        item.sourceId,
-        item.externalId,
-        item.contentHash,
-        item.included ? "included" : "excluded",
-      ].join(":"))
-      .sort()
-      .join("|"),
+    [
+      contextHash,
+      ...evidenceItems
+        .map((item) => [
+          item.id,
+          item.sourceId,
+          item.externalId,
+          item.contentHash,
+          item.included ? "included" : "excluded",
+        ].join(":"))
+        .sort(),
+    ].join("|"),
   );
 }
 
 export function buildManualEvidenceHighlightRequest(input: {
-  workItemId: string;
+  workItem: ManualEvidenceProviderWorkItemContext;
   trigger: ManualEvidenceHighlightTrigger;
-  evidenceItems: Array<{
+  evidenceItems: Array<ManualEvidenceContentHashInput & {
     id: string;
     sourceId: string;
-    externalId: string;
-    title: string;
-    content: string;
-    parentKind: string | null;
-    parentKey: string | null;
   }>;
 }): ManualEvidenceHighlightRequest {
   const evidenceItems = input.evidenceItems
@@ -214,21 +264,42 @@ export function buildManualEvidenceHighlightRequest(input: {
       id: item.id,
       sourceId: item.sourceId,
       externalId: item.externalId,
-      contentHash: manualEvidenceContentHash(item),
+      contentHash: manualEvidenceContentHash({
+        externalId: item.externalId,
+        title: item.title,
+        content: item.content,
+        searchText: item.searchText,
+        parentKind: item.parentKind,
+        parentKey: item.parentKey,
+        metadata: item.metadata,
+        source: {
+          label: item.source.label,
+          externalId: item.source.externalId,
+          rawContent: item.source.rawContent,
+          metadata: item.source.metadata,
+        },
+      }),
       included: true,
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
-  const inputFingerprint = manualEvidenceInputFingerprint(evidenceItems);
+  const contextHash = manualEvidenceProviderContextHash(input.workItem);
+  const inputFingerprint = manualEvidenceInputFingerprint(
+    evidenceItems,
+    contextHash,
+  );
   return {
     kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
     policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+    requestSchemaVersion: MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION,
     trigger: input.trigger,
     sourceIds: Array.from(new Set(evidenceItems.map((item) => item.sourceId))).sort(),
     evidenceItems,
+    contextHash,
     inputFingerprint,
     executionKey: [
       MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
-      input.workItemId,
+      MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION,
+      input.workItem.id,
       inputFingerprint,
     ].join(":"),
   };
@@ -241,15 +312,18 @@ export function readManualEvidenceHighlightRequest(
   if (
     request?.kind !== MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND ||
     request.policyVersion !== MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION ||
+    request.requestSchemaVersion !==
+      MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION ||
     (
       request.trigger !== "work_item_create" &&
       request.trigger !== "manual_source_add" &&
       request.trigger !== "manual_evidence_change"
     ) ||
+    typeof request.contextHash !== "string" ||
     typeof request.inputFingerprint !== "string" ||
     typeof request.executionKey !== "string" ||
     !request.executionKey.startsWith(
-      `${MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION}:`,
+      `${MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION}:${MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION}:`,
     ) ||
     !request.executionKey.endsWith(`:${request.inputFingerprint}`)
   ) {
@@ -276,7 +350,8 @@ export function readManualEvidenceHighlightRequest(
       })
     : [];
   if (
-    manualEvidenceInputFingerprint(evidenceItems) !== request.inputFingerprint ||
+    manualEvidenceInputFingerprint(evidenceItems, request.contextHash) !==
+      request.inputFingerprint ||
     sourceIds.slice().sort().join("|") !==
       Array.from(new Set(evidenceItems.map((item) => item.sourceId))).sort().join("|")
   ) {
@@ -285,9 +360,11 @@ export function readManualEvidenceHighlightRequest(
   return {
     kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
     policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+    requestSchemaVersion: MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION,
     trigger: request.trigger,
     sourceIds: Array.from(new Set(sourceIds)).sort(),
     evidenceItems: evidenceItems.sort((left, right) => left.id.localeCompare(right.id)),
+    contextHash: request.contextHash,
     inputFingerprint: request.inputFingerprint,
     executionKey: request.executionKey,
   };
@@ -449,7 +526,11 @@ function originatingAgentRunId(highlight: Pick<ClaimSnapshot, "metadata">) {
 function evidenceMatchesRequest(
   evidenceItems: ManualEvidenceRow[],
   request: ManualEvidenceHighlightRequest,
+  workItem: ManualEvidenceProviderWorkItemContext,
 ) {
+  if (manualEvidenceProviderContextHash(workItem) !== request.contextHash) {
+    return false;
+  }
   if (evidenceItems.length !== request.evidenceItems.length) return false;
   const expected = new Map(request.evidenceItems.map((item) => [item.id, item]));
   for (const item of evidenceItems) {
@@ -476,6 +557,7 @@ function evidenceMatchesRequest(
       contentHash: manualEvidenceContentHash(item),
       included: true,
     })),
+    request.contextHash,
   ) === request.inputFingerprint;
 }
 
@@ -505,13 +587,23 @@ export async function buildCurrentManualEvidenceHighlightRequest(input: {
   workItemId: string;
   trigger: ManualEvidenceHighlightTrigger;
 }) {
-  const evidenceItems = await loadCompleteManualEvidenceRows(
-    input.db ?? prisma,
-    input.workItemId,
-  );
+  const db = input.db ?? prisma;
+  const [workItem, evidenceItems] = await Promise.all([
+    db.workItem.findUnique({
+      where: { id: input.workItemId },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        description: true,
+      },
+    }),
+    loadCompleteManualEvidenceRows(db, input.workItemId),
+  ]);
+  if (!workItem) return null;
   return evidenceItems.length
     ? buildManualEvidenceHighlightRequest({
-        workItemId: input.workItemId,
+        workItem,
         trigger: input.trigger,
         evidenceItems,
       })
@@ -598,7 +690,10 @@ export async function reconcileManualEvidenceHighlightsForInput(input: {
   });
   const retiredHighlightIds: string[] = [];
   const currentFingerprint = input.request?.inputFingerprint ??
-    manualEvidenceInputFingerprint([]);
+    manualEvidenceInputFingerprint(
+      [],
+      sha256("no-current-manual-evidence-context"),
+    );
 
   for (const highlight of candidates) {
     const metadata = jsonRecord(highlight.metadata);
@@ -690,6 +785,7 @@ function requestIsBoundToWorkItem(
 ) {
   return request.executionKey === [
     MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
+    MANUAL_EVIDENCE_HIGHLIGHT_REQUEST_SCHEMA_VERSION,
     workItemId,
     request.inputFingerprint,
   ].join(":");
@@ -769,7 +865,7 @@ export async function prepareManualEvidenceHighlights(
     return { status: "prepared", plan: checkpoint, replayed: true };
   }
   const evidenceRows = await loadCompleteManualEvidenceRows(prisma, run.workItemId);
-  if (!evidenceMatchesRequest(evidenceRows, request)) {
+  if (!evidenceMatchesRequest(evidenceRows, request, run.workItem)) {
     return {
       status: "superseded_input",
       inputFingerprint: request.inputFingerprint,
@@ -863,7 +959,17 @@ export async function persistManualEvidenceHighlights(input: {
   return prisma.$transaction(async (tx): Promise<ManualEvidenceHighlightPersistenceResult> => {
     const runIdentity = await tx.agentRun.findUnique({
       where: { id: input.runId },
-      select: { workItemId: true },
+      select: {
+        workItemId: true,
+        workItem: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            description: true,
+          },
+        },
+      },
     });
     if (!runIdentity) return { status: "inactive", runStatus: "missing" };
 
@@ -934,7 +1040,7 @@ export async function persistManualEvidenceHighlights(input: {
       FOR UPDATE OF evidence
     `;
     const evidenceRows = await loadCompleteManualEvidenceRows(tx, runIdentity.workItemId);
-    if (!evidenceMatchesRequest(evidenceRows, request)) {
+    if (!evidenceMatchesRequest(evidenceRows, request, runIdentity.workItem)) {
       return {
         status: "superseded_input",
         terminalOutcome: "superseded_input",
@@ -965,6 +1071,9 @@ export async function persistManualEvidenceHighlights(input: {
       )
     );
     const allowedEvidenceIds = new Set(evidenceIds);
+    const sourceIdByEvidenceId = new Map(
+      evidenceRows.map((item) => [item.id, item.sourceId]),
+    );
     const createdHighlightIds: string[] = [];
     const replayedHighlightIds: string[] = [];
     const deduplicatedHighlightIds: string[] = [];
@@ -980,6 +1089,12 @@ export async function persistManualEvidenceHighlights(input: {
           reference.evidenceItemId ? [reference.evidenceItemId] : []
         ),
       ));
+      const citedSourceIds = Array.from(new Set(
+        citedEvidenceIds.flatMap((evidenceId) => {
+          const sourceId = sourceIdByEvidenceId.get(evidenceId);
+          return sourceId ? [sourceId] : [];
+        }),
+      )).sort();
       const evidenceContentHashes = Object.fromEntries(
         request.evidenceItems
           .filter((item) => citedEvidenceIds.includes(item.id))
@@ -993,7 +1108,7 @@ export async function persistManualEvidenceHighlights(input: {
           originatingAgentRunId: input.runId,
           inputFingerprint: request.inputFingerprint,
           policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
-          sourceIds: request.sourceIds,
+          sourceIds: citedSourceIds,
           evidenceIds: citedEvidenceIds,
           evidenceContentHashes,
         },
@@ -1125,8 +1240,8 @@ export async function persistManualEvidenceHighlights(input: {
             : "Manual Evidence produced an automatically managed Highlight for review.",
         provenance: {
           agentRunId: input.runId,
-          evidenceIds,
-          sourceIds: request.sourceIds,
+          evidenceIds: citedEvidenceIds,
+          sourceIds: citedSourceIds,
           inputFingerprint: request.inputFingerprint,
           managedBy: MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
           supersedesHighlightId: supersedesManualHighlightId,
