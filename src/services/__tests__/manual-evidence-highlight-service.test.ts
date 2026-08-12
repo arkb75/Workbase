@@ -263,8 +263,34 @@ describe("manual Evidence Highlight input fencing", () => {
         included: true,
       }],
       inputFingerprint: expect.any(String),
-      executionKey: expect.stringContaining("manual-evidence-highlights-v2:work-1:"),
+      executionKey: expect.stringContaining(
+        `${MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION}:work-1:`,
+      ),
     });
+  });
+
+  it("changes the request fingerprint when safety-relevant Evidence metadata changes", () => {
+    const original = evidenceRow(
+      "evidence-1",
+      "Led the Workbase migration from Bedrock to OpenRouter.",
+    );
+    original.metadata = {
+      kind: "user_authored_manual_note",
+      userAuthored: true,
+      ownershipPolicyVersion: "user-authored-manual-note-v1",
+    };
+    const changed = {
+      ...original,
+      metadata: {
+        kind: "user_authored_manual_note",
+        userAuthored: false,
+        ownershipPolicyVersion: "user-authored-manual-note-v1",
+      },
+    };
+
+    expect(requestFor([original]).inputFingerprint).not.toBe(
+      requestFor([changed]).inputFingerprint,
+    );
   });
 
   it("rejects prior-policy requests and prepared checkpoints before provider replay", async () => {

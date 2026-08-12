@@ -36,13 +36,21 @@ import {
 import { lockKnowledgeWorkItemMutation } from "@/src/services/knowledge-mutation-lock-service";
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
+import { USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION } from "@/src/lib/evidence-items";
+import {
+  buildExactManualEvidenceFallback,
+  MANUAL_EVIDENCE_EXTRACTIVE_POLICY_VERSION,
+  markDraftsCitingRedactedEvidence,
+  sanitizeManualProviderContext,
+  sanitizeNormalizedManualEvidence,
+} from "@/src/services/manual-evidence-highlight-safety";
 
 export const MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND =
   "manual_evidence_highlights" as const;
 export const MANUAL_EVIDENCE_HIGHLIGHT_MANAGER =
   "manual_evidence_highlight_workflow" as const;
 export const MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION =
-  "manual-evidence-highlights-v2" as const;
+  `manual-evidence-highlights-v3:${MANUAL_EVIDENCE_EXTRACTIVE_POLICY_VERSION}:${USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION}` as const;
 
 const ACTIVE_AGENT_RUN_STATUSES = new Set(["queued", "running", "awaiting_review"]);
 const ACTIVE_REPOSITORY_REFRESH_STATUSES = [
@@ -147,6 +155,17 @@ type ManualEvidenceRow = {
   }>;
 };
 
+type ManualEvidenceRequestInput = Pick<
+  ManualEvidenceRow,
+  | "id"
+  | "sourceId"
+  | "externalId"
+  | "title"
+  | "content"
+  | "parentKind"
+  | "parentKey"
+> & Partial<Pick<ManualEvidenceRow, "searchText" | "metadata" | "source">>;
+
 function jsonRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -163,20 +182,50 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function canonicalFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalFingerprintValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalFingerprintValue(entry)]),
+    );
+  }
+  return value ?? null;
+}
+
 export function manualEvidenceContentHash(input: {
   externalId: string;
   title: string;
   content: string;
+  searchText?: string;
   parentKind: string | null;
   parentKey: string | null;
+  metadata?: unknown;
+  source?: {
+    label?: string;
+    externalId?: string | null;
+    rawContent?: string | null;
+    metadata?: unknown;
+  };
 }) {
-  return sha256(JSON.stringify({
+  return sha256(JSON.stringify(canonicalFingerprintValue({
     externalId: input.externalId,
     title: input.title,
     content: input.content,
+    searchText: input.searchText ?? null,
     parentKind: input.parentKind,
     parentKey: input.parentKey,
-  }));
+    metadata: input.metadata ?? null,
+    source: input.source
+      ? {
+          label: input.source.label ?? null,
+          externalId: input.source.externalId ?? null,
+          rawContent: input.source.rawContent ?? null,
+          metadata: input.source.metadata ?? null,
+        }
+      : null,
+  })));
 }
 
 export function manualEvidenceInputFingerprint(
@@ -199,22 +248,30 @@ export function manualEvidenceInputFingerprint(
 export function buildManualEvidenceHighlightRequest(input: {
   workItemId: string;
   trigger: ManualEvidenceHighlightTrigger;
-  evidenceItems: Array<{
-    id: string;
-    sourceId: string;
-    externalId: string;
-    title: string;
-    content: string;
-    parentKind: string | null;
-    parentKey: string | null;
-  }>;
+  evidenceItems: ManualEvidenceRequestInput[];
 }): ManualEvidenceHighlightRequest {
   const evidenceItems = input.evidenceItems
     .map((item): ManualEvidenceHighlightRequestEvidence => ({
       id: item.id,
       sourceId: item.sourceId,
       externalId: item.externalId,
-      contentHash: manualEvidenceContentHash(item),
+      contentHash: manualEvidenceContentHash({
+        externalId: item.externalId,
+        title: item.title,
+        content: item.content,
+        searchText: item.searchText,
+        parentKind: item.parentKind,
+        parentKey: item.parentKey,
+        metadata: item.metadata ?? null,
+        source: item.source
+          ? {
+              label: item.source.label,
+              externalId: item.source.externalId,
+              rawContent: item.source.rawContent,
+              metadata: item.source.metadata,
+            }
+          : undefined,
+      }),
       included: true,
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -352,6 +409,7 @@ function mapEvidence(item: ManualEvidenceRow): EvidenceItemSnapshot {
       label: item.source.label,
       type: item.source.type,
       externalId: item.source.externalId,
+      metadata: (item.source.metadata as JsonValue | null) ?? null,
     },
     tags: coerceHighlightTagAssignments(item.tags),
     createdAt: item.createdAt,
@@ -791,30 +849,68 @@ export async function prepareManualEvidenceHighlights(
     new Map(evidenceRows.map((item) => [item.source.id, mapSource(item.source)])).values(),
   );
   const evidenceItems = evidenceRows.map(mapEvidence);
-  const normalizedEvidence = await sourceIngestionService.normalize({
+  const existingClaims = existingHighlights.map(mapHighlight);
+  // Manual notes are user-authored and can contain pasted credentials. Redact
+  // provider-facing Work Item, Source, Evidence, and prior-Highlight context
+  // before either drafting or verification. Authoritative Evidence remains in
+  // the database and is used only by the exact deterministic fallback below.
+  const providerContext = sanitizeManualProviderContext({
     workItem,
     sources,
     evidenceItems,
-  });
-  const existingClaims = existingHighlights.map(mapHighlight);
-  const generated = await claimResearchService.generate({
-    workItem,
-    evidenceItems: normalizedEvidence,
     existingHighlights: existingClaims,
+  });
+  const normalizedEvidence = sanitizeNormalizedManualEvidence({
+    evidenceItems: await sourceIngestionService.normalize({
+      workItem: providerContext.workItem,
+      sources: providerContext.sources,
+      evidenceItems: providerContext.evidenceItems,
+    }),
+    evidenceDlpCategories: providerContext.evidenceDlpCategories,
+  });
+  const generated = await claimResearchService.generate({
+    workItem: providerContext.workItem,
+    evidenceItems: normalizedEvidence,
+    existingHighlights: providerContext.existingHighlights,
     agentRunId: run.id,
   });
   const verified = generated.highlights.length
     ? await claimVerificationService.verify({
-        workItem,
+        workItem: providerContext.workItem,
         evidenceItems: normalizedEvidence,
         highlights: generated.highlights,
         agentRunId: run.id,
       })
     : [];
+  const safetyMarkedDrafts = markDraftsCitingRedactedEvidence({
+    drafts: verified,
+    evidenceDlpCategories: providerContext.evidenceDlpCategories,
+    workItemDlpCategories: providerContext.workItemDlpCategories,
+  });
+  const exactFallback = buildExactManualEvidenceFallback({
+    evidenceItems,
+  });
+  const exactFallbackEvidenceId = exactFallback?.evidence.sourceRefs[0]
+    ?.evidenceItemId ?? null;
+  const nonConflictingDrafts = exactFallback
+    ? safetyMarkedDrafts.filter((draft) =>
+        !areNearDuplicateHighlights(exactFallback, draft) &&
+        !draft.evidence.sourceRefs.some((reference) =>
+          reference.evidenceItemId === exactFallbackEvidenceId
+        )
+      )
+    : safetyMarkedDrafts;
   const verificationRun = readGenerationRunMetadata(verified);
   const plan: ManualEvidenceHighlightPreparedPlan = {
     inputFingerprint: request.inputFingerprint,
-    drafts: filterDuplicateClaimDrafts(verified, []),
+    // Put the exact extractive fallback first so a semantically similar
+    // quarantined model paraphrase cannot suppress the safe user-authored row.
+    drafts: filterDuplicateClaimDrafts(
+      exactFallback
+        ? [exactFallback, ...nonConflictingDrafts]
+        : nonConflictingDrafts,
+      [],
+    ),
     generationRunIds: Array.from(new Set([
       ...generated.generationRunIds.generation,
       ...(verificationRun?.id ? [verificationRun.id] : []),
@@ -1085,7 +1181,7 @@ export async function persistManualEvidenceHighlights(input: {
       const quarantined =
         draft.sensitivityFlag ||
         draft.confidence === "low" ||
-        draft.verificationStatus === "rejected";
+        draft.verificationStatus !== "approved";
       const created = await createHighlightWithRelations({
         tx,
         workItemId: runIdentity.workItemId,
@@ -1105,6 +1201,11 @@ export async function persistManualEvidenceHighlights(input: {
           supersedesHighlightId: supersedesManualHighlightId,
         },
       });
+      const draftMetadata = jsonRecord(draft.metadata);
+      const knowledgeChangeModelId =
+        draftMetadata?.generationStrategy === "exact_manual_evidence_fallback"
+          ? `deterministic/${MANUAL_EVIDENCE_EXTRACTIVE_POLICY_VERSION}`
+          : generatedModelId;
       await upsertReviewableKnowledgeChangeInTransaction({
         workItemId: runIdentity.workItemId,
         entityKind: "highlight",
@@ -1125,14 +1226,14 @@ export async function persistManualEvidenceHighlights(input: {
             : "Manual Evidence produced an automatically managed Highlight for review.",
         provenance: {
           agentRunId: input.runId,
-          evidenceIds,
+          evidenceIds: citedEvidenceIds,
           sourceIds: request.sourceIds,
           inputFingerprint: request.inputFingerprint,
           managedBy: MANUAL_EVIDENCE_HIGHLIGHT_MANAGER,
           supersedesHighlightId: supersedesManualHighlightId,
         },
         policyVersion: MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
-        modelId: generatedModelId,
+        modelId: knowledgeChangeModelId,
         idempotencyKey: [
           "manual-evidence-highlight",
           input.runId,
