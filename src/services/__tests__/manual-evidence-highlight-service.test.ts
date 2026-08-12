@@ -7,6 +7,7 @@ const prismaMock = vi.hoisted(() => ({
     updateMany: vi.fn(),
   },
   evidenceItem: { findMany: vi.fn() },
+  workItem: { findUnique: vi.fn() },
   highlight: { findMany: vi.fn() },
   knowledgeRefreshRun: { findFirst: vi.fn() },
   $transaction: vi.fn(),
@@ -62,6 +63,16 @@ import {
 } from "@/src/services/manual-evidence-highlight-service";
 
 const createdAt = new Date("2026-08-09T00:00:00.000Z");
+const workItemContext = {
+  id: "work-1",
+  title: "Workbase",
+  type: "project" as const,
+  description: "Career knowledge workspace",
+};
+
+function runIdentity() {
+  return { workItemId: workItemContext.id, workItem: workItemContext };
+}
 
 function evidenceRow(id: string, content = `Evidence ${id}`) {
   return {
@@ -98,7 +109,7 @@ function evidenceRow(id: string, content = `Evidence ${id}`) {
 
 function requestFor(rows: ReturnType<typeof evidenceRow>[]) {
   return buildManualEvidenceHighlightRequest({
-    workItemId: "work-1",
+    workItem: workItemContext,
     trigger: "manual_source_add",
     evidenceItems: rows,
   });
@@ -197,6 +208,12 @@ function existingHighlight(input: {
 describe("manual Evidence Highlight input fencing", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    prismaMock.workItem.findUnique.mockResolvedValue({
+      id: "work-1",
+      title: "Workbase",
+      type: "project",
+      description: "Career knowledge workspace",
+    });
     prismaMock.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
       callback(prismaMock));
   });
@@ -264,32 +281,33 @@ describe("manual Evidence Highlight input fencing", () => {
       }],
       inputFingerprint: expect.any(String),
       executionKey: expect.stringContaining(
-        `${MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION}:work-1:`,
+        `${MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION}:manual-evidence-highlight-request-v2:work-1:`,
       ),
     });
   });
 
-  it("changes the request fingerprint when safety-relevant Evidence metadata changes", () => {
-    const original = evidenceRow(
-      "evidence-1",
-      "Led the Workbase migration from Bedrock to OpenRouter.",
-    );
-    original.metadata = {
-      kind: "user_authored_manual_note",
-      userAuthored: true,
-      ownershipPolicyVersion: "user-authored-manual-note-v1",
-    };
-    const changed = {
-      ...original,
-      metadata: {
-        kind: "user_authored_manual_note",
-        userAuthored: false,
-        ownershipPolicyVersion: "user-authored-manual-note-v1",
-      },
-    };
-
-    expect(requestFor([original]).inputFingerprint).not.toBe(
-      requestFor([changed]).inputFingerprint,
+  it("fingerprints every provider-facing Evidence field and canonical Work Item context", () => {
+    const row = evidenceRow("evidence-1", "Led a grounded provider migration.");
+    const baseline = requestFor([row]);
+    const variants = [
+      { ...row, searchText: `${row.searchText} routing` },
+      { ...row, metadata: { sourceType: "manual_note", reviewer: "user" } },
+      { ...row, source: { ...row.source, label: "Renamed notes" } },
+      { ...row, source: { ...row.source, rawContent: `${row.content} Edited.` } },
+      { ...row, source: { ...row.source, metadata: { imported: true } } },
+    ];
+    for (const variant of variants) {
+      expect(requestFor([variant]).inputFingerprint).not.toBe(
+        baseline.inputFingerprint,
+      );
+    }
+    const renamedWorkItem = buildManualEvidenceHighlightRequest({
+      workItem: { ...workItemContext, title: "Renamed Workbase" },
+      trigger: "manual_source_add",
+      evidenceItems: [row],
+    });
+    expect(renamedWorkItem.inputFingerprint).not.toBe(
+      baseline.inputFingerprint,
     );
   });
 
@@ -412,6 +430,11 @@ describe("manual Evidence Highlight input fencing", () => {
       userAuthored: true,
       ownershipPolicyVersion: "user-authored-manual-note-v1",
     };
+    paragraph.source.metadata = {
+      kind: "user_authored_manual_note_source",
+      userAuthored: true,
+      ownershipPolicyVersion: "user-authored-manual-note-v1",
+    };
     const currentRequest = requestFor([paragraph]);
     prismaMock.agentRun.findUnique.mockResolvedValue({
       id: "run-paragraph",
@@ -496,6 +519,37 @@ describe("manual Evidence Highlight input fencing", () => {
       status: "superseded_input",
     });
     expect(generateMock).not.toHaveBeenCalled();
+  });
+
+  it("supersedes a reserved request before provider calls when Work Item context changes", async () => {
+    const row = evidenceRow("evidence-1");
+    const request = requestFor([row]);
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      id: "run-context-change",
+      kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+      status: "running",
+      workItemId: workItemContext.id,
+      request,
+      researchState: null,
+      workItem: {
+        ...workItemContext,
+        description: "Edited after the run was reserved.",
+        userId: "user-1",
+        startDate: null,
+        endDate: null,
+      },
+    });
+    prismaMock.evidenceItem.findMany.mockResolvedValue([row]);
+
+    await expect(
+      prepareManualEvidenceHighlights("run-context-change"),
+    ).resolves.toEqual({
+      status: "superseded_input",
+      inputFingerprint: request.inputFingerprint,
+    });
+    expect(normalizeMock).not.toHaveBeenCalled();
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(verifyMock).not.toHaveBeenCalled();
   });
 
   it("retires an active manual Highlight when its supporting content changes", async () => {
@@ -603,7 +657,7 @@ describe("manual Evidence Highlight input fencing", () => {
       lifecycleStatus: "retired" as const,
     };
     const persistenceTx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
       evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
       highlight: {
@@ -698,7 +752,7 @@ describe("manual Evidence Highlight input fencing", () => {
       tags: [],
     };
     const tx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
       evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
       highlight: { findMany: vi.fn().mockResolvedValue([priorHighlight]) },
@@ -750,7 +804,7 @@ describe("manual Evidence Highlight input fencing", () => {
       verificationStatus: "flagged",
     });
     const tx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
       evidenceItem: { findMany: vi.fn().mockResolvedValue([original, added]) },
       highlight: { findMany: vi.fn().mockResolvedValue([quarantined]) },
@@ -789,17 +843,19 @@ describe("manual Evidence Highlight input fencing", () => {
 
   it("persists only one row when verification returns two near-duplicate drafts", async () => {
     const row = evidenceRow("evidence-1");
-    const request = requestFor([row]);
+    const uncitedRow = evidenceRow("evidence-2");
+    const request = requestFor([row, uncitedRow]);
     const first = approvedDraft(row.id);
+    first.evidence.sourceRefs[0]!.sourceId = "stale-provider-source-id";
     const second = {
       ...approvedDraft(row.id),
       text: `${first.text} `,
       summary: "The same grounded accomplishment",
     };
     const tx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
-      evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
+      evidenceItem: { findMany: vi.fn().mockResolvedValue([row, uncitedRow]) },
       highlight: {
         findMany: vi.fn().mockResolvedValue([]),
         update: vi.fn().mockResolvedValue({ id: "highlight-created" }),
@@ -812,7 +868,7 @@ describe("manual Evidence Highlight input fencing", () => {
           kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
           request,
         }])
-        .mockResolvedValueOnce([{ id: row.id }]),
+        .mockResolvedValueOnce([{ id: row.id }, { id: uncitedRow.id }]),
     };
     createHighlightMock.mockResolvedValue({ id: "highlight-created" });
     upsertChangeMock.mockResolvedValue({ id: "change-1" });
@@ -833,6 +889,20 @@ describe("manual Evidence Highlight input fencing", () => {
       createdHighlightIds: ["highlight-created"],
     });
     expect(createHighlightMock).toHaveBeenCalledTimes(1);
+    expect(createHighlightMock).toHaveBeenCalledWith(expect.objectContaining({
+      draft: expect.objectContaining({
+        metadata: expect.objectContaining({
+          evidenceIds: [row.id],
+          sourceIds: [row.sourceId],
+        }),
+      }),
+    }));
+    expect(upsertChangeMock).toHaveBeenCalledWith(expect.objectContaining({
+      provenance: expect.objectContaining({
+        evidenceIds: [row.id],
+        sourceIds: [row.sourceId],
+      }),
+    }), tx);
     expect(tx.highlight.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ supersedesHighlightId: null }),
     }));
@@ -859,7 +929,7 @@ describe("manual Evidence Highlight input fencing", () => {
       },
     };
     const tx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
       evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
       highlight: {
@@ -918,7 +988,7 @@ describe("manual Evidence Highlight input fencing", () => {
       verificationStatus: "draft",
     });
     const tx = {
-      agentRun: { findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }) },
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
       knowledgeRefreshRun: { findFirst: vi.fn().mockResolvedValue(null) },
       evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
       highlight: {

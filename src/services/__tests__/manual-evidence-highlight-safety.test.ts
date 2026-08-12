@@ -14,6 +14,7 @@ import {
 import {
   USER_AUTHORED_MANUAL_NOTE_KIND,
   USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
 } from "@/src/lib/evidence-items";
 
 const workItem: WorkItemSnapshot = {
@@ -55,8 +56,12 @@ function evidence(input: {
       id: "source-notes",
       label: "Initial notes",
       type: "manual_note",
-      externalId: "notes",
-      metadata: null,
+      externalId: null,
+      metadata: {
+        kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+        userAuthored: true,
+        ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+      },
     },
     tags: [],
   };

@@ -4,6 +4,7 @@ import { findUnsupportedOwnershipClaims } from "@/src/services/project-answer-gr
 import {
   USER_AUTHORED_MANUAL_NOTE_KIND,
   USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
 } from "@/src/lib/evidence-items";
 
 describe("explicit self-reported Evidence ownership authority", () => {
@@ -11,8 +12,14 @@ describe("explicit self-reported Evidence ownership authority", () => {
     const workItemDescription = {
       type: "manual_note_excerpt",
       content: "Led the Workbase migration from Bedrock to OpenRouter.",
+      externalId: "work-1:work-item-description",
+      parentKind: "work_item",
+      parentKey: "work-1",
       metadata: { kind: "work_item_description", systemOwned: true },
-      source: { metadata: {} },
+      source: {
+        externalId: "work-1:work-item-description-source",
+        metadata: { kind: "work_item_description", systemOwned: true },
+      },
     };
     const chatStatement = {
       type: "chat_user_statement",
@@ -55,6 +62,14 @@ describe("explicit self-reported Evidence ownership authority", () => {
   });
 
   it("recognizes source-note Evidence explicitly marked user-authored at ingestion", () => {
+    const source = {
+      externalId: null,
+      metadata: {
+        kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+        userAuthored: true,
+        ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+      },
+    };
     expect(explicitSelfReportedOwnershipAuthority({
       type: "manual_note_excerpt",
       content: "Led the Workbase migration from Bedrock to OpenRouter.",
@@ -63,7 +78,7 @@ describe("explicit self-reported Evidence ownership authority", () => {
         userAuthored: true,
         ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
       },
-      source: { metadata: {} },
+      source,
     })).toBe(3);
     expect(explicitSelfReportedOwnershipAuthority({
       type: "manual_note_excerpt",
@@ -73,7 +88,7 @@ describe("explicit self-reported Evidence ownership authority", () => {
         userAuthored: true,
         ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
       },
-      source: { metadata: {} },
+      source,
     })).toBe(0);
     expect(explicitSelfReportedOwnershipAuthority({
       type: "manual_note_excerpt",
@@ -83,7 +98,33 @@ describe("explicit self-reported Evidence ownership authority", () => {
         userAuthored: true,
         ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
       },
-      source: { metadata: {} },
+      source,
+    })).toBe(0);
+  });
+
+  it("requires matching Source and Evidence lineage markers", () => {
+    const evidenceMetadata = {
+      kind: USER_AUTHORED_MANUAL_NOTE_KIND,
+      userAuthored: true,
+      ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+    };
+    expect(explicitSelfReportedOwnershipAuthority({
+      type: "manual_note_excerpt",
+      content: "Led the Workbase migration from Bedrock to OpenRouter.",
+      metadata: evidenceMetadata,
+      source: { metadata: evidenceMetadata },
+    })).toBe(0);
+    expect(explicitSelfReportedOwnershipAuthority({
+      type: "manual_note_excerpt",
+      content: "Led the Workbase migration from Bedrock to OpenRouter.",
+      externalId: "crafted",
+      parentKind: "source",
+      parentKey: "crafted",
+      metadata: { kind: "work_item_description", systemOwned: true },
+      source: {
+        externalId: "crafted-source",
+        metadata: { kind: "work_item_description", systemOwned: true },
+      },
     })).toBe(0);
   });
 });

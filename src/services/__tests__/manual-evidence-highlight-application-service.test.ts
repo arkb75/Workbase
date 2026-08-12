@@ -5,6 +5,7 @@ const prismaMock = vi.hoisted(() => ({
   agentRun: { findUnique: vi.fn(), updateMany: vi.fn() },
 }));
 const buildCurrentRequestMock = vi.hoisted(() => vi.fn());
+const backfillOwnershipMock = vi.hoisted(() => vi.fn());
 const startOnceMock = vi.hoisted(() => vi.fn());
 const startWorkflowMock = vi.hoisted(() => vi.fn());
 const cancelWorkflowMock = vi.hoisted(() => vi.fn());
@@ -19,6 +20,9 @@ vi.mock("@/src/services/manual-evidence-highlight-service", async (importOrigina
     buildCurrentManualEvidenceHighlightRequest: buildCurrentRequestMock,
   };
 });
+vi.mock("@/src/services/manual-evidence-ownership-backfill-service", () => ({
+  backfillTrustedLegacyManualEvidenceOwnership: backfillOwnershipMock,
+}));
 vi.mock("@/src/services/agent-run-workflow-start-service", () => ({
   startAgentRunWorkflowOnce: startOnceMock,
 }));
@@ -47,7 +51,12 @@ import {
 
 function request(contentHash = "a".repeat(64)) {
   return buildManualEvidenceHighlightRequest({
-    workItemId: "work-1",
+    workItem: {
+      id: "work-1",
+      title: "Workbase",
+      type: "project",
+      description: "Career knowledge workspace",
+    },
     trigger: "manual_source_add",
     evidenceItems: [{
       id: "evidence-1",
@@ -55,15 +64,28 @@ function request(contentHash = "a".repeat(64)) {
       externalId: "manual-1",
       title: "Initial notes",
       content: contentHash,
+      searchText: contentHash,
       parentKind: "manual_note",
       parentKey: "source-1",
+      metadata: { lineIndex: 0, sourceType: "manual_note" },
+      source: {
+        label: "Initial notes",
+        externalId: null,
+        rawContent: contentHash,
+        metadata: null,
+      },
     }],
   });
 }
 
 function transactionClient(lockedRuns: unknown[] = []) {
   return {
-    workItem: { findFirst: vi.fn().mockResolvedValue({ id: "work-1" }) },
+    workItem: { findFirst: vi.fn().mockResolvedValue({
+      id: "work-1",
+      title: "Workbase",
+      type: "project",
+      description: "Career knowledge workspace",
+    }) },
     highlight: {
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn(),
@@ -92,6 +114,7 @@ function transactionClient(lockedRuns: unknown[] = []) {
 describe("manual Evidence Highlight application service", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    backfillOwnershipMock.mockResolvedValue({ updatedEvidenceItemIds: [] });
     buildCurrentRequestMock.mockResolvedValue(request());
     startOnceMock.mockImplementation(async ({ startWorkflow }) => {
       await startWorkflow();
@@ -145,6 +168,13 @@ describe("manual Evidence Highlight application service", () => {
     });
 
     expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(backfillOwnershipMock).toHaveBeenCalledWith({
+      db: tx,
+      workItemId: "work-1",
+    });
+    expect(backfillOwnershipMock.mock.invocationCallOrder[0]).toBeLessThan(
+      buildCurrentRequestMock.mock.invocationCallOrder[0]!,
+    );
     expect(tx.agentRun.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "user-1",
@@ -393,6 +423,13 @@ describe("manual Evidence Highlight application service", () => {
     expect(startOnceMock).toHaveBeenCalledWith(expect.objectContaining({
       runId: "manual-run-failed",
     }));
+    expect(backfillOwnershipMock).toHaveBeenCalledWith({
+      db: tx,
+      workItemId: "work-1",
+    });
+    expect(backfillOwnershipMock.mock.invocationCallOrder[0]).toBeLessThan(
+      buildCurrentRequestMock.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("reuses a newer exact-current run instead of reopening a crafted older retry", async () => {
@@ -434,7 +471,12 @@ describe("manual Evidence Highlight application service", () => {
   it("reuses the durable empty-input sentinel on repeated no-Evidence reconciliation", async () => {
     buildCurrentRequestMock.mockResolvedValue(null);
     const emptyRequest = buildManualEvidenceHighlightRequest({
-      workItemId: "work-1",
+      workItem: {
+        id: "work-1",
+        title: "Workbase",
+        type: "project",
+        description: "Career knowledge workspace",
+      },
       trigger: "manual_evidence_change",
       evidenceItems: [],
     });

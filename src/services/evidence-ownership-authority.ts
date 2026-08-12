@@ -1,4 +1,7 @@
-import { isExplicitUserAuthoredManualNoteMetadata } from "@/src/lib/evidence-items";
+import {
+  isExplicitUserAuthoredManualNoteMetadata,
+  isExplicitUserAuthoredManualNoteSourceMetadata,
+} from "@/src/lib/evidence-items";
 
 function objectValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -8,14 +11,17 @@ function objectValue(value: unknown) {
 
 function isWorkItemDescriptionMetadata(value: unknown) {
   const record = objectValue(value);
-  return record?.kind === "work_item_description";
+  return record?.kind === "work_item_description" && record.systemOwned === true;
 }
 
 export interface OwnershipEvidenceDescriptor {
   type: string;
   content?: string;
+  externalId?: string;
+  parentKind?: string | null;
+  parentKey?: string | null;
   metadata: unknown;
-  source: { metadata?: unknown };
+  source: { externalId?: string | null; metadata?: unknown };
 }
 
 const explicitManualSelfReportPattern =
@@ -40,13 +46,19 @@ export function explicitSelfReportedOwnershipAuthority(item: OwnershipEvidenceDe
     return 0;
   }
   const explicitUserNote =
-    (isExplicitUserAuthoredManualNoteMetadata(item.metadata) ||
-      isExplicitUserAuthoredManualNoteMetadata(item.source.metadata)) &&
+    isExplicitUserAuthoredManualNoteMetadata(item.metadata) &&
+    isExplicitUserAuthoredManualNoteSourceMetadata(item.source.metadata) &&
     typeof item.content === "string" &&
     explicitManualSelfReportPattern.test(item.content.trim()) &&
     !passiveThirdPartyPattern.test(item.content.trim());
-  return isWorkItemDescriptionMetadata(item.metadata) ||
-    isWorkItemDescriptionMetadata(item.source.metadata) || explicitUserNote
+  const workItemDescription =
+    isWorkItemDescriptionMetadata(item.metadata) &&
+    isWorkItemDescriptionMetadata(item.source.metadata) &&
+    item.parentKind === "work_item" &&
+    typeof item.parentKey === "string" &&
+    item.externalId === `${item.parentKey}:work-item-description` &&
+    item.source.externalId === `${item.parentKey}:work-item-description-source`;
+  return workItemDescription || explicitUserNote
     ? 3
     : 0;
 }
