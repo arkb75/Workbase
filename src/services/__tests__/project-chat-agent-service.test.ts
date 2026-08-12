@@ -10,6 +10,7 @@ import {
   isContextOnlyProjectStatement,
   isRetryFollowUp,
   projectAnswerGroundingModeForQuestion,
+  preserveCurrentAccomplishmentContinuity,
   requiresLiveRepositoryResearch,
   resolveProjectChatAnswerObjective,
   selectProjectChatHistory,
@@ -369,7 +370,10 @@ describe("project chat repository intent", () => {
       {
         id: "assistant-accomplishments",
         role: "assistant" as const,
-        content: "Earlier cited summary.",
+        content: [
+          "### Data Model and Quality",
+          "The persistence schema defines constrained enum values for membership roles and statuses, contribution frequency, and approval mode used by circle operations. [citation:2]",
+        ].join("\n"),
         citations: [],
       },
     ];
@@ -411,7 +415,7 @@ describe("project chat repository intent", () => {
       circleEntry(
         2,
         "domain_data",
-        "The relational schema models circles, memberships, contributions, and their foreign-key relationships.",
+        "Route tests isolate authentication and circle-dashboard handlers with mocked service and session dependencies that are reset between test cases.",
       ),
       circleEntry(
         3,
@@ -433,10 +437,23 @@ describe("project chat repository intent", () => {
         "project_domain:validations",
         "The create-circle schema validates contribution, reserve, duration, and loan constraints.",
       ),
+      circleEntry(
+        7,
+        "domain_data",
+        "The persistence schema defines constrained enum values for membership roles and statuses, contribution frequency, and approval mode used by circle operations.",
+      ),
     ];
+    entries[1]!.retrievalRelevance = 0.95;
+    entries[6]!.retrievalRelevance = 0.1;
+    const continuityEntries = preserveCurrentAccomplishmentContinuity({
+      currentQuestion: "make sure your understanding is up to date",
+      answerObjective: objective,
+      history,
+      entries,
+    });
     const selection = selectProjectAnswerEditorialThemes({
       question: objective,
-      entries,
+      entries: continuityEntries,
       repositoryNames: ["arkb75/CircleFund"],
     });
     const blocks = addSourceBoundedEditorialContext(
@@ -457,6 +474,10 @@ describe("project chat repository intent", () => {
     expect(selection.repositoryContext?.presentation).toBe("generic");
     expect(answer).toMatch(/sign-in[\s\S]*onboarding/i);
     expect(answer).toMatch(/circle[\s\S]*(?:membership|contribution)/i);
+    expect(
+      selection.selectedThemes.find((theme) => theme.key === "engineering_foundation")
+        ?.representativeMembers[0]?.entry.content,
+    ).toMatch(/contribution frequency/i);
     expect(answer).toContain("Authentication");
     expect(answer).toContain("**What this enables:**");
     expect(answer).not.toMatch(

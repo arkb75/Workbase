@@ -318,6 +318,48 @@ export function resolveProjectChatAnswerObjective(input: {
     : input.currentQuestion;
 }
 
+function normalizedEditorialContinuityText(value: string) {
+  return value
+    .replace(/\[citation:\d+\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+/**
+ * A freshness follow-up should not silently exchange a still-current,
+ * previously cited accomplishment for a neighboring fact in the same theme.
+ * This continuity signal only boosts entries returned by the current-head
+ * retrieval pass; prior prose can never become evidence or a citation itself.
+ */
+export function preserveCurrentAccomplishmentContinuity(input: {
+  currentQuestion: string;
+  answerObjective: string;
+  history?: ProjectChatHistoryMessage[];
+  entries: ProjectAnswerGroundingEntry[];
+}) {
+  if (
+    input.answerObjective === input.currentQuestion ||
+    !accomplishmentSynthesisPattern.test(input.answerObjective)
+  ) {
+    return input.entries;
+  }
+  const priorAssistant = input.history
+    ?.filter((message) => message.role === "assistant")
+    .at(-1);
+  const priorAnswer = normalizedEditorialContinuityText(priorAssistant?.content ?? "");
+  if (!priorAnswer) return input.entries;
+
+  return input.entries.map((entry) => {
+    const statement = normalizedEditorialContinuityText(entry.content);
+    if (statement.length < 60 || !priorAnswer.includes(statement)) return entry;
+    return {
+      ...entry,
+      retrievalRelevance: Math.max(1, entry.retrievalRelevance ?? 0),
+    };
+  });
+}
+
 const contextualFollowUpPattern =
   /\b(?:that|this|it|those|previous|prior|earlier|above|the (?:flow|part|answer|approach|one|ones))\b|^(?:and|also|which part|what about|why|how so)\b/i;
 
@@ -1390,7 +1432,12 @@ async function executeProjectChatAgent(
   });
   const editorialSelection = selectProjectAnswerEditorialThemes({
     question: answerObjective,
-    entries: memoryCatalog.entries,
+    entries: preserveCurrentAccomplishmentContinuity({
+      currentQuestion: input.question,
+      answerObjective,
+      history: input.history,
+      entries: memoryCatalog.entries,
+    }),
     profile: editorialProfile,
     repositoryNames: capabilityInputs.repositories.map((repository) => repository.name),
   });
