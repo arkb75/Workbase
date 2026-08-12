@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   appendLifecycleObservationToReport,
+  normalizeLifecycleHighlightEvidence,
   normalizeLifecycleGenerationRun,
   removeLifecycleObservationFromReport,
 } from "@/tests/e2e/work-item-lifecycle-observation-report.mjs";
 
-const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v3";
+const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v4";
 const GIT_COMMIT = "a".repeat(40);
 
 function observation(scenarioId: string, workItemId: string) {
@@ -17,6 +18,27 @@ function observation(scenarioId: string, workItemId: string) {
 }
 
 describe("live lifecycle observation report persistence", () => {
+  it("crosses the observation boundary with a digest and no raw manual Evidence", () => {
+    const privateNote =
+      "Led the Workbase migration while keeping this source text private.";
+    const normalized = normalizeLifecycleHighlightEvidence({
+      evidenceItemId: "evidence-private",
+      sourceId: "source-private",
+      sourceType: "manual_note",
+      content: privateNote,
+    });
+
+    expect(normalized).toEqual({
+      evidenceItemId: "evidence-private",
+      sourceId: "source-private",
+      sourceType: "manual_note",
+      contentSha256:
+        "66a29437ec15ec9c4a32a8b4c7c42339820c293a96d8b417aa7c07d41be1b5f7",
+    });
+    expect(JSON.stringify(normalized)).not.toContain(privateNote);
+    expect(normalized).not.toHaveProperty("content");
+  });
+
   it("normalizes a direct provider audit row from its durable token usage", () => {
     const normalized = normalizeLifecycleGenerationRun({
       id: "generation-provider",
@@ -240,5 +262,19 @@ describe("live lifecycle observation report persistence", () => {
       baseUrl: "http://127.0.0.1:3100",
       observation: observation("empty_create_attach", "work-item-2"),
     })).toThrow(/commit changed/iu);
+  });
+
+  it("refuses to relabel prior observations from an older evidence contract", () => {
+    expect(() => appendLifecycleObservationToReport({
+      priorReport: {
+        schemaVersion: "workbase-work-item-lifecycle-release-gate-v3",
+        gitCommit: GIT_COMMIT,
+        observations: [observation("manual_only_create", "work-item-1")],
+      },
+      schemaVersion: SCHEMA_VERSION,
+      gitCommit: GIT_COMMIT,
+      baseUrl: "http://127.0.0.1:3100",
+      observation: observation("empty_create_attach", "work-item-2"),
+    })).toThrow(/schema changed.*v3.*v4/iu);
   });
 });

@@ -16,8 +16,13 @@ import {
 
 const providerSchema = z.enum(["bedrock", "openrouter"]);
 const shaSchema = z.string().regex(/^[a-f0-9]{40}$/iu);
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/iu);
 const identifierSchema = z.string().trim().min(1).max(300);
 const nonnegativeInteger = z.number().int().nonnegative();
+const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
+  "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
+const EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256 =
+  "55fa96b3c94df35255760c7788f242f8c399d10fdbdaaff1f3f33d8c7f8ae697";
 
 const failedCheckSchema = z.object({
   id: identifierSchema,
@@ -75,10 +80,14 @@ const lifecycleHighlightSchema = z.object({
   id: identifierSchema,
   text: z.string().trim().min(1),
   lifecycleStatus: identifierSchema,
+  generationStrategy: identifierSchema.nullable().optional(),
+  extractivePolicyVersion: identifierSchema.nullable().optional(),
   evidence: z.array(z.object({
     evidenceItemId: identifierSchema,
     sourceId: identifierSchema,
     sourceType: identifierSchema,
+    contentSha256: sha256Schema.nullable().optional(),
+    content: z.never().optional(),
   }).passthrough()),
   validatedThroughSha: shaSchema.nullable(),
   validationHeads: z.array(z.object({
@@ -456,13 +465,12 @@ function observationQuality(
         eligibleHighlights.length
       ).toFixed(6))
     : 0;
-  const exactIdentity = observation.scenarioId === "manual_only_create" ||
-    (
-      gateScenario.repository?.toLowerCase() ===
+  const exactIdentity = observation.scenarioId === "manual_only_create"
+    ? hasPrivateManualEvidenceProof(observation)
+    : gateScenario.repository?.toLowerCase() ===
         observation.repository.fullName.toLowerCase() &&
       gateScenario.expectedHeadSha?.toLowerCase() ===
-        observation.repository.expectedHeadSha.toLowerCase()
-    );
+        observation.repository.expectedHeadSha.toLowerCase();
   const gatePassed = gateScenario.passed;
   const evidenceFidelity = groundedClaimPrecision === 1 &&
     invalidEvidenceIds.size === 0 && staleIds.size === 0;
@@ -476,7 +484,12 @@ function observationQuality(
     ],
     usefulness: [{ id: "eligible_automatic_highlights_exist", passed: useful }],
     prioritization: [{ id: "eligible_highlight_text_is_unique", passed: prioritized }],
-    specificity: [{ id: "exact_repository_head_identity_matches", passed: exactIdentity }],
+    specificity: [{
+      id: observation.scenarioId === "manual_only_create"
+        ? "manual_highlights_recover_exact_grounded_migration_note"
+        : "exact_repository_head_identity_matches",
+      passed: exactIdentity,
+    }],
     instructionAdherence: [
       { id: "declared_provider_matches_run", passed: observation.provider === gateScenario.provider },
       { id: "all_lifecycle_hard_checks_passed", passed: gatePassed },
@@ -609,6 +622,31 @@ function assertGateIntegrity(gate: LifecycleGateReport) {
   }
 }
 
+function hasPrivateManualEvidenceProof(
+  observation: Extract<LifecycleObservation, { scenarioId: "manual_only_create" }>,
+) {
+  const exact = observation.automaticHighlights.filter((highlight) =>
+    highlight.text === EXPECTED_EXACT_MANUAL_HIGHLIGHT &&
+    highlight.generationStrategy === "exact_manual_evidence_fallback" &&
+    highlight.extractivePolicyVersion === "manual-evidence-extractive-v1" &&
+    highlight.evidence.length === 1 &&
+    highlight.evidence[0]?.sourceType === "manual_note" &&
+    highlight.evidence[0]?.contentSha256 ===
+      EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256
+  );
+  return exact.length === 1;
+}
+
+function assertPrivateManualEvidenceProof(
+  observation: Extract<LifecycleObservation, { scenarioId: "manual_only_create" }>,
+) {
+  if (!hasPrivateManualEvidenceProof(observation)) {
+    throw new Error(
+      "Manual lifecycle observation is missing the privacy-preserving exact extractive Evidence proof.",
+    );
+  }
+}
+
 export function assembleProviderQualityReport(input: {
   provider: "bedrock" | "openrouter";
   gitCommit: string;
@@ -631,6 +669,13 @@ export function assembleProviderQualityReport(input: {
   );
   const accomplishments = accomplishmentsReportSchema.parse(input.accomplishments);
   assertGateIntegrity(gate);
+  const manualObservation = observationsReport.observations.find(
+    (observation) => observation.scenarioId === "manual_only_create",
+  );
+  if (!manualObservation || manualObservation.scenarioId !== "manual_only_create") {
+    throw new Error("Lifecycle observations are missing manual_only_create.");
+  }
+  assertPrivateManualEvidenceProof(manualObservation);
   assertExactScenarioSet(
     observationsReport.observations.map((observation) => observation.scenarioId),
     workItemLifecycleScenarioIds,

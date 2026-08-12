@@ -10,7 +10,7 @@ import {
 const GIT_COMMIT = "c".repeat(40);
 const REPOSITORY_HEAD = "d".repeat(40);
 
-function quality(score: number) {
+function quality(score: number, scenarioId: string) {
   return {
     rubric: Object.fromEntries(
       providerQualityDimensions.map((dimension) => [dimension, score]),
@@ -20,6 +20,16 @@ function quality(score: number) {
     unsupportedClaimCount: 0,
     staleClaimCount: 0,
     duplicateHighlightCount: 0,
+    rubricEvidence: Object.fromEntries(
+      providerQualityDimensions.map((dimension) => [dimension, {
+        passed: true,
+        evidenceIds: [
+          scenarioId === "manual_only_create" && dimension === "specificity"
+            ? "manual_highlights_recover_exact_grounded_migration_note"
+            : `${scenarioId}_${dimension}`,
+        ],
+      }]),
+    ) as ProviderQualityReport["scenarios"][number]["quality"]["rubricEvidence"],
   };
 }
 
@@ -39,7 +49,7 @@ function report(provider: "bedrock" | "openrouter"): ProviderQualityReport {
     passed: true,
     lifecycleGatePassed: true,
     hardGateFailures: [],
-    quality: quality(index === 1 || index === 2 ? 4.4 : 4.5),
+    quality: quality(index === 1 || index === 2 ? 4.4 : 4.5, id),
     performance: {
       latencyMs: latencyPerScenario,
       observedEstimatedCostUsd: costPerScenario,
@@ -136,6 +146,28 @@ describe("paired Bedrock/OpenRouter quality non-inferiority", () => {
         passed: false,
       }),
     ]));
+  });
+
+  it("rejects paired reports that drop the v4 manual exact-Evidence proof", () => {
+    const baseline = report("bedrock");
+    const candidate = report("openrouter");
+    const manual = candidate.scenarios.find((scenario) =>
+      scenario.id === "manual_only_create"
+    )!;
+    manual.quality.rubricEvidence!.specificity.evidenceIds = [
+      "generic_specificity_check",
+    ];
+
+    const result = compareProviderQualityReports({
+      bedrock: baseline,
+      openrouter: candidate,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.globalChecks).toContainEqual(expect.objectContaining({
+      id: "openrouter_manual_exact_evidence_proof_is_present",
+      passed: false,
+    }));
   });
 
   it("blocks a provider migration whose matched measured total cost exceeds Bedrock", () => {
