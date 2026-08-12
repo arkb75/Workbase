@@ -1,7 +1,33 @@
+import { createHash } from "node:crypto";
+
 function objectRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value
     : {};
+}
+
+/**
+ * Crosses the live-observation privacy boundary. Durable Evidence content is
+ * inspected in process, but only its digest is eligible for serialization.
+ */
+export function normalizeLifecycleHighlightEvidence(value) {
+  const item = objectRecord(value);
+  if (
+    typeof item.evidenceItemId !== "string" ||
+    typeof item.sourceId !== "string" ||
+    typeof item.sourceType !== "string"
+  ) {
+    return null;
+  }
+  return {
+    evidenceItemId: item.evidenceItemId,
+    sourceId: item.sourceId,
+    sourceType: item.sourceType,
+    contentSha256:
+      item.sourceType === "manual_note" && typeof item.content === "string"
+        ? createHash("sha256").update(item.content, "utf8").digest("hex")
+        : null,
+  };
 }
 
 function observationsFromReport(report) {
@@ -338,6 +364,14 @@ export function normalizeLifecycleGenerationRun(run, options) {
 
 export function appendLifecycleObservationToReport(input) {
   const prior = objectRecord(input.priorReport);
+  if (
+    observationsFromReport(prior).length > 0 &&
+    prior.schemaVersion !== input.schemaVersion
+  ) {
+    throw new Error(
+      `Lifecycle observation report schema changed from ${prior.schemaVersion ?? "missing"} to ${input.schemaVersion}.`,
+    );
+  }
   if (
     typeof prior.gitCommit === "string" &&
     prior.gitCommit.toLowerCase() !== input.gitCommit.toLowerCase()

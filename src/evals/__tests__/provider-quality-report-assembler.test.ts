@@ -6,6 +6,10 @@ import { WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION } from "@/src/evals/wor
 const GIT_COMMIT = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
 const REPOSITORY = "arkb75/Workbase";
+const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
+  "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
+const EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256 =
+  "55fa96b3c94df35255760c7788f242f8c399d10fdbdaaff1f3f33d8c7f8ae697";
 const lifecycleScenarioIds = [
   "manual_only_create",
   "empty_create_attach",
@@ -50,12 +54,23 @@ function highlight(id: string, sourceId: string, sourceType: string) {
   const repositoryHighlight = sourceType === "github_repo";
   return {
     id,
-    text: `Grounded accomplishment ${id}`,
+    text: repositoryHighlight
+      ? `Grounded accomplishment ${id}`
+      : EXPECTED_EXACT_MANUAL_HIGHLIGHT,
     lifecycleStatus: "active",
+    generationStrategy: repositoryHighlight
+      ? null
+      : "exact_manual_evidence_fallback",
+    extractivePolicyVersion: repositoryHighlight
+      ? null
+      : "manual-evidence-extractive-v1",
     evidence: [{
       evidenceItemId: `evidence-${id}`,
       sourceId,
       sourceType,
+      contentSha256: repositoryHighlight
+        ? null
+        : EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256,
     }],
     validatedThroughSha: repositoryHighlight ? HEAD_SHA : null,
     validationHeads: repositoryHighlight
@@ -319,6 +334,11 @@ describe("provider quality report assembler", () => {
         expect(scenario.quality.rubricEvidence?.[dimension].passed).toBe(true);
       }
     }
+    expect(report.scenarios.find((scenario) =>
+      scenario.id === "manual_only_create"
+    )?.quality.rubricEvidence?.specificity.evidenceIds).toEqual([
+      "manual_highlights_recover_exact_grounded_migration_note",
+    ]);
   });
 
   it("fails closed on an embedded build-commit mismatch", () => {
@@ -326,6 +346,46 @@ describe("provider quality report assembler", () => {
     Object.assign(fixture.accomplishments, { gitCommit: "c".repeat(40) });
 
     expect(() => assemble(fixture)).toThrow(/commit mismatch/iu);
+  });
+
+  it("rejects pre-v4 lifecycle artifacts before provider comparison assembly", () => {
+    const oldGate = fixtures();
+    oldGate.lifecycleGate.schemaVersion =
+      "workbase-work-item-lifecycle-release-gate-v3" as
+        typeof oldGate.lifecycleGate.schemaVersion;
+    expect(() => assemble(oldGate)).toThrow(/schemaVersion/iu);
+
+    const oldObservations = fixtures();
+    oldObservations.lifecycleObservations.schemaVersion =
+      "workbase-work-item-lifecycle-release-gate-v3" as
+        typeof oldObservations.lifecycleObservations.schemaVersion;
+    expect(() => assemble(oldObservations)).toThrow(/schemaVersion/iu);
+  });
+
+  it("requires the private exact manual Evidence proof in raw lifecycle input", () => {
+    const fixture = fixtures();
+    const manual = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "manual_only_create",
+    );
+    if (!manual) throw new Error("Expected manual observation fixture.");
+    manual.automaticHighlights[0]!.evidence[0]!.contentSha256 = "c".repeat(64);
+
+    expect(() => assemble(fixture)).toThrow(
+      /privacy-preserving exact extractive Evidence proof/iu,
+    );
+  });
+
+  it("rejects raw manual Evidence content before quality report assembly", () => {
+    const fixture = fixtures();
+    const manual = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "manual_only_create",
+    );
+    if (!manual) throw new Error("Expected manual observation fixture.");
+    Object.assign(manual.automaticHighlights[0]!.evidence[0]!, {
+      content: "Private Evidence must remain outside the assembled report.",
+    });
+
+    expect(() => assemble(fixture)).toThrow();
   });
 
   it("rejects artifacts that do not embed the tested build commit", () => {
