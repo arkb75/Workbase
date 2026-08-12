@@ -399,6 +399,75 @@ describe("manual Evidence Highlight input fencing", () => {
     );
   });
 
+  it("keeps distinct approved Highlights from the paragraph cited by the exact fallback", async () => {
+    const paragraph = evidenceRow(
+      "evidence-1",
+      [
+        "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.",
+        "Implemented profile-specific routing and durable provider cost attribution.",
+      ].join(" "),
+    );
+    paragraph.metadata = {
+      kind: "user_authored_manual_note",
+      userAuthored: true,
+      ownershipPolicyVersion: "user-authored-manual-note-v1",
+    };
+    const currentRequest = requestFor([paragraph]);
+    prismaMock.agentRun.findUnique.mockResolvedValue({
+      id: "run-paragraph",
+      kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+      status: "running",
+      workItemId: "work-1",
+      request: currentRequest,
+      researchState: null,
+      workItem: {
+        id: "work-1",
+        userId: "user-1",
+        title: "Workbase",
+        type: "project",
+        description: "Career knowledge workspace",
+        startDate: null,
+        endDate: null,
+      },
+    });
+    prismaMock.evidenceItem.findMany.mockResolvedValue([paragraph]);
+    prismaMock.highlight.findMany.mockResolvedValue([]);
+    normalizeMock.mockResolvedValue([]);
+    const distinctDraft = {
+      ...approvedDraft(paragraph.id),
+      text: "Implemented profile-specific routing and durable provider cost attribution.",
+      summary: "Implemented profile-specific routing and durable provider cost attribution.",
+      evidence: {
+        ...approvedDraft(paragraph.id).evidence,
+        sourceRefs: [{
+          ...approvedDraft(paragraph.id).evidence.sourceRefs[0]!,
+          excerpt: paragraph.content,
+        }],
+      },
+    };
+    generateMock.mockResolvedValue({
+      highlights: [distinctDraft],
+      generationRunIds: {
+        generation: ["generation-paragraph"],
+        verification: null,
+      },
+    });
+    verifyMock.mockResolvedValue([distinctDraft]);
+    prismaMock.agentRun.updateMany.mockResolvedValue({ count: 1 });
+
+    const prepared = await prepareManualEvidenceHighlights("run-paragraph");
+
+    expect(prepared).toMatchObject({
+      status: "prepared",
+      plan: {
+        drafts: [
+          { text: "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter." },
+          { text: distinctDraft.text },
+        ],
+      },
+    });
+  });
+
   it("supersedes an old request before provider calls when captured content changes", async () => {
     const original = evidenceRow("evidence-1");
     const request = requestFor([original]);

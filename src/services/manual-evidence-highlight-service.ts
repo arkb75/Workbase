@@ -890,14 +890,9 @@ export async function prepareManualEvidenceHighlights(
   const exactFallback = buildExactManualEvidenceFallback({
     evidenceItems,
   });
-  const exactFallbackEvidenceId = exactFallback?.evidence.sourceRefs[0]
-    ?.evidenceItemId ?? null;
   const nonConflictingDrafts = exactFallback
     ? safetyMarkedDrafts.filter((draft) =>
-        !areNearDuplicateHighlights(exactFallback, draft) &&
-        !draft.evidence.sourceRefs.some((reference) =>
-          reference.evidenceItemId === exactFallbackEvidenceId
-        )
+        !areNearDuplicateHighlights(exactFallback, draft)
       )
     : safetyMarkedDrafts;
   const verificationRun = readGenerationRunMetadata(verified);
