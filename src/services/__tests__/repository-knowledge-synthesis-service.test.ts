@@ -258,6 +258,74 @@ describe("repository synthesis limit fallback", () => {
     })]);
   });
 
+  it("keeps a corroborated product fallback when synthesis distributes citations across facts", () => {
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "Each resume variant lives on its own branch with main.tex as its source of truth.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 3,
+        lineEnd: 4,
+      },
+      {
+        ...entry(
+          "README.md",
+          "The agent selects the closest existing branch before making minimal edits.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 12,
+        lineEnd: 18,
+      },
+    ];
+    const firstStatement =
+      "The repository organizes resume variants by branch, each with a branch-specific main.tex source file.";
+    const secondStatement =
+      "The tailoring workflow selects a close resume branch before applying minimal edits.";
+
+    expect(substantialFactHighlightFallback([
+      {
+        statement: firstStatement,
+        category: "architecture",
+        confidence: "high",
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 2,
+        distinctiveness: 2,
+      },
+      {
+        statement: secondStatement,
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        citationIndexes: [2],
+        reviewNotes: null,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      },
+    ], notebook)).toEqual([expect.objectContaining({
+      text: firstStatement,
+      citationIndexes: [1],
+      visibility: "private",
+    })]);
+  });
+
   it("does not promote one medium-value product signal without corroboration", () => {
     const notebook = [{
       ...entry("README.md", "The README describes one small product behavior."),
@@ -281,6 +349,42 @@ describe("repository synthesis limit fallback", () => {
       technicalDifficulty: 3,
       distinctiveness: 2,
     }], notebook)).toEqual([]);
+  });
+
+  it("does not borrow product corroboration from another repository", () => {
+    const first = {
+      ...entry("README.md", "Repository one documents a single product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      repository: "example/one",
+    };
+    const second = {
+      ...entry("README.md", "Repository two documents a different product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      repository: "example/two",
+    };
+
+    expect(substantialFactHighlightFallback([{
+      statement: "Repository one exposes one documented product behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], [first, second])).toEqual([]);
   });
 
   it("does not use duplicate citations as corroboration", () => {

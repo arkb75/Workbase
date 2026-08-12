@@ -1109,6 +1109,24 @@ export function substantialFactHighlightFallback(
   facts: RepositorySubsystemSynthesis["facts"],
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis["highlights"] {
+  const repositoryProductCapabilityEvidence = Array.from(new Map(
+    notebook
+      .filter((citation) =>
+        citation.evidenceMode === "semantic" &&
+        citation.semanticStatus === "succeeded" &&
+        citation.confidence === "high" &&
+        !citation.sensitivityFlag &&
+        citation.productImportance >= 3 &&
+        citation.implementationBreadth >= 2 &&
+        citation.technicalDifficulty >= 3 &&
+        citation.semanticSignals?.some((signal) =>
+          signal.startsWith("product_surface.")
+        )
+      )
+      .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
+  ).values());
+  const repositoryKey = (citation: SynthesisNotebookEntry) =>
+    citation.repository.trim().replace(/\.git$/ui, "").toLowerCase();
   const candidates = facts.flatMap((fact) => {
     if (
       fact.confidence !== "high" ||
@@ -1146,17 +1164,28 @@ export function substantialFactHighlightFallback(
         )
         .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
     ).values());
+    const repositoryCorroboratedEvidence = corroboratedProductCapabilityEvidence.filter(
+      (citation) =>
+        repositoryProductCapabilityEvidence.filter((candidate) =>
+          repositoryKey(candidate) === repositoryKey(citation)
+        ).length >= 2,
+    );
     // Semantic extraction assigns importance 4 to a user_capability finding
     // and 3 to a behavior finding. The same exact product workflow can
     // legitimately be phrased as either across model runs, so do not let that
     // classifier choice make automatic Highlight creation nondeterministic.
-    // Two exact product-capability observations are a stricter substitute for
-    // one importance-4 observation; a single medium-value signal still cannot
-    // promote a fact.
+    // Two independent exact product-capability observations are a stricter
+    // substitute for one importance-4 observation. They need not both be
+    // attached to the same synthesized Fact: models legitimately distribute a
+    // repository workflow across several individually grounded Facts. The
+    // selected Fact must still cite one qualifying observation itself, while
+    // the second observation only establishes that the repository-level
+    // capability is substantial. A single medium-value signal still cannot
+    // promote a Fact.
     const substantialEvidence = individuallySubstantialEvidence.length
       ? individuallySubstantialEvidence
-      : corroboratedProductCapabilityEvidence.length >= 2
-        ? corroboratedProductCapabilityEvidence
+      : repositoryCorroboratedEvidence.length
+        ? repositoryCorroboratedEvidence
         : [];
     if (!substantialEvidence.length) return [];
 
