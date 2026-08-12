@@ -359,6 +359,65 @@ describe("provider quality report assembler", () => {
     )?.performance.costCoverageComplete).toBe(false);
   });
 
+  it("excludes deterministic verification aggregates from provider spend", () => {
+    const fixture = fixtures();
+    const manualObservation = fixture.lifecycleObservations.observations.find(
+      (observation) => observation.scenarioId === "manual_only_create",
+    );
+    if (!manualObservation || !("manualAgentRun" in manualObservation)) {
+      throw new Error("Expected a manual lifecycle fixture.");
+    }
+    const aggregateId = "manual-verification-aggregate";
+    const generationRuns = manualObservation.manualAgentRun.generationRuns as
+      unknown as Array<Record<string, unknown>>;
+    generationRuns.push({
+      id: aggregateId,
+      kind: "highlight_verification",
+      status: "success",
+      provider: "deterministic",
+      configuredProvider: "openrouter",
+      modelId: "highlight-verification-aggregate-v1",
+      profile: "verification",
+      configuredModelId: "openai/gpt-5.6-luna",
+      requestIds: ["request-provider-verification-1", "request-provider-verification-2"],
+      tokenUsage: null,
+      tokenUsagePresent: false,
+      estimatedCostUsd: null,
+      usageComplete: true,
+      auditAttemptCount: 0,
+      providerAttemptCount: 0,
+      failedProviderAttempts: 0,
+      unknownUsageAttempts: 0,
+      auditEvidenceTruncated: false,
+      role: "verification_aggregate",
+      agentRunId: "manual-agent-run",
+      authoritativeGenerationRunId: null,
+      providerBatchGenerationRunIds: [
+        "provider-verification-1",
+        "provider-verification-2",
+      ],
+    });
+    manualObservation.currentLineage.generationRunIds.push(aggregateId);
+
+    const report = assemble(fixture);
+
+    expect(report.attribution.authoritative).toBe(true);
+    expect(report.performance).toMatchObject({
+      observedEstimatedCostUsd: 0.116,
+      observedGenerationRunCount: 11,
+      costCoverageComplete: true,
+      usageComplete: true,
+    });
+    expect(report.scenarios.find((scenario) =>
+      scenario.id === "manual_only_create"
+    )?.performance).toMatchObject({
+      observedEstimatedCostUsd: 0.01,
+      observedGenerationRunCount: 1,
+      costCoverageComplete: true,
+      usageComplete: true,
+    });
+  });
+
   it("fails closed on a provider mismatch", () => {
     const fixture = fixtures();
     fixture.accomplishments.provider = "bedrock";

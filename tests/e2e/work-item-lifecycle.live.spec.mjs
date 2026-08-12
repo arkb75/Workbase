@@ -4,6 +4,7 @@ import { test, expect } from "@playwright/test";
 import pg from "pg";
 import {
   appendLifecycleObservationToReport,
+  normalizeLifecycleGenerationRun,
   removeLifecycleObservationFromReport,
 } from "./work-item-lifecycle-observation-report.mjs";
 import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-repository-identity.mjs";
@@ -260,133 +261,8 @@ function optionalString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function optionalNonNegativeInteger(value) {
-  return typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= 0
-    ? value
-    : null;
-}
-
-function failedProviderAttemptCount(value) {
-  return Array.isArray(value)
-    ? value.length
-    : optionalNonNegativeInteger(value);
-}
-
-function requestIdsFromAuditEvidence(...values) {
-  const requestIds = new Set();
-  const visited = new WeakSet();
-  const visit = (value, depth) => {
-    if (!value || typeof value !== "object" || depth > 8 || visited.has(value)) {
-      return;
-    }
-    visited.add(value);
-    if (Array.isArray(value)) {
-      value.forEach((entry) => visit(entry, depth + 1));
-      return;
-    }
-    const record = objectRecord(value);
-    if (typeof record.requestId === "string" && record.requestId.trim()) {
-      requestIds.add(record.requestId.trim());
-    }
-    if (Array.isArray(record.requestIds)) {
-      record.requestIds.forEach((requestId) => {
-        if (typeof requestId === "string" && requestId.trim()) {
-          requestIds.add(requestId.trim());
-        }
-      });
-    }
-    Object.values(record).forEach((entry) => visit(entry, depth + 1));
-  };
-  values.forEach((value) => visit(value, 0));
-  return Array.from(requestIds);
-}
-
-function failedAttemptsFromAuditEvidence(...values) {
-  const identities = new Set();
-  const visited = new WeakSet();
-  const visit = (value, depth) => {
-    if (!value || typeof value !== "object" || depth > 8 || visited.has(value)) {
-      return;
-    }
-    visited.add(value);
-    if (Array.isArray(value)) {
-      value.forEach((entry) => visit(entry, depth + 1));
-      return;
-    }
-    const record = objectRecord(value);
-    for (const key of ["failedAttempts", "failedProviderAttempts"]) {
-      if (!Array.isArray(record[key])) continue;
-      record[key].forEach((attempt, index) => {
-        const candidate = objectRecord(attempt);
-        const requestId = optionalString(candidate.requestId);
-        identities.add(requestId
-          ? `request:${requestId}`
-          : `${key}:${depth}:${index}:${JSON.stringify(candidate)}`);
-      });
-    }
-    Object.entries(record).forEach(([key, entry]) => {
-      if (key !== "failedAttempts" && key !== "failedProviderAttempts") {
-        visit(entry, depth + 1);
-      }
-    });
-  };
-  values.forEach((value) => visit(value, 0));
-  return identities.size;
-}
-
 function normalizeProviderGenerationRun(run) {
-  const refs = objectRecord(run.resultRefs);
-  const verificationAggregate = refs.aggregate === true;
-  return {
-    id: run.id,
-    kind: run.kind,
-    status: run.status,
-    provider: run.provider,
-    configuredProvider: optionalString(refs.configuredProvider) ?? (
-      verificationAggregate ? null : provider
-    ),
-    modelId: run.modelId,
-    profile: optionalString(refs.profile),
-    configuredModelId: optionalString(refs.configuredModelId),
-    requestIds: requestIdsFromAuditEvidence(
-      run.resultRefs,
-      run.inputSummary,
-      run.tokenUsage,
-    ),
-    tokenUsage: run.tokenUsage ?? null,
-    tokenUsagePresent: run.tokenUsage != null,
-    estimatedCostUsd:
-      typeof run.estimatedCostUsd === "number" &&
-        Number.isFinite(run.estimatedCostUsd) &&
-        run.estimatedCostUsd >= 0
-        ? run.estimatedCostUsd
-        : null,
-    usageComplete: typeof refs.usageComplete === "boolean"
-      ? refs.usageComplete
-      : null,
-    auditAttemptCount: optionalNonNegativeInteger(refs.auditAttemptCount),
-    providerAttemptCount:
-      optionalNonNegativeInteger(refs.providerAttemptCount),
-    failedProviderAttempts:
-      failedProviderAttemptCount(refs.failedProviderAttempts) ??
-        failedAttemptsFromAuditEvidence(run.inputSummary, run.tokenUsage),
-    unknownUsageAttempts:
-      optionalNonNegativeInteger(refs.unknownUsageAttempts),
-    auditEvidenceTruncated:
-      typeof refs.auditEvidenceTruncated === "boolean"
-        ? refs.auditEvidenceTruncated
-        : null,
-    agentRunId: optionalString(refs.agentRunId),
-    role: verificationAggregate
-      ? "verification_aggregate"
-      : "provider_call",
-    authoritativeGenerationRunId:
-      optionalString(refs.authoritativeGenerationRunId),
-    providerBatchGenerationRunIds:
-      stringArray(refs.providerBatchGenerationRunIds),
-  };
+  return normalizeLifecycleGenerationRun(run, { provider });
 }
 
 function normalizeCapabilitySynthesisRun(run) {
@@ -394,57 +270,7 @@ function normalizeCapabilitySynthesisRun(run) {
 }
 
 function normalizeManualGenerationRun(run) {
-  const refs = objectRecord(run.resultRefs);
-  const auditAttemptCount = optionalNonNegativeInteger(refs.auditAttemptCount);
-  const verificationAggregate = refs.aggregate === true;
-  return {
-    id: run.id,
-    kind: run.kind,
-    status: run.status,
-    provider: run.provider,
-    configuredProvider: optionalString(refs.configuredProvider) ?? (
-      verificationAggregate ? optionalString(refs.configuredProvider) : provider
-    ),
-    modelId: run.modelId,
-    profile: optionalString(refs.profile),
-    configuredModelId: optionalString(refs.configuredModelId),
-    requestIds: requestIdsFromAuditEvidence(
-      run.resultRefs,
-      run.inputSummary,
-      run.tokenUsage,
-    ),
-    tokenUsage: run.tokenUsage ?? null,
-    tokenUsagePresent: run.tokenUsage != null,
-    estimatedCostUsd:
-      typeof run.estimatedCostUsd === "number" &&
-        Number.isFinite(run.estimatedCostUsd) &&
-        run.estimatedCostUsd >= 0
-        ? run.estimatedCostUsd
-        : null,
-    usageComplete: typeof refs.usageComplete === "boolean"
-      ? refs.usageComplete
-      : null,
-    auditAttemptCount,
-    providerAttemptCount:
-      optionalNonNegativeInteger(refs.providerAttemptCount) ?? auditAttemptCount,
-    failedProviderAttempts:
-      failedProviderAttemptCount(refs.failedProviderAttempts) ??
-        failedAttemptsFromAuditEvidence(run.inputSummary, run.tokenUsage),
-    unknownUsageAttempts:
-      optionalNonNegativeInteger(refs.unknownUsageAttempts),
-    auditEvidenceTruncated:
-      typeof refs.auditEvidenceTruncated === "boolean"
-        ? refs.auditEvidenceTruncated
-        : false,
-    agentRunId: optionalString(refs.agentRunId),
-    role: verificationAggregate
-      ? "verification_aggregate"
-      : "provider_call",
-    authoritativeGenerationRunId:
-      optionalString(refs.authoritativeGenerationRunId),
-    providerBatchGenerationRunIds:
-      stringArray(refs.providerBatchGenerationRunIds),
-  };
+  return normalizeLifecycleGenerationRun(run, { provider });
 }
 
 function normalizeHeads(value, observedRepositoryId) {
