@@ -487,6 +487,8 @@ async function loadPostgresLexicalScores(input: {
         )::double precision AS score
         FROM "Claim" claim, query
         WHERE claim."workItemId" = ${input.workItemId}
+          AND claim."verificationStatus" = 'approved'
+          AND claim."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(claim."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -500,6 +502,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "ProjectFact" fact, query
         WHERE fact."workItemId" = ${input.workItemId}
           AND fact."status" = 'approved'
+          AND fact."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(fact."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -513,6 +516,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "EvidenceItem" evidence, query
         WHERE evidence."workItemId" = ${input.workItemId}
           AND evidence."included" = true
+          AND evidence."lifecycleStatus" = 'active'
           AND evidence."type" <> 'github_file_excerpt'::"EvidenceItemType"
           AND to_tsvector('english', coalesce(evidence."searchText", '')) @@ query.value
         ORDER BY score DESC
@@ -527,6 +531,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "Artifact" artifact, query
         WHERE artifact."workItemId" = ${input.workItemId}
           AND artifact."userId" = ${input.userId}
+          AND artifact."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(artifact."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40

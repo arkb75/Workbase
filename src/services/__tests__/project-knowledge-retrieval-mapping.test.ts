@@ -455,6 +455,33 @@ describe("project knowledge retrieval mappings", () => {
     expect(hydratedQuery.include.highlights.take).toBe(48);
   });
 
+  it("excludes non-retrievable rows before bounded PostgreSQL lexical ranking", async () => {
+    mocks.findWorkItem.mockResolvedValue({
+      id: "work-item-1",
+      highlights: [],
+      projectFacts: [],
+      evidenceItems: [],
+      artifacts: [],
+    });
+
+    await projectKnowledgeRetrievalService.retrieve({
+      userId: "user-1",
+      workItemId: "work-item-1",
+      query: "Where is retry backoff implemented?",
+      purpose: "private_chat",
+    });
+
+    const [highlightSql, projectFactSql, evidenceSql, artifactSql] =
+      mocks.queryRaw.mock.calls.map((call) => call[0].join(""));
+    expect(highlightSql).toContain('claim."verificationStatus" = \'approved\'');
+    expect(highlightSql).toContain('claim."lifecycleStatus" = \'active\'');
+    expect(projectFactSql).toContain('fact."status" = \'approved\'');
+    expect(projectFactSql).toContain('fact."lifecycleStatus" = \'active\'');
+    expect(evidenceSql).toContain('evidence."included" = true');
+    expect(evidenceSql).toContain('evidence."lifecycleStatus" = \'active\'');
+    expect(artifactSql).toContain('artifact."lifecycleStatus" = \'active\'');
+  });
+
   it("carries semantic relevance through the memory catalog into focused editorial selection", async () => {
     const highlight = {
       ...approvedHighlight(),
