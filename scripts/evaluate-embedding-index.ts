@@ -11,7 +11,7 @@ import {
   type EmbeddingRequiredSources,
 } from "@/src/evals/embedding-index-query-evaluation";
 import { embeddingIndexEvaluationErrorMessage } from "@/src/evals/embedding-index-error";
-import { Prisma } from "@/src/generated/prisma/client";
+import { validateEmbeddingFixtureSources } from "@/src/evals/embedding-index-fixture-validation";
 import { prisma } from "@/src/lib/prisma";
 import {
   recordEmbeddingQualityGate,
@@ -66,85 +66,6 @@ function qualityGateMode(): EmbeddingQualityGateMode {
   return value;
 }
 
-function requiredIdsForKind(
-  fixture: Fixture,
-  kind: keyof EmbeddingRequiredSources,
-) {
-  return Array.from(new Set(fixture.queries.flatMap((query) =>
-    query.required[kind]?.flatMap((entry) =>
-      Array.isArray(entry) ? entry : [entry]
-    ) ?? []
-  )));
-}
-
-async function validateFixtureSources(fixture: Fixture) {
-  const highlightIds = requiredIdsForKind(fixture, "highlights");
-  const projectFactIds = requiredIdsForKind(fixture, "projectFacts");
-  const evidenceIds = requiredIdsForKind(fixture, "evidence");
-  const artifactIds = requiredIdsForKind(fixture, "artifacts");
-  const [highlights, projectFacts, evidence, artifacts] = await Promise.all([
-    highlightIds.length
-      ? prisma.$queryRaw<Array<{ id: string; workItemId: string }>>(Prisma.sql`
-          SELECT "id", "workItemId"
-          FROM "Claim"
-          WHERE "id" IN (${Prisma.join(highlightIds)})
-        `)
-      : Promise.resolve([]),
-    projectFactIds.length
-      ? prisma.$queryRaw<Array<{ id: string; workItemId: string }>>(Prisma.sql`
-          SELECT "id", "workItemId"
-          FROM "ProjectFact"
-          WHERE "id" IN (${Prisma.join(projectFactIds)})
-        `)
-      : Promise.resolve([]),
-    evidenceIds.length
-      ? prisma.$queryRaw<Array<{ id: string; workItemId: string }>>(Prisma.sql`
-          SELECT "id", "workItemId"
-          FROM "EvidenceItem"
-          WHERE "id" IN (${Prisma.join(evidenceIds)})
-        `)
-      : Promise.resolve([]),
-    artifactIds.length
-      ? prisma.$queryRaw<Array<{ id: string; workItemId: string | null }>>(Prisma.sql`
-          SELECT "id", "workItemId"
-          FROM "Artifact"
-          WHERE "id" IN (${Prisma.join(artifactIds)})
-        `)
-      : Promise.resolve([]),
-  ]);
-  const expectedIds = [
-    ...highlightIds,
-    ...projectFactIds,
-    ...evidenceIds,
-    ...artifactIds,
-  ];
-  const foundRows = [...highlights, ...projectFacts, ...evidence, ...artifacts];
-  const foundIds = new Set(foundRows.map((row) => row.id));
-  const missingIds = expectedIds.filter((id) => !foundIds.has(id));
-  if (missingIds.length) {
-    throw new Error(
-      `Embedding fixture references missing required IDs: ${missingIds.join(", ")}.`,
-    );
-  }
-  const workItemIds = new Set(
-    foundRows.flatMap((row) => row.workItemId ? [row.workItemId] : []),
-  );
-  if (
-    foundRows.some((row) => !row.workItemId) ||
-    workItemIds.size !== 1 ||
-    (fixture.workItemId && !workItemIds.has(fixture.workItemId))
-  ) {
-    throw new Error(
-      "Every required fixture source must belong to the fixture's one Work Item.",
-    );
-  }
-  const resolvedWorkItemId = fixture.workItemId ?? Array.from(workItemIds)[0];
-  if (!resolvedWorkItemId) {
-    throw new Error("Embedding fixture did not resolve a Work Item.");
-  }
-  return resolvedWorkItemId;
-}
-
 function average(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
@@ -181,7 +102,7 @@ async function main() {
       "Embedding fixture must include positive recallAt10 and MRR baseline thresholds.",
     );
   }
-  const workItemId = await validateFixtureSources(fixture);
+  const workItemId = await validateEmbeddingFixtureSources(fixture);
   if (process.argv.includes("--baseline-only")) {
     if (mode !== "promotion") {
       throw new Error("--baseline-only cannot be combined with --mode rollback.");

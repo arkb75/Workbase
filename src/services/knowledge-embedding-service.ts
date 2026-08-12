@@ -292,6 +292,8 @@ export async function rankProjectKnowledgeForIndex(input: {
       FROM "HighlightEmbedding"
       INNER JOIN "Claim" ON "Claim"."id" = "HighlightEmbedding"."highlightId"
       WHERE "Claim"."workItemId" = ${input.workItemId}
+        AND "Claim"."verificationStatus" = 'approved'
+        AND "Claim"."lifecycleStatus" = 'active'
         AND "HighlightEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "HighlightEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
@@ -302,6 +304,8 @@ export async function rankProjectKnowledgeForIndex(input: {
       FROM "ProjectFactEmbedding"
       INNER JOIN "ProjectFact" ON "ProjectFact"."id" = "ProjectFactEmbedding"."projectFactId"
       WHERE "ProjectFact"."workItemId" = ${input.workItemId}
+        AND "ProjectFact"."status" = 'approved'
+        AND "ProjectFact"."lifecycleStatus" = 'active'
         AND "ProjectFactEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "ProjectFactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
@@ -312,6 +316,8 @@ export async function rankProjectKnowledgeForIndex(input: {
       FROM "EvidenceEmbedding"
       INNER JOIN "EvidenceItem" ON "EvidenceItem"."id" = "EvidenceEmbedding"."evidenceItemId"
       WHERE "EvidenceItem"."workItemId" = ${input.workItemId}
+        AND "EvidenceItem"."included" = true
+        AND "EvidenceItem"."lifecycleStatus" = 'active'
         AND "EvidenceEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "EvidenceEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
@@ -322,6 +328,7 @@ export async function rankProjectKnowledgeForIndex(input: {
       FROM "ArtifactEmbedding"
       INNER JOIN "Artifact" ON "Artifact"."id" = "ArtifactEmbedding"."artifactId"
       WHERE "Artifact"."workItemId" = ${input.workItemId}
+        AND "Artifact"."lifecycleStatus" = 'active'
         AND "ArtifactEmbedding"."indexVersionId" = ${input.index.id}
       ORDER BY "ArtifactEmbedding"."embedding" <=> CAST(${vectorLiteral} AS vector)
       LIMIT ${limit}
