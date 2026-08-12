@@ -1838,6 +1838,36 @@ describe("project answer editorial output contracts", () => {
     expect(blocks[0]?.bodyMarkdown).toContain("career output");
   });
 
+  it("explains the mechanism and value of a small repository tailoring workflow", () => {
+    const selection = selectProjectAnswerEditorialThemes({
+      question: "Summarize my strongest accomplishments",
+      repositoryNames: ["arkb75/Resume"],
+      entries: [
+        entry(1, "product_surface", {
+          title: "Branch-specific resume variants",
+          content:
+            "The repository keeps one resume variant per branch, with each branch using main.tex as its source of truth.",
+        }),
+        entry(2, "product_surface", {
+          title: "Job-description tailoring flow",
+          content:
+            "The workflow starts from a job description, selects the closest existing branch, makes minimal edits, and keeps PDF build artifacts outside the working scope.",
+        }),
+      ],
+    });
+    const blocks = addSourceBoundedEditorialContext(
+      buildExactSourceEditorialFallbackBlocks(selection),
+      selection,
+    );
+    const rendered = blocks.map((block) => block.bodyMarkdown).join("\n");
+
+    expect(selection.repositoryContext?.presentation).toBe("generic");
+    expect(rendered).toContain("branch-specific `main.tex`");
+    expect(rendered).toContain("closest existing variant");
+    expect(rendered).toContain("minimizing unnecessary resume changes");
+    expect(rendered).not.toContain("career output tied to reviewed");
+  });
+
   it("builds bounded exact-source fallback blocks from selected themes only", () => {
     const selection = selectProjectAnswerEditorialThemes({
       question: "Rank my top three strongest accomplishments.",

@@ -2408,6 +2408,11 @@ function genericValueForTheme(theme: ProjectAnswerEditorialTheme) {
   switch (theme.key) {
     case "product_outcomes":
     case "product_and_artifact_generation":
+      if (/\bjob description\b[\s\S]{0,320}\b(?:branch|variant)\b[\s\S]{0,320}\b(?:main\.tex|minimal edit|PDF)\b/i.test(
+        sourceText,
+      )) {
+        return "By using branch-specific `main.tex` sources, selecting the closest existing variant before editing, and keeping generated PDF artifacts outside the working scope, this turns a job description into a repeatable tailoring workflow while minimizing unnecessary resume changes.";
+      }
       return /\b(?:account|sign[- ]?in)\b[\s\S]{0,240}\bonboarding\b[\s\S]{0,240}\b(?:join|membership|circle)\b/i.test(
         sourceText,
       )
