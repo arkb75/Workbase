@@ -1129,11 +1129,35 @@ export function substantialFactHighlightFallback(
     const exactCitations = citations.filter(
       (citation): citation is SynthesisNotebookEntry => Boolean(citation),
     );
-    const substantialEvidence = exactCitations.filter((citation) =>
+    const individuallySubstantialEvidence = exactCitations.filter((citation) =>
       citation.productImportance >= 4 &&
       citation.implementationBreadth >= 2 &&
       citation.technicalDifficulty >= 3
     );
+    const corroboratedProductCapabilityEvidence = Array.from(new Map(
+      exactCitations
+        .filter((citation) =>
+          citation.productImportance >= 3 &&
+          citation.implementationBreadth >= 2 &&
+          citation.technicalDifficulty >= 3 &&
+          citation.semanticSignals?.some((signal) =>
+            signal.startsWith("product_surface.")
+          )
+        )
+        .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
+    ).values());
+    // Semantic extraction assigns importance 4 to a user_capability finding
+    // and 3 to a behavior finding. The same exact product workflow can
+    // legitimately be phrased as either across model runs, so do not let that
+    // classifier choice make automatic Highlight creation nondeterministic.
+    // Two exact product-capability observations are a stricter substitute for
+    // one importance-4 observation; a single medium-value signal still cannot
+    // promote a fact.
+    const substantialEvidence = individuallySubstantialEvidence.length
+      ? individuallySubstantialEvidence
+      : corroboratedProductCapabilityEvidence.length >= 2
+        ? corroboratedProductCapabilityEvidence
+        : [];
     if (!substantialEvidence.length) return [];
 
     return [{

@@ -206,6 +206,111 @@ describe("repository synthesis limit fallback", () => {
     }
   });
 
+  it("promotes a corroborated product workflow across semantic importance-label drift", () => {
+    const statement =
+      "The repository manages resume variants through long-lived branches and selects the closest variant before making minimal edits.";
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "Each resume variant lives on its own long-lived branch with main.tex as its source of truth.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 8,
+        lineEnd: 10,
+      },
+      {
+        ...entry(
+          "README.md",
+          "The agent finds the closest existing resume branch before choosing minimal edits or a justified new variant.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 12,
+        lineEnd: 18,
+      },
+    ];
+
+    expect(substantialFactHighlightFallback([{
+      statement,
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    }], notebook)).toEqual([expect.objectContaining({
+      text: statement,
+      citationIndexes: [1, 2],
+      visibility: "private",
+    })]);
+  });
+
+  it("does not promote one medium-value product signal without corroboration", () => {
+    const notebook = [{
+      ...entry("README.md", "The README describes one small product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    }];
+
+    expect(substantialFactHighlightFallback([{
+      statement: "The product exposes one small documented behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], notebook)).toEqual([]);
+  });
+
+  it("does not use duplicate citations as corroboration", () => {
+    const repeated = {
+      ...entry(
+        "README.md",
+        "The agent finds the closest resume branch before making minimal edits.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    };
+
+    expect(substantialFactHighlightFallback([{
+      statement: "The product documents one resume-selection behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], [repeated, { ...repeated }])).toEqual([]);
+  });
+
   it("applies the substantial-fact fallback in final synthesis while preserving failed-model eligibility", () => {
     const statement =
       "The application combines signed-session rotation with scoped authorization for protected project data.";
