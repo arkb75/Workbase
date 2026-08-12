@@ -4,12 +4,19 @@ import { test, expect } from "@playwright/test";
 import pg from "pg";
 import {
   appendLifecycleObservationToReport,
+  normalizeLifecycleHighlightEvidence,
   normalizeLifecycleGenerationRun,
   removeLifecycleObservationFromReport,
 } from "./work-item-lifecycle-observation-report.mjs";
 import { resolveLifecycleRepositoryIdentity } from "./work-item-lifecycle-repository-identity.mjs";
 
-const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v3";
+const SCHEMA_VERSION = "workbase-work-item-lifecycle-release-gate-v4";
+const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
+  "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
+const EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256 =
+  "55fa96b3c94df35255760c7788f242f8c399d10fdbdaaff1f3f33d8c7f8ae697";
+const EXPECTED_MANUAL_EXTRACTIVE_POLICY_VERSION =
+  "manual-evidence-extractive-v1";
 const liveEnabled = process.env.WORKBASE_LIFECYCLE_LIVE_E2E === "1";
 const retainCreatedWorkItems =
   process.env.WORKBASE_LIFECYCLE_RETAIN_CREATED_WORK_ITEMS === "1";
@@ -189,7 +196,7 @@ async function captureLineage(workItemId) {
 
 async function loadAutomaticHighlightRows(workItemId) {
   const result = await pool.query(
-    `SELECT c."id", c."text", c."lifecycleStatus", c."verificationStatus", c."reviewState", c."approvalSource", c."metadata"->>'managedBy' AS "managedBy", c."metadata"->>'originatingAgentRunId' AS "originatingAgentRunId", c."supersedesHighlightId", c."validatedThroughSha", c."validationHeads", (EXTRACT(EPOCH FROM (c."createdAt" AT TIME ZONE 'UTC')) * 1000)::double precision AS "createdAtEpochMs", COALESCE((SELECT jsonb_agg(jsonb_build_object('evidenceItemId', he."evidenceItemId", 'sourceId', ei."sourceId", 'sourceType', source."type"::text) ORDER BY he."id") FROM "HighlightEvidence" he JOIN "EvidenceItem" ei ON ei."id" = he."evidenceItemId" JOIN "Source" source ON source."id" = ei."sourceId" WHERE he."highlightId" = c."id"), '[]'::jsonb) AS "evidence" FROM "Claim" c WHERE c."workItemId" = $1 AND c."approvalSource" = 'automation' ORDER BY c."createdAt" ASC`,
+    `SELECT c."id", c."text", c."lifecycleStatus", c."verificationStatus", c."reviewState", c."approvalSource", c."metadata"->>'managedBy' AS "managedBy", c."metadata"->>'originatingAgentRunId' AS "originatingAgentRunId", c."metadata"->>'generationStrategy' AS "generationStrategy", c."metadata"->>'extractivePolicyVersion' AS "extractivePolicyVersion", c."supersedesHighlightId", c."validatedThroughSha", c."validationHeads", (EXTRACT(EPOCH FROM (c."createdAt" AT TIME ZONE 'UTC')) * 1000)::double precision AS "createdAtEpochMs", COALESCE((SELECT jsonb_agg(jsonb_build_object('evidenceItemId', he."evidenceItemId", 'sourceId', ei."sourceId", 'sourceType', source."type"::text, 'content', ei."content") ORDER BY he."id") FROM "HighlightEvidence" he JOIN "EvidenceItem" ei ON ei."id" = he."evidenceItemId" JOIN "Source" source ON source."id" = ei."sourceId" WHERE he."highlightId" = c."id"), '[]'::jsonb) AS "evidence" FROM "Claim" c WHERE c."workItemId" = $1 AND c."approvalSource" = 'automation' ORDER BY c."createdAt" ASC`,
     [workItemId],
   );
   return result.rows;
@@ -198,16 +205,8 @@ async function loadAutomaticHighlightRows(workItemId) {
 function normalizeHighlight(row, observedRepositoryId, observedRepository) {
   const evidence = Array.isArray(row.evidence)
     ? row.evidence.flatMap((entry) => {
-        const item = objectRecord(entry);
-        return typeof item.evidenceItemId === "string" &&
-          typeof item.sourceId === "string" &&
-          typeof item.sourceType === "string"
-          ? [{
-              evidenceItemId: item.evidenceItemId,
-              sourceId: item.sourceId,
-              sourceType: item.sourceType,
-            }]
-          : [];
+        const normalized = normalizeLifecycleHighlightEvidence(entry);
+        return normalized ? [normalized] : [];
       })
     : [];
   return {
@@ -219,6 +218,8 @@ function normalizeHighlight(row, observedRepositoryId, observedRepository) {
     approvalSource: row.approvalSource,
     managedBy: row.managedBy ?? "missing",
     originatingAgentRunId: optionalString(row.originatingAgentRunId),
+    generationStrategy: optionalString(row.generationStrategy),
+    extractivePolicyVersion: optionalString(row.extractivePolicyVersion),
     supersedesHighlightId: optionalString(row.supersedesHighlightId),
     evidenceItemIds: evidence.map((entry) => entry.evidenceItemId),
     evidence,
@@ -1264,6 +1265,16 @@ function assertManualObservation(observation) {
     highlight.verificationStatus === "approved"
   );
   expect(active.length).toBeGreaterThan(0);
+  const exactExtractive = active.filter((highlight) =>
+    highlight.text === EXPECTED_EXACT_MANUAL_HIGHLIGHT &&
+    highlight.generationStrategy === "exact_manual_evidence_fallback" &&
+    highlight.extractivePolicyVersion ===
+      EXPECTED_MANUAL_EXTRACTIVE_POLICY_VERSION &&
+    highlight.evidence.length === 1 &&
+    highlight.evidence[0]?.contentSha256 ===
+      EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256
+  );
+  expect(exactExtractive).toHaveLength(1);
   for (const highlight of observation.automaticHighlights) {
     expect(["active", "quarantined"]).toContain(highlight.lifecycleStatus);
     expect(highlight.reviewState).toBe("pending_review");

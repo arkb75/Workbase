@@ -146,6 +146,16 @@ function duplicateScenarioIds(report: ProviderQualityReport) {
     .sort();
 }
 
+function hasManualExactEvidenceProof(report: ProviderQualityReport) {
+  const manual = report.scenarios.find((scenario) =>
+    scenario.id === "manual_only_create"
+  );
+  const proof = manual?.quality.rubricEvidence?.specificity;
+  return proof?.passed === true && proof.evidenceIds.includes(
+    "manual_highlights_recover_exact_grounded_migration_note",
+  );
+}
+
 function roundedMetric(value: number) {
   return Number(value.toFixed(12));
 }
@@ -338,6 +348,13 @@ export function compareProviderQualityReports(input: {
       report.attribution.failedProviderAttempts === 0,
       report.attribution.failedProviderAttempts,
       0,
+    );
+    addCheck(
+      globalChecks,
+      `${label}_manual_exact_evidence_proof_is_present`,
+      hasManualExactEvidenceProof(report),
+      hasManualExactEvidenceProof(report),
+      true,
     );
     const scenarioAggregate = performanceForScenarioIds(
       report,

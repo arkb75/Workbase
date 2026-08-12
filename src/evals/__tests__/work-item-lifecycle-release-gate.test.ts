@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
@@ -8,9 +9,14 @@ import {
   type WorkItemLifecycleObservation,
   type WorkItemLifecycleScenarioId,
 } from "@/src/evals/work-item-lifecycle-release-gate";
+import { splitManualNoteIntoEvidenceContent } from "@/src/lib/evidence-items";
 
 const CURRENT_SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
+const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
+  "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
+const EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256 =
+  "55fa96b3c94df35255760c7788f242f8c399d10fdbdaaff1f3f33d8c7f8ae697";
 
 function lineage(prefix: string) {
   return {
@@ -161,19 +167,22 @@ function manualObservation(): ManualObservation {
     },
     automaticHighlights: [{
       id: highlightId,
-      text: "Led a grounded migration with durable provider quality gates.",
+      text: EXPECTED_EXACT_MANUAL_HIGHLIGHT,
       lifecycleStatus: "active",
       verificationStatus: "approved",
       reviewState: "pending_review",
       approvalSource: "automation",
       managedBy: "manual_evidence_highlight_workflow",
       originatingAgentRunId: agentRunId,
+      generationStrategy: "exact_manual_evidence_fallback",
+      extractivePolicyVersion: "manual-evidence-extractive-v1",
       supersedesHighlightId: null,
       evidenceItemIds: [evidenceItemId],
       evidence: [{
         evidenceItemId,
         sourceId,
         sourceType: "manual_note",
+        contentSha256: EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256,
       }],
       validatedThroughSha: null,
       validationHeads: [],
@@ -425,6 +434,20 @@ function observation(
 }
 
 describe("work-item lifecycle release gate", () => {
+  it("pins the private proof digest to the durable paragraph-shaped Evidence", () => {
+    const manualNotes = [
+      EXPECTED_EXACT_MANUAL_HIGHLIGHT,
+      "Implemented profile-specific routing, durable provider usage and cost attribution, and paired Bedrock/OpenRouter quality gates.",
+      "Preserved evidence-grounded citations and exact repository-head freshness checks across the migration.",
+    ].join(" ");
+    const persistedEvidence = splitManualNoteIntoEvidenceContent(manualNotes);
+
+    expect(persistedEvidence).toHaveLength(1);
+    expect(persistedEvidence[0]).toContain(EXPECTED_EXACT_MANUAL_HIGHLIGHT);
+    expect(createHash("sha256").update(persistedEvidence[0]!, "utf8").digest("hex"))
+      .toBe(EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256);
+  });
+
   it.each(workItemLifecycleScenarioIds)(
     "accepts a complete, current, duplicate-free %s observation",
     (scenarioId) => {
@@ -701,36 +724,64 @@ describe("work-item lifecycle release gate", () => {
     )?.passed).toBe(false);
   });
 
-  it("normalizes compatible v2 observations but rejects unverifiable legacy repository identity", () => {
-    const compatibleRepository = {
-      ...observation("empty_create_attach"),
-      schemaVersion:
-        PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
-    };
-    const compatibleManual = {
+  it("rejects v3 observations whose private exact-Evidence proof cannot be guessed forward", () => {
+    const previousManual = {
       ...observation("manual_only_create"),
       schemaVersion:
         PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
     };
-
-    expect(evaluateWorkItemLifecycleObservation(compatibleRepository)
-      .observation.schemaVersion).toBe(
-        WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
-      );
-    expect(evaluateWorkItemLifecycleObservation(compatibleManual)
-      .observation.schemaVersion).toBe(
-        WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
-      );
-
-    const unverifiable = structuredClone(compatibleRepository) as unknown as {
-      repository: Record<string, unknown>;
+    const previousRepository = {
+      ...observation("empty_create_attach"),
+      schemaVersion:
+        PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
     };
-    delete unverifiable.repository.configuredFullName;
-    delete unverifiable.repository.canonicalized;
 
-    expect(() => evaluateWorkItemLifecycleObservation(unverifiable)).toThrow(
-      /v2 repository observations predate.*canonical.*Rerun.*v3 evidence/iu,
+    expect(() => evaluateWorkItemLifecycleObservation(previousManual)).toThrow(
+      /v3 observations predate.*Evidence digest.*Rerun.*v4 evidence/iu,
     );
+    expect(() => evaluateWorkItemLifecycleObservation(previousRepository)).toThrow(
+      /v3 observations predate.*Evidence digest.*Rerun.*v4 evidence/iu,
+    );
+  });
+
+  it("rejects a manual path without the exact extractive provenance and private Evidence digest", () => {
+    const wrongText = observation("manual_only_create");
+    wrongText.automaticHighlights[0].text =
+      "Led a grounded migration with durable provider quality gates.";
+    expect(evaluateWorkItemLifecycleObservation(wrongText).checks).toContainEqual(
+      expect.objectContaining({
+        id: "manual_highlights_recover_exact_grounded_migration_note",
+        passed: false,
+      }),
+    );
+
+    const missingProvenance = observation("manual_only_create");
+    missingProvenance.automaticHighlights[0].generationStrategy = null;
+    expect(evaluateWorkItemLifecycleObservation(missingProvenance).checks)
+      .toContainEqual(expect.objectContaining({
+        id: "manual_highlights_recover_exact_grounded_migration_note",
+        passed: false,
+      }));
+
+    const wrongDigest = observation("manual_only_create");
+    wrongDigest.automaticHighlights[0].evidence[0].contentSha256 = "c".repeat(64);
+    expect(evaluateWorkItemLifecycleObservation(wrongDigest).checks)
+      .toContainEqual(expect.objectContaining({
+        id: "manual_highlights_recover_exact_grounded_migration_note",
+        passed: false,
+      }));
+  });
+
+  it("rejects raw manual Evidence content at the v4 observation boundary", () => {
+    const unsafe = observation("manual_only_create") as unknown as {
+      automaticHighlights: Array<{
+        evidence: Array<Record<string, unknown>>;
+      }>;
+    };
+    unsafe.automaticHighlights[0]!.evidence[0]!.content =
+      "Private manual Evidence must not cross this boundary.";
+
+    expect(() => evaluateWorkItemLifecycleObservation(unsafe)).toThrow();
   });
 
   it("rejects normalized duplicate Highlights", () => {

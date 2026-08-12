@@ -56,12 +56,12 @@ a legitimate GitHub rename or transfer cannot make the gate look for a stale
 checkbox label or submit stale repository metadata.
 
 Raw observations and evaluated reports use
-`workbase-work-item-lifecycle-release-gate-v3`. Version 3 makes the configured
-and canonical repository names plus the canonicalization flag part of the
-required release-evidence contract. The evaluator safely normalizes v2 manual
-observations and late v2 repository observations that already recorded those
-fields; earlier v2 repository output cannot prove rename/transfer handling and
-must be rerun instead of being guessed forward.
+`workbase-work-item-lifecycle-release-gate-v4`. Version 4 requires the manual
+fixture's exact extractive strategy/policy and one exact Evidence citation. The
+observation records a SHA-256 digest of that cited Evidence body, never the raw
+manual note, so the offline gate can prove the known paragraph-shaped fixture
+without copying private source text into the report. Version 3 output predates
+this proof and must be rerun instead of being guessed forward.
 
 Action acknowledgement and durable Source reservation are hard-gated at five
 seconds and are not configurable upward. The manual path additionally hard
@@ -105,7 +105,9 @@ npx tsx scripts/evaluate-work-item-lifecycle-release-gate.ts \
 ```
 
 The browser spec records raw Highlight text so duplicate detection is exact.
-Treat its output as evaluation data and keep it out of source control.
+It does not serialize cited manual Evidence bodies: only their SHA-256 digests
+cross the observation boundary. Treat its output as evaluation data and keep
+it out of source control.
 
 ## Exact repository accomplishments benchmark
 

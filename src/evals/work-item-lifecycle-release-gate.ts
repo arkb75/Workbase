@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION =
-  "workbase-work-item-lifecycle-release-gate-v3" as const;
+  "workbase-work-item-lifecycle-release-gate-v4" as const;
 export const PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION =
-  "workbase-work-item-lifecycle-release-gate-v2" as const;
+  "workbase-work-item-lifecycle-release-gate-v3" as const;
 
 export const workItemLifecycleScenarioIds = [
   "manual_only_create",
@@ -12,12 +12,24 @@ export const workItemLifecycleScenarioIds = [
   "completed_delete_readd_same_repo",
 ] as const;
 
+const EXPECTED_EXACT_MANUAL_HIGHLIGHT =
+  "Led the Workbase model-runtime migration from AWS Bedrock to OpenRouter.";
+const EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256 =
+  "55fa96b3c94df35255760c7788f242f8c399d10fdbdaaff1f3f33d8c7f8ae697";
+const EXPECTED_MANUAL_EXTRACTIVE_POLICY_VERSION =
+  "manual-evidence-extractive-v1";
+
 export type WorkItemLifecycleScenarioId =
   (typeof workItemLifecycleScenarioIds)[number];
 
 const shaSchema = z.string().regex(
   /^[a-f0-9]{40}$/iu,
   "Expected a full 40-character Git commit SHA.",
+);
+
+const sha256Schema = z.string().regex(
+  /^[a-f0-9]{64}$/iu,
+  "Expected a full 64-character SHA-256 digest.",
 );
 
 const identifierSchema = z.string().trim().min(1).max(300);
@@ -44,6 +56,8 @@ const highlightEvidenceSchema = z.object({
   evidenceItemId: identifierSchema,
   sourceId: identifierSchema,
   sourceType: identifierSchema,
+  contentSha256: sha256Schema.nullable().optional(),
+  content: z.never().optional(),
 });
 
 const highlightSchema = z.object({
@@ -55,6 +69,8 @@ const highlightSchema = z.object({
   approvalSource: z.string().trim().min(1),
   managedBy: z.string().trim().min(1),
   originatingAgentRunId: identifierSchema.nullable(),
+  generationStrategy: identifierSchema.nullable().optional(),
+  extractivePolicyVersion: identifierSchema.nullable().optional(),
   supersedesHighlightId: identifierSchema.nullable(),
   evidenceItemIds: z.array(identifierSchema),
   evidence: z.array(highlightEvidenceSchema),
@@ -282,26 +298,8 @@ function normalizePreviousLifecycleObservation(value: unknown) {
     return value;
   }
 
-  if (observation.scenarioId === "manual_only_create") {
-    return {
-      ...observation,
-      schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
-    };
-  }
-
-  const repository = recordValue(observation.repository);
-  if (
-    typeof repository?.configuredFullName === "string" &&
-    typeof repository.canonicalized === "boolean"
-  ) {
-    return {
-      ...observation,
-      schemaVersion: WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION,
-    };
-  }
-
   throw new Error(
-    `${PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} repository observations predate the required canonical configuredFullName/canonicalized identity fields. Rerun the live lifecycle gate to produce ${WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} evidence.`,
+    `${PREVIOUS_WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} observations predate the privacy-preserving exact manual Evidence digest and deterministic extractive provenance contract. Rerun the live lifecycle gate to produce ${WORK_ITEM_LIFECYCLE_RELEASE_GATE_SCHEMA_VERSION} evidence; these fields cannot be guessed forward.`,
   );
 }
 
@@ -723,6 +721,23 @@ function evaluateManualObservation(
     "manual_highlights_include_active_grounded_pending_review_result",
     activeGroundedHighlights.length > 0,
     activeGroundedHighlights.length,
+    1,
+  );
+  const exactExtractiveHighlights = activeGroundedHighlights.filter(
+    (highlight) =>
+      highlight.text === EXPECTED_EXACT_MANUAL_HIGHLIGHT &&
+      highlight.generationStrategy === "exact_manual_evidence_fallback" &&
+      highlight.extractivePolicyVersion ===
+        EXPECTED_MANUAL_EXTRACTIVE_POLICY_VERSION &&
+      highlight.evidence.length === 1 &&
+      highlight.evidence[0]?.contentSha256 ===
+        EXPECTED_MANUAL_EVIDENCE_CONTENT_SHA256,
+  );
+  addCheck(
+    checks,
+    "manual_highlights_recover_exact_grounded_migration_note",
+    exactExtractiveHighlights.length === 1,
+    exactExtractiveHighlights.length,
     1,
   );
   const invalidManualHighlights = observation.automaticHighlights.filter(
