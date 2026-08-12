@@ -951,38 +951,67 @@ export function fallbackSubsystemSynthesis(
  *
  * Promote at most one high-confidence fact verbatim only when every citation
  * is successful, non-sensitive semantic evidence from the current notebook.
- * Low-level facts, rewritten/truncated claims, and deterministic anchor evidence
- * still produce no Highlight, preserving the explicit `no_safe_candidates`
- * outcome for genuinely thin repositories.
+ * Career salience comes from those cited observations rather than the second
+ * model's subjective score copy: a current exact observation must describe a
+ * user capability with the stored importance, breadth, and difficulty floors.
+ * Named semantic facets improve deterministic ranking but cannot make a
+ * low-importance observation eligible by themselves. Low-level facts,
+ * rewritten/truncated claims, and deterministic anchor evidence still produce
+ * no Highlight, preserving the explicit `no_safe_candidates` outcome for
+ * genuinely thin repositories.
  */
 export function substantialFactHighlightFallback(
   facts: RepositorySubsystemSynthesis["facts"],
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis["highlights"] {
-  const candidate = facts
-    .filter((fact) =>
-      fact.confidence === "high" &&
-      !fact.sensitivityFlag &&
-      fact.statement.length <= 240 &&
-      fact.productImportance >= 4 &&
-      fact.implementationBreadth >= 2 &&
-      fact.technicalDifficulty >= 2 &&
-      fact.distinctiveness >= 3 &&
-      fact.citationIndexes.length > 0 &&
-      fact.citationIndexes.every((index) => {
-        const citation = notebook[index - 1];
-        return citation?.evidenceMode === "semantic" &&
-          citation.semanticStatus === "succeeded" &&
-          !citation.sensitivityFlag;
-      })
+  const candidates = facts.flatMap((fact) => {
+    if (
+      fact.confidence !== "high" ||
+      fact.sensitivityFlag ||
+      fact.statement.length > 240 ||
+      !fact.citationIndexes.length
+    ) return [];
+
+    const citations = fact.citationIndexes.map((index) => notebook[index - 1]);
+    if (citations.some((citation) =>
+      !citation ||
+      citation.evidenceMode !== "semantic" ||
+      citation.semanticStatus !== "succeeded" ||
+      citation.confidence !== "high" ||
+      citation.sensitivityFlag
+    )) return [];
+
+    const exactCitations = citations.filter(
+      (citation): citation is SynthesisNotebookEntry => Boolean(citation),
+    );
+    const substantialEvidence = exactCitations.filter((citation) =>
+      citation.productImportance >= 4 &&
+      citation.implementationBreadth >= 2 &&
+      citation.technicalDifficulty >= 3
+    );
+    if (!substantialEvidence.length) return [];
+
+    return [{
+      fact,
+      evidenceProductImportance: Math.max(...substantialEvidence.map((citation) => citation.productImportance)),
+      evidenceImplementationBreadth: Math.max(...substantialEvidence.map((citation) => citation.implementationBreadth)),
+      evidenceTechnicalDifficulty: Math.max(...substantialEvidence.map((citation) => citation.technicalDifficulty)),
+      evidenceSemanticSignalCount: new Set(
+        substantialEvidence.flatMap((citation) => citation.semanticSignals ?? []),
+      ).size,
+    }];
+  });
+  const selected = candidates.sort((left, right) =>
+    right.evidenceProductImportance - left.evidenceProductImportance ||
+    right.evidenceImplementationBreadth - left.evidenceImplementationBreadth ||
+    right.evidenceTechnicalDifficulty - left.evidenceTechnicalDifficulty ||
+    right.evidenceSemanticSignalCount - left.evidenceSemanticSignalCount ||
+    normalizeWhitespace(left.fact.statement).localeCompare(
+      normalizeWhitespace(right.fact.statement),
     )
-    .sort((left, right) =>
-      right.productImportance - left.productImportance ||
-      right.implementationBreadth - left.implementationBreadth ||
-      right.technicalDifficulty - left.technicalDifficulty ||
-      right.distinctiveness - left.distinctiveness
-    )[0];
-  if (!candidate) return [];
+  )[0];
+  if (!selected) return [];
+  const candidate = selected.fact;
 
   return [{
     text: candidate.statement,

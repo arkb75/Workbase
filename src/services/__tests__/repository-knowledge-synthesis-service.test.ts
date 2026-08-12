@@ -160,6 +160,50 @@ describe("repository synthesis limit fallback", () => {
     })]);
   });
 
+  it("keeps the Resume workflow fallback stable across synthesis score drift", () => {
+    const statement =
+      "The documented resume-tailoring workflow starts from a job description, reviews available resume branches, and selects the closest existing variant as the basis for adaptation.";
+    const notebook = [{
+      ...entry(
+        "README.md",
+        "The documented product workflow is: take a job description, inspect all branches, and choose the closest existing resume variant.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 4,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    }];
+    const variants = [
+      { productImportance: 4, implementationBreadth: 2, technicalDifficulty: 3, distinctiveness: 3 },
+      { productImportance: 2, implementationBreadth: 1, technicalDifficulty: 1, distinctiveness: 1 },
+      { productImportance: 3, implementationBreadth: 5, technicalDifficulty: 2, distinctiveness: 2 },
+    ];
+
+    for (const scores of variants) {
+      const fact = {
+        statement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        ...scores,
+      };
+      const original = structuredClone(fact);
+
+      expect(substantialFactHighlightFallback([fact], notebook)).toEqual([
+        expect.objectContaining({
+          text: statement,
+          citationIndexes: [1],
+          visibility: "private",
+        }),
+      ]);
+      expect(fact).toEqual(original);
+    }
+  });
+
   it("applies the substantial-fact fallback in final synthesis while preserving failed-model eligibility", () => {
     const statement =
       "The application combines signed-session rotation with scoped authorization for protected project data.";
@@ -229,7 +273,51 @@ describe("repository synthesis limit fallback", () => {
     };
     expect(substantialFactHighlightFallback(
       [lowValue],
-      [{ ...entry("src/format.ts"), evidenceMode: "semantic", semanticStatus: "succeeded" }],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: [],
+        productImportance: 2,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+      }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      }],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: [],
+        productImportance: 2,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+      }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      }],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 1,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+      }],
     )).toEqual([]);
     expect(substantialFactHighlightFallback(
       [{
