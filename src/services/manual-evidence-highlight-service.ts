@@ -1017,10 +1017,16 @@ export async function persistManualEvidenceHighlights(input: {
 
     // Deletion, repository reconciliation, reviews, chat candidates, and this
     // workflow all acquire WorkItem/knowledge locks in this order.
-    const lockedWorkItems = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "WorkItem" WHERE "id" = ${runIdentity.workItemId} FOR UPDATE
+    const lockedWorkItems = await tx.$queryRaw<Array<
+      ManualEvidenceProviderWorkItemContext
+    >>`
+      SELECT "id", "title", "type"::text AS "type", "description"
+      FROM "WorkItem"
+      WHERE "id" = ${runIdentity.workItemId}
+      FOR UPDATE
     `;
-    if (!lockedWorkItems.length) return { status: "inactive", runStatus: "missing" };
+    const lockedWorkItem = lockedWorkItems[0];
+    if (!lockedWorkItem) return { status: "inactive", runStatus: "missing" };
     await lockKnowledgeWorkItemMutation(tx, runIdentity.workItemId);
     const lockedRuns = await tx.$queryRaw<Array<{
       status: string;
@@ -1082,7 +1088,7 @@ export async function persistManualEvidenceHighlights(input: {
       FOR UPDATE OF evidence
     `;
     const evidenceRows = await loadCompleteManualEvidenceRows(tx, runIdentity.workItemId);
-    if (!evidenceMatchesRequest(evidenceRows, request, runIdentity.workItem)) {
+    if (!evidenceMatchesRequest(evidenceRows, request, lockedWorkItem)) {
       return {
         status: "superseded_input",
         terminalOutcome: "superseded_input",

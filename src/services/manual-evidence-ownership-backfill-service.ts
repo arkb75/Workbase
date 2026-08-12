@@ -10,7 +10,7 @@ import {
 import { prisma } from "@/src/lib/prisma";
 
 export const LEGACY_MANUAL_EVIDENCE_OWNERSHIP_CUTOFF =
-  new Date("2026-08-11T17:30:36.000-07:00");
+  new Date("2026-08-11T21:10:00.000-07:00");
 
 function metadataRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

@@ -65,6 +65,12 @@ function source(input: {
 }
 
 describe("trusted legacy manual Evidence ownership backfill", () => {
+  it("covers the complete old-writer window through the release snapshot", () => {
+    expect(LEGACY_MANUAL_EVIDENCE_OWNERSHIP_CUTOFF.toISOString()).toBe(
+      "2026-08-12T04:10:00.000Z",
+    );
+  });
+
   it("marks only an exact legacy UI excerpt and fails closed for system, imported, and malformed rows", async () => {
     const trusted = source({ id: "trusted" });
     const systemDescription = source({

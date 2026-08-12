@@ -670,7 +670,7 @@ describe("manual Evidence Highlight input fencing", () => {
         update: vi.fn(),
       },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
@@ -757,7 +757,7 @@ describe("manual Evidence Highlight input fencing", () => {
       evidenceItem: { findMany: vi.fn().mockResolvedValue([row]) },
       highlight: { findMany: vi.fn().mockResolvedValue([priorHighlight]) },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
@@ -790,6 +790,53 @@ describe("manual Evidence Highlight input fencing", () => {
     expect(upsertChangeMock).not.toHaveBeenCalled();
   });
 
+  it("validates persistence against Work Item context returned by the row lock", async () => {
+    const row = evidenceRow("evidence-1");
+    const request = requestFor([row]);
+    const editedContext = {
+      ...workItemContext,
+      description: "Edited after the run was prepared.",
+    };
+    const tx = {
+      agentRun: { findUnique: vi.fn().mockResolvedValue(runIdentity()) },
+      knowledgeRefreshRun: { findFirst: vi.fn() },
+      evidenceItem: { findMany: vi.fn() },
+      highlight: { findMany: vi.fn() },
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([editedContext])
+        .mockResolvedValueOnce([{ locked: 1 }])
+        .mockResolvedValueOnce([{
+          status: "running",
+          kind: MANUAL_EVIDENCE_HIGHLIGHT_AGENT_KIND,
+          request,
+        }])
+        .mockResolvedValueOnce([{ id: row.id }]),
+    };
+    tx.evidenceItem.findMany.mockResolvedValue([row]);
+    prismaMock.$transaction.mockImplementationOnce(
+      async (callback: (client: typeof tx) => unknown) => callback(tx),
+    );
+
+    await expect(persistManualEvidenceHighlights({
+      runId: "run-edited-context",
+      plan: {
+        inputFingerprint: request.inputFingerprint,
+        drafts: [approvedDraft(row.id)],
+        generationRunIds: [],
+      },
+    })).resolves.toEqual({
+      status: "superseded_input",
+      terminalOutcome: "superseded_input",
+      createdHighlightIds: [],
+      replayedHighlightIds: [],
+      deduplicatedHighlightIds: [],
+      suggestionIds: [],
+      suppressedHighlightIds: [],
+    });
+    expect(tx.highlight.findMany).not.toHaveBeenCalled();
+    expect(createHighlightMock).not.toHaveBeenCalled();
+  });
+
   it("suppresses a later AgentRun against an existing quarantined manual near-match", async () => {
     const original = evidenceRow("evidence-1");
     const added = evidenceRow("evidence-2");
@@ -809,7 +856,7 @@ describe("manual Evidence Highlight input fencing", () => {
       evidenceItem: { findMany: vi.fn().mockResolvedValue([original, added]) },
       highlight: { findMany: vi.fn().mockResolvedValue([quarantined]) },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
@@ -861,7 +908,7 @@ describe("manual Evidence Highlight input fencing", () => {
         update: vi.fn().mockResolvedValue({ id: "highlight-created" }),
       },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
@@ -941,7 +988,7 @@ describe("manual Evidence Highlight input fencing", () => {
         update: vi.fn(),
       },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
@@ -996,7 +1043,7 @@ describe("manual Evidence Highlight input fencing", () => {
         update: vi.fn().mockResolvedValue({ id: "highlight-successor" }),
       },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([workItemContext])
         .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce([{
           status: "running",
