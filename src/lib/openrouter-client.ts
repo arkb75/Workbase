@@ -19,6 +19,56 @@ import {
 
 type FetchImplementation = typeof fetch;
 
+const openRouterRequestStarts = new Map<string, number>();
+const openRouterRequestStartQueues = new Map<string, Promise<void>>();
+
+function waitForDelay(delayMs: number, signal?: AbortSignal) {
+  if (delayMs <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(
+    signal.reason ?? new Error("OpenRouter request was cancelled."),
+  );
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("OpenRouter request was cancelled."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function paceOpenRouterRequest(input: {
+  config: OpenRouterTextConfig;
+  modelId: string;
+  signal?: AbortSignal;
+}) {
+  const intervalMs = input.config.minRequestIntervalMs;
+  if (intervalMs <= 0) return;
+  const key = `${input.config.baseUrl}:${input.modelId}`;
+  const previous = openRouterRequestStartQueues.get(key) ?? Promise.resolve();
+  const scheduled = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const lastStartedAt = openRouterRequestStarts.get(key) ?? 0;
+      await waitForDelay(
+        Math.max(0, lastStartedAt + intervalMs - Date.now()),
+        input.signal,
+      );
+      openRouterRequestStarts.set(key, Date.now());
+    });
+  openRouterRequestStartQueues.set(key, scheduled);
+  try {
+    await scheduled;
+  } finally {
+    if (openRouterRequestStartQueues.get(key) === scheduled) {
+      openRouterRequestStartQueues.delete(key);
+    }
+  }
+}
+
 interface OpenRouterUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -522,6 +572,7 @@ async function sendOpenRouterRequest(input: {
   signal?: AbortSignal;
   fetchImplementation: FetchImplementation;
 }) {
+  await paceOpenRouterRequest(input);
   let response: Response;
   try {
     response = await input.fetchImplementation(

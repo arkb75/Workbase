@@ -31,6 +31,13 @@ function positiveRequestTimeout(value: string | undefined, fallback: number) {
     : fallback;
 }
 
+function boundedRequestInterval(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(30_000, Math.max(0, Math.floor(parsed)))
+    : fallback;
+}
+
 function commaSeparatedValues(value: string | undefined) {
   return value
     ?.split(",")
@@ -83,6 +90,7 @@ export interface OpenRouterTextConfig {
   fallbackModelId?: string;
   profile: TextModelProfile;
   requestTimeoutMs: number;
+  minRequestIntervalMs: number;
   providerOrder?: string[];
   siteUrl?: string;
   appName: string;
@@ -134,6 +142,13 @@ export function resolveOpenRouterConfig(
     requestTimeoutMs: positiveRequestTimeout(
       process.env.WORKBASE_OPENROUTER_REQUEST_TIMEOUT_MS,
       240_000,
+    ),
+    // Structured workflows often issue drafting and verification calls back
+    // to back. A small shared per-model interval prevents burst throttling at
+    // the routed provider without hiding or retrying a failed provider call.
+    minRequestIntervalMs: boundedRequestInterval(
+      process.env.WORKBASE_OPENROUTER_MIN_REQUEST_INTERVAL_MS,
+      2_500,
     ),
     providerOrder: commaSeparatedValues(
       process.env.WORKBASE_OPENROUTER_PROVIDER_ORDER,

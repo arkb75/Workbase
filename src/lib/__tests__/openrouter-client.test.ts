@@ -19,6 +19,7 @@ function config(
     fallbackModelId: "anthropic/claude-sonnet-5",
     profile: "primary_answer",
     requestTimeoutMs: 30_000,
+    minRequestIntervalMs: 0,
     providerOrder: ["openai"],
     siteUrl: "https://workbase.example",
     appName: "Workbase test",
@@ -373,6 +374,44 @@ describe("OpenRouterChatCompletionsRuntime", () => {
       retryable: true,
       requestId: "req_header_1",
     });
+  });
+
+  it("paces consecutive starts for the same model before they can burst", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn().mockImplementation(async () =>
+        response({
+          model: "openai/gpt-5.6-luna",
+          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+      );
+      const runtime = new OpenRouterChatCompletionsRuntime(
+        config({
+          baseUrl: "https://paced-openrouter.example/api/v1",
+          modelId: "openai/gpt-5.6-luna",
+          minRequestIntervalMs: 2_500,
+        }),
+        undefined,
+        fetchMock,
+      );
+      const input = {
+        systemPrompt: "test",
+        userPrompt: "test",
+        maxTokens: 16,
+        temperature: 0,
+      };
+
+      await runtime.converse(input);
+      const second = runtime.converse(input);
+      await vi.advanceTimersByTimeAsync(2_499);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await second;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not expose provider billing URLs or key identifiers", async () => {
