@@ -1358,33 +1358,7 @@ export async function finalizeManualEvidenceHighlights(input: {
     ),
   );
 
-  const persistedHighlightIds = Array.from(new Set([
-    ...input.result.createdHighlightIds,
-    ...input.result.replayedHighlightIds,
-  ]));
-  if (persistedHighlightIds.length) {
-    const highlights = await prisma.highlight.findMany({
-      where: {
-        id: { in: persistedHighlightIds },
-        lifecycleStatus: "active",
-      },
-      include: {
-        evidence: { include: { evidenceItem: { include: { source: true } } } },
-        tags: true,
-      },
-    });
-    await Promise.all(
-      highlights.map((highlight) => {
-        const snapshot = mapHighlight(highlight);
-        return upsertHighlightEmbedding({
-          highlightId: snapshot.id,
-          inputText: buildHighlightEmbeddingText(snapshot),
-        });
-      }),
-    );
-  }
-
-  return prisma.$transaction(async (tx) => {
+  const finalized = await prisma.$transaction(async (tx) => {
     const identity = await tx.agentRun.findUnique({
       where: { id: input.runId },
       select: { workItemId: true },
@@ -1425,4 +1399,48 @@ export async function finalizeManualEvidenceHighlights(input: {
     });
     return { persisted: true as const, status: "completed" as const, result };
   }, { timeout: 10_000 });
+
+  if (!finalized.persisted) return finalized;
+
+  // Highlight persistence and AgentRun completion are authoritative. The
+  // semantic index is a repairable projection, so a provider outage or a
+  // deletion racing this post-commit work must never turn a completed run
+  // into a failed one. Repository/chat freshness paths can backfill missing
+  // embeddings later.
+  const persistedHighlightIds = Array.from(new Set([
+    ...input.result.createdHighlightIds,
+    ...input.result.replayedHighlightIds,
+  ]));
+  if (persistedHighlightIds.length) {
+    const highlights = await prisma.highlight.findMany({
+      where: {
+        id: { in: persistedHighlightIds },
+        lifecycleStatus: "active",
+      },
+      include: {
+        evidence: { include: { evidenceItem: { include: { source: true } } } },
+        tags: true,
+      },
+    });
+    const embeddingResults = await Promise.allSettled(
+      highlights.map((highlight) => {
+        const snapshot = mapHighlight(highlight);
+        return upsertHighlightEmbedding({
+          highlightId: snapshot.id,
+          inputText: buildHighlightEmbeddingText(snapshot),
+        });
+      }),
+    );
+    const failedEmbeddingCount = embeddingResults.filter(
+      (result) => result.status === "rejected",
+    ).length;
+    if (failedEmbeddingCount) {
+      console.warn("Manual Highlight embedding backfill deferred.", {
+        runId: input.runId,
+        failedEmbeddingCount,
+      });
+    }
+  }
+
+  return finalized;
 }

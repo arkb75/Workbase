@@ -56,6 +56,7 @@ import {
   MANUAL_EVIDENCE_HIGHLIGHT_POLICY_VERSION,
   buildManualEvidenceHighlightRequest,
   buildCurrentManualEvidenceHighlightRequest,
+  finalizeManualEvidenceHighlights,
   persistManualEvidenceHighlights,
   prepareManualEvidenceHighlights,
   readManualEvidenceHighlightRequest,
@@ -1073,5 +1074,56 @@ describe("manual Evidence Highlight input fencing", () => {
         supersedesHighlightId: staleManual.id,
       }),
     }));
+  });
+
+  it("completes the durable run before treating embedding as best-effort", async () => {
+    const persistedHighlight = {
+      ...existingHighlight({
+        id: "highlight-created",
+        row: evidenceRow("evidence-1"),
+        request: requestFor([evidenceRow("evidence-1")]),
+      }),
+      lifecycleStatus: "active",
+    };
+    const tx = {
+      agentRun: {
+        findUnique: vi.fn().mockResolvedValue({ workItemId: "work-1" }),
+        update: vi.fn().mockResolvedValue({ id: "run-1" }),
+      },
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: "work-1" }])
+        .mockResolvedValueOnce([{ status: "running" }]),
+    };
+    prismaMock.$transaction.mockImplementationOnce(
+      async (callback: (client: typeof tx) => unknown) => callback(tx),
+    );
+    prismaMock.highlight.findMany.mockResolvedValueOnce([persistedHighlight]);
+    upsertEmbeddingMock.mockRejectedValueOnce(new Error("embedding unavailable"));
+
+    await expect(finalizeManualEvidenceHighlights({
+      runId: "run-1",
+      plan: {
+        inputFingerprint: "fingerprint-1",
+        drafts: [],
+        generationRunIds: [],
+      },
+      result: {
+        status: "persisted",
+        terminalOutcome: "ready",
+        createdHighlightIds: [persistedHighlight.id],
+        replayedHighlightIds: [],
+        deduplicatedHighlightIds: [],
+        suggestionIds: [],
+        suppressedHighlightIds: [],
+      },
+    })).resolves.toMatchObject({ persisted: true, status: "completed" });
+
+    expect(tx.agentRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "run-1" },
+      data: expect.objectContaining({ status: "completed" }),
+    }));
+    expect(tx.agentRun.update.mock.invocationCallOrder[0]).toBeLessThan(
+      upsertEmbeddingMock.mock.invocationCallOrder[0]!,
+    );
   });
 });
