@@ -406,6 +406,24 @@ function focusedLineRange(input: {
     const normalizedLine = line.toLowerCase();
     return input.focusTerms.filter((term) => normalizedLine.includes(term));
   });
+  const controlFlowScores = input.lines.map((line) => {
+    const normalizedLine = line.toLowerCase();
+    const matchedTerms = input.focusTerms.filter((term) => normalizedLine.includes(term));
+    if (!matchedTerms.length) return 0;
+    const boundedTermCount = matchedTerms.filter((term) =>
+      /(?:max|stop|retry|backoff|timeout|budget|limit|iteration|attempt)/i.test(term)
+    ).length;
+    if (!boundedTermCount) return 0;
+    return /\b(?:if|while|for)\s*\([^\n)]*(?:[<>]=?|===?|!==?)[^\n)]*\)/i.test(line)
+      ? (
+        matchedTerms.some((term) => /(?:max|iteration|attempt|retry)/i.test(term))
+          ? 20_000
+          : 10_000
+      ) + boundedTermCount * 500
+      : /\b(?:throw|break|return)\b/i.test(line)
+        ? 1_000 + boundedTermCount * 100
+        : 0;
+  });
   const counts = new Map<string, number>();
   const addTerms = (terms: readonly string[], direction: 1 | -1) => {
     for (const term of terms) {
@@ -423,18 +441,31 @@ function focusedLineRange(input: {
     (score, [term, count]) => score + count * (/(?:max|stop|retry|backoff|timeout|budget|limit|iteration|attempt)/i.test(term) ? 6 : 2),
     0,
   );
+  const controlFlowScore = (startIndex: number) => Math.max(
+    0,
+    ...controlFlowScores.slice(startIndex, startIndex + windowLines),
+  );
+  let currentControlFlowScore = controlFlowScore(0);
   let bestCoverageScore = coverageScore();
   let bestOccurrenceScore = occurrenceScore();
+  let bestControlFlowScore = currentControlFlowScore;
   let bestStartIndex = 0;
   for (let startIndex = 1; startIndex <= totalLines - windowLines; startIndex += 1) {
     addTerms(lineTerms[startIndex - 1]!, -1);
     addTerms(lineTerms[startIndex + windowLines - 1]!, 1);
+    currentControlFlowScore = controlFlowScore(startIndex);
     const nextCoverageScore = coverageScore();
     const nextOccurrenceScore = occurrenceScore();
     if (
-      nextCoverageScore > bestCoverageScore ||
-      (nextCoverageScore === bestCoverageScore && nextOccurrenceScore > bestOccurrenceScore)
+      currentControlFlowScore > bestControlFlowScore ||
+      (currentControlFlowScore === bestControlFlowScore && nextCoverageScore > bestCoverageScore) ||
+      (
+        currentControlFlowScore === bestControlFlowScore &&
+        nextCoverageScore === bestCoverageScore &&
+        nextOccurrenceScore > bestOccurrenceScore
+      )
     ) {
+      bestControlFlowScore = currentControlFlowScore;
       bestCoverageScore = nextCoverageScore;
       bestOccurrenceScore = nextOccurrenceScore;
       bestStartIndex = startIndex;

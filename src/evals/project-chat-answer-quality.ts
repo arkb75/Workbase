@@ -85,7 +85,7 @@ const readerThemePatterns: Record<ProjectChatReaderTheme, readonly RegExp[]> = {
   ],
   engineering_foundation: [
     /prisma|postgres|data model|database schema/i,
-    /automated test|test coverage|vitest|security|oauth|workspace ui/i,
+    /automated test|test coverage|vitest|security|oauth|workspace (?:review )?ui/i,
   ],
 };
 

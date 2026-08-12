@@ -52,6 +52,12 @@ describe("project-chat answer quality contracts", () => {
     expect(checks.filter((check) => !check.passed)).toEqual([]);
   });
 
+  it("recognizes the repository-backed workspace review UI as an engineering theme", () => {
+    expect(projectChatReaderThemes(
+      "The project workspace review UI combines URL-addressable views with inline citation navigation.",
+    )).toContain("engineering_foundation");
+  });
+
   it("rejects the exact user-visible verifier failure and internal coverage bookkeeping", () => {
     const checks = evaluateProjectChatAnswerQuality({
       answer: "The answer could not be verified against its sources.\n\nCoverage note: 2 additional supported facets were omitted.",
