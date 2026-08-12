@@ -261,8 +261,14 @@ function isSafeExtractiveEvidence(item: EvidenceItemSnapshot) {
     explicitSelfReportedOwnershipAuthority({
       type: item.type,
       content: item.content,
+      externalId: item.externalId,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
       metadata: item.metadata,
-      source: { metadata: item.source.metadata },
+      source: {
+        externalId: item.source.externalId,
+        metadata: item.source.metadata,
+      },
     }) >= 3 &&
     !semanticSensitivityPattern.test(item.content) &&
     manualEvidenceDlpCategories(item).length === 0
@@ -280,8 +286,14 @@ function isSafeExtractiveStatement(
     explicitSelfReportedOwnershipAuthority({
       type: item.type,
       content: text,
+      externalId: item.externalId,
+      parentKind: item.parentKind,
+      parentKey: item.parentKey,
       metadata: item.metadata,
-      source: { metadata: item.source.metadata },
+      source: {
+        externalId: item.source.externalId,
+        metadata: item.source.metadata,
+      },
     }) >= 3 &&
     ownershipOpeningPattern.test(text) &&
     !semanticSensitivityPattern.test(text) &&

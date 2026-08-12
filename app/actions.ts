@@ -29,7 +29,11 @@ import {
   syncWorkItemDescriptionEvidenceForWorkItem,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
-import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
+import {
+  buildManualEvidenceItemsFromSource,
+  USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+} from "@/src/lib/evidence-items";
 import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
 import { pendingHighlightBulkApprovalWhere } from "@/src/lib/highlight-bulk-approval";
 import { coerceHighlightTagAssignments } from "@/src/lib/highlight-tags";
@@ -778,6 +782,11 @@ export async function createWorkItemAction(formData: FormData) {
         type: "manual_note",
         label: "Initial notes",
         rawContent: manualNotes,
+        metadata: {
+          kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+          userAuthored: true,
+          ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+        },
       },
     });
 
@@ -889,6 +898,11 @@ export async function createManualSourceAction(formData: FormData) {
       type: "manual_note",
       label: parsed.data.label,
       rawContent: parsed.data.rawContent,
+      metadata: {
+        kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+        userAuthored: true,
+        ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+      },
     },
   });
 

@@ -13,6 +13,7 @@ import {
   type ManualEvidenceHighlightTrigger,
 } from "@/src/services/manual-evidence-highlight-service";
 import { startAgentRunWorkflowOnce } from "@/src/services/agent-run-workflow-start-service";
+import { backfillTrustedLegacyManualEvidenceOwnership } from "@/src/services/manual-evidence-ownership-backfill-service";
 import { manualEvidenceHighlightWorkflow } from "@/workflows/manual-evidence-highlights";
 
 const ACTIVE_RUN_STATUSES = ["queued", "running", "awaiting_review"] as const;
@@ -179,7 +180,12 @@ async function reserveManualEvidenceHighlightRun(input: {
     // lock before taking the advisory lock so all callers follow one order.
     const workItem = await tx.workItem.findFirst({
       where: { id: input.workItemId, userId: input.userId },
-      select: { id: true },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        description: true,
+      },
     });
     if (!workItem) {
       throw new Error("The Work Item is not available to this user.");
@@ -194,6 +200,10 @@ async function reserveManualEvidenceHighlightRun(input: {
       throw new Error("The Work Item no longer exists.");
     }
     await lockKnowledgeWorkItemMutation(tx, input.workItemId);
+    await backfillTrustedLegacyManualEvidenceOwnership({
+      db: tx,
+      workItemId: input.workItemId,
+    });
     const currentRequest = await buildCurrentManualEvidenceHighlightRequest({
       db: tx,
       workItemId: input.workItemId,
@@ -205,7 +215,7 @@ async function reserveManualEvidenceHighlightRun(input: {
       request: currentRequest,
     });
     const effectiveRequest = currentRequest ?? buildManualEvidenceHighlightRequest({
-      workItemId: input.workItemId,
+      workItem,
       trigger: input.trigger,
       evidenceItems: [],
     });
@@ -427,6 +437,10 @@ export async function retryManualEvidenceHighlights(input: {
     `;
     if (!lockedWorkItems.length) throw new Error("The Work Item no longer exists.");
     await lockKnowledgeWorkItemMutation(tx, input.workItemId);
+    await backfillTrustedLegacyManualEvidenceOwnership({
+      db: tx,
+      workItemId: input.workItemId,
+    });
     const lockedRuns = await tx.$queryRaw<LockedManualRun[]>`
       SELECT "id", "status"::text AS "status", "workflowId", "request", "result"
       FROM "AgentRun"

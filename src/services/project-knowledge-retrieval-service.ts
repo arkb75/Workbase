@@ -1028,7 +1028,13 @@ export const projectKnowledgeRetrievalService = {
           content: item.content,
           ownershipAuthority:
             purpose === "private_chat"
-              ? explicitSelfReportedOwnershipAuthority(item)
+              ? explicitSelfReportedOwnershipAuthority({
+                  ...item,
+                  source: {
+                    externalId: item.source.externalId,
+                    metadata: item.source.metadata,
+                  },
+                })
               : 0,
           retrievalRelevance: normalizedRetrievalRelevance({
             query,
