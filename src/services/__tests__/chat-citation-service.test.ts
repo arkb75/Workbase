@@ -97,6 +97,25 @@ describe("chat citation selection", () => {
     ]);
   });
 
+  it("keeps distinct content-addressed runtime authorities separate", () => {
+    const runtime = {
+      kind: "evidence" as const,
+      label: "Runtime profiles",
+      excerpt: "primary_answer=model-a",
+      contentHash: "a".repeat(64),
+    };
+    const repository = {
+      kind: "evidence" as const,
+      label: "Repository state",
+      excerpt: "head=abc",
+      contentHash: "b".repeat(64),
+    };
+    expect(dedupeCitationCatalog([runtime, repository, runtime])).toEqual([
+      runtime,
+      repository,
+    ]);
+  });
+
   it("serializes structured grounded blocks and writes canonical markers itself", () => {
     const result = finalizeGroundedAnswer({
       blocks: [

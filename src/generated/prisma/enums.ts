@@ -173,7 +173,10 @@ export const GenerationKind = {
   semantic_repair: 'semantic_repair',
   capability_synthesis: 'capability_synthesis',
   coverage_audit: 'coverage_audit',
-  answer_completeness_audit: 'answer_completeness_audit'
+  answer_completeness_audit: 'answer_completeness_audit',
+  project_chat_planning: 'project_chat_planning',
+  project_chat_answer: 'project_chat_answer',
+  project_chat_verification: 'project_chat_verification'
 } as const
 
 export type GenerationKind = (typeof GenerationKind)[keyof typeof GenerationKind]

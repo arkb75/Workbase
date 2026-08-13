@@ -1002,6 +1002,67 @@ describe("application evaluator model telemetry", () => {
     });
   });
 
+  it("does not double-count per-attempt events covered by one durable multi-call run", () => {
+    const attempts = [1, 2].map((index) => ({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      routedProvider: "openai",
+      requestId: `request-${index}`,
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      costUsd: 0.001,
+    }));
+    const metrics = calculateApplicationModelMetrics({
+      provider: "openrouter",
+      modelId: "openai/gpt-5.6-terra",
+      generationRuns: [generationRun({
+        tokenUsage: {
+          attempts,
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+        },
+        estimatedCostUsd: 0.002,
+        resultRefs: {
+          profile: "primary_answer",
+          configuredModelId: "openai/gpt-5.6-terra",
+          requestIds: ["request-1", "request-2"],
+          routedProviders: ["openai"],
+          auditAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          usageComplete: true,
+        },
+      })],
+      dossierModelUsage: [],
+      events: attempts.map((attempt, index) => ({
+        id: `event-${index + 1}`,
+        message: "Project evidence review completed.",
+        payload: {
+          modelEvent: "model_call_completed",
+          iteration: index + 1,
+          profile: "primary_answer",
+          provider: attempt.provider,
+          modelId: attempt.modelId,
+          routedProvider: attempt.routedProvider,
+          requestId: attempt.requestId,
+          usage: attempt,
+        },
+      })),
+    });
+
+    expect(metrics).toMatchObject({
+      modelCalls: 2,
+      totalTokens: 240,
+      estimatedCostUsd: 0.002,
+      usageComplete: true,
+      modelAttribution: {
+        providerAttempts: 2,
+        requestIds: ["request-1", "request-2"],
+        authoritativeAttributionComplete: true,
+      },
+    });
+  });
+
   it("counts duplicate usage once without reconciling conflicting model identity", () => {
     const requestId = "request-conflicting-duplicate";
     const metrics = calculateApplicationModelMetrics({

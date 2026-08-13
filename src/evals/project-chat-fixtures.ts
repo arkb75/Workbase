@@ -525,7 +525,7 @@ export const projectChatEvaluationFixtures = [
       route: "memory_only",
       lifecycle: ["answered"],
       requiredTools: [],
-      forbiddenTools: ["research_project", "inspect_prior_turn_provenance"],
+      forbiddenTools: ["research_project", "inspect_prior_answer_sources"],
       allowedSourceKinds: durableMemorySources,
       requiredSourceKinds: ["project_fact"],
       allowedAuthorities: durableMemoryAuthorities,
@@ -542,7 +542,7 @@ export const projectChatEvaluationFixtures = [
     expected: {
       route: "prior_turn_provenance",
       lifecycle: ["answered"],
-      requiredTools: ["inspect_prior_turn_provenance"],
+      requiredTools: ["inspect_prior_answer_sources"],
       forbiddenTools: ["research_project", "read_repository_file"],
       allowedSourceKinds: ["prior_turn_provenance"],
       requiredSourceKinds: ["prior_turn_provenance"],
@@ -560,7 +560,7 @@ export const projectChatEvaluationFixtures = [
     expected: {
       route: "prior_turn_provenance",
       lifecycle: ["answered"],
-      requiredTools: ["inspect_prior_turn_provenance"],
+      requiredTools: ["inspect_prior_answer_sources"],
       forbiddenTools: ["research_project", "read_repository_file"],
       allowedSourceKinds: ["prior_turn_provenance"],
       requiredSourceKinds: ["prior_turn_provenance"],

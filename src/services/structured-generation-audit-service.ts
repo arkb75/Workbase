@@ -34,7 +34,9 @@ type AuditedGenerationKind =
   | "artifact_generation"
   | "capability_synthesis"
   | "coverage_audit"
-  | "answer_completeness_audit";
+  | "answer_completeness_audit"
+  | "project_chat_planning"
+  | "project_chat_verification";
 
 type StructuredResult = {
   data: unknown;
@@ -611,6 +613,10 @@ function profileForAuditedKind(kind: AuditedGenerationKind): TextModelProfile {
     case "highlight_verification":
       return "verification";
     case "artifact_generation":
+      return "verification";
+    case "project_chat_planning":
+      return "primary_answer";
+    case "project_chat_verification":
       return "verification";
   }
 }

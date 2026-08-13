@@ -423,6 +423,16 @@ function supportedByCitationMetadata(
   return topicalAlignment && exactDetailsSupported;
 }
 
+function citationSupportBlocks(blocks: readonly string[]) {
+  return blocks.flatMap((block, index) => {
+    if (!citationOrdinals(block).length) return [];
+    if (stripCitationMarkers(block).trim()) return [block];
+    const prior = blocks.slice(0, index).reverse()
+      .find((candidate) => stripCitationMarkers(candidate).trim());
+    return prior ? [`${prior}\n${block}`] : [block];
+  });
+}
+
 function prioritizedOpening(answer: string, blocks: readonly string[]) {
   const openingBlock = blocks[0] ?? answer;
   const opening = blockProse(openingBlock).slice(0, 700);
@@ -567,7 +577,7 @@ export function evaluateProjectChatAnswerQuality(input: {
     }
   }
   if (input.citationMetadata) {
-    const citedBlocks = blocks.filter((block) => citationOrdinals(block).length > 0);
+    const citedBlocks = citationSupportBlocks(blocks);
     const knownOrdinals = new Set(input.citationMetadata.map((source) => source.ordinal));
     const referencedOrdinals = new Set(citedBlocks.flatMap(citationOrdinals));
     const resolvedOrdinals = [...referencedOrdinals].filter((ordinal) => knownOrdinals.has(ordinal));

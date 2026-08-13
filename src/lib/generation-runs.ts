@@ -29,7 +29,10 @@ export type GenerationRunWriteInput = {
     | "semantic_repair"
     | "capability_synthesis"
     | "coverage_audit"
-    | "answer_completeness_audit";
+    | "answer_completeness_audit"
+    | "project_chat_planning"
+    | "project_chat_answer"
+    | "project_chat_verification";
   status: "queued" | "running" | "success" | "provider_error" | "parse_error" | "validation_error";
   idempotencyKey?: string | null;
   provider: string;

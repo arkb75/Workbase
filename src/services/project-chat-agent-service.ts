@@ -2136,10 +2136,45 @@ async function executeProjectChatAgent(
   }
 }
 
+export function usesLegacyProjectChatTestHarness(input: {
+  provider: ReturnType<typeof resolveWorkbaseLlmProvider>;
+  nodeEnv: string | undefined;
+  vitest: string | undefined;
+}) {
+  return input.provider === "mock" &&
+    (input.nodeEnv === "test" || input.vitest === "true");
+}
+
+function legacyMockTestPath() {
+  return usesLegacyProjectChatTestHarness({
+    provider: resolveWorkbaseLlmProvider(),
+    nodeEnv: process.env.NODE_ENV,
+    vitest: process.env.VITEST,
+  });
+}
+
 export async function runProjectChatAgent(input: RunProjectChatAgentInput) {
+  const useLegacyMock = legacyMockTestPath();
+  if (!useLegacyMock) {
+    const { executeModelLedProjectChatAgent } = await import(
+      "@/src/services/project-chat-model-agent-service"
+    );
+    return executeModelLedProjectChatAgent(input);
+  }
   return executeProjectChatAgent(input, "normal");
 }
 
 export async function finalizeProjectChatAfterFactReview(input: RunProjectChatAgentInput) {
+  const useLegacyMock = legacyMockTestPath();
+  if (!useLegacyMock) {
+    const { executeModelLedProjectChatAgent } = await import(
+      "@/src/services/project-chat-model-agent-service"
+    );
+    return executeModelLedProjectChatAgent({
+      ...input,
+      allowResearch: false,
+      afterFactReview: true,
+    });
+  }
   return executeProjectChatAgent({ ...input, allowResearch: false }, "post_review_finalization");
 }

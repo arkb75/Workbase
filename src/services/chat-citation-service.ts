@@ -73,6 +73,7 @@ export function citationCatalogKey(citation: ProjectKnowledgeCitation) {
     citation.path,
     citation.startLine,
     citation.endLine,
+    citation.contentHash,
   ].join(":");
 }
 

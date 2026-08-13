@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
     answerStatus: null as string | null,
     currentQuestion:
       "Summarize my strongest accomplishments and make sure your information is up to date.",
+    turnPlanAction: "refresh_then_answer" as "answer" | "refresh_then_answer" | "artifact",
     threadMessages: [] as Array<Record<string, unknown>>,
     workflowRunId: "wrun-h2",
     refreshAttachmentStatus: null as string | null,
@@ -305,10 +306,22 @@ vi.mock("@/src/services/research-event-persistence-service", () => ({
 
 vi.mock("@/src/services/project-chat-agent-service", () => ({
   finalizeProjectChatAfterFactReview: mocks.runAgent,
-  requiresLiveRepositoryResearch: (question: string) =>
-    !/(?:\brefresh\b.{0,80}\b(?:status|running|complete(?:d)?)\b)|(?:\b(?:status|running|complete(?:d)?)\b.{0,80}\brefresh\b)/i.test(question) &&
-    /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i.test(question),
   runProjectChatAgent: mocks.runAgent,
+}));
+
+vi.mock("@/src/services/project-chat-turn-planner-service", () => ({
+  ensureProjectChatTurnPlan: vi.fn(async () => ({
+    version: "project-chat-turn-plan-v1",
+    objective: mocks.state.currentQuestion,
+    action: mocks.state.turnPlanAction,
+    allowRepositoryResearch: true,
+    knowledgeQueries: [mocks.state.currentQuestion],
+    outputFormat: "follow the user's requested format",
+    outputRequirements: [],
+    reasonCodes: ["semantic_test_fixture"],
+    confidence: 1,
+    generationRunId: "plan-run-1",
+  })),
 }));
 
 vi.mock("@/src/services/knowledge-refresh-service", () => ({
@@ -382,6 +395,7 @@ describe("project chat latest-commit freshness orchestration", () => {
     mocks.state.answerStatus = null;
     mocks.state.currentQuestion =
       "Summarize my strongest accomplishments and make sure your information is up to date.";
+    mocks.state.turnPlanAction = "refresh_then_answer";
     mocks.state.threadMessages = [];
     mocks.state.workflowRunId = "wrun-h2";
     mocks.state.refreshAttachmentStatus = null;
@@ -481,6 +495,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("does not recursively refresh for an explicit refresh-status question", async () => {
     mocks.state.currentQuestion = "What is the current status of the repository refresh?";
+    mocks.state.turnPlanAction = "answer";
 
     await expect(projectChatTurnWorkflow("run-h2")).resolves.toEqual({
       status: "completed",
@@ -705,6 +720,7 @@ describe("project chat latest-commit freshness orchestration", () => {
     "does no paid $name work when cancellation wins the mark-running transition",
     async ({ run }) => {
       mocks.state.currentQuestion = "Explain the architecture.";
+      mocks.state.turnPlanAction = "answer";
       mocks.markRunning.mockResolvedValueOnce({
         active: false,
         status: "cancelled",
@@ -745,6 +761,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("reuses a structurally valid awaiting-review checkpoint without repeating routing, research, candidates, or citations", async () => {
     mocks.state.currentQuestion = "Explain the repository architecture.";
+    mocks.state.turnPlanAction = "answer";
     mocks.runStatus = "awaiting_review";
     mocks.state.answerStatus = "awaiting_review";
     const provisionalContent =
@@ -820,6 +837,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("returns authoritative cancellation when it wins after fact materialization but before the review checkpoint", async () => {
     mocks.state.currentQuestion = "Explain the repository architecture.";
+    mocks.state.turnPlanAction = "answer";
     mocks.runAgent.mockResolvedValueOnce({
       status: "awaiting_review",
       answer: "A provisional architecture fact awaits review. [citation:1]",
@@ -870,6 +888,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("keeps chat cancellation authoritative when an in-flight step throws afterward", async () => {
     mocks.state.currentQuestion = "Explain the repository architecture.";
+    mocks.state.turnPlanAction = "answer";
     mocks.runAgent.mockImplementationOnce(async () => {
       mocks.runStatus = "cancelled";
       throw new Error("provider returned after cancellation");
@@ -886,6 +905,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("keeps artifact cancellation authoritative when an in-flight attempt throws afterward", async () => {
     mocks.state.currentQuestion = "Write a concise project summary.";
+    mocks.state.turnPlanAction = "answer";
     mocks.executeArtifactAttempt.mockImplementationOnce(async () => {
       mocks.runStatus = "cancelled";
       throw new Error("artifact provider returned after cancellation");
@@ -919,6 +939,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("replays a failed turn to a follow-up using only its sanitized failure envelope", async () => {
     mocks.state.currentQuestion = "What happened, and what should I do next?";
+    mocks.state.turnPlanAction = "answer";
     mocks.state.threadMessages = [
       {
         id: "message-user-h2",
@@ -1009,6 +1030,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("drops both sides of a legacy failed turn before retrying when no safe envelope exists", async () => {
     mocks.state.currentQuestion = "Retry that request.";
+    mocks.state.turnPlanAction = "answer";
     mocks.state.threadMessages = [
       {
         id: "message-user-h2",
@@ -1063,6 +1085,7 @@ describe("project chat latest-commit freshness orchestration", () => {
 
   it("keeps cancelled history pair-aligned without replaying interrupted content", async () => {
     mocks.state.currentQuestion = "Can you answer a narrower version instead?";
+    mocks.state.turnPlanAction = "answer";
     mocks.state.threadMessages = [
       {
         id: "message-user-h2",

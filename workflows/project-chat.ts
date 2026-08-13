@@ -21,9 +21,9 @@ import { executeArtifactAttempt } from "@/src/services/artifact-workflow-service
 import { persistResearchAgentEvent } from "@/src/services/research-event-persistence-service";
 import {
   finalizeProjectChatAfterFactReview,
-  requiresLiveRepositoryResearch,
   runProjectChatAgent,
 } from "@/src/services/project-chat-agent-service";
+import { ensureProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import {
   isKnowledgeRefreshPartial,
   knowledgeRefreshService,
@@ -418,14 +418,11 @@ async function startRequiredKnowledgeRefresh(runId: string) {
       terminalStatus: run.status as TerminalAgentRunStatus,
     };
   }
-  const question = run.messages[0]?.content ?? "";
-  // Artifact adequacy is evaluated by ArtifactWorkflow itself, which starts
-  // from approved Highlights and performs bounded targeted research only when
-  // they are insufficient. Refreshing every attached repository before every
-  // artifact request duplicated that work and made the common adequate-memory
-  // path pay the full repository cost. Explicit freshness/repository language
-  // still enters the refresh barrier here.
-  if (!requiresLiveRepositoryResearch(question)) {
+  const plan = await ensureProjectChatTurnPlan(run.id);
+  // Semantic freshness is model-owned. The workflow enforces the model's
+  // bounded decision as a durable side-effect barrier; it does not reinterpret
+  // user wording with lexical triggers.
+  if (plan.action !== "refresh_then_answer") {
     return {
       required: false as const,
       refreshRunId: null,

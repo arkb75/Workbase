@@ -310,6 +310,28 @@ The durable Bedrock workflow uses \`retryAgentRun\` to guarantee 99.99% producti
     )).toMatchObject({ passed: false, actual: 0, expected: 1 });
   });
 
+  it("evaluates a standalone citation line against the preceding table block", () => {
+    const answer = [
+      "| Purpose | Model |",
+      "| --- | --- |",
+      "| Primary answers | `openai/gpt-5.6-terra` |",
+      "| Verification | `openai/gpt-5.6-luna` |",
+      "",
+      "[citation:1]",
+    ].join("\n");
+    const checks = evaluateProjectChatAnswerQuality({
+      answer,
+      contract: { format: "table" },
+      citationMetadata: [{
+        ordinal: 1,
+        type: "evidence",
+        title: "Resolved runtime model profiles",
+        statement: "Primary answers use openai/gpt-5.6-terra and verification uses openai/gpt-5.6-luna.",
+      }],
+    });
+    expect(checks.filter((check) => !check.passed)).toEqual([]);
+  });
+
   it("enforces exact item counts without mistaking a generic title for an item", () => {
     const answer = `## Workbase
 

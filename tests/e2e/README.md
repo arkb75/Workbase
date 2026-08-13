@@ -154,6 +154,33 @@ camel-case fields (`workItemTitle`, `repository`,
 `minimumDevelopedItems`, `minimumCitedItems`, `minimumCharacters`, and
 `maximumCharacters`); unknown profile fields are also rejected.
 
+## Model-led project-chat semantic robustness
+
+The application catalog includes the exact runtime-model matrix regression and
+a same-thread grid paraphrase. Both must use
+`inspect_runtime_model_profiles`, persist an audited `primary_answer` run, and
+record `answerCompositionMode=model_tool_loop`; repository prose and
+`deterministic_source_synthesis` are not acceptable substitutes.
+
+The broader semantic observation contract lives in
+`src/evals/project-chat-semantic-robustness.ts`. It covers freshness
+paraphrases, format synonyms, elliptical source questions, multi-turn
+reformatting, distractors, and unsupported metrics. Answers are scored by an
+attributed semantic judge and compared with a same-model direct Codex/agent
+control; the gate does not match expected answer phrases. Evaluate a collected
+observation set with:
+
+```bash
+npm run eval:project-chat:semantic-robustness -- \
+  --input /tmp/project-chat-semantic-observations.json \
+  --output /tmp/project-chat-semantic-report.json
+```
+
+The command exits `0` only when every semantic, grounding, format, tool-choice,
+model-composition, and direct-agent non-inferiority check passes. Exit `2`
+means valid evidence with a quality failure; exit `1` means malformed or
+incomplete evidence.
+
 ## Paired quality comparison
 
 Assemble each provider report from the evaluated lifecycle gate, its raw

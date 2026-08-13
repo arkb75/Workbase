@@ -149,6 +149,12 @@ The test suite covers:
 - artifact eligibility constraints
 - claim regeneration behavior
 - multi-turn project chat, citation grounding, retrieval, and prior-turn provenance
+- primary-model-led project chat planning, iterative tool selection, answer composition,
+  semantic verification, and durable provider/model/usage attribution. Real
+  providers do not use lexical routing or deterministic source-shaped prose
+- semantic robustness families covering freshness and format paraphrases,
+  elliptical follow-ups, runtime-configuration authority, distractors,
+  unsupported questions, and non-inferiority to a same-model direct-agent run
 - exact same-thread accomplishments freshness follow-ups, including current-head
   breadth continuity and cross-repository contamination rejection
 - commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
@@ -173,4 +179,10 @@ The test suite covers:
 - Exact repository excerpts are immutable provenance beneath reviewed Project Facts or Highlights, not peer sources in chat.
 - Safe repository knowledge is auto-applied for private use and marked for retrospective review; sensitive or weakly supported knowledge is quarantined.
 - Project chat, research, review, retrieval, and artifact generation live behind typed service interfaces in `src/services`.
+- The primary answer model owns conversation interpretation, evidence/tool
+  selection, answer structure, and prose. Deterministic chat boundaries are
+  intentionally narrow: authorization, side-effect admission, budgets,
+  idempotency, citation syntax/provenance, current-head validation, and secret
+  handling. A semantic verifier may request one bounded model repair; it never
+  replaces the answer with a canned template.
 - Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.
