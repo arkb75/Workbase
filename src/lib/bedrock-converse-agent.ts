@@ -750,6 +750,26 @@ function validateTools(tools: readonly BedrockConverseTool[]) {
   }
 }
 
+export function estimateBedrockConverseInputTokens(input: {
+  systemPrompt?: string;
+  messages: readonly Message[];
+  tools?: readonly BedrockConverseTool[];
+}) {
+  const serialized = JSON.stringify({
+    systemPrompt: input.systemPrompt ?? "",
+    messages: input.messages,
+    tools: (input.tools ?? []).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      jsonSchema: tool.jsonSchema,
+    })),
+  });
+  // This is deliberately conservative for mixed prose/JSON/tool payloads.
+  // It is not billing telemetry; it prevents an obviously oversized follow-up
+  // call before that call is sent to a provider.
+  return Math.max(1, Math.ceil(serialized.length / 3));
+}
+
 function getProviderErrorName(error: unknown) {
   if (error && typeof error === "object" && "name" in error) {
     return String(error.name);
@@ -961,6 +981,25 @@ export class BedrockConverseAgent {
           iterations + 1,
           { iterations, toolCalls, usage: aggregateUsage },
         );
+      }
+
+      if (iterations > 0) {
+        const estimatedNextInputTokens = estimateBedrockConverseInputTokens({
+          systemPrompt: input.systemPrompt,
+          messages,
+          tools,
+        });
+        const projectedTotalTokens =
+          aggregateUsage.totalTokens + estimatedNextInputTokens;
+        if (projectedTotalTokens > limits.maxTotalTokens) {
+          throw new BedrockConverseLimitError(
+            `${this.providerLabel()} agent stopped before an oversized follow-up model call would exceed its ${limits.maxTotalTokens}-token budget.`,
+            "token_limit_exceeded",
+            limits.maxTotalTokens,
+            projectedTotalTokens,
+            { iterations, toolCalls, usage: aggregateUsage },
+          );
+        }
       }
 
       iterations += 1;
@@ -1210,16 +1249,6 @@ export class BedrockConverseAgent {
           : {}),
       });
 
-      if (aggregateUsage.totalTokens > limits.maxTotalTokens) {
-        throw new BedrockConverseLimitError(
-          `${this.providerLabel()} agent exceeded its ${limits.maxTotalTokens}-token budget.`,
-          "token_limit_exceeded",
-          limits.maxTotalTokens,
-          aggregateUsage.totalTokens,
-          { stopReason, iterations, toolCalls, usage: aggregateUsage },
-        );
-      }
-
       if (!stopReason) {
         throw new BedrockConverseAgentError(
           `${this.providerLabel()} response did not include a stop reason.`,
@@ -1279,6 +1308,16 @@ export class BedrockConverseAgent {
               }
             : {}),
         };
+      }
+
+      if (aggregateUsage.totalTokens > limits.maxTotalTokens) {
+        throw new BedrockConverseLimitError(
+          `${this.providerLabel()} agent exceeded its ${limits.maxTotalTokens}-token budget before completing an answer.`,
+          "token_limit_exceeded",
+          limits.maxTotalTokens,
+          aggregateUsage.totalTokens,
+          { stopReason, iterations, toolCalls, usage: aggregateUsage },
+        );
       }
 
       if (stopReason === "max_tokens") {

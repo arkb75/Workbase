@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildModelLedProjectChatHistory,
+  compactRepositoryRefreshState,
+  frozenRepairSourceSet,
   modelLedProjectChatLimits,
+  modelLedProjectChatRepairSystemPrompt,
   modelLedProjectChatToolNames,
   modelLedProjectChatSystemPrompt,
+  repositoryCoverageDrilldown,
   resolvedRuntimeModelMatrix,
 } from "@/src/services/project-chat-model-agent-service";
+import type { ProjectChatModelCheckpoint } from "@/src/services/project-chat-model-audit-service";
 import type { ProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 
 const plan: ProjectChatTurnPlan = {
@@ -111,9 +116,9 @@ describe("model-led project-chat agent contract", () => {
       maxTotalTokens: 60_000,
     });
     expect(modelLedProjectChatLimits("repair")).toEqual({
-      maxIterations: 3,
-      maxToolCalls: 4,
-      maxTotalTokens: 20_000,
+      maxIterations: 1,
+      maxToolCalls: 1,
+      maxTotalTokens: 30_000,
     });
   });
 
@@ -130,7 +135,7 @@ describe("model-led project-chat agent contract", () => {
     expect(prompt).toContain("Never output internal message identifiers");
   });
 
-  it("permits repository research only on the initial bounded attempt", () => {
+  it("permits tools only on the initial bounded attempt", () => {
     expect(modelLedProjectChatToolNames({
       repositoryAttached: true,
       requestAllowsResearch: true,
@@ -140,7 +145,7 @@ describe("model-led project-chat agent contract", () => {
       repositoryAttached: true,
       requestAllowsResearch: true,
       attempt: "repair",
-    })).not.toContain("research_repository");
+    })).toEqual([]);
     expect(modelLedProjectChatToolNames({
       repositoryAttached: false,
       requestAllowsResearch: true,
@@ -148,9 +153,141 @@ describe("model-led project-chat agent contract", () => {
     })).not.toContain("research_repository");
     expect(modelLedProjectChatToolNames({
       repositoryAttached: true,
+      repositoryCoverageAvailable: true,
       requestAllowsResearch: false,
       attempt: "initial",
-    })).not.toContain("research_repository");
+    })).toEqual(expect.arrayContaining([
+      "inspect_repository_state",
+      "inspect_repository_coverage",
+    ]));
+  });
+
+  it("keeps repair as a single frozen rewrite rather than a second agent session", () => {
+    const prompt = modelLedProjectChatRepairSystemPrompt();
+    expect(prompt).toContain("exactly once");
+    expect(prompt).toContain("No tools or new research are available");
+    expect(prompt).toContain("only the frozen source catalog");
+    expect(prompt).not.toContain("Choose tools iteratively");
+  });
+
+  it("projects a large coverage inventory into a compact freshness authority", () => {
+    const paths = Array.from({ length: 393 }, (_, index) => `src/module-${index}.ts`);
+    const refresh = compactRepositoryRefreshState({
+      id: "refresh-1",
+      status: "completed",
+      qualityStatus: "verified",
+      targetHeads: [{
+        repository: "arkb75/Workbase",
+        commitSha: "a".repeat(40),
+        branch: "main",
+        resolvedAt: "2026-08-13T06:00:00.000Z",
+        treeSha: "tree-should-not-leak",
+      }],
+      coverage: [{
+        repository: "arkb75/Workbase",
+        commitSha: "a".repeat(40),
+        totalPaths: 437,
+        analyzedPaths: 393,
+        excludedPaths: 44,
+        semanticPaths: 18,
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        dimensions: {
+          inventory: "complete",
+          staticAnalysis: "complete",
+          semanticAnalysis: "complete",
+          capabilityCoverage: "verified",
+        },
+        coverageGaps: [],
+        targets: Array.from({ length: 20 }, (_, index) => ({
+          key: `capability-${index}`,
+          status: "semantic_verified",
+          paths,
+          unresolvedQuestions: ["Internal diagnostic detail"],
+        })),
+      }],
+    });
+    const serialized = JSON.stringify(refresh);
+    expect(serialized.length).toBeLessThan(2_500);
+    expect(serialized).not.toContain("src/module-0.ts");
+    expect(serialized).not.toContain("Internal diagnostic detail");
+    expect(refresh.repositories[0]).toMatchObject({
+      analyzedPaths: 393,
+      coverageGapCount: 0,
+      capabilityCount: 20,
+      statusCounts: { semantic_verified: 20 },
+    });
+  });
+
+  it("returns only the requested bounded coverage slice on drill-down", () => {
+    const details = repositoryCoverageDrilldown({
+      query: "ai runtime",
+      maxPaths: 2,
+      coverage: [{
+        repository: "arkb75/Workbase",
+        commitSha: "b".repeat(40),
+        targets: [
+          {
+            key: "ai_runtime",
+            label: "AI runtime",
+            status: "semantic_verified",
+            paths: ["src/lib/llm-config.ts", "src/lib/openrouter-client.ts", "README.md"],
+            unresolvedQuestions: ["Which fallback is active?"],
+          },
+          {
+            key: "review_ui",
+            label: "Review UI",
+            paths: ["app/work-items/[id]/page.tsx"],
+            unresolvedQuestions: [],
+          },
+        ],
+      }],
+    });
+    expect(details.returnedPathCount).toBe(2);
+    expect(details.repositories).toHaveLength(1);
+    expect(details.repositories[0]?.matches).toEqual([
+      expect.objectContaining({
+        key: "ai_runtime",
+        paths: ["src/lib/llm-config.ts", "src/lib/openrouter-client.ts"],
+      }),
+    ]);
+    expect(JSON.stringify(details)).not.toContain("app/work-items");
+  });
+
+  it("prioritizes cited frozen sources and bounds repair context", () => {
+    const checkpoint = {
+      version: "project-chat-model-checkpoint-v4",
+      answer: "The runtime is current. [citation:2]",
+      catalog: [],
+      entries: [
+        {
+          kind: "project_fact",
+          authority: "included_evidence",
+          title: "Unreferenced source",
+          content: "x".repeat(4_000),
+          currentRun: false,
+          citationIndexes: [1],
+          supportingSources: [],
+        },
+        {
+          kind: "runtime_authority",
+          authority: "included_evidence",
+          title: "Referenced runtime source",
+          content: `ACTIVE_RUNTIME ${"y".repeat(4_000)}`,
+          currentRun: true,
+          citationIndexes: [2],
+          supportingSources: [],
+        },
+      ],
+      research: null,
+      toolNames: ["inspect_runtime_model_profiles"],
+    } as ProjectChatModelCheckpoint;
+    const frozen = frozenRepairSourceSet(checkpoint, 4_000);
+    expect(frozen[0]?.title).toBe("Referenced runtime source");
+    expect(frozen[0]?.content).toContain("ACTIVE_RUNTIME");
+    expect(frozen.reduce((sum, source) => sum + source.content.length, 0))
+      .toBeLessThanOrEqual(4_000);
   });
 
   it("resolves every runtime profile from active configuration instead of repository prose", () => {

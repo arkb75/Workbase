@@ -31,6 +31,8 @@ describe("model-led project-chat failure recovery", () => {
     expect(instructions).toContain("Revise your prior answer once");
     expect(instructions).toContain("unsupported_claim");
     expect(instructions).toContain("format_mismatch");
+    expect(instructions).toContain("Do not call tools, search again, or introduce new sources");
+    expect(instructions).toContain("frozen source catalog");
     expect(instructions).not.toContain("deterministic_source_synthesis");
     expect(instructions).not.toContain("## What I found");
   });
