@@ -4,6 +4,41 @@ import type {
 import { buildEvidenceSearchText } from "@/src/lib/highlight-tags";
 import { normalizeWhitespace, toSentence } from "@/src/lib/utils";
 
+export const USER_AUTHORED_MANUAL_NOTE_KIND =
+  "user_authored_manual_note" as const;
+export const USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION =
+  "user-authored-manual-note-v1" as const;
+export const USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND =
+  "user_authored_manual_note_source" as const;
+
+export function isExplicitUserAuthoredManualNoteMetadata(value: unknown) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      "kind" in value &&
+      value.kind === USER_AUTHORED_MANUAL_NOTE_KIND &&
+      "userAuthored" in value &&
+      value.userAuthored === true &&
+      "ownershipPolicyVersion" in value &&
+      value.ownershipPolicyVersion === USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  );
+}
+
+export function isExplicitUserAuthoredManualNoteSourceMetadata(value: unknown) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      "kind" in value &&
+      value.kind === USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND &&
+      "userAuthored" in value &&
+      value.userAuthored === true &&
+      "ownershipPolicyVersion" in value &&
+      value.ownershipPolicyVersion === USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  );
+}
+
 export function splitManualNoteIntoEvidenceContent(value: string) {
   return value
     .split(/\n+/)
@@ -18,6 +53,9 @@ export function buildManualEvidenceExternalId(sourceId: string, index: number) {
 
 export function buildManualEvidenceItemsFromSource(source: SourceSnapshot) {
   const excerpts = splitManualNoteIntoEvidenceContent(source.rawContent ?? "");
+  const userAuthored = isExplicitUserAuthoredManualNoteSourceMetadata(
+    source.metadata,
+  );
 
   return excerpts.map((excerpt, index) => ({
     workItemId: source.workItemId,
@@ -38,6 +76,13 @@ export function buildManualEvidenceItemsFromSource(source: SourceSnapshot) {
     parentKey: source.id,
     included: true,
     metadata: {
+      ...(userAuthored
+        ? {
+            kind: USER_AUTHORED_MANUAL_NOTE_KIND,
+            userAuthored: true,
+            ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+          }
+        : {}),
       lineIndex: index,
       sourceType: source.type,
     },

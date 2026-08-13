@@ -911,6 +911,67 @@ function deduplicateUsageUnits(units: MeasuredUsageUnit[]) {
   return Array.from(byIdentity.values());
 }
 
+function isSubset(left: string[], right: string[]) {
+  const candidates = new Set(right);
+  return left.every((value) => candidates.has(value));
+}
+
+function collapseDurablyCoveredTelemetry(input: {
+  generationUnits: MeasuredUsageUnit[];
+  supplementalUnits: MeasuredUsageUnit[];
+}) {
+  const durable = input.generationUnits.map((unit) => ({ ...unit }));
+  const uncovered: MeasuredUsageUnit[] = [];
+  for (const supplemental of input.supplementalUnits) {
+    const coveredIndex = supplemental.requestIds.length
+      ? durable.findIndex((candidate) =>
+          candidate.modelCalls > 1 &&
+          candidate.requestIds.length > 0 &&
+          isSubset(supplemental.requestIds, candidate.requestIds)
+        )
+      : -1;
+    if (coveredIndex < 0) {
+      uncovered.push(supplemental);
+      continue;
+    }
+    const candidate = durable[coveredIndex]!;
+    const conflicting =
+      candidate.profile !== supplemental.profile ||
+      !isSubset(supplemental.configuredModelIds, candidate.configuredModelIds) ||
+      !isSubset(supplemental.actualModelIds, candidate.actualModelIds) ||
+      !isSubset(supplemental.providers, candidate.providers) ||
+      !isSubset(supplemental.routedProviders, candidate.routedProviders);
+    durable[coveredIndex] = {
+      ...candidate,
+      telemetrySources: uniqueStrings(
+        candidate.telemetrySources,
+        supplemental.telemetrySources,
+      ),
+      attributionConflict: candidate.attributionConflict || conflicting,
+      authoritativeAttributionComplete:
+        candidate.authoritativeAttributionComplete && !conflicting,
+      fallbackUsed: candidate.fallbackUsed || supplemental.fallbackUsed,
+      configuredModelIds: conflicting
+        ? uniqueStrings(candidate.configuredModelIds, supplemental.configuredModelIds)
+        : candidate.configuredModelIds,
+      actualModelIds: conflicting
+        ? uniqueStrings(candidate.actualModelIds, supplemental.actualModelIds)
+        : candidate.actualModelIds,
+      providers: conflicting
+        ? uniqueStrings(candidate.providers, supplemental.providers)
+        : candidate.providers,
+      routedProviders: conflicting
+        ? uniqueStrings(candidate.routedProviders, supplemental.routedProviders)
+        : candidate.routedProviders,
+      failedProviderAttempts: Math.max(
+        candidate.failedProviderAttempts,
+        supplemental.failedProviderAttempts,
+      ),
+    };
+  }
+  return [...durable, ...uncovered];
+}
+
 function profileAttribution(input: {
   units: MeasuredUsageUnit[];
   expectedModelIdsByProfile?: Readonly<Record<string, string>>;
@@ -1090,8 +1151,10 @@ export function calculateApplicationModelMetrics(input: {
   storedResult?: unknown;
   expectedModelIdsByProfile?: Readonly<Record<string, string>>;
 }): ApplicationModelMetrics {
-  const units = deduplicateUsageUnits([
-    ...generationUsageUnits(input.generationRuns),
+  const generationUnits = deduplicateUsageUnits(
+    generationUsageUnits(input.generationRuns),
+  );
+  const supplementalUnits = deduplicateUsageUnits([
     ...eventUsageUnits(input),
     ...dossierUsageUnits({
       modelUsage: input.dossierModelUsage,
@@ -1099,6 +1162,10 @@ export function calculateApplicationModelMetrics(input: {
       modelId: input.modelId,
     }),
   ]);
+  const units = deduplicateUsageUnits(collapseDurablyCoveredTelemetry({
+    generationUnits,
+    supplementalUnits,
+  }));
   const totals = units.reduce(
     (aggregate, unit) => ({
       modelCalls: aggregate.modelCalls + unit.modelCalls,

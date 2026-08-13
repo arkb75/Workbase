@@ -52,6 +52,12 @@ describe("project-chat answer quality contracts", () => {
     expect(checks.filter((check) => !check.passed)).toEqual([]);
   });
 
+  it("recognizes the repository-backed workspace review UI as an engineering theme", () => {
+    expect(projectChatReaderThemes(
+      "The project workspace review UI combines URL-addressable views with inline citation navigation.",
+    )).toContain("engineering_foundation");
+  });
+
   it("rejects the exact user-visible verifier failure and internal coverage bookkeeping", () => {
     const checks = evaluateProjectChatAnswerQuality({
       answer: "The answer could not be verified against its sources.\n\nCoverage note: 2 additional supported facets were omitted.",
@@ -61,6 +67,24 @@ describe("project-chat answer quality contracts", () => {
       "answer does not expose an internal verification or agent failure",
       "answer does not expose internal coverage bookkeeping or schema inventory",
     ]);
+  });
+
+  it("rejects leaked conversation and provenance transport syntax", () => {
+    const result = evaluateProjectChatAnswerQuality({
+      answer: [
+        "The repository is current. [citation:1]",
+        "<message_id>cmsr2hs5d00yob3un3nmthh9k</message_id>",
+        '<used_sources>[{"ordinal":1}]</used_sources>',
+      ].join("\n"),
+      contract: {},
+    });
+
+    expect(result).toContainEqual({
+      name: "answer does not expose internal conversation or provenance transport syntax",
+      passed: false,
+      actual: true,
+      expected: false,
+    });
   });
 
   it("rejects broad answers that are shallow, exhaustive, and led by low-value implementation detail", () => {
@@ -176,6 +200,26 @@ ${repeated} [citation:4]`;
     )).toMatchObject({ passed: false, actual: 1, expected: 4 });
   });
 
+  it("recognizes a selection-and-reuse workflow followed by its explicit value", () => {
+    const answer = `### Career Content Product & Trustworthy Artifact Pipeline
+- The workflow reviews resume branches and selects the closest existing variant for the job description.
+- It favors constrained edits; when a new variant is justified, it reuses an existing branch and edits main.tex minimally.
+
+**Why it matters:** This keeps career output tied to reviewed project knowledge without uncontrolled rewrites. [citation:1]`;
+
+    const checks = evaluateProjectChatAnswerQuality({
+      answer,
+      contract: {
+        minPrimaryItems: 1,
+        minDevelopedItems: 1,
+        minMechanismValueItems: 1,
+        minCitedItems: 1,
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
   it("rejects a low-value opening even when higher-value keywords occur soon afterward", () => {
     const answer = `## Architecture assessment
 
@@ -282,6 +326,28 @@ The durable Bedrock workflow uses \`retryAgentRun\` to guarantee 99.99% producti
     expect(checks.find((check) =>
       check.name === "claim-local citations are supported by their source metadata",
     )).toMatchObject({ passed: false, actual: 0, expected: 1 });
+  });
+
+  it("evaluates a standalone citation line against the preceding table block", () => {
+    const answer = [
+      "| Purpose | Model |",
+      "| --- | --- |",
+      "| Primary answers | `openai/gpt-5.6-terra` |",
+      "| Verification | `openai/gpt-5.6-luna` |",
+      "",
+      "[citation:1]",
+    ].join("\n");
+    const checks = evaluateProjectChatAnswerQuality({
+      answer,
+      contract: { format: "table" },
+      citationMetadata: [{
+        ordinal: 1,
+        type: "evidence",
+        title: "Resolved runtime model profiles",
+        statement: "Primary answers use openai/gpt-5.6-terra and verification uses openai/gpt-5.6-luna.",
+      }],
+    });
+    expect(checks.filter((check) => !check.passed)).toEqual([]);
   });
 
   it("enforces exact item counts without mistaking a generic title for an item", () => {

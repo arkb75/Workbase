@@ -436,8 +436,13 @@ export function shouldQuarantineSynthesizedCandidate(candidate: {
   // establish by themselves. They require a narrower claim rather than silent
   // auto-approval.
   if (/\b(?:tamper[- ]evident|production[- ]grade|always produces?|guarantees?)\b/i.test(claim)) return true;
-  const modalTerms = Array.from(claim.matchAll(/\b(?:mandatory|always|never|exclusively|every|all|only)\b/gi))
-    .map((match) => match[0]!.toLowerCase());
+  const modalTerms = [
+    ...claim.matchAll(/\b(?:mandatory|always|never|exclusively|every|all)\b/gi),
+    // Product descriptors such as "invite-only" and "read-only" are not
+    // standalone universal qualifiers. Treating their suffix as an absolute
+    // would quarantine an otherwise evidence-backed capability statement.
+    ...claim.matchAll(/(?<![-\u2010-\u2015])\bonly\b/gi),
+  ].map((match) => match[0]!.toLowerCase());
   if (!modalTerms.length) return false;
   // An unrelated executable file is not evidence for an absolute qualifier.
   // At least one executable exact-line observation must itself state every
@@ -447,6 +452,15 @@ export function shouldQuarantineSynthesizedCandidate(candidate: {
     modalTerms.every((term) => normalizeWhitespace(source.statement).toLowerCase().includes(term))
   );
   return !hasClauseLevelCorroboration;
+}
+
+export function isSynthesizedCandidateUnsafe(input: {
+  approvalEligible: boolean;
+  candidate: Parameters<typeof shouldQuarantineSynthesizedCandidate>[0];
+  sources?: Parameters<typeof shouldQuarantineSynthesizedCandidate>[1];
+}) {
+  return !input.approvalEligible ||
+    shouldQuarantineSynthesizedCandidate(input.candidate, input.sources);
 }
 
 export function repositoryHighlightPublicDisposition(unsafe: boolean) {
@@ -609,9 +623,41 @@ type HighlightReconciliationSnapshot = {
   lifecycleStatus: string;
   reviewState: string;
   approvalSource: string;
+  metadata?: unknown;
   supersedesHighlightId?: string | null;
   updatedAt?: Date;
 };
+
+export function repositoryMayReconcileHighlight(
+  highlight: Pick<HighlightReconciliationSnapshot, "metadata">,
+) {
+  const metadata = highlight.metadata &&
+    typeof highlight.metadata === "object" &&
+    !Array.isArray(highlight.metadata)
+    ? highlight.metadata as Record<string, unknown>
+    : null;
+  // Manual-Evidence output is owned by its originating AgentRun and may be
+  // supplemented only through a reviewable suggestion. Repository refreshes
+  // must never revalidate, supersede, or replace it as canonical repo memory.
+  return metadata?.managedBy !== "manual_evidence_highlight_workflow";
+}
+
+export function repositoryHighlightOwnershipDecision(input: {
+  highlight: Pick<HighlightReconciliationSnapshot, "metadata">;
+  similarityScore: number;
+  unsafe: boolean;
+  allowCanonicalReplacement: boolean;
+}) {
+  if (repositoryMayReconcileHighlight(input.highlight)) {
+    return "repository_reconcile" as const;
+  }
+  if (input.similarityScore < STRONG_KNOWLEDGE_IDENTITY_THRESHOLD) {
+    return "unrelated_manual" as const;
+  }
+  return !input.unsafe && input.allowCanonicalReplacement
+    ? "supersede_manual" as const
+    : "preserve_manual" as const;
+}
 
 type ExistingProjectFactForReconciliation = Prisma.ProjectFactGetPayload<{
   include: { evidence: { include: { evidenceItem: true } } };
@@ -651,7 +697,9 @@ function closestHighlight(input: {
         !Array.isArray(highlight.metadata)
         ? highlight.metadata as Record<string, unknown>
         : null;
-      return metadata?.subsystemKey === input.subsystemKey;
+      return repositoryMayReconcileHighlight(highlight)
+        ? metadata?.subsystemKey === input.subsystemKey
+        : true;
     })
     .map((highlight) => ({
       highlight,
@@ -694,6 +742,15 @@ export function highlightReconciliationCasWhere(
     lifecycleStatus: highlight.lifecycleStatus as Prisma.EnumKnowledgeLifecycleStatusFilter,
     reviewState: highlight.reviewState as Prisma.EnumKnowledgeReviewStateFilter,
     approvalSource: highlight.approvalSource as Prisma.EnumKnowledgeApprovalSourceFilter,
+    ...(highlight.metadata !== undefined
+      ? {
+          metadata: {
+            equals: highlight.metadata === null
+              ? Prisma.DbNull
+              : highlight.metadata as Prisma.InputJsonValue,
+          },
+        }
+      : {}),
     supersedesHighlightId: highlight.supersedesHighlightId ?? null,
     ...(highlight.updatedAt ? { updatedAt: highlight.updatedAt } : {}),
   };
@@ -724,7 +781,11 @@ async function applyFact(input: {
     subsystemKey: input.subsystem.subsystemKey,
     existing,
   });
-  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
+  const unsafe = isSynthesizedCandidateUnsafe({
+    approvalEligible: input.subsystem.approvalEligible,
+    candidate: input.candidate,
+    sources: input.sourceEntries,
+  });
   const exact = closest && closest.score >= 0.9 && normalizeWhitespace(closest.fact.statement).toLowerCase() === normalizeWhitespace(input.candidate.statement).toLowerCase();
   const validatesUserEdit = Boolean(
     closest &&
@@ -915,7 +976,11 @@ async function applyHighlight(input: {
   enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
 }) {
   if (!hasPromotedReconciliationEvidence(input.evidenceIds)) return null;
-  const unsafe = !input.subsystem.approvalEligible || shouldQuarantineSynthesizedCandidate(input.candidate, input.sourceEntries);
+  const unsafe = isSynthesizedCandidateUnsafe({
+    approvalEligible: input.subsystem.approvalEligible,
+    candidate: input.candidate,
+    sources: input.sourceEntries,
+  });
   // Repository contents can verify implementation but cannot establish who
   // personally performed the work. Running a public-claim verifier for every
   // repository-derived Highlight is both expensive and guaranteed to fail the
@@ -951,7 +1016,20 @@ async function applyHighlight(input: {
       summary: closest.highlight.summary,
     }, input.sourceEntries),
   );
-  if ((exact || validatesUserEdit) && !unsafe && closest) {
+  const ownershipDecision = closest
+    ? repositoryHighlightOwnershipDecision({
+        highlight: closest.highlight,
+        similarityScore: closest.score,
+        unsafe,
+        allowCanonicalReplacement: input.allowCanonicalReplacement,
+      })
+    : null;
+  if (
+    (exact || validatesUserEdit) &&
+    !unsafe &&
+    closest &&
+    ownershipDecision === "repository_reconcile"
+  ) {
     const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
       const validatedAt = new Date();
       const claimed = await tx.highlight.updateMany({
@@ -1025,9 +1103,16 @@ async function applyHighlight(input: {
     });
     return applied ? closest.highlight.id : null;
   }
-  const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+  const supersedes = input.allowCanonicalReplacement && !unsafe && closest &&
+      closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.highlight
     : null;
+  if (ownershipDecision === "preserve_manual") {
+    // Incomplete or unsafe repository evidence cannot rewrite manual
+    // provenance, and creating a second active near-duplicate would make
+    // retrieval nondeterministic. Preserve the manual canonical row.
+    return null;
+  }
   const tags = inferHighlightTags({
     text,
     summary: input.candidate.summary,
@@ -1175,8 +1260,11 @@ async function revalidateExistingKnowledge(input: {
       subsystemKey: entry.subsystem.subsystemKey,
       existing: input.existingFacts,
     });
-    const unsafe = !entry.subsystem.approvalEligible ||
-      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const unsafe = isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    });
     const exact = Boolean(
       closest &&
       closest.score >= 0.9 &&
@@ -1205,8 +1293,11 @@ async function revalidateExistingKnowledge(input: {
   });
   const highlightMatches = input.highlights.flatMap((entry) => {
     if (!hasPromotedReconciliationEvidence(entry.evidenceIds)) return [];
-    const unsafe = !entry.subsystem.approvalEligible ||
-      shouldQuarantineSynthesizedCandidate(entry.candidate, entry.sourceEntries);
+    const unsafe = isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    });
     const publicVerification = repositoryHighlightPublicDisposition(unsafe);
     const text = publicVerification.eligible && publicVerification.correctedText
       ? publicVerification.correctedText
@@ -1237,6 +1328,7 @@ async function revalidateExistingKnowledge(input: {
     if (
       unsafe ||
       !closest ||
+      !repositoryMayReconcileHighlight(closest.highlight) ||
       (!exact && !validatesUserEdit) ||
       claimedHighlightIds.has(closest.highlight.id)
     ) return [];

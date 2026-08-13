@@ -11,6 +11,7 @@ import { getDemoUser } from "@/src/lib/demo-user";
 import { workItemTypeOptions } from "@/src/lib/options";
 import { titleCase } from "@/src/lib/utils";
 import { githubAuthService } from "@/src/services/github-auth-service";
+import { loadNewWorkItemRepositorySelection } from "@/src/services/new-work-item-repository-selection-service";
 
 function buildWorkItemTitleFromRepoName(repoName: string) {
   return repoName
@@ -76,23 +77,23 @@ export default async function NewWorkItemPage({
   } = await searchParams;
   const demoUser = await getDemoUser();
   const githubConnection = await githubAuthService.getConnection(demoUser.id);
-  const repositories = githubConnection
-    ? await githubAuthService.listRepositories({
+  const {
+    repositories,
+    selectedRepository,
+    selectionUnavailable,
+  } = githubConnection
+    ? await loadNewWorkItemRepositorySelection({
+        service: githubAuthService,
         userId: demoUser.id,
         query: repoQuery,
+        repositoryId: repoId,
         limit: 18,
       })
-    : [];
-  const selectedRepository =
-    repositories.find((repository) => repository.id === repoId) ??
-    (githubConnection && repoId
-      ? (
-          await githubAuthService.listRepositories({
-            userId: demoUser.id,
-            limit: 60,
-          })
-        ).find((repository) => repository.id === repoId)
-      : null);
+    : {
+        repositories: [],
+        selectedRepository: null,
+        selectionUnavailable: Boolean(repoId),
+      };
 
   const effectiveTitle =
     title?.trim() ||
@@ -108,7 +109,7 @@ export default async function NewWorkItemPage({
   const shouldAttachRepositoryOnCreate =
     attachRepositoryOnCreate === "false"
       ? false
-      : Boolean(selectedRepository ?? repoId);
+      : Boolean(selectedRepository);
 
   function fieldTone(errorMessage?: string) {
     return errorMessage
@@ -291,7 +292,10 @@ export default async function NewWorkItemPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 bg-[color:var(--surface)] p-4">
-              <details className="source-panel" open={Boolean(selectedRepository || githubError)}>
+              <details
+                className="source-panel"
+                open={Boolean(selectedRepository || selectionUnavailable || githubError)}
+              >
                 <summary className="source-panel__summary">
                   <div className="flex min-w-0 items-start gap-4">
                     <div className="source-panel__icon source-panel__icon--github">
@@ -341,7 +345,13 @@ export default async function NewWorkItemPage({
                               defaultValue={repoQuery}
                               placeholder="Filter by owner, repo, or description"
                             />
-                            {repoId ? <input type="hidden" name="repoId" value={repoId} /> : null}
+                            {selectedRepository ? (
+                              <input
+                                type="hidden"
+                                name="repoId"
+                                value={selectedRepository.id}
+                              />
+                            ) : null}
                             {manualNotes ? (
                               <input type="hidden" name="manualNotes" value={manualNotes} />
                             ) : null}
@@ -478,6 +488,13 @@ export default async function NewWorkItemPage({
                     Workbase is prefilling the title and description from this repo and will
                     attach and import it after creation unless you turn that off below.
                   </p>
+                </div>
+              ) : null}
+
+              {selectionUnavailable ? (
+                <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-900">
+                  That GitHub repository selection is invalid or no longer accessible. No
+                  repository will be attached; choose an accessible repository below.
                 </div>
               ) : null}
 

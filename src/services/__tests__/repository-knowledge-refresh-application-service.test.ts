@@ -222,6 +222,32 @@ describe("startKnowledgeRefreshWorkflowOnce", () => {
     expect(cancel).toHaveBeenCalledWith("wrun-orphan");
   });
 
+  it("cancels an accepted workflow when Work Item deletion removes the refresh before attachment", async () => {
+    cancel.mockResolvedValue(undefined);
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        workflowId: null,
+        status: "queued",
+        updatedAt: new Date(),
+      })
+      .mockRejectedValue(new Error("KnowledgeRefreshRun not found"));
+    prismaMock.knowledgeRefreshRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    const startWorkflow = vi.fn().mockResolvedValue({
+      runId: "wrun-delete-orphan",
+    });
+
+    await expect(startKnowledgeRefreshWorkflowOnce({
+      runId: "refresh-deleted",
+      startWorkflow,
+    })).rejects.toThrow("became terminal");
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledWith("wrun-delete-orphan");
+  });
+
   it("uses updatedAt to age legacy reservations that lack an encoded timestamp", () => {
     expect(knowledgeRefreshWorkflowReservationIsStale({
       workflowId: "starting:legacy-reservation",

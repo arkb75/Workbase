@@ -84,7 +84,8 @@ export interface EvidenceItemSnapshot {
   reviewState?: "pending_review" | "reviewed" | "reverted";
   approvalSource?: "automation" | "user" | "legacy";
   metadata: JsonValue | null;
-  source: Pick<SourceSnapshot, "id" | "label" | "type" | "externalId">;
+  source: Pick<SourceSnapshot, "id" | "label" | "type" | "externalId"> &
+    Partial<Pick<SourceSnapshot, "metadata">>;
   tags?: HighlightTagAssignment[];
   createdAt?: Date;
   updatedAt?: Date;

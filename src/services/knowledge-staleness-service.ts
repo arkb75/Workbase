@@ -17,6 +17,10 @@ import {
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 import type { RepositoryTargetHead } from "@/src/services/repository-knowledge-sync-service";
 import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
+import {
+  isWorkbaseRepositoryIdentity,
+  matchesWorkbaseDeterministicDefinitionIdentity,
+} from "@/src/services/repository-knowledge-synthesis-service";
 
 type CurrentObservation = {
   statement: string;
@@ -27,6 +31,14 @@ type CurrentObservation = {
 };
 
 const executableRepositoryPathPattern = /\.(?:[cm]?[jt]sx?|prisma|sql|py|go|rs|java)$/i;
+const repositoryEvidenceTypes = [
+  "github_readme",
+  "github_commit",
+  "github_pull_request",
+  "github_issue",
+  "github_release",
+  "github_file_excerpt",
+] as const;
 
 type ProjectFactCasSnapshot = Pick<
   Prisma.ProjectFactModel,
@@ -39,6 +51,7 @@ type ProjectFactCasSnapshot = Pick<
   | "rejectionReason"
   | "validatedThroughSha"
   | "lastValidatedAt"
+  | "subsystemKey"
   | "updatedAt"
 >;
 
@@ -54,6 +67,7 @@ type HighlightCasSnapshot = Pick<
   | "rejectionReason"
   | "validatedThroughSha"
   | "lastValidatedAt"
+  | "metadata"
   | "updatedAt"
 >;
 
@@ -97,6 +111,7 @@ function projectFactCasWhere(fact: ProjectFactCasSnapshot): Prisma.ProjectFactWh
     rejectionReason: fact.rejectionReason,
     validatedThroughSha: fact.validatedThroughSha,
     lastValidatedAt: fact.lastValidatedAt,
+    subsystemKey: fact.subsystemKey,
     ...(fact.updatedAt ? { updatedAt: fact.updatedAt } : {}),
   };
 }
@@ -113,6 +128,7 @@ function highlightCasWhere(highlight: HighlightCasSnapshot): Prisma.HighlightWhe
     rejectionReason: highlight.rejectionReason,
     validatedThroughSha: highlight.validatedThroughSha,
     lastValidatedAt: highlight.lastValidatedAt,
+    metadata: { equals: highlight.metadata === null ? Prisma.DbNull : highlight.metadata },
     ...(highlight.updatedAt ? { updatedAt: highlight.updatedAt } : {}),
   };
 }
@@ -265,6 +281,23 @@ export async function validateAssertion(input: {
 
 function isRepositoryDerived(evidence: Array<{ evidenceItem: { type: string } }>) {
   return evidence.length > 0 && evidence.every((entry) => entry.evidenceItem.type.startsWith("github_"));
+}
+
+function authoritativeNonWorkbaseSources(
+  evidence: Array<{ evidenceItem: { sourceId: string; type: string } }>,
+  targetBySource: Map<string, string>,
+) {
+  if (!isRepositoryDerived(evidence)) return null;
+  const sourceIds = Array.from(new Set(evidence.map((entry) => entry.evidenceItem.sourceId)));
+  if (!sourceIds.length) return null;
+  const repositories = sourceIds.map((sourceId) => targetBySource.get(sourceId));
+  if (repositories.some((repository) => !repository || isWorkbaseRepositoryIdentity(repository))) {
+    return null;
+  }
+  return {
+    sourceIds,
+    repositories: repositories as string[],
+  };
 }
 
 function priorReferences(evidence: Array<{ evidenceItem: { metadata: unknown } }>) {
@@ -577,6 +610,68 @@ export async function reconcileStaleKnowledge(input: {
 
   for (const fact of activeFacts) {
     if (!isRepositoryDerived(fact.evidence)) continue;
+    const remediationSources = authoritativeNonWorkbaseSources(fact.evidence, targetBySource);
+    if (
+      destructiveStalenessAllowed &&
+      fact.approvalSource === "automation" &&
+      fact.reviewState === "pending_review" &&
+      remediationSources &&
+      matchesWorkbaseDeterministicDefinitionIdentity({
+        kind: "project_fact",
+        subsystemKey: fact.subsystemKey,
+        statement: fact.statement,
+      })
+    ) {
+      const reason = "Retired mis-scoped Workbase deterministic system memory whose authoritative repository sources are all non-Workbase.";
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.projectFact.updateMany({
+          where: {
+            ...projectFactCasWhere(fact),
+            evidence: {
+              some: {},
+              every: {
+                evidenceItem: {
+                  type: { in: [...repositoryEvidenceTypes] },
+                  sourceId: { in: remediationSources.sourceIds },
+                },
+              },
+            },
+          },
+          data: {
+            lifecycleStatus: "retired",
+            status: "rejected",
+            rejectionReason: reason,
+          },
+        })
+      );
+      if (retired.count !== 1) continue;
+      retiredFactIds.push(fact.id);
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "project_fact",
+        action: "retired",
+        entityId: fact.id,
+        beforeSnapshot: {
+          statement: fact.statement,
+          subsystemKey: fact.subsystemKey,
+          lifecycleStatus: fact.lifecycleStatus,
+        },
+        afterSnapshot: {
+          statement: fact.statement,
+          subsystemKey: fact.subsystemKey,
+          lifecycleStatus: "retired",
+        },
+        reason,
+        provenance: {
+          remediation: "mis_scoped_workbase_deterministic_definition",
+          sourceIds: remediationSources.sourceIds,
+          repositories: remediationSources.repositories,
+        },
+        suffix: `${fact.id}:mis-scoped-workbase-definition:${run.id}`,
+      });
+      continue;
+    }
     const canonicalReplacement = appliedFacts.find((candidate) => isStrongCanonicalReplacement({
       priorId: fact.id,
       priorText: fact.statement,
@@ -823,6 +918,68 @@ export async function reconcileStaleKnowledge(input: {
       ? highlight.metadata as Record<string, unknown>
       : null;
     const subsystemKey = typeof metadata?.subsystemKey === "string" ? metadata.subsystemKey : null;
+    const remediationSources = authoritativeNonWorkbaseSources(highlight.evidence, targetBySource);
+    if (
+      destructiveStalenessAllowed &&
+      highlight.approvalSource === "automation" &&
+      highlight.reviewState === "pending_review" &&
+      metadata?.managedBy === "repository_knowledge_sync" &&
+      remediationSources &&
+      matchesWorkbaseDeterministicDefinitionIdentity({
+        kind: "highlight",
+        subsystemKey,
+        text: highlight.text,
+        summary: highlight.summary,
+      })
+    ) {
+      const reason = "Retired mis-scoped Workbase deterministic system memory whose authoritative repository sources are all non-Workbase.";
+      const retired = await withKnowledgeRefreshGenerationFence(input.runId, (tx) =>
+        tx.highlight.updateMany({
+          where: {
+            ...highlightCasWhere(highlight),
+            evidence: {
+              some: {},
+              every: {
+                evidenceItem: {
+                  type: { in: [...repositoryEvidenceTypes] },
+                  sourceId: { in: remediationSources.sourceIds },
+                },
+              },
+            },
+          },
+          data: { lifecycleStatus: "retired", rejectionReason: reason },
+        })
+      );
+      if (retired.count !== 1) continue;
+      retiredHighlightIds.push(highlight.id);
+      await recordChange({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        entityKind: "highlight",
+        action: "retired",
+        entityId: highlight.id,
+        beforeSnapshot: {
+          text: highlight.text,
+          summary: highlight.summary,
+          subsystemKey,
+          lifecycleStatus: highlight.lifecycleStatus,
+        },
+        afterSnapshot: {
+          text: highlight.text,
+          summary: highlight.summary,
+          subsystemKey,
+          lifecycleStatus: "retired",
+        },
+        reason,
+        provenance: {
+          remediation: "mis_scoped_workbase_deterministic_definition",
+          sourceIds: remediationSources.sourceIds,
+          repositories: remediationSources.repositories,
+        },
+        suffix: `${highlight.id}:mis-scoped-workbase-definition:${run.id}`,
+      });
+      continue;
+    }
     const canonicalReplacement = appliedHighlights.find((candidate) => {
       const candidateMetadata = candidate.metadata && typeof candidate.metadata === "object" && !Array.isArray(candidate.metadata)
         ? candidate.metadata as Record<string, unknown>

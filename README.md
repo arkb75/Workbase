@@ -18,10 +18,15 @@ The prototype is built around one hard rule: public Artifacts are generated from
 ## Product loop
 
 1. Complete onboarding for the demo user
-2. Create a Work Item
-3. Attach manual notes and import a real GitHub repository
+2. Create a Work Item; its description and optional notes are persisted as
+   private Sources/Evidence immediately, while provider work is reserved in a
+   durable workflow before the action redirects
+3. Attach manual notes and import a real GitHub repository; repository imports
+   use their own request/workflow lineage and remain observable across reloads
 4. Refresh commit-pinned repository knowledge and cluster Evidence into work themes
-5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory
+5. Auto-apply supported, non-sensitive Project Facts and Highlights as private
+   project memory. Manual-note Highlights remain pending review and use a
+   distinct producer/provenance class from repository reconciliation
 6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates
 7. Keep, edit, revert, retire, or sensitivity-classify those changes without blocking ordinary private project chat
 8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only
@@ -55,15 +60,35 @@ Every OpenRouter request requires zero-data-retention routing and provider
 support for all supplied parameters. `WORKBASE_LLM_PROVIDER=bedrock` plus the
 retained `WORKBASE_BEDROCK_*` values provides the migration rollback switch.
 
+Production and representative cold-import runs must exercise the configured
+`deep_synthesis` model while keeping semantic work-package planning
+deterministic:
+
+```bash
+WORKBASE_REPOSITORY_SYNTHESIS_MODE=model
+WORKBASE_SEMANTIC_PLANNER_MODE=deterministic
+```
+
+`WORKBASE_REPOSITORY_SYNTHESIS_MODE=deterministic` is available only as a
+cost/debug alternative. It does not call the main `deep_synthesis` model and
+therefore cannot pass the representative live lifecycle gate.
+
 For proactive production refreshes, also set:
 
 - `WORKBASE_GITHUB_WEBHOOK_URL` to the public HTTPS
   `/api/github/webhook` endpoint.
 - `GITHUB_WEBHOOK_SECRET` to a random value of at least 32 characters.
+- `WORKBASE_GITHUB_REQUEST_TIMEOUT_MS` to the bounded per-request GitHub REST
+  deadline (the deployment default is 30 seconds).
 
 Workbase registers a push-only repository webhook when an attached repository
 is administered by the connected GitHub user. Repositories without webhook
 administration permission continue to use the scheduled freshness scan.
+
+The executable cold-lifecycle and provider-comparison runbook is in
+[`tests/e2e/README.md`](tests/e2e/README.md). Migration decisions, historical
+controls, privacy invariants, and embedding rollback procedure are recorded in
+[`docs/openrouter-migration.md`](docs/openrouter-migration.md).
 
 5. Generate the Prisma client and apply committed migrations
 
@@ -116,23 +141,48 @@ The test suite covers:
 - claim status transitions
 - GitHub connection encryption and OAuth exchange handling
 - bounded GitHub repo import behavior
+- four real cold lifecycle shapes: manual-only create, create-and-attach,
+  attach to an existing manual item, and delete/re-add with disjoint lineage
 - signed GitHub push delivery validation, redelivery deduplication, and
   proactive refresh coalescing
 - evidence persistence refresh/dedupe behavior
 - artifact eligibility constraints
 - claim regeneration behavior
 - multi-turn project chat, citation grounding, retrieval, and prior-turn provenance
+- primary-model-led project chat planning, iterative tool selection, answer composition,
+  semantic verification, and durable provider/model/usage attribution. Real
+  providers do not use lexical routing or deterministic source-shaped prose
+- semantic robustness families covering freshness and format paraphrases,
+  elliptical follow-ups, runtime-configuration authority, distractors,
+  unsupported questions, and non-inferiority to a same-model direct-agent run
+- exact same-thread accomplishments freshness follow-ups, including current-head
+  breadth continuity and cross-repository contamination rejection
 - commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
+- DLP-safe manual-note generation, content-addressed provenance/input fences,
+  deterministic extractive recovery, and cited-source-only attribution
 - durable chat and artifact workflows, including review/resume behavior
 - a server-side workflow from source notes to approved-Highlight artifact generation
+- paired Bedrock/OpenRouter non-inferiority, authoritative usage/cost coverage,
+  and outage-safe embedding rollback gates
 
 ## Notes
 
 - GitHub import is intentionally bounded, and repository research is read-only and limited to repositories attached to the project.
+- Each GitHub REST request has a deadline; independent activity reads and
+  bounded detail enrichment run concurrently with deterministic output order.
+- Work Item deletion fences queued/running import, refresh, chat, artifact, and
+  manual-highlight workflows and cancels accepted orphans, so re-adding the
+  same repository cannot inherit the deleted lineage.
 - Default-branch GitHub pushes proactively start a five-second coalescing
   window before durable repository refresh; chat still resolves the live head
   and joins or supersedes that work when freshness is explicitly required.
 - Exact repository excerpts are immutable provenance beneath reviewed Project Facts or Highlights, not peer sources in chat.
 - Safe repository knowledge is auto-applied for private use and marked for retrospective review; sensitive or weakly supported knowledge is quarantined.
 - Project chat, research, review, retrieval, and artifact generation live behind typed service interfaces in `src/services`.
+- The primary answer model owns conversation interpretation, evidence/tool
+  selection, answer structure, and prose. Deterministic chat boundaries are
+  intentionally narrow: authorization, side-effect admission, budgets,
+  idempotency, citation syntax/provenance, current-head validation, and secret
+  handling. A semantic verifier may request one bounded model repair; it never
+  replaces the answer with a canned template.
 - Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.

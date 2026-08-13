@@ -39,6 +39,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SourceAddControl } from "@/components/work-items/source-add-control";
+import {
+  ManualEvidenceHighlightStatus,
+  manualEvidenceHighlightRunIsActive,
+} from "@/components/work-items/manual-evidence-highlight-status";
+import { RepositoryImportAutoRefresh } from "@/components/work-items/repository-import-auto-refresh";
+import { RepositoryRefreshLifecycleStatus } from "@/components/work-items/repository-refresh-lifecycle-status";
 import { WorkItemWorkspace } from "@/components/work-items/work-item-workspace";
 import { PageHeader, WorkbaseFrame } from "@/components/workbase-frame";
 import {
@@ -46,6 +52,16 @@ import {
   getWorkItemWorkspaceForUser,
 } from "@/src/data/workbase";
 import { getDemoUser } from "@/src/lib/demo-user";
+import {
+  readRepositoryImportState,
+  repositoryBackgroundLifecycleIsActive,
+  repositoryImportIsActive,
+  repositoryRefreshIsActive,
+} from "@/src/lib/github-repository-import-state";
+import {
+  projectChatAnswerExposesInternalProtocol,
+  WITHHELD_PROJECT_CHAT_ANSWER,
+} from "@/src/lib/project-chat-publication-safety";
 import {
   nestArtifactEvidenceUnderHighlights,
   readArtifactEvidenceProvenance,
@@ -80,6 +96,7 @@ type WorkItemDetailSearchParams = WorkItemWorkspaceSearchParams & {
   result?: string;
   repoQuery?: string;
   repoList?: string;
+  repoId?: string;
   tab?: string;
   evidencePage?: string;
   knowledgePage?: string;
@@ -136,6 +153,21 @@ function getRepositoryRefreshMode(value: unknown) {
   return webhook?.status === "configured"
     ? "live" as const
     : "scheduled" as const;
+}
+
+function repositoryImportStatusLabel(status: string) {
+  if (status === "queued") return "import queued";
+  if (status === "importing") return "importing evidence";
+  if (status === "evidence_ready") return "evidence ready";
+  if (status === "retryable_failed") return "import needs retry";
+  return titleCase(status);
+}
+
+function repositoryImportStatusTone(status: string) {
+  if (status === "evidence_ready") return "success" as const;
+  if (status === "retryable_failed" || status === "cancelled") return "danger" as const;
+  if (status === "queued" || status === "importing") return "warning" as const;
+  return "neutral" as const;
 }
 
 function buildStatusMessage(params: {
@@ -208,11 +240,50 @@ function buildStatusMessage(params: {
     };
   }
 
+  if (error === "manual-highlight-start-failed") {
+    return {
+      tone: "error" as const,
+      message:
+        "Evidence was saved, but its durable automatic Highlight run could not start. Use the retry control below; no provider work runs inside the save action.",
+    };
+  }
+
+  if (error === "manual-highlight-retry-invalid") {
+    return {
+      tone: "error" as const,
+      message: "That automatic Highlight retry target is no longer valid. Reload the Work Item and retry the latest failed run.",
+    };
+  }
+
   if (result === "github-connected") {
     return {
       tone: "success" as const,
       message:
         "GitHub connected. You can now search accessible repositories and import bounded evidence into this Work Item.",
+    };
+  }
+
+  if (result === "manual-highlight-queued") {
+    return {
+      tone: "success" as const,
+      message:
+        "Manual Evidence saved. Grounded automatic Highlight analysis is queued durably in the background.",
+    };
+  }
+
+  if (result === "manual-highlight-retry-queued") {
+    return {
+      tone: "success" as const,
+      message:
+        "Automatic Highlight retry queued. Workbase will reuse the exact saved Evidence snapshot and any completed generation checkpoint.",
+    };
+  }
+
+  if (result === "github-import-queued") {
+    return {
+      tone: "success" as const,
+      message:
+        "Repository attached. Evidence import and current-head Highlight analysis are running durably in the background; this page updates automatically while work is active.",
     };
   }
 
@@ -836,6 +907,7 @@ export default async function WorkItemDetailPage({
     result,
     repoQuery = "",
     repoList,
+    repoId,
     tab,
     evidencePage: evidencePageValue,
     knowledgePage: knowledgePageValue,
@@ -891,14 +963,22 @@ export default async function WorkItemDetailPage({
   const shouldListRepositories =
     activeTab === "sources" &&
     Boolean(githubConnection) &&
-    (repoList === "1" || repoQuery.trim().length > 0);
+    (Boolean(repoId) || repoList === "1" || repoQuery.trim().length > 0);
 
   if (shouldListRepositories) {
     try {
-      repositories = await githubAuthService.listRepositories({
-        userId: user.id,
-        query: repoQuery,
-      });
+      if (repoId) {
+        const repository = await githubAuthService.getRepositoryById({
+          userId: user.id,
+          repositoryId: repoId,
+        });
+        repositories = repository ? [repository] : [];
+      } else {
+        repositories = await githubAuthService.listRepositories({
+          userId: user.id,
+          query: repoQuery,
+        });
+      }
     } catch {
       repositoryLookupFailed = true;
     }
@@ -926,6 +1006,36 @@ export default async function WorkItemDetailPage({
     (source) => !isWorkItemDescriptionSourceMetadata(source.metadata),
   );
   const githubSources = visibleSources.filter((source) => source.type === "github_repo");
+  const repositoryImports = githubSources.map((source) =>
+    readRepositoryImportState(source.metadata)
+  );
+  const repositoryRefreshById = new Map(
+    workItem.knowledgeRefreshRuns.map((refresh) => [refresh.id, refresh] as const),
+  );
+  const repositoryRefreshAttachmentPending = repositoryImports.some((repositoryImport) =>
+    repositoryImport?.status === "evidence_ready" &&
+    (!repositoryImport.refreshRunId || !repositoryRefreshById.has(repositoryImport.refreshRunId))
+  );
+  const activeRepositoryRefresh = workItem.knowledgeRefreshRuns.find((refresh) =>
+    repositoryRefreshIsActive(refresh.status)
+  ) ?? null;
+  const linkedRepositoryRefreshRunIds = new Set(
+    repositoryImports.flatMap((repositoryImport) =>
+      repositoryImport?.refreshRunId ? [repositoryImport.refreshRunId] : []
+    ),
+  );
+  const linkedRepositoryRefresh = workItem.knowledgeRefreshRuns.find((refresh) =>
+    linkedRepositoryRefreshRunIds.has(refresh.id)
+  ) ?? null;
+  const repositoryLifecycleRefresh = activeRepositoryRefresh ?? linkedRepositoryRefresh;
+  const repositoryLifecycleIsActive = repositoryBackgroundLifecycleIsActive({
+    imports: repositoryImports,
+    refreshes: workItem.knowledgeRefreshRuns,
+  });
+  const manualEvidenceHighlightRun = workItem.agentRuns[0] ?? null;
+  const manualEvidenceHighlightIsActive = manualEvidenceHighlightRun
+    ? manualEvidenceHighlightRunIsActive(manualEvidenceHighlightRun.status)
+    : false;
   const attachedRepoIds = new Set(
     githubSources
       .map((source) => source.externalId)
@@ -1047,24 +1157,30 @@ export default async function WorkItemDetailPage({
     title: chatThread.title,
     updatedAt: chatThread.updatedAt.toISOString(),
   })) ?? [];
-  const chatMessages = chatWorkspace?.messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    status:
-      message.status === "queued"
-        ? ("pending" as const)
-        : message.status === "running"
-          ? ("streaming" as const)
-          : message.status,
-    createdAt: message.createdAt.toISOString(),
-    freshness: readChatFreshness(message.metadata),
-    citationIntegrity: readSourceMetadata(message.metadata)?.citationIntegrity === "legacy_unverifiable"
-      ? "legacy_unverifiable" as const
-      : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
-        ? "verified" as const
-        : null,
-    citations: message.citations.map((citation) => {
+  const chatMessages = chatWorkspace?.messages.map((message) => {
+    const internalProtocolExposed = message.role === "assistant" &&
+      projectChatAnswerExposesInternalProtocol(message.content);
+    return {
+      id: message.id,
+      role: message.role,
+      content: internalProtocolExposed ? WITHHELD_PROJECT_CHAT_ANSWER : message.content,
+      status: internalProtocolExposed
+        ? ("failed" as const)
+        : message.status === "queued"
+          ? ("pending" as const)
+          : message.status === "running"
+            ? ("streaming" as const)
+            : message.status,
+      createdAt: message.createdAt.toISOString(),
+      freshness: internalProtocolExposed ? null : readChatFreshness(message.metadata),
+      citationIntegrity: internalProtocolExposed
+        ? null
+        : readSourceMetadata(message.metadata)?.citationIntegrity === "legacy_unverifiable"
+          ? "legacy_unverifiable" as const
+          : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
+            ? "verified" as const
+            : null,
+      citations: message.citations.map((citation) => {
       const citationMetadata = readSourceMetadata(citation.metadata);
       const snapshottedProvenance = Array.isArray(citationMetadata?.provenance)
         ? citationMetadata.provenance.flatMap((entry) => {
@@ -1104,8 +1220,9 @@ export default async function WorkItemDetailPage({
           };
         }) ?? [],
       };
-    }),
-  })) ?? [];
+      }),
+    };
+  }) ?? [];
   const chatEvents = chatWorkspace?.events.map((event) => ({
     id: event.id,
     runId: event.runId,
@@ -1274,6 +1391,14 @@ export default async function WorkItemDetailPage({
         updatedHighlights={updatedHighlights}
         highlightSuggestions={highlightSuggestions}
       />
+      <RepositoryImportAutoRefresh
+        active={repositoryLifecycleIsActive || manualEvidenceHighlightIsActive}
+      />
+      <ManualEvidenceHighlightStatus
+        run={manualEvidenceHighlightRun}
+        workItemId={workItem.id}
+        returnTo={activeTab === "sources" ? sourcesReturnTo : highlightsReturnTo}
+      />
 
       <WorkItemWorkspace
         activeTab={activeTab}
@@ -1287,6 +1412,11 @@ export default async function WorkItemDetailPage({
                 <KeyValue label="GitHub" value={`${githubSources.length} repos`} />
               </div>
             </div>
+
+            <RepositoryRefreshLifecycleStatus
+              attachmentPending={repositoryRefreshAttachmentPending}
+              refresh={repositoryLifecycleRefresh}
+            />
 
             <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
               <div className="grid content-start gap-5">
@@ -1305,6 +1435,7 @@ export default async function WorkItemDetailPage({
                       visibleSources.map((source) => {
                         const importedAt = getSourceImportedAt(source.metadata);
                         const repositoryFullName = getRepositoryFullName(source.metadata);
+                        const repositoryImport = readRepositoryImportState(source.metadata);
                         const refreshMode = source.type === "github_repo"
                           ? getRepositoryRefreshMode(source.metadata)
                           : null;
@@ -1320,6 +1451,11 @@ export default async function WorkItemDetailPage({
                               </Badge>
                               <Badge>{source.label}</Badge>
                               {importedAt ? <Badge>imported {formatDateTime(importedAt)}</Badge> : null}
+                              {repositoryImport ? (
+                                <Badge tone={repositoryImportStatusTone(repositoryImport.status)}>
+                                  {repositoryImportStatusLabel(repositoryImport.status)}
+                                </Badge>
+                              ) : null}
                               {refreshMode === "live"
                                 ? <Badge tone="success">live refresh</Badge>
                                 : refreshMode === "scheduled"
@@ -1331,6 +1467,21 @@ export default async function WorkItemDetailPage({
                                 repositoryFullName ??
                                 "Structured metadata-backed source attached to this Work Item."}
                             </p>
+                            {repositoryImport && repositoryImportIsActive(repositoryImport) ? (
+                              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]" aria-live="polite">
+                                Workbase is processing this repository in the background. You can leave this page safely.
+                              </p>
+                            ) : null}
+                            {repositoryImport?.status === "evidence_ready" ? (
+                              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">
+                                {repositoryImport.evidenceCount ?? 0} evidence records imported. Current-head analysis continues separately until the automatic Highlight outcome is terminal.
+                              </p>
+                            ) : null}
+                            {repositoryImport?.status === "retryable_failed" ? (
+                              <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900" role="alert">
+                                {repositoryImport.error ?? "The repository lifecycle did not complete. Use Re-import to retry safely."}
+                              </p>
+                            ) : null}
                           </div>
                         );
                       })
@@ -1806,6 +1957,7 @@ export default async function WorkItemDetailPage({
                   trigger: refresh.trigger,
                   targetHeads: refresh.targetHeads,
                   progress: refresh.progress,
+                  error: refresh.error,
                   qualityStatus: refresh.qualityStatus,
                   coverage: refresh.coverage,
                   orchestration: refresh.orchestration,

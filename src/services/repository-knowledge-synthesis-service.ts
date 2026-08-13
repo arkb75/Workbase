@@ -180,6 +180,9 @@ export interface SynthesizedKnowledge {
   approvalEligible: boolean;
 }
 
+export const repositorySynthesisSafetyGuidance =
+  "Avoid absolute qualifiers such as mandatory, always, never, exclusively, every, all, only, guarantees, production-grade, or tamper-evident unless an exact executable notebook entry states that qualifier. Prefer a narrower non-absolute description when the notebook supports the underlying behavior but not the qualifier.";
+
 function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
@@ -319,6 +322,7 @@ export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNoteb
   ];
   const citationIndexes = requiredSignals.flatMap((signal) => {
     const index = notebook.findIndex((entry) =>
+      isWorkbaseRepositoryEntry(entry) &&
       entry.path === signal.path &&
       signal.pattern.test(entry.statement)
     );
@@ -326,6 +330,7 @@ export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNoteb
   });
   const semanticSupport = semanticSupports.flatMap((support) => {
     const index = notebook.findIndex((entry) =>
+      isWorkbaseRepositoryEntry(entry) &&
       entry.path === support.path &&
       entry.evidenceMode !== "deterministic_anchor" &&
       entry.semanticStatus !== "degraded" &&
@@ -372,7 +377,11 @@ export function isBroadSemanticRepositoryLifecycleFact(
   const citedEntries = fact.citationIndexes.map((index) => notebook[index - 1]);
   if (
     !citedEntries.length ||
-    citedEntries.some((entry) => !entry || entry.evidenceMode === "deterministic_anchor")
+    citedEntries.some((entry) =>
+      !entry ||
+      !isWorkbaseRepositoryEntry(entry) ||
+      entry.evidenceMode === "deterministic_anchor"
+    )
   ) {
     return false;
   }
@@ -465,6 +474,27 @@ type DeterministicFactDefinition = {
 type DeterministicSubsystemDefinition = DeterministicFactDefinition & {
   facets?: DeterministicFactDefinition[];
 };
+
+export function isWorkbaseRepositoryIdentity(repository: string) {
+  return repository
+    .trim()
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\.git$/i, "")
+    .toLowerCase() === "arkb75/workbase";
+}
+
+function isWorkbaseRepositoryEntry(entry: SynthesisNotebookEntry) {
+  return isWorkbaseRepositoryIdentity(entry.repository);
+}
+
+function systemDefinitionForNotebook(
+  subsystemKey: string,
+  notebook: SynthesisNotebookEntry[],
+) {
+  return notebook.some(isWorkbaseRepositoryEntry)
+    ? SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey]
+    : undefined;
+}
 
 const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinition> = {
     product_surface: {
@@ -817,6 +847,122 @@ const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinit
     },
 };
 
+/**
+ * Immutable identities emitted by earlier deterministic synthesis policies.
+ * They remain explicit rather than pattern-based so an upgrade can retire
+ * machine-authored Workbase memory that was attached to another repository
+ * without treating ordinary user or model prose as a cleanup target.
+ */
+const LEGACY_WORKBASE_DETERMINISTIC_STATEMENTS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  product_surface: [
+    "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
+    "The project is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
+  ],
+  domain_data: [
+    "The Prisma data model persists work items, evidence, highlights, artifacts, project facts, chat threads/messages/citations, and durable agent runs.",
+  ],
+  ai_runtime: [
+    "The repository implements a Bedrock Converse agent, schema-constrained structured generation, project-chat orchestration, and streamed agent-run progress.",
+    "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+  ],
+  ingestion_integrations: [
+    "GitHub integration spans OAuth callback/connect routes, authenticated API access, bounded repository exploration, source import, and evidence promotion.",
+  ],
+  retrieval_provenance: [
+    "Project knowledge retrieval combines embedding or lexical signals with citation, provenance, prior-turn inspection, and answer-grounding services.",
+  ],
+  workflow_orchestration: [
+    "Durable workflows coordinate project chat and artifact generation through retry-safe steps, persisted runs, progress events, and review/resume boundaries.",
+    "Durable workflows coordinate project chat, chunked repository refresh, and approval-gated artifact generation through bounded loops, a human-review suspension hook, and progress-stream cleanup in a finally boundary.",
+  ],
+  repository_knowledge_lifecycle: [
+    "The repository implements an end-to-end knowledge lifecycle that starts a repository refresh, analyzes repository files in batches, synthesizes Project Facts and Highlights, reconciles them into durable memory, and revalidates or marks older knowledge stale.",
+    "The repository knowledge lifecycle inventories every eligible file at an immutable commit, performs bounded semantic analysis, synthesizes durable Project Facts and Highlights, reconciles updates, and invalidates stale downstream knowledge.",
+    "The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and its refresh stage uses orchestrated semantic coverage repair with a legacy fallback.",
+    "The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and its synthesis notebook preserves commit-pinned file and line provenance plus change types for incremental updates.",
+    "The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and its semantic orchestrator detects capability coverage gaps before assigning work.",
+  ],
+  project_chat_grounding: [
+    "Project chat combines real multi-turn history with retrieved durable memory, bounded specialist research, citation filtering, answer grounding, and prior-turn provenance inspection.",
+  ],
+  artifact_generation: [
+    "Artifact generation maps freeform briefs to supported career-content types, retrieves eligible Highlights, checks adequacy, and persists citation-backed outputs through a durable workflow.",
+  ],
+  knowledge_review_lifecycle: [
+    "Knowledge changes are auto-applied when safe, recorded for later review, and propagated through revalidation, supersession, retirement, and downstream invalidation rules.",
+  ],
+  review_ui: [
+    "The user interface provides project workspaces for chat, source management, highlight review, artifact generation/history, citations, and run progress.",
+    "The review UI exposes lifecycle actions and status-grouped Project Facts with nested provenance, artifact provenance trees, candidate-review metadata, and inline citation navigation from chat to the relevant project tabs.",
+  ],
+  tests_operations: [
+    "Automated tests cover domain policies, Bedrock clients, GitHub ingestion/exploration, retrieval and grounding, project chat, artifacts, and durable workflows.",
+  ],
+};
+
+function normalizedDefinitionText(value: string) {
+  return normalizeWhitespace(value).toLowerCase();
+}
+
+/**
+ * Identifies only exact, machine-authored Workbase system-memory output. This
+ * deliberately avoids broad Workbase keyword matching so lifecycle remediation
+ * cannot retire user-authored or model-authored memory that merely discusses
+ * Workbase. Callers must independently enforce repository-sync ownership.
+ */
+export function matchesWorkbaseDeterministicDefinitionIdentity(input:
+  | {
+      kind: "project_fact";
+      subsystemKey: string | null;
+      statement: string;
+    }
+  | {
+      kind: "highlight";
+      subsystemKey: string | null;
+      text: string;
+      summary: string;
+    }
+) {
+  if (!input.subsystemKey) return false;
+  const primary = SYSTEM_SUBSYSTEM_DEFINITIONS[input.subsystemKey];
+  if (!primary) return false;
+  const definitions: Array<Pick<
+    DeterministicFactDefinition,
+    "statement" | "highlightText"
+  >> = [
+    primary,
+    ...(primary.facets ?? []),
+    ...(LEGACY_WORKBASE_DETERMINISTIC_STATEMENTS[input.subsystemKey] ?? [])
+      .map((statement) => ({ statement })),
+  ];
+  if (input.kind === "project_fact") {
+    const statement = normalizedDefinitionText(input.statement);
+    return definitions.some((definition) =>
+      normalizedDefinitionText(definition.statement) === statement
+    );
+  }
+
+  const summary = normalizedDefinitionText(input.summary);
+  const text = normalizedDefinitionText(input.text);
+  const summaryDefinition = definitions.find((definition) =>
+    normalizedDefinitionText(definition.statement) === summary
+  );
+  if (!summaryDefinition) return false;
+  const generatedTexts = [
+    primary.highlightText,
+    summaryDefinition.highlightText,
+    summaryDefinition.statement,
+    summaryDefinition.statement.length <= 240
+      ? summaryDefinition.statement
+      : summaryDefinition.statement.slice(0, 240).trimEnd(),
+  ].filter((value): value is string => Boolean(value));
+  return generatedTexts.some((generatedText) =>
+    normalizedDefinitionText(generatedText) === text
+  );
+}
+
 function deterministicFactFromDefinition(
   definition: DeterministicFactDefinition,
   notebook: SynthesisNotebookEntry[],
@@ -830,6 +976,7 @@ function deterministicFactFromDefinition(
     const pattern = definition.patterns[selectorIndex];
     let index = signalKey
       ? notebook.findIndex((entry) =>
+          isWorkbaseRepositoryEntry(entry) &&
           (definition.allowDeterministicAnchors || entry.evidenceMode !== "deterministic_anchor") &&
           entry.semanticSignals?.includes(signalKey)
         )
@@ -838,6 +985,7 @@ function deterministicFactFromDefinition(
       structuredSignalMatches += 1;
     } else if (pattern) {
       index = notebook.findIndex((entry) =>
+        isWorkbaseRepositoryEntry(entry) &&
         (definition.allowDeterministicAnchors || entry.evidenceMode !== "deterministic_anchor") &&
         pattern.test(`${entry.path} ${entry.statement}`)
       );
@@ -873,7 +1021,7 @@ export function requiredSemanticBaselineFacts(
   subsystemKey: string,
   notebook: SynthesisNotebookEntry[],
 ) {
-  const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
+  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
   if (!definition) return [];
   const semanticNotebook = modelEligibleSynthesisNotebook(notebook);
   return [definition, ...(definition.facets ?? [])]
@@ -891,7 +1039,7 @@ export function fallbackSubsystemSynthesis(
   const semanticNotebook = modelEligibleSynthesisNotebook(notebook);
   const exactProjectDomain = exactSinglePathProjectDomainSynthesis(subsystemKey, semanticNotebook);
   if (exactProjectDomain) return exactProjectDomain;
-  const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
+  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
   if (!definition) return mockSynthesis(semanticNotebook);
   const primary = deterministicFactFromDefinition(definition, notebook);
   const facets = (definition.facets ?? [])
@@ -938,6 +1086,143 @@ export function fallbackSubsystemSynthesis(
       ? []
       : ["This subsystem needs broader exact-line evidence before producing a cross-file summary."],
   };
+}
+
+/**
+ * A model may correctly synthesize an important, fully cited Project Fact yet
+ * conservatively return no Highlight. For a substantive repository that leaves
+ * the primary Workbase ingestion journey looking broken even though the exact
+ * evidence is already strong enough to support private, reviewable memory.
+ *
+ * Promote at most one high-confidence fact verbatim only when every citation
+ * is successful, non-sensitive semantic evidence from the current notebook.
+ * Career salience comes from those cited observations rather than the second
+ * model's subjective score copy: a current exact observation must describe a
+ * user capability with the stored importance, breadth, and difficulty floors.
+ * Named semantic facets improve deterministic ranking but cannot make a
+ * low-importance observation eligible by themselves. Low-level facts,
+ * rewritten/truncated claims, and deterministic anchor evidence still produce
+ * no Highlight, preserving the explicit `no_safe_candidates` outcome for
+ * genuinely thin repositories.
+ */
+export function substantialFactHighlightFallback(
+  facts: RepositorySubsystemSynthesis["facts"],
+  notebook: SynthesisNotebookEntry[],
+): RepositorySubsystemSynthesis["highlights"] {
+  const repositoryProductCapabilityEvidence = Array.from(new Map(
+    notebook
+      .filter((citation) =>
+        citation.evidenceMode === "semantic" &&
+        citation.semanticStatus === "succeeded" &&
+        citation.confidence === "high" &&
+        !citation.sensitivityFlag &&
+        citation.productImportance >= 3 &&
+        citation.implementationBreadth >= 2 &&
+        citation.technicalDifficulty >= 3 &&
+        citation.semanticSignals?.some((signal) =>
+          signal.startsWith("product_surface.")
+        )
+      )
+      .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
+  ).values());
+  const repositoryKey = (citation: SynthesisNotebookEntry) =>
+    citation.repository.trim().replace(/\.git$/ui, "").toLowerCase();
+  const candidates = facts.flatMap((fact) => {
+    if (
+      fact.confidence !== "high" ||
+      fact.sensitivityFlag ||
+      fact.statement.length > 240 ||
+      !fact.citationIndexes.length
+    ) return [];
+
+    const citations = fact.citationIndexes.map((index) => notebook[index - 1]);
+    if (citations.some((citation) =>
+      !citation ||
+      citation.evidenceMode !== "semantic" ||
+      citation.semanticStatus !== "succeeded" ||
+      citation.confidence !== "high" ||
+      citation.sensitivityFlag
+    )) return [];
+
+    const exactCitations = citations.filter(
+      (citation): citation is SynthesisNotebookEntry => Boolean(citation),
+    );
+    const individuallySubstantialEvidence = exactCitations.filter((citation) =>
+      citation.productImportance >= 4 &&
+      citation.implementationBreadth >= 2 &&
+      citation.technicalDifficulty >= 3
+    );
+    const corroboratedProductCapabilityEvidence = Array.from(new Map(
+      exactCitations
+        .filter((citation) =>
+          citation.productImportance >= 3 &&
+          citation.implementationBreadth >= 2 &&
+          citation.technicalDifficulty >= 3 &&
+          citation.semanticSignals?.some((signal) =>
+            signal.startsWith("product_surface.")
+          )
+        )
+        .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
+    ).values());
+    const repositoryCorroboratedEvidence = corroboratedProductCapabilityEvidence.filter(
+      (citation) =>
+        repositoryProductCapabilityEvidence.filter((candidate) =>
+          repositoryKey(candidate) === repositoryKey(citation)
+        ).length >= 2,
+    );
+    // Semantic extraction assigns importance 4 to a user_capability finding
+    // and 3 to a behavior finding. The same exact product workflow can
+    // legitimately be phrased as either across model runs, so do not let that
+    // classifier choice make automatic Highlight creation nondeterministic.
+    // Two independent exact product-capability observations are a stricter
+    // substitute for one importance-4 observation. They need not both be
+    // attached to the same synthesized Fact: models legitimately distribute a
+    // repository workflow across several individually grounded Facts. The
+    // selected Fact must still cite one qualifying observation itself, while
+    // the second observation only establishes that the repository-level
+    // capability is substantial. A single medium-value signal still cannot
+    // promote a Fact.
+    const substantialEvidence = individuallySubstantialEvidence.length
+      ? individuallySubstantialEvidence
+      : repositoryCorroboratedEvidence.length
+        ? repositoryCorroboratedEvidence
+        : [];
+    if (!substantialEvidence.length) return [];
+
+    return [{
+      fact,
+      evidenceProductImportance: Math.max(...substantialEvidence.map((citation) => citation.productImportance)),
+      evidenceImplementationBreadth: Math.max(...substantialEvidence.map((citation) => citation.implementationBreadth)),
+      evidenceTechnicalDifficulty: Math.max(...substantialEvidence.map((citation) => citation.technicalDifficulty)),
+      evidenceSemanticSignalCount: new Set(
+        substantialEvidence.flatMap((citation) => citation.semanticSignals ?? []),
+      ).size,
+    }];
+  });
+  const selected = candidates.sort((left, right) =>
+    right.evidenceProductImportance - left.evidenceProductImportance ||
+    right.evidenceImplementationBreadth - left.evidenceImplementationBreadth ||
+    right.evidenceTechnicalDifficulty - left.evidenceTechnicalDifficulty ||
+    right.evidenceSemanticSignalCount - left.evidenceSemanticSignalCount ||
+    normalizeWhitespace(left.fact.statement).localeCompare(
+      normalizeWhitespace(right.fact.statement),
+    )
+  )[0];
+  if (!selected) return [];
+  const candidate = selected.fact;
+
+  return [{
+    text: candidate.statement,
+    summary: candidate.statement,
+    confidence: candidate.confidence,
+    sensitivityFlag: candidate.sensitivityFlag,
+    visibility: "private",
+    citationIndexes: candidate.citationIndexes,
+    productImportance: candidate.productImportance,
+    implementationBreadth: candidate.implementationBreadth,
+    technicalDifficulty: candidate.technicalDifficulty,
+    distinctiveness: candidate.distinctiveness,
+  }];
 }
 
 type SynthesisSetResult = {
@@ -1012,6 +1297,7 @@ async function synthesizeSubsystemSet(input: {
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "Return up to three nonredundant Project Facts when the subsystem supports multiple important behaviors, and up to two Highlights only for substantial career-relevant systems.",
           "Repository code proves project implementation, not the user's personal ownership or measured impact. Avoid unsupported solo-built, shipped, production-grade, scale, adoption, or metric claims.",
+          repositorySynthesisSafetyGuidance,
           "A Highlight should be a distinct, substantial accomplishment; emit none when a subsystem only supports low-level facts.",
         ].join(" "),
         userPrompt: JSON.stringify({
@@ -1191,7 +1477,7 @@ export function selectSubsystemSynthesisNotebook(
     );
   const semanticEntries = rankedNotebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
   const deterministicAnchors = rankedNotebook.filter((entry) => entry.evidenceMode === "deterministic_anchor");
-  const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
+  const definition = systemDefinitionForNotebook(subsystemKey, rawNotebook);
   const requiredDefinitions = definition ? [definition, ...(definition.facets ?? [])] : [];
   const requiredSemanticEntries = requiredDefinitions.flatMap((candidate) => {
     const signalKeys = candidate.signalKeys ?? [];
@@ -1199,12 +1485,18 @@ export function selectSubsystemSynthesisNotebook(
     return Array.from({ length: selectorCount }, (_, selectorIndex) => {
       const signalKey = signalKeys[selectorIndex];
       const signalMatch = signalKey
-        ? semanticEntries.find((entry) => entry.semanticSignals?.includes(signalKey))
+        ? semanticEntries.find((entry) =>
+            isWorkbaseRepositoryEntry(entry) &&
+            entry.semanticSignals?.includes(signalKey)
+          )
         : null;
       if (signalMatch) return signalMatch;
       const pattern = candidate.patterns[selectorIndex];
       return pattern
-        ? semanticEntries.find((entry) => pattern.test(`${entry.path} ${entry.statement}`)) ?? null
+        ? semanticEntries.find((entry) =>
+            isWorkbaseRepositoryEntry(entry) &&
+            pattern.test(`${entry.path} ${entry.statement}`)
+          ) ?? null
         : null;
     }).filter((entry): entry is SynthesisNotebookEntry => Boolean(entry));
   });
@@ -1218,15 +1510,22 @@ export function selectSubsystemSynthesisNotebook(
         const pattern = candidate.patterns[selectorIndex];
         const semanticMatch = (
           signalKey
-            ? semanticEntries.find((entry) => entry.semanticSignals?.includes(signalKey))
+            ? semanticEntries.find((entry) =>
+                isWorkbaseRepositoryEntry(entry) &&
+                entry.semanticSignals?.includes(signalKey)
+              )
             : null
         ) ?? (
           pattern
-            ? semanticEntries.find((entry) => pattern.test(`${entry.path} ${entry.statement}`))
+            ? semanticEntries.find((entry) =>
+                isWorkbaseRepositoryEntry(entry) &&
+                pattern.test(`${entry.path} ${entry.statement}`)
+              )
             : null
         );
         if (semanticMatch || !pattern) return null;
         return deterministicAnchors.find((entry) =>
+          isWorkbaseRepositoryEntry(entry) &&
           pattern.test(`${entry.path} ${entry.statement}`)
         ) ?? null;
       });
@@ -1305,6 +1604,82 @@ export function synthesisNotebookSourceCoverageGaps(
     .map((sourceId) =>
       `Repository ${repositoryBySourceId.get(sourceId) ?? sourceId} could not fit inside the bounded ${selectedNotebook.length}-entry synthesis notebook.`
     );
+}
+
+export function finalizeRepositorySubsystemSynthesis(input: {
+  subsystemKey: string;
+  notebook: SynthesisNotebookEntry[];
+  coverageGaps: string[];
+  result: RepositorySubsystemSynthesis & { approvalEligible?: boolean };
+  tokenUsage: unknown;
+}): SynthesizedKnowledge {
+  const { subsystemKey, notebook, coverageGaps, result, tokenUsage } = input;
+  const approvalEligible = result.approvalEligible ?? true;
+  const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
+  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
+  const semanticBaselines = requiredSemanticBaselineFacts(subsystemKey, notebook);
+  const semanticBaseline = definition
+    ? semanticBaselines.find((fact) =>
+        normalizeWhitespace(fact.statement).toLowerCase() ===
+        normalizeWhitespace(definition.statement).toLowerCase()
+      ) ?? null
+    : null;
+  const semanticFacetBaselines = semanticBaselines.filter((fact) =>
+    fact !== semanticBaseline
+  );
+  const substantiveSemanticResult = subsystemKey ===
+      "repository_knowledge_lifecycle"
+    ? result.facts.find((fact) =>
+        isBroadSemanticRepositoryLifecycleFact(fact, notebook)
+      ) ?? null
+    : null;
+  const derivedFact = subsystemKey === "repository_knowledge_lifecycle" &&
+      !semanticBaseline && !substantiveSemanticResult
+    ? derivedRepositoryKnowledgeLifecycleFact(notebook)
+    : null;
+  const deterministicBaselines = [
+    semanticBaseline ?? derivedFact,
+    ...semanticFacetBaselines,
+  ].filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
+  const facts = [...deterministicBaselines, ...result.facts]
+    .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] =>
+      Boolean(fact)
+    )
+    .filter((fact, index, all) =>
+      all.findIndex((candidate) =>
+        normalizeWhitespace(candidate.statement).toLowerCase() ===
+        normalizeWhitespace(fact.statement).toLowerCase()
+      ) === index
+    )
+    .filter((fact) =>
+      fact.citationIndexes.every((index) => validIndexes.has(index))
+    )
+    .slice(0, 3);
+  const modelHighlights = result.highlights.filter((highlight) =>
+    highlight.citationIndexes.every((index) =>
+      validIndexes.has(index) &&
+      notebook[index - 1]?.evidenceMode !== "deterministic_anchor"
+    )
+  );
+
+  return {
+    subsystemKey,
+    facts,
+    highlights: modelHighlights.length
+      ? modelHighlights
+      : substantialFactHighlightFallback(facts, notebook),
+    unresolvedQuestions: Array.from(new Set([
+      ...result.unresolvedQuestions,
+      ...coverageGaps,
+    ])),
+    coverageGaps,
+    notebook,
+    tokenUsage,
+    // Candidate-level reconciliation checks the cited entries and quarantines
+    // degraded extraction output while allowing fully succeeded exact-line
+    // deterministic synthesis to auto-apply.
+    approvalEligible,
+  };
 }
 
 export async function synthesizeRepositoryKnowledge(
@@ -1487,52 +1862,15 @@ export async function synthesizeRepositoryKnowledge(
     tokenUsage.push({ synthesisBudget: snapshotStructuredGenerationBudget(synthesisBudget) });
   }
   const byKey = new Map(synthesizedSubsystems.map((subsystem) => [subsystem.subsystemKey, subsystem]));
-  return synthesisInputs.map(({ subsystemKey, notebook, coverageGaps }): SynthesizedKnowledge => {
-    const result = byKey.get(subsystemKey)!;
-    const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
-    const definition = SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey];
-    const semanticBaselines = requiredSemanticBaselineFacts(subsystemKey, notebook);
-    const semanticBaseline = definition
-      ? semanticBaselines.find((fact) =>
-          normalizeWhitespace(fact.statement).toLowerCase() ===
-          normalizeWhitespace(definition.statement).toLowerCase()
-        ) ?? null
-      : null;
-    const semanticFacetBaselines = semanticBaselines.filter((fact) => fact !== semanticBaseline);
-    const substantiveSemanticResult = subsystemKey === "repository_knowledge_lifecycle"
-      ? result.facts.find((fact) => isBroadSemanticRepositoryLifecycleFact(fact, notebook)) ?? null
-      : null;
-    const derivedFact = subsystemKey === "repository_knowledge_lifecycle" && !semanticBaseline && !substantiveSemanticResult
-      ? derivedRepositoryKnowledgeLifecycleFact(notebook)
-      : null;
-    const deterministicBaselines = [
-      semanticBaseline ?? derivedFact,
-      ...semanticFacetBaselines,
-    ].filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
-    const facts = [...deterministicBaselines, ...result.facts]
-      .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] => Boolean(fact))
-      .filter((fact, index, all) => all.findIndex((candidate) => normalizeWhitespace(candidate.statement).toLowerCase() === normalizeWhitespace(fact.statement).toLowerCase()) === index)
-      .filter((fact) => fact.citationIndexes.every((index) => validIndexes.has(index)))
-      .slice(0, 3);
-    return {
+  return synthesisInputs.map(({ subsystemKey, notebook, coverageGaps }) =>
+    finalizeRepositorySubsystemSynthesis({
       subsystemKey,
-      facts,
-      highlights: result.highlights.filter((highlight) => highlight.citationIndexes.every((index) =>
-        validIndexes.has(index) && notebook[index - 1]?.evidenceMode !== "deterministic_anchor"
-      )),
-      unresolvedQuestions: Array.from(new Set([
-        ...result.unresolvedQuestions,
-        ...coverageGaps,
-      ])),
-      coverageGaps,
       notebook,
+      coverageGaps,
+      result: byKey.get(subsystemKey)!,
       tokenUsage,
-      // Candidate-level reconciliation checks the cited entries and quarantines
-      // degraded extraction output while allowing fully succeeded exact-line
-      // deterministic synthesis to auto-apply.
-      approvalEligible: true,
-    };
-  });
+    })
+  );
 }
 
 export async function materializeSynthesisCitations(input: {

@@ -51,6 +51,16 @@ quality gate or change the active index by itself.
   cache, reasoning, actual-model, routed-provider, request-ID, failed-attempt,
   and fallback attribution. Missing usage is recorded as unknown rather than
   silently treated as zero.
+- Manual Evidence is DLP-scanned and redacted before provider-facing prompts or
+  audit input summaries are created. Exact user-authored, non-sensitive
+  statements have a deterministic extractive recovery path, but only with
+  versioned Source+Evidence ownership provenance and their exact cited Evidence
+  scope. Sensitive, secret-bearing, unsupported, or ambiguous candidates remain
+  quarantined.
+- Manual and repository Highlight producers have distinct ownership metadata.
+  Their final reconciliation runs under one WorkItem/knowledge-mutation lock,
+  rechecks the current input fingerprint, and records only the Evidence and
+  Sources actually cited by the persisted Highlight.
 
 Observed OpenRouter catalog rates on 2026-07-29 were:
 
@@ -67,16 +77,17 @@ so production accounting never assumes these observed rates remain current.
 Observed embedding input rates were $0.02/1M tokens for
 `text-embedding-3-small` and $0.13/1M for `text-embedding-3-large`.
 
-## Validation isolation
+## Historical validation isolation
 
-The untouched baseline was captured from exact `origin/main` commit
+The first untouched baseline was captured from exact `origin/main` commit
 `d862cb43321fbc2bd92b7e1c2ddf537943a38abd`. Integrated live validation used
 the same repository snapshot and a fresh, auto-expiring Neon branch cloned
 from the source database. The source database was not mutated. All 22 Prisma
 migrations were current on the clone, and evaluation writes were scoped to one
-known Work Item and cleaned up exactly.
+known Work Item and cleaned up exactly. This section is preserved as historical
+model-selection evidence; it is not the final same-commit lifecycle comparison.
 
-## Untouched Bedrock baseline
+## Historical untouched Bedrock baseline
 
 | Check | Result |
 | --- | --- |
@@ -160,9 +171,10 @@ The selected matrix had complete usage and model attribution, no failed
 attempts, and no fallback. Smaller models were promoted only for profiles that
 retained all quality, grounding, ownership, and structured-output checks.
 
-### Final representative application suite
+### Earlier representative application suite
 
-The final selected configuration passed all 40/40 live checks in 283,489 ms.
+The selected configuration at that stage passed all 40/40 live checks in
+283,489 ms.
 It made 5 model calls, used 33,567 total tokens, and cost $0.091530. Usage and
 provider attribution were complete, configured and actual routing matched,
 and there were no failed attempts or fallbacks.
@@ -186,6 +198,52 @@ The zero-call result is authoritative: the answer hash and evidence-backed
 output were verified, while token and cost attribution correctly remained
 zero. This avoids turning deterministic retrieval into an artificial telemetry
 failure.
+
+## Current real-repository regression evidence
+
+The current candidate added executable lifecycle-v4 and accomplishments-v2
+contracts after the earlier model-selection runs. The release gate now requires
+all four cold product shapes, exact repository/request/workflow/refresh lineage,
+current-head repository memory, automatic Highlight ownership, semantic and
+deep-synthesis attribution, and complete per-provider request/token/cost
+evidence. A skipped or partly configured Playwright run is not a pass.
+
+Two additional repositories were exercised because the Workbase-specific
+answer contract is not representative of small or domain-specific projects:
+
+- `arkb75/Resume` is the compact matched-provider repository. Its profile
+  checks LaTeX/branch variants, job-description reuse, and minimal PDF edits.
+- `arkb75/CircleFund` is the independent application-domain example. Its
+  retained cold import on the same lifecycle implementation reached exact head
+  `22d1968ff13f649ad6ce06a07714b3ecc279121f`, completed a verified refresh,
+  produced current-head automatic Highlights, and recorded four clean provider
+  calls (two Mini semantic extractions and two Terra deep syntheses) with unique
+  request IDs, complete usage, no failed attempts, and no fallback. That
+  retained Work Item was then rerun at commit
+  `b2032d1280e07faeff75d228a82a64b2c84e30cb`; the exact two-turn
+  accomplishments contract passed both literal prompts with 5 primary,
+  5 developed, and 5 cited items, 7 current citations, and 3/3 required-domain
+  recall on each turn. The second turn was deterministic, took 18,711 ms for
+  the pair, made zero model calls, and preserved the contribution/fund theme
+  without replaying stale history or cross-repository Workbase memory.
+
+The historical Workbase controls were also rerun on that commit: the legacy
+benchmark passed 20/20 core and 16/16 answer-quality checks with all four
+available diagnostics, while the documented five scenarios (strongest
+accomplishments, design tradeoffs, missing-p95 safety, targeted repository
+research, and artifact generation) passed 5/5 with authoritative profile
+routing and no fallback. Repository research now prefers a concrete late
+iteration guard over repeated declarations, and the exact freshness follow-up
+boosts only statements that are both present in the prior cited answer and
+independently returned by the new current-head retrieval pass.
+
+The final Bedrock/OpenRouter paired totals are intentionally not recorded here
+until both providers finish on fresh sibling databases at the same final commit
+and build. A fully attributed Bedrock control may fail a quality check and exit
+2 after writing its report; OpenRouter must pass every absolute gate and every
+Bedrock-passing scenario. The comparator additionally requires exact commit,
+head, scenario, profile, and comparison-key identity plus complete cost and
+latency coverage.
 
 ## Live embedding decision
 
@@ -223,7 +281,7 @@ fixture hash remained
 `6829c0d73c2f76ffcf72e3b4bdd2281fe0575fbde25ca2a2bf2e23e1c184cf79`
 through the selection, final active-index check, and rollback drill.
 
-## Final deterministic validation
+## Historical deterministic validation
 
 | Check | Result |
 | --- | --- |
@@ -236,6 +294,13 @@ through the selection, final active-index check, and rollback drill.
 | Live legacy benchmark | 20/20 checks passed |
 | Live embedding activation and rollback gates | passed |
 
+The table above describes the earlier validation clone. Current candidate
+verification has expanded to 131 passing unit-test files (1,449 tests; one
+file/test intentionally skipped), 18 evaluation files (226 tests), two workflow
+tests, TypeScript, ESLint, and a production build containing 45 workflow steps
+across five workflows and nine static pages. Production cutover evidence must
+replace this historical clone evidence before the migration is called complete.
+
 ## Embedding lifecycle
 
 Candidate indexes are never activated merely because a backfill command
@@ -246,7 +311,9 @@ finished. The lifecycle is:
 3. backfill all four knowledge types;
 4. reconcile writes that landed during the build;
 5. require complete coverage and matching input hashes;
-6. run and record the retrieval-quality gate;
+6. require every fixture source to remain retrievable (approved/active for
+   Project Facts and Highlights, included/active for Evidence, and active for
+   Artifacts), then run and record the retrieval-quality gate;
 7. activate with an epoch fence in one transaction; and
 8. retain and write the previous index through the rollback window.
 
@@ -275,14 +342,24 @@ traffic.
 
 For embedding rollback:
 
-1. keep the active small index serving while Titan is checked;
+1. leave the active-index control row unchanged while Titan is checked;
 2. backfill and reconcile `legacy-bedrock-titan-v2-512`;
 3. run the rollback-mode embedding quality gate and require zero missing rows,
-   zero input-hash mismatches, and no required-source loss;
+   zero input-hash mismatches, and no missing fixture-required source groups;
 4. read the current activation epoch with the `list` command;
 5. atomically run `rollback --key legacy-bedrock-titan-v2-512
    --expected-epoch N`; and
 6. restart the application and confirm Titan is active and write-enabled.
+
+Rollback-mode evaluation embeds queries only with the requested rollback
+candidate and searches only that candidate's stored vectors. It does not call
+the active embedding provider, so a complete OpenRouter outage cannot prevent
+Titan from being re-gated. The recorded report marks `activeQueried: false`,
+leaves active baseline metrics and telemetry as `null`, and compares candidate
+recall/MRR with the fixture's recorded absolute thresholds. Every required
+fixture source group must also have at least one candidate hit in the top 10.
+Promotion mode continues to query both indexes and enforce active-index as well
+as historical non-inferiority.
 
 The readiness endpoint proves database and text-runtime readiness; the
 embedding-index `list` command is authoritative for embedding identity. Neither

@@ -6,13 +6,18 @@ import {
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
   fallbackSubsystemSynthesis,
+  finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
+  isWorkbaseRepositoryIdentity,
+  matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
+  repositorySynthesisSafetyGuidance,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
+  substantialFactHighlightFallback,
   synthesisNotebookSourceCoverageGaps,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
@@ -26,7 +31,7 @@ import { REPOSITORY_STATIC_ANALYZER_VERSION } from "@/src/services/repository-kn
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
     sourceId: "source-1",
-    repository: "workbase/demo",
+    repository: "arkb75/Workbase",
     commitSha: "a".repeat(40),
     blobSha: `blob:${path}`,
     path,
@@ -46,6 +51,14 @@ function entry(path: string, statement = `${path} defines supported repository b
 describe("repository synthesis limit fallback", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("aligns model synthesis wording with the deterministic absolute-claim safety gate", () => {
+    expect(repositorySynthesisSafetyGuidance).toContain("exact executable");
+    for (const qualifier of ["always", "never", "exclusively", "every", "all", "only", "guarantees"]) {
+      expect(repositorySynthesisSafetyGuidance).toContain(qualifier);
+    }
+    expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
   });
 
   it("admits only exact high-confidence static lifecycle anchors", () => {
@@ -106,6 +119,492 @@ describe("repository synthesis limit fallback", () => {
     })]);
     expect(result?.highlights).toEqual([]);
     expect(exactSinglePathProjectDomainSynthesis("ai_runtime", [entry("src/payments/charge-service.ts", statement)])).toBeNull();
+  });
+
+  it("promotes one substantial semantic fact when model synthesis returns no Highlight", () => {
+    const notebook = [
+      {
+        ...entry(
+          "src/auth/session-service.ts",
+          "The session service validates signed credentials and rotates durable refresh state across requests.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+      {
+        ...entry(
+          "src/auth/policy.ts",
+          "The authorization policy enforces scoped access before protected project data is returned.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+    ];
+    const highlights = substantialFactHighlightFallback([{
+      statement:
+        "The application combines signed-session rotation with scoped authorization for protected project data.",
+      category: "architecture",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+      reviewNotes: null,
+    }], notebook);
+
+    expect(highlights).toEqual([expect.objectContaining({
+      text: expect.stringContaining("signed-session rotation"),
+      citationIndexes: [1, 2],
+      visibility: "private",
+      confidence: "high",
+    })]);
+  });
+
+  it("keeps the Resume workflow fallback stable across synthesis score drift", () => {
+    const statement =
+      "The documented resume-tailoring workflow starts from a job description, reviews available resume branches, and selects the closest existing variant as the basis for adaptation.";
+    const notebook = [{
+      ...entry(
+        "README.md",
+        "The documented product workflow is: take a job description, inspect all branches, and choose the closest existing resume variant.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 4,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    }];
+    const variants = [
+      { productImportance: 4, implementationBreadth: 2, technicalDifficulty: 3, distinctiveness: 3 },
+      { productImportance: 2, implementationBreadth: 1, technicalDifficulty: 1, distinctiveness: 1 },
+      { productImportance: 3, implementationBreadth: 5, technicalDifficulty: 2, distinctiveness: 2 },
+    ];
+
+    for (const scores of variants) {
+      const fact = {
+        statement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        ...scores,
+      };
+      const original = structuredClone(fact);
+
+      expect(substantialFactHighlightFallback([fact], notebook)).toEqual([
+        expect.objectContaining({
+          text: statement,
+          citationIndexes: [1],
+          visibility: "private",
+        }),
+      ]);
+      expect(fact).toEqual(original);
+    }
+  });
+
+  it("promotes a corroborated product workflow across semantic importance-label drift", () => {
+    const statement =
+      "The repository manages resume variants through long-lived branches and selects the closest variant before making minimal edits.";
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "Each resume variant lives on its own long-lived branch with main.tex as its source of truth.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 8,
+        lineEnd: 10,
+      },
+      {
+        ...entry(
+          "README.md",
+          "The agent finds the closest existing resume branch before choosing minimal edits or a justified new variant.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 12,
+        lineEnd: 18,
+      },
+    ];
+
+    expect(substantialFactHighlightFallback([{
+      statement,
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    }], notebook)).toEqual([expect.objectContaining({
+      text: statement,
+      citationIndexes: [1, 2],
+      visibility: "private",
+    })]);
+  });
+
+  it("keeps a corroborated product fallback when synthesis distributes citations across facts", () => {
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "Each resume variant lives on its own branch with main.tex as its source of truth.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 3,
+        lineEnd: 4,
+      },
+      {
+        ...entry(
+          "README.md",
+          "The agent selects the closest existing branch before making minimal edits.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        lineStart: 12,
+        lineEnd: 18,
+      },
+    ];
+    const firstStatement =
+      "The repository organizes resume variants by branch, each with a branch-specific main.tex source file.";
+    const secondStatement =
+      "The tailoring workflow selects a close resume branch before applying minimal edits.";
+
+    expect(substantialFactHighlightFallback([
+      {
+        statement: firstStatement,
+        category: "architecture",
+        confidence: "high",
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 2,
+        distinctiveness: 2,
+      },
+      {
+        statement: secondStatement,
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        citationIndexes: [2],
+        reviewNotes: null,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      },
+    ], notebook)).toEqual([expect.objectContaining({
+      text: firstStatement,
+      citationIndexes: [1],
+      visibility: "private",
+    })]);
+  });
+
+  it("does not promote one medium-value product signal without corroboration", () => {
+    const notebook = [{
+      ...entry("README.md", "The README describes one small product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    }];
+
+    expect(substantialFactHighlightFallback([{
+      statement: "The product exposes one small documented behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], notebook)).toEqual([]);
+  });
+
+  it("does not borrow product corroboration from another repository", () => {
+    const first = {
+      ...entry("README.md", "Repository one documents a single product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      repository: "example/one",
+    };
+    const second = {
+      ...entry("README.md", "Repository two documents a different product behavior."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      repository: "example/two",
+    };
+
+    expect(substantialFactHighlightFallback([{
+      statement: "Repository one exposes one documented product behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], [first, second])).toEqual([]);
+  });
+
+  it("does not use duplicate citations as corroboration", () => {
+    const repeated = {
+      ...entry(
+        "README.md",
+        "The agent finds the closest resume branch before making minimal edits.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["product_surface.product_loop"],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+    };
+
+    expect(substantialFactHighlightFallback([{
+      statement: "The product documents one resume-selection behavior.",
+      category: "behavior",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 2,
+    }], [repeated, { ...repeated }])).toEqual([]);
+  });
+
+  it("applies the substantial-fact fallback in final synthesis while preserving failed-model eligibility", () => {
+    const statement =
+      "The application combines signed-session rotation with scoped authorization for protected project data.";
+    const notebook = [
+      {
+        ...entry("src/auth/session-service.ts", statement),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+      {
+        ...entry(
+          "src/auth/policy.ts",
+          "The authorization policy enforces scoped access before protected project data is returned.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+      },
+    ];
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "project_domain:auth",
+      notebook,
+      coverageGaps: [],
+      result: {
+        facts: [{
+          statement,
+          category: "architecture",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1, 2],
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+          reviewNotes: null,
+        }],
+        highlights: [],
+        unresolvedQuestions: ["Model synthesis fell back after a structured-output failure."],
+        approvalEligible: false,
+      },
+      tokenUsage: [],
+    });
+
+    expect(finalized).toMatchObject({
+      approvalEligible: false,
+      highlights: [{
+        text: statement,
+        citationIndexes: [1, 2],
+        confidence: "high",
+        sensitivityFlag: false,
+        visibility: "private",
+      }],
+    });
+  });
+
+  it("does not promote low-value or deterministic-anchor facts", () => {
+    const lowValue = {
+      statement: "The repository includes a small formatting helper.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      productImportance: 2,
+      implementationBreadth: 1,
+      technicalDifficulty: 1,
+      distinctiveness: 1,
+      reviewNotes: null,
+    };
+    expect(substantialFactHighlightFallback(
+      [lowValue],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: [],
+        productImportance: 2,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+      }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      }],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: [],
+        productImportance: 2,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+      }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      }],
+      [{
+        ...entry("src/format.ts"),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+        semanticSignals: ["product_surface.product_loop"],
+        productImportance: 1,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+      }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{
+        ...lowValue,
+        productImportance: 5,
+        implementationBreadth: 4,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      }],
+      [{ ...entry("README.md"), evidenceMode: "deterministic_anchor" }],
+    )).toEqual([]);
+  });
+
+  it("fails closed for sensitive, uncertain, degraded, invalid, or overlong fact promotion", () => {
+    const semanticNotebook = [{
+      ...entry("src/auth/session-service.ts"),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+    }];
+    const substantial = {
+      statement: "The session service rotates durable signed-session state across authenticated requests.",
+      category: "architecture" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+      reviewNotes: null,
+    };
+
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, sensitivityFlag: true }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, confidence: "medium" }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [substantial],
+      [{ ...semanticNotebook[0]!, semanticStatus: "degraded" }],
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, citationIndexes: [2] }],
+      semanticNotebook,
+    )).toEqual([]);
+    expect(substantialFactHighlightFallback(
+      [{ ...substantial, statement: `A substantial claim ${"with supported detail ".repeat(20)}` }],
+      semanticNotebook,
+    )).toEqual([]);
+  });
+
+  it("promotes a substantial exact fact for a generic selected project domain", () => {
+    const notebook = [{
+      ...entry(
+        "src/payments/charge-service.ts",
+        "The charge service idempotently records a payment before publishing its receipt.",
+      ),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+    }];
+    const synthesis = exactSinglePathProjectDomainSynthesis(
+      "project_domain:payments",
+      notebook,
+    );
+
+    expect(substantialFactHighlightFallback(
+      synthesis?.facts ?? [],
+      notebook,
+    )).toEqual([expect.objectContaining({
+      text: notebook[0]!.statement,
+      citationIndexes: [1],
+      visibility: "private",
+    })]);
   });
 
   it("admits only project domains persisted by the bounded orchestration plan", () => {
@@ -245,6 +744,86 @@ describe("repository synthesis limit fallback", () => {
         sensitivityFlag: true,
       },
     ])).toBeNull();
+  });
+
+  it("admits Workbase system memory only for the canonical repository identity", () => {
+    expect(isWorkbaseRepositoryIdentity("arkb75/Workbase")).toBe(true);
+    expect(isWorkbaseRepositoryIdentity("/ARKB75/Workbase.git/")).toBe(true);
+    expect(isWorkbaseRepositoryIdentity("attacker/Workbase")).toBe(false);
+
+    const statement = "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.";
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement,
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "product_surface",
+      text: "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow",
+      summary: statement,
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "ingestion_integrations",
+      text: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
+      summary: "Repository exploration enforces tree/search/read/byte/time budgets and returns typed failures for exhausted budgets, oversized or binary files, unsupported encodings, and unavailable paths.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "review_ui",
+      text: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
+      summary: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement: `${statement} User note.`,
+    })).toBe(false);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "project_fact",
+      subsystemKey: "product_surface",
+      statement: "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
+    })).toBe(true);
+    expect(matchesWorkbaseDeterministicDefinitionIdentity({
+      kind: "highlight",
+      subsystemKey: "ai_runtime",
+      text: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+      summary: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
+    })).toBe(true);
+  });
+
+  it("does not derive Workbase lifecycle memory from external or spoofed notebooks", () => {
+    const structuralEntries = [
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
+      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
+      entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
+      entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
+      entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
+      entry("src/services/knowledge-refresh-service.ts", "repairKnowledgeCoverageGaps attempts semantic orchestration and uses the legacy implementation as a fallback."),
+    ];
+    const external = structuralEntries.map((item) => ({
+      ...item,
+      repository: "attacker/Workbase",
+    }));
+    expect(derivedRepositoryKnowledgeLifecycleFact(external)).toBeNull();
+
+    const mixed = structuralEntries.map((item, index) => index === 0
+      ? item
+      : { ...item, repository: "arkb75/Resume" });
+    expect(derivedRepositoryKnowledgeLifecycleFact(mixed)).toBeNull();
+    expect(isBroadSemanticRepositoryLifecycleFact({
+      statement: "Repository refresh and semantic analysis feed synthesis, reconciliation, and stale-knowledge invalidation.",
+      category: "architecture",
+      confidence: "high",
+      sensitivityFlag: false,
+      citationIndexes: [1, 2, 3],
+      reviewNotes: null,
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+      distinctiveness: 5,
+    }, external.slice(0, 3))).toBe(false);
   });
 
   it("does not let high model scores turn one schema detail into a broad lifecycle baseline", () => {
@@ -388,7 +967,7 @@ describe("repository synthesis limit fallback", () => {
       "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
     ].join("\n");
     const [analysis] = await analyzeRepositoryFiles([{
-      repository: "workbase/demo",
+      repository: "arkb75/Workbase",
       commitSha: "a".repeat(40),
       path: "README.md",
       content: readme,
@@ -442,7 +1021,7 @@ describe("repository synthesis limit fallback", () => {
       "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
     ].join("\n");
     const [analysis] = await analyzeRepositoryFiles([{
-      repository: "workbase/demo",
+      repository: "arkb75/Workbase",
       commitSha: "a".repeat(40),
       path: "README.md",
       content: readme,
@@ -454,7 +1033,7 @@ describe("repository synthesis limit fallback", () => {
       orchestration: null,
       targetHeads: [{
         sourceId: "source-1",
-        repository: "workbase/demo",
+        repository: "arkb75/Workbase",
         branch: "main",
         commitSha: "a".repeat(40),
         treeSha: "b".repeat(40),
@@ -491,6 +1070,71 @@ describe("repository synthesis limit fallback", () => {
     });
     expect(product?.notebook).toHaveLength(6);
     expect(product?.notebook.every((item) => item.evidenceMode === "deterministic_anchor")).toBe(true);
+  });
+
+  it("never injects Workbase product memory into another repository", () => {
+    const notebook = [
+      {
+        ...entry(
+          "README.md",
+          "The resume agent selects the closest branch for a job description and edits main.tex with minimal changes.",
+        ),
+        repository: "arkb75/Resume",
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: ["product_surface.product_loop"],
+      },
+      {
+        ...entry(
+          "README.md",
+          "Compiled PDFs are build artifacts; main.tex is the approved source artifact.",
+        ),
+        repository: "arkb75/Resume",
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticSignals: [
+          "product_surface.safe_auto_apply",
+          "product_surface.unsafe_quarantine",
+          "product_surface.approved_artifacts",
+        ],
+      },
+    ];
+
+    expect(requiredSemanticBaselineFacts("product_surface", notebook)).toEqual([]);
+    const fallback = fallbackSubsystemSynthesis("product_surface", notebook);
+    expect(fallback.facts).toEqual([
+      expect.objectContaining({
+        statement: notebook[0]!.statement,
+        citationIndexes: [1],
+      }),
+    ]);
+    expect(fallback.facts.map((fact) => fact.statement).join(" "))
+      .not.toMatch(/Workbase|career artifacts|Work Items/u);
+
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "product_surface",
+      notebook,
+      coverageGaps: [],
+      result: {
+        facts: [{
+          statement: notebook[0]!.statement,
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 3,
+          implementationBreadth: 2,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        highlights: [],
+        unresolvedQuestions: [],
+      },
+      tokenUsage: null,
+    });
+    expect(finalized.facts.map((fact) => fact.statement).join(" "))
+      .not.toMatch(/Workbase|career artifacts|Work Items/u);
   });
 
   it("preserves supported workflow retry, idempotency, and recovery facets across all three boundaries", () => {

@@ -130,11 +130,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v17",
-      coveragePolicyVersion: "repository-coverage-v7",
+      analyzerVersion: "repository-coverage-v16",
+      semanticAnalyzerVersion: "repository-coverage-v18",
+      coveragePolicyVersion: "repository-coverage-v8",
       orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v26",
+      synthesisPolicyVersion: "repository-synthesis-v32",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -362,11 +362,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const warnings = {
-      analyzerVersion: "repository-coverage-v14",
-      semanticAnalyzerVersion: "repository-coverage-v17",
-      coveragePolicyVersion: "repository-coverage-v7",
+      analyzerVersion: "repository-coverage-v16",
+      semanticAnalyzerVersion: "repository-coverage-v18",
+      coveragePolicyVersion: "repository-coverage-v8",
       orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v26",
+      synthesisPolicyVersion: "repository-synthesis-v32",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -462,10 +462,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v14",
+          analyzerVersion: "repository-coverage-v16",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -516,10 +516,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v14",
+          analyzerVersion: "repository-coverage-v16",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v18",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -554,15 +554,94 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-coverage-v14",
-          semanticAnalyzerVersion: "repository-coverage-v17",
-          coveragePolicyVersion: "repository-coverage-v7",
+          analyzerVersion: "repository-coverage-v16",
+          semanticAnalyzerVersion: "repository-coverage-v18",
+          coveragePolicyVersion: "repository-coverage-v8",
           orchestrationPolicyVersion: "repository-orchestration-v12",
-          synthesisPolicyVersion: "repository-synthesis-v26",
+          synthesisPolicyVersion: "repository-synthesis-v32",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
     }));
+  });
+
+  it("does not turn path-inferred static capabilities into semantic evidence", async () => {
+    const path = "src/app/api/v1/auth/login/route.test.ts";
+    const staticAnalysis: RepositoryFileAnalysis = {
+      ...analysis({ mode: "static" }),
+      path,
+      subsystemKeys: ["tests_operations", "project_domain:auth", "module:src/app"],
+      facts: [{
+        ...analysis({ mode: "static" }).facts[0]!,
+        path,
+        evidenceMode: "static",
+        subsystemKeys: ["tests_operations", "project_domain:auth", "module:src/app"],
+      }],
+    };
+    const semanticAnalysis: RepositoryFileAnalysis = {
+      ...analysis({ mode: "semantic", status: "succeeded" }),
+      path,
+      subsystemKeys: ["tests_operations", "project_domain:auth", "module:src/app"],
+      facts: [{
+        ...analysis({ mode: "semantic", status: "succeeded" }).facts[0]!,
+        path,
+        evidenceMode: "semantic",
+        subsystemKeys: ["project_domain:auth"],
+      }],
+    };
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
+      id: "refresh-auth",
+      workItemId: "work-item-1",
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "workbase/demo",
+        branch: "main",
+        commitSha: "d".repeat(40),
+        treeSha: "e".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      warnings: null,
+      snapshots: [{
+        id: "snapshot-1",
+        sourceId: "source-1",
+        commitSha: "d".repeat(40),
+        files: [{
+          id: "file-auth",
+          path,
+          disposition: "analyzed",
+          analyzerVersion: "repository-coverage-v16",
+          analysis: staticAnalysis,
+          semanticStatus: "succeeded",
+          semanticAnalyzerVersion: "repository-coverage-v18",
+          semanticRefreshRunId: "refresh-auth",
+          semanticAnalysis,
+        }],
+      }],
+    });
+
+    const result = await finalizeKnowledgeCoverage("refresh-auth");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        coverageStatus: "partial",
+        coverageGaps: expect.arrayContaining([
+          "Tests and operations has static coverage but no successful semantic analysis.",
+        ]),
+      }),
+    ]);
+    const ledgerCalls = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
+      .map(([input]) => input);
+    expect(ledgerCalls.find((input) => input.create.capabilityKey === "tests_operations"))
+      .toMatchObject({
+        create: { status: "static_only", semanticObservationCount: 0 },
+        update: { status: "static_only", semanticObservationCount: 0 },
+      });
+    expect(ledgerCalls.find((input) => input.create.capabilityKey === "project_domain:auth"))
+      .toMatchObject({
+        create: { status: "semantic_verified", semanticObservationCount: 1 },
+        update: { status: "semantic_verified", semanticObservationCount: 1 },
+      });
   });
 
   it("preserves repository-scoped semantic capacity gaps through final coverage", async () => {
@@ -579,10 +658,10 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-coverage-v14",
+      analyzerVersion: "repository-coverage-v16",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v18",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

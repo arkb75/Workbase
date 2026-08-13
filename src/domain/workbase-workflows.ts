@@ -69,6 +69,7 @@ export async function buildClaimGenerationDrafts(params: {
   sources: SourceSnapshot[];
   evidenceItems: EvidenceItemSnapshot[];
   existingClaims: ClaimSnapshot[];
+  agentRunId?: string;
   sourceIngestionService: SourceIngestionService;
   claimResearchService: ClaimResearchService;
   claimVerificationService: ClaimVerificationService;
@@ -91,11 +92,13 @@ export async function buildClaimGenerationDrafts(params: {
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
     existingHighlights: preserved,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
   const verifiedClaims = await params.claimVerificationService.verify({
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
     highlights: candidateClaims.highlights,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
   const verificationRun = readGenerationRunMetadata(verifiedClaims);
 
@@ -117,6 +120,7 @@ export async function buildIncrementalClaimGenerationDrafts(params: {
   evidenceItems: EvidenceItemSnapshot[];
   incrementalEvidenceItemIds: string[];
   existingClaims: ClaimSnapshot[];
+  agentRunId?: string;
   sourceIngestionService: SourceIngestionService;
   claimResearchService: ClaimResearchService;
   claimVerificationService: ClaimVerificationService;
@@ -162,11 +166,13 @@ export async function buildIncrementalClaimGenerationDrafts(params: {
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
     existingHighlights: params.existingClaims,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
   const verifiedClaims = await params.claimVerificationService.verify({
     workItem: params.workItem,
     evidenceItems: researchEvidenceItems,
     highlights: candidateClaims.highlights,
+    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
   });
   const verificationRun = readGenerationRunMetadata(verifiedClaims);
 

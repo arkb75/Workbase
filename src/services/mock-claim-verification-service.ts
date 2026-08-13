@@ -12,7 +12,10 @@ export const mockClaimVerificationService: ClaimVerificationService = {
   async verify({ highlights, evidenceItems }) {
     return highlights.map((highlight) => {
       const risks = [highlight.risksSummary].filter(Boolean);
-      let verificationStatus = highlight.verificationStatus;
+      let verificationStatus =
+        highlight.verificationStatus === "draft" && highlight.confidence !== "low"
+          ? ("approved" as const)
+          : highlight.verificationStatus;
       let visibility = highlight.visibility;
       let sensitivityFlag = highlight.sensitivityFlag;
       let confidence = highlight.confidence;

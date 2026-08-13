@@ -50,6 +50,17 @@ export function isBroadProjectKnowledgeQuery(query: string) {
 const currentProjectQueryPattern =
   /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|as of)\b/i;
 
+type CurrentRepositoryHead = {
+  sourceId: string;
+  commitSha: string;
+};
+
+type FreshnessAwareRetrievalInput =
+  Parameters<ProjectKnowledgeRetrievalService["retrieve"]>[0] & {
+    requireCurrentRepositoryKnowledge?: boolean;
+    currentRepositoryHeads?: CurrentRepositoryHead[];
+  };
+
 type LinkedEvidence = {
   evidenceItemId: string;
   evidenceItem: {
@@ -65,6 +76,97 @@ function objectValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function nestedString(value: unknown, path: string[]) {
+  let current: unknown = value;
+  for (const key of path) {
+    current = objectValue(current)?.[key];
+  }
+  return typeof current === "string" && current.trim() ? current : null;
+}
+
+type RepositoryValidatedKnowledge = {
+  validatedThroughSha: string | null;
+  validationHeads: unknown;
+  evidence: Array<{
+    evidenceItem: {
+      sourceId: string;
+      type: string;
+      source?: { type: string } | null;
+    };
+  }>;
+};
+
+type RepositoryValidationState = {
+  repositoryDerived: boolean;
+  current: boolean;
+};
+
+/**
+ * Validation is current only when every repository head recorded for the
+ * entity still matches the corresponding attached Source. Legacy single-SHA
+ * rows are accepted only when that SHA matches every repository source in the
+ * entity's evidence; an unrelated repository with the same old SHA cannot
+ * accidentally make the entity appear current.
+ */
+function repositoryValidationState(
+  entity: RepositoryValidatedKnowledge,
+  targetHeads: CurrentRepositoryHead[],
+): RepositoryValidationState {
+  const targetBySource = new Map(
+    targetHeads.map((target) => [target.sourceId, target.commitSha]),
+  );
+  const recordedHeads = objectValue(entity.validationHeads);
+  const recordedEntries = recordedHeads
+    ? Object.entries(recordedHeads).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1]),
+      )
+    : [];
+  const repositorySourceIds = Array.from(new Set(
+    entity.evidence.flatMap(({ evidenceItem }) =>
+      evidenceItem.source?.type === "github_repo" || evidenceItem.type.startsWith("github_")
+        ? [evidenceItem.sourceId]
+        : []
+    ),
+  ));
+  const repositoryDerived =
+    recordedEntries.length > 0 ||
+    repositorySourceIds.length > 0 ||
+    Boolean(entity.validatedThroughSha);
+
+  if (!repositoryDerived) return { repositoryDerived: false, current: false };
+  if (recordedEntries.length) {
+    return {
+      repositoryDerived: true,
+      current: recordedEntries.every(
+        ([sourceId, commitSha]) => targetBySource.get(sourceId) === commitSha,
+      ),
+    };
+  }
+  if (!entity.validatedThroughSha) {
+    return { repositoryDerived: true, current: false };
+  }
+  if (repositorySourceIds.length) {
+    return {
+      repositoryDerived: true,
+      current: repositorySourceIds.every(
+        (sourceId) => targetBySource.get(sourceId) === entity.validatedThroughSha,
+      ),
+    };
+  }
+  return {
+    repositoryDerived: true,
+    current:
+      targetHeads.length === 1 &&
+      targetHeads[0]?.commitSha === entity.validatedThroughSha,
+  };
+}
+
+function repositoryKnowledgeFreshnessScore(state: RepositoryValidationState) {
+  if (state.current) return 5;
+  if (state.repositoryDerived) return 1;
+  return 2;
 }
 
 function repositoryProvenance(entries: LinkedEvidence[]) {
@@ -317,7 +419,7 @@ function highlightRanking(highlight: {
   validatedThroughSha: string | null;
   metadata: unknown;
   evidence: Array<{ evidenceItem: { type: string } }>;
-}) {
+}, validation: RepositoryValidationState) {
   const metadata = highlight.metadata && typeof highlight.metadata === "object" && !Array.isArray(highlight.metadata)
     ? highlight.metadata as Record<string, unknown>
     : null;
@@ -332,7 +434,7 @@ function highlightRanking(highlight: {
     technicalDifficulty: numeric("technicalDifficulty", 3),
     ownershipAuthority: highlight.ownershipClarity === "clear" ? 5 : highlight.ownershipClarity === "partial" ? 3 : 1,
     distinctiveness: numeric("distinctiveness", 3),
-    freshness: highlight.validatedThroughSha ? 5 : 2,
+    freshness: repositoryKnowledgeFreshnessScore(validation),
     impactBonus: typeof metadata?.measuredImpact === "boolean" && metadata.measuredImpact ? 10 : 0,
     uncertainty: highlight.ownershipClarity === "unclear" ? "Repository evidence does not establish personal ownership." : null,
   };
@@ -347,7 +449,7 @@ function factRanking(fact: {
   technicalDifficulty: number | null;
   distinctiveness: number | null;
   evidence: Array<{ evidenceItem: { type: string } }>;
-}) {
+}, validation: RepositoryValidationState) {
   const systemCategory = fact.category === "architecture" || fact.category === "data_flow" || fact.category === "behavior";
   return {
     evidenceStrength: fact.evidence.length ? (fact.confidence === "high" ? 5 : fact.confidence === "medium" ? 4 : 2) : 1,
@@ -360,7 +462,7 @@ function factRanking(fact: {
     technicalDifficulty: fact.technicalDifficulty ?? (systemCategory ? 3 : 2),
     ownershipAuthority: 0,
     distinctiveness: fact.distinctiveness ?? 2,
-    freshness: fact.validatedThroughSha ? 5 : 2,
+    freshness: repositoryKnowledgeFreshnessScore(validation),
     impactBonus: 0,
     uncertainty: "Technical implementation is verified; personal ownership and impact require Highlight context.",
   };
@@ -385,6 +487,8 @@ async function loadPostgresLexicalScores(input: {
         )::double precision AS score
         FROM "Claim" claim, query
         WHERE claim."workItemId" = ${input.workItemId}
+          AND claim."verificationStatus" = 'approved'
+          AND claim."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(claim."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -398,6 +502,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "ProjectFact" fact, query
         WHERE fact."workItemId" = ${input.workItemId}
           AND fact."status" = 'approved'
+          AND fact."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(fact."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -411,6 +516,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "EvidenceItem" evidence, query
         WHERE evidence."workItemId" = ${input.workItemId}
           AND evidence."included" = true
+          AND evidence."lifecycleStatus" = 'active'
           AND evidence."type" <> 'github_file_excerpt'::"EvidenceItemType"
           AND to_tsvector('english', coalesce(evidence."searchText", '')) @@ query.value
         ORDER BY score DESC
@@ -425,6 +531,7 @@ async function loadPostgresLexicalScores(input: {
         FROM "Artifact" artifact, query
         WHERE artifact."workItemId" = ${input.workItemId}
           AND artifact."userId" = ${input.userId}
+          AND artifact."lifecycleStatus" = 'active'
           AND to_tsvector('english', coalesce(artifact."searchText", '')) @@ query.value
         ORDER BY score DESC
         LIMIT 40
@@ -487,8 +594,17 @@ export const projectKnowledgeScoring = {
   isBroadProjectKnowledgeQuery,
 };
 
-export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService = {
-  async retrieve({ userId, workItemId, query, purpose, limits, preferredProjectFactIds }) {
+export const projectKnowledgeRetrievalService = {
+  async retrieve({
+    userId,
+    workItemId,
+    query,
+    purpose,
+    limits,
+    preferredProjectFactIds,
+    requireCurrentRepositoryKnowledge = false,
+    currentRepositoryHeads: providedCurrentRepositoryHeads,
+  }: FreshnessAwareRetrievalInput) {
     // Authorization must precede the system-owned sync: retrieval cannot use a
     // guessed work-item ID to create or update another user's evidence.
     await prisma.workItem.findFirstOrThrow({
@@ -546,6 +662,10 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           userId,
         },
         include: {
+        sources: {
+          where: { type: "github_repo" },
+          select: { id: true, metadata: true },
+        },
         highlights: {
           where: {
             lifecycleStatus: "active",
@@ -659,9 +779,43 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         select: {
           subsystemKey: true,
           statement: true,
+          validatedThroughSha: true,
+          validationHeads: true,
+          evidence: {
+            select: {
+              evidenceItem: {
+                select: {
+                  sourceId: true,
+                  type: true,
+                  source: { select: { type: true } },
+                },
+              },
+            },
+          },
         },
       }),
     ]);
+
+    const currentRepositoryHeads = providedCurrentRepositoryHeads?.length
+      ? providedCurrentRepositoryHeads
+      : (workItem.sources ?? []).flatMap((source) => {
+          const commitSha =
+            nestedString(source.metadata, ["revision", "commitSha"]) ??
+            nestedString(source.metadata, ["commitSha"]);
+          return commitSha ? [{ sourceId: source.id, commitSha }] : [];
+        });
+    const validationStateFor = (entity: RepositoryValidatedKnowledge) =>
+      repositoryValidationState(entity, currentRepositoryHeads);
+    const isEligibleForRequestedFreshness = (entity: RepositoryValidatedKnowledge) => {
+      if (!requireCurrentRepositoryKnowledge) return true;
+      const validation = validationStateFor(entity);
+      return !validation.repositoryDerived || validation.current;
+    };
+    const eligibleHighlights = workItem.highlights.filter(isEligibleForRequestedFreshness);
+    const eligibleProjectFacts = workItem.projectFacts.filter(isEligibleForRequestedFreshness);
+    const eligiblePolicyLifecycleFacts = policyLifecycleFacts.filter(
+      isEligibleForRequestedFreshness,
+    );
 
     // Embeddings are maintained on write/backfill paths. Rebuilding every
     // missing vector synchronously makes an ordinary chat turn pay for old
@@ -669,7 +823,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
     if ((process.env.WORKBASE_RETRIEVAL_EMBEDDING_BACKFILL_MODE ?? "write_only") === "request") {
       await Promise.allSettled([
         ensureHighlightEmbeddings(
-        workItem.highlights.map((highlight) => ({
+        eligibleHighlights.map((highlight) => ({
           id: highlight.id,
           workItemId: highlight.workItemId,
           text: highlight.text,
@@ -682,7 +836,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
               ? highlight.metadata.subsystemKey
               : null,
           validatedThroughSha: highlight.validatedThroughSha,
-          accomplishmentRanking: highlightRanking(highlight),
+          accomplishmentRanking: highlightRanking(highlight, validationStateFor(highlight)),
           verificationStatus: highlight.verificationStatus,
           visibility: highlight.visibility,
           risksSummary: highlight.risksSummary,
@@ -712,7 +866,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         })),
         ),
         ensureProjectKnowledgeEmbeddings({
-          projectFacts: workItem.projectFacts,
+          projectFacts: eligibleProjectFacts,
           evidenceItems: workItem.evidenceItems,
           artifacts: workItem.artifacts,
         }),
@@ -723,12 +877,15 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
     // validation, accomplishment scores, and subsystem coverage. A query
     // embedding and four full-text queries cannot improve that exhaustive
     // requirement selection, so skip them on this hot path.
-    const highlightHits = workItem.highlights
+    const highlightHits = eligibleHighlights
       .filter((highlight) => isHighlightEligible(highlight, purpose))
       .map((highlight): ProjectKnowledgeHit => {
         const authority = highlightAuthority(highlight.verificationStatus);
         const subsystemKey = highlightSubsystemKey(highlight.metadata);
-        const accomplishmentRanking = highlightRanking(highlight);
+        const accomplishmentRanking = highlightRanking(
+          highlight,
+          validationStateFor(highlight),
+        );
         const content = [
           highlight.text,
           highlight.summary,
@@ -796,7 +953,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
 
     const projectFactHits = purpose === "public_artifact"
       ? []
-      : workItem.projectFacts
+      : eligibleProjectFacts
           .map((fact): ProjectKnowledgeHit => {
             const content = [fact.statement, fact.category, fact.reviewNotes ?? ""].join(" ");
             const directLexicalScore = lexicalScore(query, content);
@@ -813,7 +970,7 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
               sensitivityFlag: fact.sensitivityFlag,
               subsystemKey: fact.subsystemKey,
               validatedThroughSha: fact.validatedThroughSha,
-              accomplishmentRanking: factRanking(fact),
+              accomplishmentRanking: factRanking(fact, validationStateFor(fact)),
               retrievalRelevance: normalizedRetrievalRelevance({
                 query,
                 content,
@@ -876,7 +1033,13 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
           content: item.content,
           ownershipAuthority:
             purpose === "private_chat"
-              ? explicitSelfReportedOwnershipAuthority(item)
+              ? explicitSelfReportedOwnershipAuthority({
+                  ...item,
+                  source: {
+                    externalId: item.source.externalId,
+                    metadata: item.source.metadata,
+                  },
+                })
               : 0,
           retrievalRelevance: normalizedRetrievalRelevance({
             query,
@@ -942,6 +1105,25 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .slice(0, selectedLimits.evidence);
 
     const regroundArtifactSources = requiresRegroundedArtifactSources(query, purpose);
+    const hasEligibleDirectArtifactProvenance = (
+      artifact: (typeof workItem.artifacts)[number],
+    ) =>
+      artifact.highlightProvenance.some(
+        (entry) =>
+          Boolean(entry.highlightId && entry.highlight) &&
+          isEligibleForRequestedFreshness(entry.highlight!),
+      ) ||
+      artifact.evidenceProvenance.some((entry) =>
+        Boolean(entry.evidenceItemId) &&
+        (objectValue(entry.evidenceSnapshot)?.type ?? entry.evidenceItem?.type) !==
+          "github_file_excerpt"
+      );
+    const hasOnlyEligibleHighlightProvenance = (
+      artifact: (typeof workItem.artifacts)[number],
+    ) => artifact.highlightProvenance.every((entry) =>
+      !entry.highlightId ||
+      Boolean(entry.highlight && isEligibleForRequestedFreshness(entry.highlight))
+    );
     const artifactHits = workItem.artifacts
       .filter((artifact) =>
         (purpose !== "public_artifact"
@@ -950,7 +1132,11 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
             artifact.highlightProvenance.every(
               (entry) => entry.highlight && isHighlightEligible(entry.highlight, purpose),
             )) &&
-        (!regroundArtifactSources || hasDirectArtifactProvenance(artifact)),
+        (!regroundArtifactSources ||
+          (requireCurrentRepositoryKnowledge
+            ? hasOnlyEligibleHighlightProvenance(artifact) &&
+              hasEligibleDirectArtifactProvenance(artifact)
+            : hasDirectArtifactProvenance(artifact))),
       )
       .map((artifact): ProjectKnowledgeHit => {
         const content = [
@@ -965,7 +1151,11 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
         const vectorSimilarity = vectorRanks.artifacts.get(artifact.id) ?? 0;
         const directCitations: ProjectKnowledgeCitation[] = [
           ...artifact.highlightProvenance.flatMap((entry) => {
-            if (!entry.highlightId) return [];
+            if (
+              !entry.highlightId ||
+              (requireCurrentRepositoryKnowledge &&
+                (!entry.highlight || !isEligibleForRequestedFreshness(entry.highlight)))
+            ) return [];
             return [{
               kind: "highlight" as const,
               label: artifactSnapshotText(entry.highlightSnapshot, "text", entry.highlight?.text ?? "Approved Highlight snapshot"),
@@ -1032,17 +1222,17 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       .slice(0, selectedLimits.artifacts);
 
     const rawPolicyContext = [
-      ...policyLifecycleFacts.map((fact) => ({
+      ...eligiblePolicyLifecycleFacts.map((fact) => ({
         subsystemKey: fact.subsystemKey,
         title: fact.statement,
         content: fact.statement,
       })),
-      ...workItem.highlights.map((highlight) => ({
+      ...eligibleHighlights.map((highlight) => ({
         subsystemKey: highlightSubsystemKey(highlight.metadata),
         title: highlight.text,
         content: highlight.summary,
       })),
-      ...workItem.projectFacts.map((fact) => ({
+      ...eligibleProjectFacts.map((fact) => ({
         subsystemKey: fact.subsystemKey,
         title: fact.statement,
         content: fact.statement,
@@ -1082,6 +1272,6 @@ export const projectKnowledgeRetrievalService: ProjectKnowledgeRetrievalService 
       warnings,
     };
   },
-};
+} satisfies ProjectKnowledgeRetrievalService;
 
 export { buildHighlightEmbeddingText };

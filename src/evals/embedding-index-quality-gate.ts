@@ -2,8 +2,8 @@ export type EmbeddingQualityGateMode = "promotion" | "rollback";
 
 export type EmbeddingQualityGateInput = {
   mode: EmbeddingQualityGateMode;
-  activeRecallAt10: number;
-  activeMrr: number;
+  activeRecallAt10: number | null;
+  activeMrr: number | null;
   candidateRecallAt10: number;
   candidateMrr: number;
   historicalRecallAt10: number;
@@ -18,17 +18,46 @@ export type EmbeddingQualityGateInput = {
 export function evaluateEmbeddingIndexQualityGate(
   input: EmbeddingQualityGateInput,
 ) {
+  const validMetric = (value: number | null): value is number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+  const qualityMetricsValid =
+    validMetric(input.candidateRecallAt10) &&
+    validMetric(input.candidateMrr) &&
+    validMetric(input.historicalRecallAt10) &&
+    validMetric(input.historicalMrr) &&
+    (
+      input.mode === "rollback" ||
+      (validMetric(input.activeRecallAt10) && validMetric(input.activeMrr))
+    );
   const recallAt10Minimum = input.mode === "rollback"
-    ? input.historicalRecallAt10
-    : Math.max(input.activeRecallAt10, input.historicalRecallAt10);
+    ? validMetric(input.historicalRecallAt10)
+      ? input.historicalRecallAt10
+      : null
+    : validMetric(input.activeRecallAt10) && validMetric(input.historicalRecallAt10)
+      ? Math.max(input.activeRecallAt10, input.historicalRecallAt10)
+      : null;
   const mrrMinimum = input.mode === "rollback"
-    ? input.historicalMrr
-    : Math.max(input.activeMrr, input.historicalMrr);
+    ? validMetric(input.historicalMrr)
+      ? input.historicalMrr
+      : null
+    : validMetric(input.activeMrr) && validMetric(input.historicalMrr)
+      ? Math.max(input.activeMrr, input.historicalMrr)
+      : null;
+  const sourceIntegrityInputValid =
+    Number.isInteger(input.requiredSourceLoss) && input.requiredSourceLoss >= 0;
   const checks = {
+    qualityMetricsValid,
     candidateRecallAt10:
+      qualityMetricsValid &&
+      recallAt10Minimum !== null &&
       input.candidateRecallAt10 + Number.EPSILON >= recallAt10Minimum,
-    candidateMrr: input.candidateMrr + Number.EPSILON >= mrrMinimum,
-    zeroRequiredSourceLoss: input.requiredSourceLoss === 0,
+    candidateMrr:
+      qualityMetricsValid &&
+      mrrMinimum !== null &&
+      input.candidateMrr + Number.EPSILON >= mrrMinimum,
+    sourceIntegrityInputValid,
+    zeroRequiredSourceLoss:
+      sourceIntegrityInputValid && input.requiredSourceLoss === 0,
     candidateReady: input.candidateStatus === "ready",
     candidateReconciled:
       input.candidateReconciledAt !== null &&

@@ -107,6 +107,7 @@ describe("repository semantic task and budget", () => {
     expect(analysis.summary).toHaveLength(1_200);
     expect(analysis.facts[0]?.statement).toHaveLength(500);
     expect(analysis.unresolvedQuestions[0]).toHaveLength(300);
+    expect(generateStructuredMock.mock.calls[0]?.[0].effort).toBe("low");
   });
 
   it("reduces three uncached semantic files to one structured model call", async () => {
@@ -203,6 +204,7 @@ describe("repository semantic task and budget", () => {
     });
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("fileKey");
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
+    expect(request.effort).toBe("low");
   });
 
   it("degrades only missing or invalid file members and retains their exact gaps", async () => {
@@ -518,6 +520,136 @@ describe("repository semantic task and budget", () => {
       expect.objectContaining({ missingCapabilityKeys: ["retrieval_provenance"] }),
     ]));
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
+  });
+
+  it("deterministically attributes supported test-file findings to tests operations", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The route tests cover authenticated and unauthenticated behavior.",
+            subsystemKeys: ["project_domain:auth"],
+            findings: [{
+              statement: "The tests verify that an unauthenticated request returns an authorization error.",
+              kind: "behavior",
+              capabilityKeys: ["project_domain:auth"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The runtime exports a bounded operation.",
+            subsystemKeys: ["ai_runtime"],
+            findings: [{
+              statement: "The runtime exports a bounded operation.",
+              kind: "behavior",
+              capabilityKeys: ["ai_runtime"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-3": {
+            summary: "The root layout defines the application UI shell.",
+            subsystemKeys: ["ui_shell"],
+            findings: [{
+              statement: "The root layout wraps routed content in the application UI shell.",
+              kind: "integration",
+              capabilityKeys: ["ui_shell"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+
+    const results = await analyzeRepositoryFileBatch([
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/app/api/auth/route.test.ts",
+        content: "expect(await request()).toMatchObject({ status: 403 });",
+        task: {
+          objective: "Determine authentication behavior and automated test coverage.",
+          capabilityKeys: ["tests_operations", "project_domain:auth"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/runtime.ts",
+        content: "export const operation = () => true;",
+        task: {
+          objective: "Determine the implemented AI runtime behavior.",
+          capabilityKeys: ["ai_runtime"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
+      {
+        repository: "workbase/demo",
+        commitSha: "e".repeat(40),
+        path: "src/app/layout.tsx",
+        content: "export default function RootLayout({ children }) { return children; }",
+        task: {
+          objective: "Determine the implemented review and UI surface.",
+          capabilityKeys: ["review_ui"],
+          questions: [],
+          expectedOutputs: [],
+        },
+        budget,
+      },
+    ]);
+    const [result, , layoutResult] = results;
+
+    expect(result).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
+    expect(result?.facts[0]?.subsystemKeys).toEqual([
+      "project_domain:auth",
+      "tests_operations",
+    ]);
+    expect(result?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        missingCapabilityKeys: [],
+        structurallyInferredCapabilityKeys: ["tests_operations"],
+        strippedUnsupportedCapabilityKeys: [],
+      }),
+    ]));
+    expect(layoutResult).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
+    expect(layoutResult?.facts[0]?.subsystemKeys).toEqual(["review_ui"]);
+    expect(layoutResult?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        missingCapabilityKeys: [],
+        structurallyInferredCapabilityKeys: ["review_ui"],
+        strippedUnsupportedCapabilityKeys: ["ui_shell"],
+      }),
+    ]));
   });
 
   it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {

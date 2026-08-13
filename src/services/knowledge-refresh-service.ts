@@ -37,7 +37,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v26";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v32";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -714,19 +714,22 @@ function rebaseCachedAnalysis(value: unknown, path: string): RepositoryFileAnaly
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const analysis = value as RepositoryFileAnalysis;
   if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.subsystemKeys)) return null;
+  const inferredSubsystemKeys = inferSubsystemsFromPath(path);
   return {
     ...analysis,
     path,
     subsystemKeys: Array.from(new Set([
       ...analysis.subsystemKeys,
-      ...inferSubsystemsFromPath(path),
+      ...inferredSubsystemKeys,
     ])).slice(0, 16),
     facts: analysis.facts.map((fact) => ({
       ...fact,
       path,
       subsystemKeys: Array.from(new Set([
         ...(fact.subsystemKeys ?? []),
-        ...inferSubsystemsFromPath(path),
+        ...(analysis.analysisMode === "static" || fact.evidenceMode === "static"
+          ? inferredSubsystemKeys
+          : []),
       ])).slice(0, 16),
     })),
   };
@@ -1344,10 +1347,41 @@ export async function finalizeKnowledgeCoverage(runId: string) {
   return { runId, coverage: coverageByRepository };
 }
 
-export async function completeKnowledgeRefresh(runId: string) {
+export async function completeKnowledgeRefresh(
+  runId: string,
+  result?: {
+    appliedFactCount: number;
+    appliedHighlightCount: number;
+    promotedEvidenceCount: number;
+  },
+) {
+  const beforeCompletion = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    select: { progress: true },
+  });
+  const finishedAt = new Date();
   const completed = await prisma.knowledgeRefreshRun.updateMany({
     where: { id: runId, status: "reconciling" },
-    data: { status: "completed", finishedAt: new Date() },
+    data: {
+      status: "completed",
+      finishedAt,
+      ...(result
+        ? {
+            progress: toInputJson({
+              ...record(beforeCompletion.progress),
+              terminalOutcome: {
+                status: result.appliedHighlightCount > 0
+                  ? "ready"
+                  : "no_safe_candidates",
+                appliedFactCount: result.appliedFactCount,
+                appliedHighlightCount: result.appliedHighlightCount,
+                promotedEvidenceCount: result.promotedEvidenceCount,
+                completedAt: finishedAt.toISOString(),
+              },
+            }),
+          }
+        : {}),
+    },
   });
   const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({ where: { id: runId } });
   if (!completed.count && current.status !== "completed") {

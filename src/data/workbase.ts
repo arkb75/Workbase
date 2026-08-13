@@ -4,6 +4,10 @@ import {
   PROVENANCE_REVIEW_CARD_LIMIT,
 } from "@/src/lib/knowledge-review-inbox";
 import { pendingHighlightBulkApprovalWhere } from "@/src/lib/highlight-bulk-approval";
+import {
+  ACTIVE_REPOSITORY_REFRESH_STATUSES,
+  readRepositoryImportState,
+} from "@/src/lib/github-repository-import-state";
 import { prisma } from "@/src/lib/prisma";
 
 function toSortTime(value: Date | null) {
@@ -142,6 +146,11 @@ export async function getWorkItemForUser(userId: string, workItemId: string) {
           createdAt: "desc",
         },
       },
+      agentRuns: {
+        where: { kind: "manual_evidence_highlights" },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: 10,
+      },
       artifacts: {
         include: {
           highlightProvenance: {
@@ -228,6 +237,7 @@ function buildWorkspaceWorkItem(
     | "highlightSuggestions"
     | "evidenceItems"
     | "generationRuns"
+    | "agentRuns"
     | "artifacts"
     | "knowledgeRefreshRuns"
     | "knowledgeChanges"
@@ -243,6 +253,7 @@ function buildWorkspaceWorkItem(
     highlightSuggestions: [],
     evidenceItems: [],
     generationRuns: [],
+    agentRuns: [],
     artifacts: [],
     knowledgeRefreshRuns: [],
     knowledgeChanges: [],
@@ -383,11 +394,17 @@ export async function getWorkItemChatShellForUser(
         },
         take: 1,
       },
+      agentRuns: {
+        where: { kind: "manual_evidence_highlights" },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: 1,
+      },
     },
   });
   const {
     highlights,
     projectFacts,
+    agentRuns,
     ...workItem
   } = result;
 
@@ -403,6 +420,7 @@ export async function getWorkItemChatShellForUser(
       highlightSuggestions: [],
       evidenceItems: [],
       generationRuns: [],
+      agentRuns,
       artifacts: [],
       knowledgeRefreshRuns: [],
       knowledgeChanges: [],
@@ -465,9 +483,18 @@ export async function getWorkItemWorkspaceForUser(
       where: { id: workItemId, userId },
       include: {
         sources: { orderBy: { createdAt: "asc" } },
+        agentRuns: {
+          where: { kind: "manual_evidence_highlights" },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: 10,
+        },
       },
     });
-    const { sources, ...workItem } = result;
+    const { sources, agentRuns, ...workItem } = result;
+    const linkedRefreshRunIds = sources.flatMap((source) => {
+      const refreshRunId = readRepositoryImportState(source.metadata)?.refreshRunId;
+      return refreshRunId ? [refreshRunId] : [];
+    });
     const [totalEvidenceCount, includedEvidenceCount, evidenceGroups] = await Promise.all([
       prisma.evidenceItem.count({ where: { workItemId } }),
       prisma.evidenceItem.count({ where: { workItemId, included: true } }),
@@ -482,15 +509,38 @@ export async function getWorkItemWorkspaceForUser(
       totalEvidenceCount,
       EVIDENCE_PAGE_SIZE,
     );
-    const evidenceItems = await prisma.evidenceItem.findMany({
-      where: { workItemId },
-      include: { source: true, tags: true },
-      orderBy: [{ included: "desc" }, { updatedAt: "desc" }, { id: "asc" }],
-      skip: (evidencePagination.page - 1) * EVIDENCE_PAGE_SIZE,
-      take: EVIDENCE_PAGE_SIZE,
-    });
+    const [evidenceItems, knowledgeRefreshRuns] = await Promise.all([
+      prisma.evidenceItem.findMany({
+        where: { workItemId },
+        include: { source: true, tags: true },
+        orderBy: [{ included: "desc" }, { updatedAt: "desc" }, { id: "asc" }],
+        skip: (evidencePagination.page - 1) * EVIDENCE_PAGE_SIZE,
+        take: EVIDENCE_PAGE_SIZE,
+      }),
+      prisma.knowledgeRefreshRun.findMany({
+        where: {
+          workItemId,
+          OR: [
+            { status: { in: [...ACTIVE_REPOSITORY_REFRESH_STATUSES] } },
+            ...(linkedRefreshRunIds.length
+              ? [{ id: { in: linkedRefreshRunIds } }]
+              : []),
+          ],
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    ]);
     return {
-      workItem: buildWorkspaceWorkItem(workItem, { sources, evidenceItems }),
+      workItem: buildWorkspaceWorkItem(workItem, {
+        sources,
+        agentRuns,
+        evidenceItems,
+        knowledgeRefreshRuns: knowledgeRefreshRuns.map((run) => ({
+          ...run,
+          // Snapshot file counts are not rendered by the Sources workspace.
+          snapshots: [],
+        })),
+      }),
       sensitiveContextAvailable: false,
       visibleSourceCount: sources.filter(
         (source) =>
@@ -554,6 +604,11 @@ export async function getWorkItemWorkspaceForUser(
           },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         },
+        agentRuns: {
+          where: { kind: "manual_evidence_highlights" },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: 1,
+        },
       },
     });
     const {
@@ -561,6 +616,7 @@ export async function getWorkItemWorkspaceForUser(
       evidenceItems,
       generationRuns,
       artifacts,
+      agentRuns,
       ...workItem
     } = result;
     return {
@@ -569,6 +625,7 @@ export async function getWorkItemWorkspaceForUser(
         evidenceItems,
         generationRuns,
         artifacts,
+        agentRuns,
       }),
       sensitiveContextAvailable: false,
       visibleSourceCount: 0,
@@ -635,6 +692,11 @@ export async function getWorkItemWorkspaceForUser(
         },
         knowledgeRefreshRuns: {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 10,
+        },
+        agentRuns: {
+          where: { kind: "manual_evidence_highlights" },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
           take: 10,
         },
         _count: {
@@ -717,6 +779,7 @@ export async function getWorkItemWorkspaceForUser(
     highlightSuggestions,
     generationRuns,
     knowledgeRefreshRuns,
+    agentRuns,
     _count,
     ...workItem
   } = result;
@@ -743,6 +806,7 @@ export async function getWorkItemWorkspaceForUser(
         // Snapshot file counts are not rendered by the workspace inbox.
         snapshots: [],
       })),
+      agentRuns,
       ...reviewInbox,
     }),
     sensitiveContextAvailable: false,

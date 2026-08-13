@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v7";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v8";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -332,6 +332,25 @@ function unique(values: readonly string[], limit: number) {
   return Array.from(new Set(values.map((value) => normalizeWhitespace(value)).filter(Boolean))).slice(0, limit);
 }
 
+function structurallySupportedSemanticCapabilityKeys(input: {
+  path: string;
+  allowedCapabilityKeys: string[];
+}) {
+  const inferred: string[] = [];
+  const isTestPath = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/iu
+    .test(input.path);
+  if (isTestPath && input.allowedCapabilityKeys.includes("tests_operations")) {
+    inferred.push("tests_operations");
+  }
+  if (
+    input.allowedCapabilityKeys.includes("review_ui") &&
+    inferSubsystemsFromPath(input.path).includes("review_ui")
+  ) {
+    inferred.push("review_ui");
+  }
+  return inferred;
+}
+
 export function inferSubsystemsFromPath(path: string) {
   const value = path.toLowerCase();
   const keys: string[] = [];
@@ -341,14 +360,37 @@ export function inferSubsystemsFromPath(path: string) {
   if (/knowledge-(?:review|update)|candidate-review|highlight-review/.test(value)) keys.push("knowledge_review_lifecycle");
   if (/readme|package\.json|docs?\//.test(value)) keys.push("product_surface");
   if (/prisma|schema|domain|types/.test(value)) keys.push("domain_data");
-  if (/bedrock|openrouter|llm|model|agent|converse/.test(value)) keys.push("ai_runtime");
+  // Repository-root AGENTS.md, docs, fixtures, and tests are not proof of a
+  // production model runtime. Recognize both singular agent modules and common
+  // plural production layouts such as src/agents/planner.ts.
+  const segments = value.split("/");
+  const agentExamplePath = segments.some((segment) =>
+    /^(?:(?:__)?tests?(?:__)?|(?:__)?fixtures?(?:__)?|docs?)$/u.test(segment)
+  ) || /(?:^|[._-])(?:test|spec|fixture)(?:[._-]|$)/u.test(
+    segments.at(-1) ?? "",
+  );
+  const executableAgentPath =
+    /(?:^|[/_.-])agents?(?:[/_.-]|$)/u.test(value) &&
+    /\.(?:[cm]?[jt]sx?|py|go|rs|java)$/u.test(value) &&
+    !agentExamplePath;
+  if (/bedrock|openrouter|llm|model|converse/.test(value) || executableAgentPath) {
+    keys.push("ai_runtime");
+  }
   if (/github|source|import|ingest|oauth|integration/.test(value)) keys.push("ingestion_integrations");
   if (/retriev|citation|provenance|embedding|search/.test(value)) keys.push("retrieval_provenance");
   if (
     /workflow|orchestrat|run-|queue|job/.test(value) ||
     value === "src/services/project-chat-store.ts"
   ) keys.push("workflow_orchestration");
-  if (/app\/|component|page\.tsx|review|workspace|ui/.test(value)) keys.push("review_ui");
+  const appUiPath = /(?:^|\/)(?:src\/)?app\/(?!api(?:\/|$))/u.test(value);
+  const componentUiPath = /(?:^|\/)components?(?:\/|$)/u.test(value);
+  const namedUiModule = /(?:^|[/_.-])(?:review|workspace|ui)(?:[/_.-]|$)/u.test(value);
+  if (
+    appUiPath ||
+    componentUiPath ||
+    namedUiModule ||
+    /(?:^|\/)(?:page|layout)\.[cm]?[jt]sx$/u.test(value)
+  ) keys.push("review_ui");
   if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
   const projectDomain = inferProjectDomainCapability(path);
   if (projectDomain) keys.push(projectDomain);
@@ -641,7 +683,9 @@ async function analyzeChunk(input: {
       repairMappings: ["Map facts or observations to findings without inventing content.", "Map category to the closest supported finding kind."],
       maxTokens: Math.min(input.budget?.model.limits.maxOutputTokens ?? 4_000, 4_000),
       temperature: 0,
-      effort: "medium",
+      // Reserve the completion allowance for exact-line structured evidence;
+      // deeper reasoning here reduces reliability without adding authority.
+      effort: "low",
       repairStrategy: "repair_last_failure",
       transportPreference: ["json_schema"],
       budget: input.budget?.model,
@@ -1128,7 +1172,13 @@ export async function analyzeRepositoryFileBatch(
         ],
         maxTokens: Math.min(sharedBudget?.model.limits.maxOutputTokens ?? 6_000, 6_000),
         temperature: 0,
-        effort: "medium",
+        // Semantic extraction is a transcription/grounding task with a strict
+        // schema, not an open-ended reasoning task. On reasoning models,
+        // medium effort can consume nearly the entire completion allowance
+        // before emitting JSON, turning valid cold imports into deterministic
+        // fallbacks. Low effort preserves the output budget for the grounded
+        // file observations the workflow actually needs.
+        effort: "low",
         repairStrategy: "repair_last_failure",
         transportPreference: ["json_schema"],
         budget: sharedBudget?.model,
@@ -1197,12 +1247,29 @@ export async function analyzeRepositoryFileBatch(
     }));
     const rejected: string[] = [];
     const acceptedFindings: typeof parsedData.findings = [];
+    const structurallyInferredCapabilityKeys = new Set<string>();
+    const strippedUnsupportedCapabilityKeys = new Set<string>();
     const facts = parsedData.findings.flatMap((finding) => {
-      const invalidKeys = finding.capabilityKeys.filter((key) => !entry.allowedCapabilityKeys.includes(key));
-      if (invalidKeys.length) {
+      const inferredCapabilityKeys = structurallySupportedSemanticCapabilityKeys({
+        path: entry.file.path,
+        allowedCapabilityKeys: entry.allowedCapabilityKeys,
+      }).filter((key) => !finding.capabilityKeys.includes(key));
+      inferredCapabilityKeys.forEach((key) => structurallyInferredCapabilityKeys.add(key));
+      const allowedModelCapabilityKeys = finding.capabilityKeys.filter((key) =>
+        entry.allowedCapabilityKeys.includes(key)
+      );
+      const invalidKeys = finding.capabilityKeys.filter((key) =>
+        !entry.allowedCapabilityKeys.includes(key)
+      );
+      const capabilityKeys = unique([
+        ...allowedModelCapabilityKeys,
+        ...inferredCapabilityKeys,
+      ], 6);
+      if (invalidKeys.length && !capabilityKeys.length) {
         rejected.push(`Rejected finding with capabilities outside this file task: ${invalidKeys.join(", ")}.`);
         return [];
       }
+      invalidKeys.forEach((key) => strippedUnsupportedCapabilityKeys.add(key));
       const invalidSignalKeys = (finding.signalKeys ?? []).filter((key) =>
         !(entry.file.task.semanticSignalKeys ?? []).includes(key)
       );
@@ -1238,7 +1305,7 @@ export async function analyzeRepositoryFileBatch(
         productImportance: finding.kind === "user_capability" ? 4 : 3,
         implementationBreadth: 2,
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
-        subsystemKeys: unique(finding.capabilityKeys, 6),
+        subsystemKeys: capabilityKeys,
         semanticSignals: unique(finding.signalKeys ?? [], 12),
         evidenceMode: "semantic" as const,
         path: entry.file.path,
@@ -1284,6 +1351,8 @@ export async function analyzeRepositoryFileBatch(
         duplicateExactPathMembers: 0,
         malformedExactPathMembers: 0,
         missingCapabilityKeys,
+        structurallyInferredCapabilityKeys: Array.from(structurallyInferredCapabilityKeys).sort(),
+        strippedUnsupportedCapabilityKeys: Array.from(strippedUnsupportedCapabilityKeys).sort(),
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],

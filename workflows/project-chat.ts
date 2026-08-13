@@ -21,9 +21,9 @@ import { executeArtifactAttempt } from "@/src/services/artifact-workflow-service
 import { persistResearchAgentEvent } from "@/src/services/research-event-persistence-service";
 import {
   finalizeProjectChatAfterFactReview,
-  requiresLiveRepositoryResearch,
   runProjectChatAgent,
 } from "@/src/services/project-chat-agent-service";
+import { ensureProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import {
   isKnowledgeRefreshPartial,
   knowledgeRefreshService,
@@ -418,14 +418,11 @@ async function startRequiredKnowledgeRefresh(runId: string) {
       terminalStatus: run.status as TerminalAgentRunStatus,
     };
   }
-  const question = run.messages[0]?.content ?? "";
-  // Artifact adequacy is evaluated by ArtifactWorkflow itself, which starts
-  // from approved Highlights and performs bounded targeted research only when
-  // they are insufficient. Refreshing every attached repository before every
-  // artifact request duplicated that work and made the common adequate-memory
-  // path pay the full repository cost. Explicit freshness/repository language
-  // still enters the refresh barrier here.
-  if (!requiresLiveRepositoryResearch(question)) {
+  const plan = await ensureProjectChatTurnPlan(run.id);
+  // Semantic freshness is model-owned. The workflow enforces the model's
+  // bounded decision as a durable side-effect barrier; it does not reinterpret
+  // user wording with lexical triggers.
+  if (plan.action !== "refresh_then_answer") {
     return {
       required: false as const,
       refreshRunId: null,
@@ -578,7 +575,11 @@ async function reconcileRequiredKnowledge(refreshRunId: string) {
     durationMs: Date.now() - stalenessStartedAt,
   };
   await assertKnowledgeRefreshGenerationCurrent(refreshRunId);
-  await knowledgeRefreshService.complete(refreshRunId);
+  await knowledgeRefreshService.complete(refreshRunId, {
+    appliedFactCount: reconciled.appliedFactIds.length,
+    appliedHighlightCount: reconciled.appliedHighlightIds.length,
+    promotedEvidenceCount: reconciled.promotedEvidenceIds.length,
+  });
   return {
     appliedFactIds: reconciled.appliedFactIds,
     appliedHighlightIds: reconciled.appliedHighlightIds,
@@ -1209,9 +1210,27 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
   ) {
     return terminalAgentRunResult(beforeAgent?.status ?? "missing");
   }
-  const result = afterFactReview
-    ? await finalizeProjectChatAfterFactReview(agentInput)
-    : await runProjectChatAgent(agentInput);
+  let result: Awaited<ReturnType<typeof runProjectChatAgent>>;
+  try {
+    result = afterFactReview
+      ? await finalizeProjectChatAfterFactReview(agentInput)
+      : await runProjectChatAgent(agentInput);
+  } catch (error) {
+    const failure = classifyWorkflowFailure(error);
+    if (failure.retryable) throw error;
+    const message = [failure.message, failure.recovery].filter(Boolean).join(" ");
+    await failAgentRun({
+      runId,
+      message,
+      failure: {
+        code: failure.code,
+        stage: "Running project chat",
+        retryable: false,
+        recovery: failure.recovery,
+      },
+    });
+    return { status: "failed" as const, message };
+  }
 
   if (result.status === "artifact_requested") {
     await prisma.agentRun.update({

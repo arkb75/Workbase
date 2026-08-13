@@ -166,6 +166,36 @@ function normalizeJsonValue(value: unknown): JsonValue | null {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
+function tokenUsageWithRequestId(
+  tokenUsage: JsonValue | null,
+  requestId: string | null | undefined,
+): JsonValue | null {
+  const normalizedRequestId =
+    typeof requestId === "string" &&
+      requestId.trim().length <= 200 &&
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(requestId.trim())
+      ? requestId.trim()
+      : null;
+  if (
+    !normalizedRequestId ||
+    !tokenUsage ||
+    typeof tokenUsage !== "object" ||
+    Array.isArray(tokenUsage)
+  ) {
+    return tokenUsage;
+  }
+
+  // OpenRouter already includes its request ID in normalized usage. Bedrock
+  // exposes the equivalent identity on response.$metadata instead. Enriching
+  // the provider-neutral usage leaf here makes every structured caller persist
+  // the same durable attempt identity, including callers that do not use the
+  // higher-level structured-generation audit wrapper.
+  return {
+    ...tokenUsage,
+    requestId: normalizedRequestId,
+  };
+}
+
 function normalizeAttemptRecords(attempts: StructuredOutputAttemptRecord[]) {
   return normalizeJsonValue(attempts);
 }
@@ -963,6 +993,13 @@ export class BedrockStructuredLlmClient {
         }
         throw error;
       }
+      response = {
+        ...response,
+        tokenUsage: tokenUsageWithRequestId(
+          response.tokenUsage,
+          response.requestId,
+        ),
+      };
       const providerAttemptCount = providerAttemptCountIn(
         response.tokenUsage,
       );

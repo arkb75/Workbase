@@ -127,6 +127,9 @@ enum GenerationKind {
   capability_synthesis
   coverage_audit
   answer_completeness_audit
+  project_chat_planning
+  project_chat_answer
+  project_chat_verification
 }
 
 enum GenerationStatus {
@@ -170,6 +173,7 @@ enum AgentRunKind {
   chat_turn
   project_research
   artifact_workflow
+  manual_evidence_highlights
   repository_refresh
   semantic_worker
   coverage_audit

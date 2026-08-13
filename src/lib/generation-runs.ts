@@ -12,7 +12,7 @@ import {
   resolveModelCostUsd,
 } from "@/src/services/model-usage-service";
 
-type GenerationRunWriteInput = {
+export type GenerationRunWriteInput = {
   workItemId: string;
   kind:
     | "claim_research"
@@ -29,7 +29,10 @@ type GenerationRunWriteInput = {
     | "semantic_repair"
     | "capability_synthesis"
     | "coverage_audit"
-    | "answer_completeness_audit";
+    | "answer_completeness_audit"
+    | "project_chat_planning"
+    | "project_chat_answer"
+    | "project_chat_verification";
   status: "queued" | "running" | "success" | "provider_error" | "parse_error" | "validation_error";
   idempotencyKey?: string | null;
   provider: string;
@@ -42,6 +45,13 @@ type GenerationRunWriteInput = {
   tokenUsage?: Prisma.InputJsonValue | null;
   estimatedCostUsd?: number | null;
 };
+
+export class GenerationRunReplayError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GenerationRunReplayError";
+  }
+}
 
 function logGenerationEvent(event: string, payload: Record<string, unknown>) {
   console.error(
@@ -324,6 +334,82 @@ export async function createGenerationRun(
   });
 
   return run;
+}
+
+function persistenceErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : null;
+}
+
+/**
+ * Loads the immutable successful result bound to a workflow idempotency key.
+ * A malformed or conflicting row is an integrity failure: callers must not
+ * spend on another provider request that could never become authoritative.
+ */
+export async function findSuccessfulGenerationRunReplay(input: {
+  workItemId: string;
+  idempotencyKey: string;
+  kind: GenerationRunWriteInput["kind"];
+}) {
+  const run = await prisma.generationRun.findUnique({
+    where: {
+      workItemId_idempotencyKey: {
+        workItemId: input.workItemId,
+        idempotencyKey: input.idempotencyKey,
+      },
+    },
+  });
+
+  if (!run) return null;
+  if (run.kind !== input.kind) {
+    throw new GenerationRunReplayError(
+      `Generation replay key ${input.idempotencyKey} is bound to ${run.kind}, not ${input.kind}.`,
+    );
+  }
+  if (run.status !== "success") {
+    throw new GenerationRunReplayError(
+      `Generation replay key ${input.idempotencyKey} is not in a successful state.`,
+    );
+  }
+  if (run.parsedOutput == null) {
+    throw new GenerationRunReplayError(
+      `Generation replay key ${input.idempotencyKey} has no parsed output.`,
+    );
+  }
+
+  logGenerationEvent("workbase.generation_run.replayed", {
+    generationRunId: run.id,
+    workItemId: run.workItemId,
+    kind: run.kind,
+  });
+  return run;
+}
+
+/**
+ * Persists a successful provider result once. If a concurrent workflow retry
+ * won the unique-key race, its already-persisted output is returned as the
+ * authoritative result instead of creating a second lineage record.
+ */
+export async function createGenerationRunIdempotently(
+  data: GenerationRunWriteInput & {
+    idempotencyKey: string;
+    status: "success";
+  },
+) {
+  try {
+    return await createGenerationRun(data);
+  } catch (error) {
+    if (persistenceErrorCode(error) !== "P2002") throw error;
+
+    const winner = await findSuccessfulGenerationRunReplay({
+      workItemId: data.workItemId,
+      idempotencyKey: data.idempotencyKey,
+      kind: data.kind,
+    });
+    if (winner) return winner;
+    throw error;
+  }
 }
 
 export async function updateGenerationRunResultRefs(

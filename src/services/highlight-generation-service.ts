@@ -6,6 +6,9 @@ import type {
 } from "@/src/domain/types";
 import {
   createGenerationRun,
+  createGenerationRunIdempotently,
+  findSuccessfulGenerationRunReplay,
+  GenerationRunReplayError,
   generationRunFailureTokenUsage,
   isStructuredGenerationAdmissionFailure,
 } from "@/src/lib/generation-runs";
@@ -28,6 +31,8 @@ import {
   buildRepairEvidenceRefHints,
   buildResearchSourceCatalog,
   normalizeResearchDrafts,
+  readResearchRefEvidenceItemId,
+  type ResearchSourceCatalog,
 } from "@/src/services/claim-research-shared";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { mockClaimResearchService } from "@/src/services/mock-claim-research-service";
@@ -38,6 +43,53 @@ const highlightBatchJsonSchema = buildHighlightGenerationJsonSchema({
   minHighlights: 0,
   maxHighlights: 2,
 });
+type HighlightGenerationBatchOutput = ReturnType<
+  (typeof batchHighlightGenerationLlmOutputSchema)["parse"]
+>;
+
+function normalizedModelEvidenceAlias(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * Reasoning models can corrupt long opaque database IDs even when every other
+ * field is valid (for example by inserting spaces into a CUID). Give the model
+ * short batch-local references and resolve them back to durable IDs before any
+ * output is replayed or persisted. This also keeps the example output inside
+ * the exact evidence scope instead of teaching placeholder IDs such as ev_01.
+ */
+function buildModelEvidenceScope(sourceCatalog: ResearchSourceCatalog) {
+  const evidenceItemIdByAlias = new Map<string, string>();
+  const modelSourceCatalog = sourceCatalog.map((sourceRef, index) => {
+    const alias = `E${index + 1}`;
+    evidenceItemIdByAlias.set(
+      normalizedModelEvidenceAlias(alias),
+      sourceRef.evidenceItemId,
+    );
+    return { ...sourceRef, evidenceItemId: alias };
+  });
+  return { modelSourceCatalog, evidenceItemIdByAlias };
+}
+
+function canonicalizeModelEvidenceRefs(
+  value: HighlightGenerationBatchOutput,
+  evidenceItemIdByAlias: ReadonlyMap<string, string>,
+): HighlightGenerationBatchOutput {
+  return {
+    highlights: value.highlights.map((highlight) => ({
+      ...highlight,
+      sourceRefs: highlight.sourceRefs.map((sourceRef) => {
+        const modelReference = readResearchRefEvidenceItemId(sourceRef);
+        const evidenceItemId = modelReference
+          ? evidenceItemIdByAlias.get(
+              normalizedModelEvidenceAlias(modelReference),
+            )
+          : null;
+        return evidenceItemId ? { evidenceItemId } : sourceRef;
+      }),
+    })),
+  };
+}
 
 function isRejectedGuidanceSource(item: NormalizedEvidenceItem) {
   return (
@@ -113,6 +165,68 @@ function buildBatchInputSummary(params: {
   };
 }
 
+function highlightGenerationIdempotencyKey(
+  agentRunId: string,
+  batchKey: string,
+) {
+  return `agent-run:${agentRunId}:highlight-generation:${batchKey}`;
+}
+
+function validateHighlightBatchEvidenceRefs(
+  value: { highlights: Array<{ sourceRefs: unknown[] }> },
+  allowedEvidenceIds: Set<string>,
+) {
+  const errors: string[] = [];
+
+  value.highlights.forEach((highlight, highlightIndex) => {
+    highlight.sourceRefs.forEach((sourceRef, sourceRefIndex) => {
+      const evidenceItemId =
+        typeof sourceRef === "string"
+          ? sourceRef
+          : sourceRef && typeof sourceRef === "object" &&
+              "evidenceItemId" in sourceRef &&
+              typeof sourceRef.evidenceItemId === "string"
+            ? sourceRef.evidenceItemId
+            : sourceRef && typeof sourceRef === "object" &&
+                "id" in sourceRef &&
+                typeof sourceRef.id === "string"
+              ? sourceRef.id
+              : null;
+
+      if (!evidenceItemId || !allowedEvidenceIds.has(evidenceItemId)) {
+        errors.push(
+          `highlights[${highlightIndex}].sourceRefs[${sourceRefIndex}] uses an unknown evidence reference.`,
+        );
+      }
+    });
+  });
+
+  return errors;
+}
+
+function parseHighlightGenerationReplay(
+  parsedOutput: unknown,
+  allowedEvidenceIds: Set<string>,
+  idempotencyKey: string,
+) {
+  const parsed = batchHighlightGenerationLlmOutputSchema.safeParse(parsedOutput);
+  if (!parsed.success) {
+    throw new GenerationRunReplayError(
+      `Successful generation replay ${idempotencyKey} has invalid parsed output.`,
+    );
+  }
+  const validationErrors = validateHighlightBatchEvidenceRefs(
+    parsed.data,
+    allowedEvidenceIds,
+  );
+  if (validationErrors.length) {
+    throw new GenerationRunReplayError(
+      `Successful generation replay ${idempotencyKey} is outside its evidence scope.`,
+    );
+  }
+  return parsed.data;
+}
+
 const bedrockHighlightGenerationService: HighlightGenerationService = {
   async generate({
     workItem,
@@ -130,13 +244,25 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
 
     for (const batch of batches) {
       const sourceCatalog = buildResearchSourceCatalog(batch.evidenceItems);
+      const { modelSourceCatalog, evidenceItemIdByAlias } =
+        buildModelEvidenceScope(sourceCatalog);
       const allowedEvidenceIds = new Set(
         sourceCatalog.map((sourceRef) => sourceRef.evidenceItemId),
       );
       const repairMappings = [
         ...highlightGenerationRepairMappings,
-        ...buildRepairEvidenceRefHints(sourceCatalog),
+        ...buildRepairEvidenceRefHints(modelSourceCatalog),
       ];
+      const scopedExampleOutput = {
+        highlights: highlightGenerationExampleOutput.highlights
+          .slice(0, 1)
+          .map((highlight) => ({
+            ...highlight,
+            sourceRefs: modelSourceCatalog.slice(0, 2).map((sourceRef) => ({
+              evidenceItemId: sourceRef.evidenceItemId,
+            })),
+          })),
+      };
       const systemPrompt = [
         "You generate Workbase reusable highlights from technical evidence.",
         "Return JSON that matches the provided schema exactly.",
@@ -154,7 +280,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             "Return a top-level JSON object with a `highlights` array.",
             "Each item must include text, category, confidence, ownershipClarity, summary, rationaleSummary, sourceRefs, risksSummary, missingInfo.",
             "Use `text`, not `claimText`, `title`, or `claim`.",
-            "Only cite provided evidenceItemId values.",
+            "For sourceRefs[].evidenceItemId, copy only the short E1, E2, ... reference values provided in evidence_refs.",
             "It is valid to return an empty array if this evidence batch does not support a defensible highlight.",
             "Classify candidates mentally against existing highlights as new, revision, or skip.",
             "Return new highlights and meaningful revisions only; skip candidates that mostly restate an approved or rejected highlight.",
@@ -171,13 +297,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         },
         {
           tag: "example_output",
-          content: JSON.stringify(
-            {
-              highlights: highlightGenerationExampleOutput.highlights.slice(0, 1),
-            },
-            null,
-            2,
-          ),
+          content: JSON.stringify(scopedExampleOutput, null, 2),
         },
         {
           tag: "work_item",
@@ -239,7 +359,7 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         },
         {
           tag: "evidence_refs",
-          content: JSON.stringify(sourceCatalog, null, 2),
+          content: JSON.stringify(modelSourceCatalog, null, 2),
         },
       ]);
       const baseInputSummary = buildBatchInputSummary({
@@ -249,6 +369,27 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
         systemPrompt,
         userPrompt,
       });
+      const idempotencyKey = agentRunId
+        ? highlightGenerationIdempotencyKey(agentRunId, batch.batchKey)
+        : null;
+      const replay = idempotencyKey
+        ? await findSuccessfulGenerationRunReplay({
+            workItemId: workItem.id,
+            idempotencyKey,
+            kind: "highlight_generation",
+          })
+        : null;
+
+      if (replay && idempotencyKey) {
+        const replayed = parseHighlightGenerationReplay(
+          replay.parsedOutput,
+          allowedEvidenceIds,
+          idempotencyKey,
+        );
+        generationRunIds.push(replay.id);
+        highlights.push(...normalizeResearchDrafts(replayed, sourceCatalog));
+        continue;
+      }
 
       try {
         const result = await structuredClient.generateStructured({
@@ -258,44 +399,25 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           schemaName: highlightGenerationSchemaName,
           schemaDescription: highlightGenerationSchemaDescription,
           jsonSchema: highlightBatchJsonSchema,
-          exampleOutput: {
-            highlights: highlightGenerationExampleOutput.highlights.slice(0, 1),
-          },
+          exampleOutput: scopedExampleOutput,
           requiredFieldPaths: highlightGenerationRequiredFields,
           repairMappings,
           maxTokens: 1800,
-          extraValidation: (value) => {
-            const errors: string[] = [];
-
-            value.highlights.forEach((highlight, highlightIndex) => {
-              highlight.sourceRefs.forEach((sourceRef, sourceRefIndex) => {
-                const evidenceItemId =
-                  typeof sourceRef === "string"
-                    ? sourceRef
-                    : "evidenceItemId" in sourceRef &&
-                        typeof sourceRef.evidenceItemId === "string"
-                      ? sourceRef.evidenceItemId
-                      : "id" in sourceRef && typeof sourceRef.id === "string"
-                        ? sourceRef.id
-                        : null;
-
-                if (!evidenceItemId || !allowedEvidenceIds.has(evidenceItemId)) {
-                  errors.push(
-                    `highlights[${highlightIndex}].sourceRefs[${sourceRefIndex}] uses an unknown evidence reference.`,
-                  );
-                }
-              });
-            });
-
-            return errors;
-          },
+          extraValidation: (value) => validateHighlightBatchEvidenceRefs(
+            canonicalizeModelEvidenceRefs(value, evidenceItemIdByAlias),
+            allowedEvidenceIds,
+          ),
         });
+        const canonicalResult = canonicalizeModelEvidenceRefs(
+          result.data,
+          evidenceItemIdByAlias,
+        );
 
-        const drafts = normalizeResearchDrafts(result.data, sourceCatalog);
-        const generationRun = await createGenerationRun({
+        const generationRunData = {
           workItemId: workItem.id,
           kind: "highlight_generation",
           status: "success",
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           provider: result.provider,
           modelId: result.modelId,
           inputSummary: {
@@ -306,22 +428,45 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
             ) as Prisma.InputJsonValue,
           } as Prisma.InputJsonValue,
           rawOutput: result.rawOutput,
-          parsedOutput: result.parsedOutput as Prisma.InputJsonValue,
+          parsedOutput: canonicalResult as Prisma.InputJsonValue,
           validationErrors: null,
           resultRefs: {
-            ...(agentRunId ? { agentRunId } : {}),
+            ...(agentRunId
+              ? {
+                  agentRunId,
+                  phase: "highlight_generation",
+                  batchIdempotencyKey: idempotencyKey,
+                }
+              : {}),
             profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             batchKey: batch.batchKey,
-            generatedHighlightCount: drafts.length,
+            generatedHighlightCount: canonicalResult.highlights.length,
           } as Prisma.InputJsonValue,
           tokenUsage: (result.tokenUsage as Prisma.InputJsonValue | null) ?? null,
           estimatedCostUsd: result.estimatedCostUsd,
-        });
+        } as const;
+        const generationRun = idempotencyKey
+          ? await createGenerationRunIdempotently({
+              ...generationRunData,
+              idempotencyKey,
+            })
+          : await createGenerationRun(generationRunData);
+        const drafts = idempotencyKey
+          ? normalizeResearchDrafts(
+              parseHighlightGenerationReplay(
+                generationRun.parsedOutput,
+                allowedEvidenceIds,
+                idempotencyKey,
+              ),
+              sourceCatalog,
+            )
+          : normalizeResearchDrafts(canonicalResult, sourceCatalog);
 
         generationRunIds.push(generationRun.id);
         highlights.push(...drafts);
       } catch (error) {
+        if (error instanceof GenerationRunReplayError) throw error;
         const failure = error instanceof StructuredOutputError ? error : null;
         const admissionFailure =
           isStructuredGenerationAdmissionFailure(error);
@@ -345,7 +490,13 @@ const bedrockHighlightGenerationService: HighlightGenerationService = {
           validationErrors:
             (failure?.validationErrors as Prisma.InputJsonValue | null) ?? null,
           resultRefs: {
-            ...(agentRunId ? { agentRunId } : {}),
+            ...(agentRunId
+              ? {
+                  agentRunId,
+                  phase: "highlight_generation",
+                  batchIdempotencyKey: idempotencyKey,
+                }
+              : {}),
             profile: "drafting",
             configuredModelId: configuredIdentity.modelId,
             ...(admissionFailure ? { admissionFailure: true } : {}),

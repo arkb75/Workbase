@@ -78,6 +78,20 @@ describe("workflow error normalization", () => {
     });
   });
 
+  it("does not replay deterministic model execution-limit failures", () => {
+    expect(classifyWorkflowFailure({
+      message: "Bedrock agent exceeded its 5-iteration limit.",
+      code: "iteration_limit_exceeded",
+      limit: 5,
+      actual: 6,
+    })).toEqual({
+      code: "model_execution_limit",
+      message: "Workbase stopped the model after it reached a bounded execution limit.",
+      recovery: "Retry with a narrower request, or inspect the run's tool activity if the same limit repeats.",
+      retryable: false,
+    });
+  });
+
   it("never reflects an unknown internal error into the user-visible failure", () => {
     const failure = classifyWorkflowFailure({
       message: "Validation blew up with token ghp_supersecret and /private/app.ts:77",

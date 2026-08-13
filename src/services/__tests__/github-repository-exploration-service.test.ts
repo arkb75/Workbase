@@ -460,6 +460,39 @@ describe("githubRepositoryExplorationService", () => {
     expect(result.content).toContain("response.stopReason");
   });
 
+  it("prefers a concrete late iteration guard over top-level limit declarations", async () => {
+    const lines = Array.from({ length: 500 }, (_, index) => `const filler${index + 1} = true;`);
+    lines[20] = "interface RuntimeLimits { maxIterations: number; maxTotalTokens: number; }";
+    lines[30] = "interface RuntimeResult { stopReason: string; budget: number; }";
+    lines[319] = "if (iterations >= limits.maxIterations) {";
+    lines[320] = "  throw new Error('iteration limit reached');";
+    lines[321] = "}";
+    const content = lines.join("\n");
+    githubClientMocks.fetchGitHubTree.mockResolvedValue({
+      sha: treeSha,
+      url: `https://api.github.com/repos/workbase/demo/git/trees/${treeSha}`,
+      truncated: false,
+      tree: [treeEntry({ path: "src/runtime.ts", sha: authBlobSha, size: Buffer.byteLength(content) })],
+    });
+    githubClientMocks.fetchGitHubBlob.mockResolvedValue({
+      sha: authBlobSha,
+      size: Buffer.byteLength(content),
+      url: `https://api.github.com/repos/workbase/demo/git/blobs/${authBlobSha}`,
+      content: Buffer.from(content).toString("base64"),
+      encoding: "base64",
+    });
+
+    const result = await (await startSession()).readFile({
+      path: "src/runtime.ts",
+      focusTerms: ["maxIterations", "stopReason", "budget", "limit"],
+      lineWindow: 160,
+    });
+
+    expect(result.lineStart).toBeGreaterThan(160);
+    expect(result.content).toContain("iterations >= limits.maxIterations");
+    expect(result.content).not.toContain("interface RuntimeLimits");
+  });
+
   it("rejects unlisted paths, oversized responses, and binary blob content", async () => {
     const session = await startSession();
 

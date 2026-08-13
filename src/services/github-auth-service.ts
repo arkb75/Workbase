@@ -7,7 +7,11 @@ import {
   githubViewerSchema,
 } from "@/src/lib/github-schemas";
 import type { GitHubAuthService } from "@/src/services/types";
-import { listGitHubRepositoriesForUser } from "@/src/services/github-client";
+import {
+  fetchGitHubRepositoryByIdForUser,
+  GitHubApiError,
+  listGitHubRepositoriesForUser,
+} from "@/src/services/github-client";
 
 function mapGitHubConnection(connection: {
   id: string;
@@ -84,6 +88,21 @@ export const githubAuthService: GitHubAuthService = {
 
   async listRepositories({ userId, query, limit }) {
     return listGitHubRepositoriesForUser(userId, query, limit);
+  },
+
+  async getRepositoryById({ userId, repositoryId }) {
+    const normalizedRepositoryId = repositoryId.trim();
+    if (!/^\d{1,30}$/u.test(normalizedRepositoryId)) return null;
+
+    try {
+      return await fetchGitHubRepositoryByIdForUser(
+        userId,
+        normalizedRepositoryId,
+      );
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) return null;
+      throw error;
+    }
   },
 
   async exchangeCodeForUser({ userId, code }) {

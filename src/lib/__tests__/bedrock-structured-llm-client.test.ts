@@ -16,6 +16,7 @@ function makeClient(responses: Array<{
   structuredData?: unknown;
   tokenUsage?: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
   stopReason?: string | null;
+  requestId?: string | null;
 } | Error>) {
   const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
   let callIndex = 0;
@@ -39,6 +40,7 @@ function makeClient(responses: Array<{
               totalTokens: 30,
             },
         stopReason: response.stopReason ?? null,
+        requestId: response.requestId ?? null,
       };
     },
   };
@@ -192,6 +194,30 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls[0]?.structuredOutput?.mode).toBe("bedrock_json_schema");
   });
 
+  it("retains the provider request ID in durable structured usage evidence", async () => {
+    const { client } = makeClient([{
+      structuredData: { ok: true },
+      requestId: "bedrock-request-1",
+    }]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+    });
+
+    expect(result.tokenUsage).toEqual({
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      requestId: "bedrock-request-1",
+    });
+  });
+
   it("falls back to strict tool use when native json schema output is invalid", async () => {
     const { client, calls } = makeClient([
       { text: "not valid json" },
@@ -219,6 +245,47 @@ describe("BedrockStructuredLlmClient", () => {
       attempts: [
         { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
         { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+      ],
+      unknownUsageAttempts: 0,
+    });
+  });
+
+  it("retains every request ID across structured transport fallback", async () => {
+    const { client } = makeClient([
+      {
+        text: "not valid json",
+        requestId: "bedrock-request-1",
+      },
+      {
+        structuredData: { ok: true },
+        requestId: "bedrock-request-2",
+      },
+    ]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+    });
+
+    expect(result.tokenUsage).toEqual({
+      attempts: [
+        {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+          requestId: "bedrock-request-1",
+        },
+        {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+          requestId: "bedrock-request-2",
+        },
       ],
       unknownUsageAttempts: 0,
     });
@@ -746,6 +813,9 @@ describe("AwsBedrockConverseRuntime", () => {
     const sendSpy = vi
       .spyOn(BedrockRuntimeClient.prototype, "send")
       .mockResolvedValue({
+        $metadata: {
+          requestId: "bedrock-runtime-request-1",
+        },
         output: {
           message: {
             content: [
@@ -803,6 +873,7 @@ describe("AwsBedrockConverseRuntime", () => {
       { cachePoint: { type: "default" } },
     ]);
     expect(response.stopReason).toBe("end_turn");
+    expect(response.requestId).toBe("bedrock-runtime-request-1");
     expect(
       JSON.parse(
         (

@@ -3,9 +3,10 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { start } from "workflow/api";
 import type { Prisma } from "@/src/generated/prisma/client";
-import type { ClaimDraft, ClaimSnapshot, JsonValue } from "@/src/domain/types";
+import type { ClaimDraft, JsonValue } from "@/src/domain/types";
 import { prisma } from "@/src/lib/prisma";
 import { ensureDemoUser } from "@/src/lib/demo-user";
 import {
@@ -21,39 +22,36 @@ import {
   workItemSchema,
 } from "@/src/lib/schemas";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
-import {
-  buildClaimGenerationDrafts,
-  buildIncrementalClaimGenerationDrafts,
-} from "@/src/domain/workbase-workflows";
-import {
-  areNearDuplicateHighlights,
-  collectHighlightEvidenceIds,
-  classifyHighlightSimilarity,
-  haveEvidenceOrTagOverlap,
-} from "@/src/domain/claim-regeneration";
+import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import {
   createHighlightWithRelations,
   syncManualEvidenceItemsForWorkItem,
   syncWorkItemDescriptionEvidenceForWorkItem,
   upsertEvidenceItemsForSource,
 } from "@/src/lib/evidence-persistence";
-import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
+import {
+  buildManualEvidenceItemsFromSource,
+  USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+  USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+} from "@/src/lib/evidence-items";
 import { updateGenerationRunResultRefs } from "@/src/lib/generation-runs";
 import { pendingHighlightBulkApprovalWhere } from "@/src/lib/highlight-bulk-approval";
 import { coerceHighlightTagAssignments } from "@/src/lib/highlight-tags";
 import { claimResearchService } from "@/src/services/claim-research-service";
 import { claimVerificationService } from "@/src/services/claim-verification-service";
-import { githubRepoImportService } from "@/src/services/github-repo-import-service";
+import { githubRepositoryImportApplicationService } from "@/src/services/github-repository-import-application-service";
+import {
+  manualEvidenceHighlightApplicationService,
+  manualEvidenceHighlightStartSucceeded,
+  shouldStartManualEvidenceHighlightsForCreate,
+} from "@/src/services/manual-evidence-highlight-application-service";
 import {
   buildHighlightEmbeddingText,
-  ensureHighlightEmbeddings,
-  findNearestHighlightEmbedding,
   upsertHighlightEmbedding,
 } from "@/src/services/highlight-embedding-service";
 import {
   applyDraftToHighlight,
   coerceStoredHighlightDraft,
-  createOrUpdateHighlightSuggestion,
   refreshHighlightEmbeddingFromDraft,
 } from "@/src/services/highlight-suggestion-service";
 import { sourceIngestionService } from "@/src/services/source-ingestion-service";
@@ -78,30 +76,6 @@ import {
   projectChatTurnWorkflow,
 } from "@/workflows/project-chat";
 
-function toRepositorySummaryJsonValue(repository: {
-  id: string;
-  fullName: string;
-  owner: string;
-  name: string;
-  description: string | null;
-  url: string;
-  defaultBranch: string;
-  private: boolean;
-  updatedAt: string | null;
-}) {
-  return {
-    id: repository.id,
-    fullName: repository.fullName,
-    owner: repository.owner,
-    name: repository.name,
-    description: repository.description,
-    url: repository.url,
-    defaultBranch: repository.defaultBranch,
-    private: repository.private,
-    updatedAt: repository.updatedAt,
-  } as Prisma.InputJsonValue;
-}
-
 function toDateOrNull(value: string | undefined) {
   return value ? new Date(value) : null;
 }
@@ -115,7 +89,7 @@ export async function deleteWorkItemAction(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-async function importGitHubRepositoryIntoWorkItem(input: {
+async function queueGitHubRepositoryForWorkItem(input: {
   userId: string;
   workItem: {
     id: string;
@@ -129,68 +103,28 @@ async function importGitHubRepositoryIntoWorkItem(input: {
   repositoryId: string;
   repositoryFullName: string;
 }) {
-  const imported = await githubRepoImportService.importRepository({
+  const reservation = await githubRepositoryImportApplicationService.reserve({
     userId: input.userId,
-    workItem: mapWorkItemSnapshot(input.workItem),
+    workItemId: input.workItem.id,
     repositoryId: input.repositoryId,
     repositoryFullName: input.repositoryFullName,
   });
-
-  const persistedEvidenceItems = await upsertEvidenceItemsForSource(
-    imported.source.id,
-    imported.importedEvidenceItems.map((item) => ({
-      workItemId: item.workItemId,
-      sourceId: item.sourceId,
-      externalId: item.externalId,
-      sourceType: item.source.type,
-      type: item.type,
-      title: item.title,
-      content: item.content,
-      searchText: item.searchText,
-      parentKind: item.parentKind,
-      parentKey: item.parentKey,
-      included: item.included,
-      metadata: item.metadata,
-    })),
-  );
-
-  await prisma.source.update({
-    where: {
-      id: imported.source.id,
-    },
-    data: {
-      metadata: {
-        ...(
-          imported.source.metadata &&
-          typeof imported.source.metadata === "object" &&
-          !Array.isArray(imported.source.metadata)
-            ? imported.source.metadata
-            : {}
-        ),
-        repository: toRepositorySummaryJsonValue(imported.importSummary.repository),
-        importedAt: imported.importSummary.importedAt,
-        counts: imported.importSummary.counts,
-        webhook: imported.importSummary.webhook,
-        status: "imported",
-      },
-    },
+  after(async () => {
+    await githubRepositoryImportApplicationService.accept(reservation)
+      .catch(() => undefined);
   });
+  return reservation;
+}
 
-  await repositoryKnowledgeRefreshApplicationService.start({
-    userId: input.userId,
-    workItemId: input.workItem.id,
-    trigger: "repository_attach",
-    idempotencyKey: `repository-attach:${imported.source.id}:${imported.importSummary.importedAt}`,
+function scheduleManualEvidenceHighlightAcceptance(
+  reservation: Awaited<
+    ReturnType<typeof manualEvidenceHighlightApplicationService.reserve>
+  >,
+) {
+  after(async () => {
+    await manualEvidenceHighlightApplicationService.accept(reservation)
+      .catch(() => undefined);
   });
-
-  return {
-    sourceId: imported.source.id,
-    newCommitEvidenceItemIds: persistedEvidenceItems.flatMap((item) =>
-      item.type === "github_commit" && !item.wasExisting && item.included
-        ? [item.id]
-        : [],
-    ),
-  };
 }
 
 function appendFieldErrors(
@@ -525,316 +459,6 @@ async function persistGeneratedHighlightPlan(params: {
   };
 }
 
-function collectGenerationRunIds(runIds: {
-  generation: string[];
-  verification: string | null;
-}) {
-  return [...runIds.generation, runIds.verification].filter(
-    (generationRunId): generationRunId is string => Boolean(generationRunId),
-  );
-}
-
-function findDeterministicMatch(
-  draft: ClaimDraft,
-  existingClaims: ClaimSnapshot[],
-) {
-  return existingClaims.find((claim) => areNearDuplicateHighlights(claim, draft)) ?? null;
-}
-
-async function findIncrementalMatch(params: {
-  workItemId: string;
-  draft: ClaimDraft;
-  existingClaims: ClaimSnapshot[];
-}) {
-  const deterministicMatch = findDeterministicMatch(
-    params.draft,
-    params.existingClaims,
-  );
-
-  if (deterministicMatch) {
-    return {
-      claim: deterministicMatch,
-      similarityClass: "strong" as const,
-      cosineDistance: null,
-      cosineSimilarity: null,
-      reason: "Deterministic duplicate based on text and evidence overlap.",
-    };
-  }
-
-  const nearest = (
-    await findNearestHighlightEmbedding({
-      workItemId: params.workItemId,
-      inputText: buildHighlightEmbeddingText(params.draft),
-      limit: 1,
-    })
-  )[0];
-  const nearestClaim = nearest
-    ? params.existingClaims.find((claim) => claim.id === nearest.highlightId) ?? null
-    : null;
-
-  if (!nearest || !nearestClaim) {
-    return null;
-  }
-
-  const evidenceOrTagOverlap = haveEvidenceOrTagOverlap(nearestClaim, params.draft);
-  const similarityClass = classifyHighlightSimilarity({
-    cosineSimilarity: nearest.cosineSimilarity,
-    evidenceOrTagOverlap,
-  });
-
-  if (similarityClass === "none") {
-    return null;
-  }
-
-  return {
-    claim: nearestClaim,
-    similarityClass,
-    cosineDistance: nearest.cosineDistance,
-    cosineSimilarity: nearest.cosineSimilarity,
-    reason:
-      similarityClass === "strong"
-        ? "Embedding similarity is above the strong match threshold."
-        : "Embedding similarity is in the possible match range and evidence or tags overlap.",
-  };
-}
-
-function coerceNewIncrementalDraft(draft: ClaimDraft): ClaimDraft {
-  return {
-    ...draft,
-    verificationStatus:
-      draft.verificationStatus === "approved" ? "draft" : draft.verificationStatus,
-  };
-}
-
-function isNoopApprovedMatch(match: ClaimSnapshot, draft: ClaimDraft) {
-  if (match.verificationStatus !== "approved") {
-    return false;
-  }
-
-  if (match.text.trim().toLowerCase() !== draft.text.trim().toLowerCase()) {
-    return false;
-  }
-
-  const existingEvidenceIds = collectHighlightEvidenceIds(match);
-  const draftEvidenceIds = collectHighlightEvidenceIds(draft);
-
-  for (const evidenceId of draftEvidenceIds) {
-    if (!existingEvidenceIds.has(evidenceId)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-async function runBootstrapHighlightGenerationIfNeeded(input: {
-  userId: string;
-  workItemId: string;
-}) {
-  const workItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
-
-  if (workItem.highlights.length) {
-    return {
-      created: 0,
-    };
-  }
-
-  const includedEvidenceItems = workItem.evidenceItems
-    .map(mapEvidenceItemSnapshot)
-    .filter((item) => item.included);
-
-  if (!includedEvidenceItems.length) {
-    return {
-      created: 0,
-    };
-  }
-
-  const claimPlan = await buildClaimGenerationDrafts({
-    workItem: mapWorkItemSnapshot(workItem),
-    sources: workItem.sources.map(mapSourceSnapshot),
-    evidenceItems: includedEvidenceItems,
-    existingClaims: [],
-    sourceIngestionService,
-    claimResearchService,
-    claimVerificationService,
-  });
-  const result = await persistGeneratedHighlightPlan({
-    workItemId: workItem.id,
-    claimPlan,
-  });
-
-  return {
-    created: result.createdHighlightIds.length,
-  };
-}
-
-async function runIncrementalHighlightGeneration(input: {
-  userId: string;
-  workItemId: string;
-  incrementalEvidenceItemIds: string[];
-}) {
-  if (!input.incrementalEvidenceItemIds.length) {
-    return {
-      created: 0,
-      updated: 0,
-      suggestions: 0,
-      suppressed: 0,
-    };
-  }
-
-  const workItem = await getWorkItemGenerationContext(input.userId, input.workItemId);
-  const existingClaims = workItem.highlights.map(mapClaimSnapshot);
-
-  if (!existingClaims.length) {
-    const bootstrap = await runBootstrapHighlightGenerationIfNeeded(input);
-
-    return {
-      created: bootstrap.created,
-      updated: 0,
-      suggestions: 0,
-      suppressed: 0,
-    };
-  }
-
-  const includedEvidenceItems = workItem.evidenceItems
-    .map(mapEvidenceItemSnapshot)
-    .filter((item) => item.included);
-  const existingClaimsById = new Map(existingClaims.map((claim) => [claim.id, claim]));
-  const incrementalPlan = await buildIncrementalClaimGenerationDrafts({
-    workItem: mapWorkItemSnapshot(workItem),
-    sources: workItem.sources.map(mapSourceSnapshot),
-    evidenceItems: includedEvidenceItems,
-    incrementalEvidenceItemIds: input.incrementalEvidenceItemIds,
-    existingClaims,
-    sourceIngestionService,
-    claimResearchService,
-    claimVerificationService,
-  });
-  const generationRunIds = collectGenerationRunIds(incrementalPlan.generationRunIds);
-  const createdHighlights: Array<{ id: string; draft: ClaimDraft }> = [];
-  const updatedHighlightIds: string[] = [];
-  const suggestedHighlightIds: string[] = [];
-  let suppressed = 0;
-
-  await ensureHighlightEmbeddings(existingClaims);
-
-  for (const rawDraft of incrementalPlan.drafts) {
-    const draft = coerceNewIncrementalDraft(rawDraft);
-    const match = await findIncrementalMatch({
-      workItemId: workItem.id,
-      draft,
-      existingClaims: Array.from(existingClaimsById.values()),
-    });
-
-    if (!match) {
-      const createdHighlight = await prisma.$transaction((tx) =>
-        createHighlightWithRelations({
-          tx,
-          workItemId: workItem.id,
-          draft,
-        }),
-      );
-
-      createdHighlights.push({
-        id: createdHighlight.id,
-        draft,
-      });
-      continue;
-    }
-
-    if (match.claim.verificationStatus === "rejected") {
-      suppressed += 1;
-      continue;
-    }
-
-    if (isNoopApprovedMatch(match.claim, draft)) {
-      suppressed += 1;
-      continue;
-    }
-
-    if (match.claim.verificationStatus === "approved") {
-      const suggestion = await createOrUpdateHighlightSuggestion({
-        workItemId: workItem.id,
-        sourceHighlight: match.claim,
-        draft,
-        matchReason: match.reason,
-        cosineDistance: match.cosineDistance,
-        generationRunIds,
-      });
-
-      suggestedHighlightIds.push(suggestion.id);
-      continue;
-    }
-
-    await prisma.$transaction((tx) =>
-      applyDraftToHighlight({
-        tx,
-        highlightId: match.claim.id,
-        existingStatus: match.claim.verificationStatus,
-        draft,
-        mergeEvidence: false,
-      }),
-    );
-    await refreshHighlightEmbeddingFromDraft({
-      highlightId: match.claim.id,
-      draft,
-    });
-    updatedHighlightIds.push(match.claim.id);
-  }
-
-  await Promise.all(
-    createdHighlights.map((highlight) =>
-      upsertHighlightEmbedding({
-        highlightId: highlight.id,
-        inputText: buildHighlightEmbeddingText(highlight.draft),
-      }),
-    ),
-  );
-  await Promise.allSettled(
-    generationRunIds.map((generationRunId) =>
-      updateGenerationRunResultRefs(generationRunId, {
-        persistedHighlightIds: createdHighlights.map((highlight) => highlight.id),
-        updatedHighlightIds,
-        suggestedHighlightIds,
-        suppressedHighlightCount: suppressed,
-      } as Prisma.InputJsonValue),
-    ),
-  );
-
-  return {
-    created: createdHighlights.length,
-    updated: updatedHighlightIds.length,
-    suggestions: suggestedHighlightIds.length,
-    suppressed,
-  };
-}
-
-function appendHighlightAutomationParams(
-  searchParams: URLSearchParams,
-  result: {
-    created?: number;
-    updated?: number;
-    suggestions?: number;
-    suppressed?: number;
-  },
-) {
-  if (result.created) {
-    searchParams.set("generatedHighlights", String(result.created));
-  }
-
-  if (result.updated) {
-    searchParams.set("updatedHighlights", String(result.updated));
-  }
-
-  if (result.suggestions) {
-    searchParams.set("highlightSuggestions", String(result.suggestions));
-  }
-
-  if (result.suppressed) {
-    searchParams.set("suppressedHighlights", String(result.suppressed));
-  }
-}
-
 export async function createChatThreadAction(formData: FormData) {
   const user = await ensureDemoUser();
   const workItemId = String(formData.get("workItemId") ?? "");
@@ -1106,7 +730,6 @@ export async function createWorkItemAction(formData: FormData) {
   const selectedRepositoryFullName = String(formData.get("repositoryFullName") ?? "");
   const attachRepositoryOnCreate = formDataToBoolean(formData.get("attachRepositoryOnCreate"));
   const parsed = workItemSchema.safeParse(submittedValues);
-  let githubImportResult: Awaited<ReturnType<typeof importGitHubRepositoryIntoWorkItem>> | null = null;
 
   if (!parsed.success) {
     const searchParams = new URLSearchParams({
@@ -1150,29 +773,20 @@ export async function createWorkItemAction(formData: FormData) {
     },
   });
 
-  await syncWorkItemDescriptionEvidenceForWorkItem(workItem.id);
-
-  if (attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName) {
-    try {
-      githubImportResult = await importGitHubRepositoryIntoWorkItem({
-        userId: demoUser.id,
-        workItem,
-        repositoryId: selectedRepositoryId,
-        repositoryFullName: selectedRepositoryFullName,
-      });
-    } catch {
-      revalidatePath("/dashboard");
-      redirect(`/work-items/${workItem.id}?error=github-import-failed`);
-    }
-  }
-
-  if (manualNotes) {
+  const descriptionEvidencePromise =
+    syncWorkItemDescriptionEvidenceForWorkItem(workItem.id);
+  const manualNotesEvidencePromise = manualNotes ? (async () => {
     const source = await prisma.source.create({
       data: {
         workItemId: workItem.id,
         type: "manual_note",
         label: "Initial notes",
         rawContent: manualNotes,
+        metadata: {
+          kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+          userAuthored: true,
+          ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+        },
       },
     });
 
@@ -1180,30 +794,69 @@ export async function createWorkItemAction(formData: FormData) {
       source.id,
       buildManualEvidenceItemsFromSource(mapSourceSnapshot(source)),
     );
+  })() : Promise.resolve();
+  let repositoryQueueFailed = false;
+  const repositoryQueuePromise =
+    attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName
+      ? queueGitHubRepositoryForWorkItem({
+          userId: demoUser.id,
+          workItem,
+          repositoryId: selectedRepositoryId,
+          repositoryFullName: selectedRepositoryFullName,
+        }).catch(() => {
+          repositoryQueueFailed = true;
+          return null;
+        })
+      : Promise.resolve(null);
+
+  await Promise.all([
+    descriptionEvidencePromise,
+    manualNotesEvidencePromise,
+    repositoryQueuePromise,
+  ]);
+  if (repositoryQueueFailed) {
+    revalidatePath("/dashboard");
+    redirect(`/work-items/${workItem.id}?error=github-import-failed`);
+  }
+
+  let manualHighlightStartFailed = false;
+  if (shouldStartManualEvidenceHighlightsForCreate({
+    hasManualNotes: Boolean(manualNotes),
+    repositoryQueued: Boolean(
+      attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName,
+    ),
+  })) {
+    try {
+      // Description Evidence is always persisted above. Plain Work Items and
+      // any create carrying manual notes use this workflow; description-only
+      // create-with-repository leaves ownership to repository reconciliation.
+      const reserved = await manualEvidenceHighlightApplicationService.reserve({
+        userId: demoUser.id,
+        workItemId: workItem.id,
+        trigger: "work_item_create",
+      });
+      manualHighlightStartFailed = !manualEvidenceHighlightStartSucceeded(
+        reserved.status,
+      );
+      if (!manualHighlightStartFailed) {
+        scheduleManualEvidenceHighlightAcceptance(reserved);
+      }
+    } catch {
+      // Evidence persistence is authoritative. Workflow startup failure is a
+      // visible retry state and never rolls back the user's saved context.
+      manualHighlightStartFailed = true;
+    }
   }
 
   const searchParams = new URLSearchParams();
 
-  if (attachRepositoryOnCreate && selectedRepositoryId) {
-    searchParams.set("result", "github-imported");
+  if (attachRepositoryOnCreate && selectedRepositoryId && selectedRepositoryFullName) {
+    searchParams.set("result", "github-import-queued");
+  } else if (!manualHighlightStartFailed) {
+    searchParams.set("result", "manual-highlight-queued");
   }
-
-  try {
-    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
-      userId: demoUser.id,
-      workItemId: workItem.id,
-    });
-
-    appendHighlightAutomationParams(searchParams, bootstrapResult);
-  } catch {
-    searchParams.set("error", "highlight-automation-failed");
-  }
-
-  if (githubImportResult?.newCommitEvidenceItemIds.length) {
-    searchParams.set(
-      "newCommits",
-      String(githubImportResult.newCommitEvidenceItemIds.length),
-    );
+  if (manualHighlightStartFailed) {
+    searchParams.set("error", "manual-highlight-start-failed");
   }
 
   revalidatePath("/dashboard");
@@ -1245,6 +898,11 @@ export async function createManualSourceAction(formData: FormData) {
       type: "manual_note",
       label: parsed.data.label,
       rawContent: parsed.data.rawContent,
+      metadata: {
+        kind: USER_AUTHORED_MANUAL_NOTE_SOURCE_KIND,
+        userAuthored: true,
+        ownershipPolicyVersion: USER_AUTHORED_MANUAL_NOTE_POLICY_VERSION,
+      },
     },
   });
 
@@ -1253,23 +911,31 @@ export async function createManualSourceAction(formData: FormData) {
     buildManualEvidenceItemsFromSource(mapSourceSnapshot(source)),
   );
 
-  const searchParams = new URLSearchParams();
-
+  let manualHighlightStartFailed = false;
   try {
-    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
+    const reserved = await manualEvidenceHighlightApplicationService.reserve({
       userId: demoUser.id,
       workItemId: parsed.data.workItemId,
+      trigger: "manual_source_add",
     });
-
-    appendHighlightAutomationParams(searchParams, bootstrapResult);
+    manualHighlightStartFailed = !manualEvidenceHighlightStartSucceeded(
+      reserved.status,
+    );
+    if (!manualHighlightStartFailed) {
+      scheduleManualEvidenceHighlightAcceptance(reserved);
+    }
   } catch {
-    searchParams.set("error", "highlight-automation-failed");
+    manualHighlightStartFailed = true;
+  }
+  if (manualHighlightStartFailed) {
+    revalidatePath(`/work-items/${parsed.data.workItemId}`);
+    redirect(appendRedirectParams(returnTo, {
+      error: "manual-highlight-start-failed",
+    }));
   }
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  redirect(
-    appendRedirectParams(returnTo, Object.fromEntries(searchParams)),
-  );
+  redirect(appendRedirectParams(returnTo, { result: "manual-highlight-queued" }));
 }
 
 export async function createGithubSourceAction(formData: FormData) {
@@ -1332,10 +998,8 @@ export async function attachGithubRepoAction(formData: FormData) {
     },
   });
 
-  let githubImportResult: Awaited<ReturnType<typeof importGitHubRepositoryIntoWorkItem>>;
-
   try {
-    githubImportResult = await importGitHubRepositoryIntoWorkItem({
+    await queueGitHubRepositoryForWorkItem({
       userId: demoUser.id,
       repositoryId: parsed.data.repositoryId,
       repositoryFullName: parsed.data.repositoryFullName,
@@ -1346,36 +1010,8 @@ export async function attachGithubRepoAction(formData: FormData) {
   }
 
   const searchParams = new URLSearchParams({
-    result: "github-imported",
+    result: "github-import-queued",
   });
-
-  try {
-    const bootstrapResult = await runBootstrapHighlightGenerationIfNeeded({
-      userId: demoUser.id,
-      workItemId: workItem.id,
-    });
-
-    appendHighlightAutomationParams(searchParams, bootstrapResult);
-
-    if (
-      !bootstrapResult.created &&
-      githubImportResult.newCommitEvidenceItemIds.length
-    ) {
-      const incrementalResult = await runIncrementalHighlightGeneration({
-        userId: demoUser.id,
-        workItemId: workItem.id,
-        incrementalEvidenceItemIds: githubImportResult.newCommitEvidenceItemIds,
-      });
-
-      appendHighlightAutomationParams(searchParams, incrementalResult);
-      searchParams.set(
-        "newCommits",
-        String(githubImportResult.newCommitEvidenceItemIds.length),
-      );
-    }
-  } catch {
-    searchParams.set("error", "highlight-automation-failed");
-  }
 
   revalidatePath(`/work-items/${workItem.id}`);
   redirect(appendRedirectParams(returnTo, Object.fromEntries(searchParams)));
@@ -1399,6 +1035,18 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
     redirect(appendRedirectParams(returnTo, { error: "invalid-evidence" }));
   }
 
+  const evidence = await prisma.evidenceItem.findFirst({
+    where: {
+      id: parsed.data.evidenceItemId,
+      workItemId: parsed.data.workItemId,
+      workItem: { userId: demoUser.id },
+    },
+    select: {
+      id: true,
+      type: true,
+      source: { select: { type: true, metadata: true } },
+    },
+  });
   await prisma.evidenceItem.updateMany({
     where: {
       id: parsed.data.evidenceItemId,
@@ -1412,6 +1060,28 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
     },
   });
 
+  if (
+    evidence?.type === "manual_note_excerpt" &&
+    evidence.source.type === "manual_note"
+  ) {
+    try {
+      const reserved = await manualEvidenceHighlightApplicationService.reserve({
+        userId: demoUser.id,
+        workItemId: parsed.data.workItemId,
+        trigger: "manual_evidence_change",
+      });
+      if (!manualEvidenceHighlightStartSucceeded(reserved.status)) {
+        throw new Error("Manual Highlight workflow startup did not complete.");
+      }
+      scheduleManualEvidenceHighlightAcceptance(reserved);
+    } catch {
+      revalidatePath(`/work-items/${parsed.data.workItemId}`);
+      redirect(appendRedirectParams(returnTo, {
+        error: "manual-highlight-start-failed",
+      }));
+    }
+  }
+
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
   revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   redirect(
@@ -1419,6 +1089,41 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
       result: parsed.data.included ? "evidence-included" : "evidence-excluded",
     }),
   );
+}
+
+export async function retryManualEvidenceHighlightsAction(formData: FormData) {
+  const demoUser = await ensureDemoUser();
+  const workItemId = String(formData.get("workItemId") ?? "").trim();
+  const runId = String(formData.get("runId") ?? "").trim();
+  const returnTo = readWorkItemReturnTo(
+    formData,
+    workItemId,
+    `/work-items/${workItemId}?tab=highlights`,
+  );
+  if (!workItemId || !runId) {
+    redirect(appendRedirectParams(returnTo, { error: "manual-highlight-retry-invalid" }));
+  }
+  let manualHighlightRetryFailed = false;
+  try {
+    const started = await manualEvidenceHighlightApplicationService.retry({
+      userId: demoUser.id,
+      workItemId,
+      runId,
+    });
+    manualHighlightRetryFailed = !manualEvidenceHighlightStartSucceeded(
+      started.status,
+    );
+  } catch {
+    manualHighlightRetryFailed = true;
+  }
+  if (manualHighlightRetryFailed) {
+    revalidatePath(`/work-items/${workItemId}`);
+    redirect(appendRedirectParams(returnTo, {
+      error: "manual-highlight-start-failed",
+    }));
+  }
+  revalidatePath(`/work-items/${workItemId}`);
+  redirect(appendRedirectParams(returnTo, { result: "manual-highlight-retry-queued" }));
 }
 
 export async function reclusterEvidenceAction(formData: FormData) {

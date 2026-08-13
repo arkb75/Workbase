@@ -4,9 +4,12 @@ import {
   allowsCanonicalKnowledgeReplacement,
   highlightReconciliationCasWhere,
   hasPromotedReconciliationEvidence,
+  isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
+  repositoryHighlightOwnershipDecision,
+  repositoryMayReconcileHighlight,
   repositoryHighlightPublicDisposition,
   runBoundedKnowledgeEmbeddingTasks,
   shouldQuarantineSynthesizedCandidate,
@@ -29,6 +32,35 @@ describe("repository knowledge auto-apply policy", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       confidence: "medium",
       sensitivityFlag: false,
+    })).toBe(false);
+  });
+
+  it("quarantines otherwise safe candidates when their synthesis result is not approval eligible", () => {
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: false,
+      candidate: {
+        statement: "The service performs a bounded retry.",
+        confidence: "high",
+        sensitivityFlag: false,
+      },
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
+      }],
+    })).toBe(true);
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: true,
+      candidate: {
+        statement: "The service performs a bounded retry.",
+        confidence: "high",
+        sensitivityFlag: false,
+      },
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
+      }],
     })).toBe(false);
   });
 
@@ -71,6 +103,18 @@ describe("repository knowledge auto-apply policy", () => {
     }])).toBe(false);
   });
 
+  it("does not mistake a hyphenated product descriptor for an absolute claim", () => {
+    expect(shouldQuarantineSynthesizedCandidate({
+      statement: "The product is an invite-only lending-circle MVP.",
+      confidence: "high",
+      sensitivityFlag: false,
+    }, [{
+      path: "README.md",
+      statement: "CircleFund is an invite-only lending-circle MVP.",
+      semanticStatus: "succeeded",
+    }])).toBe(false);
+  });
+
   it("blocks unprovable overclaims even when code is cited", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       statement: "The fallback always produces calibrated output with tamper-evident provenance.",
@@ -87,6 +131,37 @@ describe("repository knowledge auto-apply policy", () => {
       eligible: false,
       reasons: [expect.stringContaining("requires reviewed ownership context")],
     });
+  });
+
+  it("preserves manual ownership until verified repository coverage can create a successor", () => {
+    const manual = {
+      metadata: {
+        managedBy: "manual_evidence_highlight_workflow",
+        originatingAgentRunId: "manual-run-1",
+      },
+    };
+    expect(repositoryMayReconcileHighlight(manual)).toBe(false);
+    expect(repositoryMayReconcileHighlight({
+      metadata: { managedBy: "repository_knowledge_sync" },
+    })).toBe(true);
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 1,
+      unsafe: false,
+      allowCanonicalReplacement: false,
+    })).toBe("preserve_manual");
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 1,
+      unsafe: false,
+      allowCanonicalReplacement: true,
+    })).toBe("supersede_manual");
+    expect(repositoryHighlightOwnershipDecision({
+      highlight: manual,
+      similarityScore: 0.1,
+      unsafe: false,
+      allowCanonicalReplacement: true,
+    })).toBe("unrelated_manual");
   });
 
   it("expires a reconciliation selection after a concurrent user edit", () => {
@@ -107,6 +182,7 @@ describe("repository knowledge auto-apply policy", () => {
       reviewState: "pending_review",
       approvalSource: "automation",
     });
+    const highlightMetadata = { managedBy: "repository_knowledge_sync" };
     expect(highlightReconciliationCasWhere({
       id: "highlight-1",
       workItemId: "work-1",
@@ -116,12 +192,14 @@ describe("repository knowledge auto-apply policy", () => {
       lifecycleStatus: "needs_validation",
       reviewState: "pending_review",
       approvalSource: "automation",
+      metadata: highlightMetadata,
       supersedesHighlightId: null,
       updatedAt: selectedAt,
     })).toMatchObject({
       updatedAt: selectedAt,
       text: "Original text",
       reviewState: "pending_review",
+      metadata: { equals: highlightMetadata },
     });
 
     // Postgres updateMany uses every field above as one compare-and-swap. A

@@ -68,8 +68,14 @@ import { createTextConverseAgent } from "@/src/services/bedrock-runtime";
 import { hasExplicitLiveRepositoryAction } from "@/src/services/repository-research-intent-service";
 
 const freshnessIntentPattern = /\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b/i;
+const epistemicFreshnessIntentPattern =
+  /(?:\b(?:understanding|knowledge|information|context)\b.{0,100}\b(?:up[- ]to[- ]date|latest|newest|current)\b)|(?:\b(?:up[- ]to[- ]date|latest|newest|current)\b.{0,100}\b(?:understanding|knowledge|information|context)\b)|(?:\b(?:refresh|update)\s+(?:your|the|this)\s+(?:understanding|knowledge|information|context)\b)/i;
 const repositoryFreshnessScopePattern =
   /(?:\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?|current through|as of)\b.{0,100}\b(?:commit|repo|repository|github|codebase|source code|implementation)\b)|(?:\b(?:commit|repo|repository|github|codebase|source code|implementation)\b.{0,100}\b(?:up[- ]to[- ]date|latest|recent|newest|current(?:ly)?)\b)/i;
+const repositoryRefreshStatusPattern =
+  /(?:\b(?:repo(?:sitory)?|codebase|knowledge)\s+refresh\b.{0,100}\b(?:status|state|progress|queued|running|started|complete(?:d)?|finish(?:ed)?|failed|cancelled|canceled)\b)|(?:\b(?:status|state|progress|queued|running|started|complete(?:d)?|finish(?:ed)?|failed|cancelled|canceled|when|whether)\b.{0,100}\b(?:repo(?:sitory)?|codebase|knowledge)\s+refresh\b)/i;
+const conversationalFreshnessScopePattern =
+  /(?:\b(?:previous|prior|last|recent|latest)\s+(?:answer|message|conversation|thread|chat)\b)|(?:\b(?:latest|recent|newest|current)\b.{0,50}\b(?:message|conversation|thread|chat history)\b)|(?:\b(?:review|candidate|artifact)\s+status(?:es)?\b)/i;
 const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.{0,80}\b(?:accomplishments?|achievements?|contributions?|work|features?)\b|\b(?:summari[sz]e|assess|rank)\b.{0,100}\b(?:accomplishments?|achievements?|contributions?)\b/i;
 const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
 const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
@@ -229,21 +235,24 @@ export function requiresLiveRepositoryResearch(question: string) {
     allowResearch: false,
   });
   if (controlPlaneIntent.kind === "prior_turn_provenance") return false;
+  // Asking whether an already-started refresh is queued, running, or complete
+  // is a control-plane status query. It must never recursively start another
+  // repository refresh (including when phrased as "check the refresh status").
+  if (repositoryRefreshStatusPattern.test(question)) return false;
   if (hasExplicitLiveRepositoryAction(question)) {
     return true;
   }
-  if (!freshnessIntentPattern.test(question)) return false;
-  if (repositoryFreshnessScopePattern.test(question)) return true;
   // Freshness words often refer to conversation or review state rather than
   // repository-backed product state. Do not pay for a full repository refresh
   // for "my recent answer" or "current candidate status."
-  if (
-    /\b(?:answer|message|conversation|thread|chat history|review status|candidate status|artifact status)\b/i.test(
-      question,
-    )
-  ) {
-    return false;
-  }
+  if (conversationalFreshnessScopePattern.test(question)) return false;
+  // Referential follow-ups can carry the user's repository-backed objective
+  // in thread history rather than repeat words such as "repository" or
+  // "implementation". Treat an explicit request to update the assistant's
+  // knowledge boundary as repository freshness intent in its own right.
+  if (epistemicFreshnessIntentPattern.test(question)) return true;
+  if (!freshnessIntentPattern.test(question)) return false;
+  if (repositoryFreshnessScopePattern.test(question)) return true;
   return accomplishmentSynthesisPattern.test(question) ||
     /\b(?:workbase|project (?:architecture|capabilities|implementation|behavior)|codebase|implementation|feature set|repository knowledge)\b/i.test(
       question,
@@ -284,6 +293,73 @@ export function buildStandaloneResearchQuestion(input: {
   ].filter(Boolean).join("\n").slice(0, 6_000);
 }
 
+/**
+ * A request to update the assistant's knowledge is an instruction applied to
+ * the preceding user objective, not a new narrow project question. Keep this
+ * carry-forward deliberately bounded to the accomplishments synthesis that
+ * exposed the regression; ordinary freshness and refresh-status questions
+ * retain their own wording and routing behavior.
+ */
+export function resolveProjectChatAnswerObjective(input: {
+  currentQuestion: string;
+  history?: ProjectChatHistoryMessage[];
+}) {
+  if (
+    repositoryRefreshStatusPattern.test(input.currentQuestion) ||
+    !epistemicFreshnessIntentPattern.test(input.currentQuestion)
+  ) {
+    return input.currentQuestion;
+  }
+  const priorUserObjective = input.history
+    ?.filter((message) => message.role === "user")
+    .at(-1)?.content;
+  return priorUserObjective && accomplishmentSynthesisPattern.test(priorUserObjective)
+    ? priorUserObjective
+    : input.currentQuestion;
+}
+
+function normalizedEditorialContinuityText(value: string) {
+  return value
+    .replace(/\[citation:\d+\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+/**
+ * A freshness follow-up should not silently exchange a still-current,
+ * previously cited accomplishment for a neighboring fact in the same theme.
+ * This continuity signal only boosts entries returned by the current-head
+ * retrieval pass; prior prose can never become evidence or a citation itself.
+ */
+export function preserveCurrentAccomplishmentContinuity(input: {
+  currentQuestion: string;
+  answerObjective: string;
+  history?: ProjectChatHistoryMessage[];
+  entries: ProjectAnswerGroundingEntry[];
+}) {
+  if (
+    input.answerObjective === input.currentQuestion ||
+    !accomplishmentSynthesisPattern.test(input.answerObjective)
+  ) {
+    return input.entries;
+  }
+  const priorAssistant = input.history
+    ?.filter((message) => message.role === "assistant")
+    .at(-1);
+  const priorAnswer = normalizedEditorialContinuityText(priorAssistant?.content ?? "");
+  if (!priorAnswer) return input.entries;
+
+  return input.entries.map((entry) => {
+    const statement = normalizedEditorialContinuityText(entry.content);
+    if (statement.length < 60 || !priorAnswer.includes(statement)) return entry;
+    return {
+      ...entry,
+      retrievalRelevance: Math.max(1, entry.retrievalRelevance ?? 0),
+    };
+  });
+}
+
 const contextualFollowUpPattern =
   /\b(?:that|this|it|those|previous|prior|earlier|above|the (?:flow|part|answer|approach|one|ones))\b|^(?:and|also|which part|what about|why|how so)\b/i;
 
@@ -298,7 +374,13 @@ export function buildContextualRetrievalQuery(input: {
   history?: ProjectChatHistoryMessage[];
   rollingSummary?: string | null;
 }) {
-  if (!contextualFollowUpPattern.test(input.currentQuestion)) return input.currentQuestion;
+  const resolvedObjective = resolveProjectChatAnswerObjective(input);
+  if (
+    !contextualFollowUpPattern.test(input.currentQuestion) &&
+    resolvedObjective === input.currentQuestion
+  ) {
+    return input.currentQuestion;
+  }
   const priorUser = input.history?.filter((message) => message.role === "user").at(-1);
   const priorAssistant = input.history?.filter((message) => message.role === "assistant").at(-1);
   const rollingSummary = input.rollingSummary?.replace(/\s+/g, " ").trim().slice(0, 1_800);
@@ -1087,6 +1169,18 @@ async function loadCapabilityInputs(input: {
     : researchDossier?.repositories.length
     ? researchDossier.repositories.map((repository) => ({ ...repository }))
     : importedRepositories;
+  // Retrieval validation must compare against the Work Item's persisted
+  // Source heads, or the exact heads from this run's completed freshness
+  // barrier. A resumable research dossier can be useful capability context,
+  // but an older dossier must not redefine which durable facts are current.
+  const currentRepositoryHeads = (refreshTargets.length
+    ? refreshTargets
+    : importedRepositories
+  ).flatMap((repository) =>
+    repository.pinnedSha
+      ? [{ sourceId: repository.sourceId, commitSha: repository.pinnedSha }]
+      : []
+  );
   const candidateFactIds = run?.candidates.flatMap((candidate) => candidate.projectFactId ? [candidate.projectFactId] : []) ?? [];
   const refreshedFactIds = knowledgeRefresh?.changes.flatMap((change) => change.projectFactId ? [change.projectFactId] : []) ?? [];
   const currentRunProjectFactIds = Array.from(new Set([...candidateFactIds, ...refreshedFactIds]));
@@ -1096,6 +1190,7 @@ async function loadCapabilityInputs(input: {
   ];
   return {
     repositories,
+    currentRepositoryHeads,
     pendingCandidateIds: pendingCandidates.map((candidate) => candidate.id),
     currentRunProjectFactIds,
     latestFactApprovedAt: latestFactDates.sort().at(-1) ?? null,
@@ -1258,15 +1353,24 @@ async function executeProjectChatAgent(
   const capturedContextAnswer = await answerCapturedProjectContext(input);
   if (capturedContextAnswer) return capturedContextAnswer;
   const capabilityInputs = await loadCapabilityInputs(input);
+  const requiresCurrentRepositoryKnowledge = requiresLiveRepositoryResearch(input.question);
+  const answerObjective = resolveProjectChatAnswerObjective({
+    currentQuestion: input.question,
+    history: input.history,
+  });
+  const allowRepositoryResearch =
+    mode === "post_review_finalization" ||
+      capabilityInputs.knowledgeRefresh ||
+      repositoryRefreshStatusPattern.test(input.question)
+      ? false
+      : input.allowResearch;
   // Explicit control-plane intents do not need project retrieval. Resolve
   // them before loading the knowledge graph or generating a query embedding.
   const earlyIntent = routeProjectTurn({
     question: input.question,
     memoryHits: [],
     pendingCandidateIds: capabilityInputs.pendingCandidateIds,
-    allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh
-      ? false
-      : input.allowResearch,
+    allowResearch: allowRepositoryResearch,
   });
   if (earlyIntent.kind === "artifact_request") {
     return { status: "artifact_requested", brief: input.question };
@@ -1281,7 +1385,7 @@ async function executeProjectChatAgent(
   if (
     earlyIntent.kind === "repository_research" &&
     !capabilityInputs.repositories.length &&
-    requiresLiveRepositoryResearch(input.question)
+    requiresCurrentRepositoryKnowledge
   ) {
     const answer = "I cannot inspect that repository because this project has no attached, authorized repository source. Attach the repository to this project before requesting code research.";
     return {
@@ -1296,7 +1400,7 @@ async function executeProjectChatAgent(
   }
   const comparisonContext = projectAnswerComparisonContext(input);
   const editorialProfile = classifyProjectAnswerEditorialProfile(
-    input.question,
+    answerObjective,
     comparisonContext,
   );
   const memory = await projectKnowledgeRetrievalService.retrieve({
@@ -1309,6 +1413,8 @@ async function executeProjectChatAgent(
     }),
     purpose: "private_chat",
     preferredProjectFactIds: capabilityInputs.currentRunProjectFactIds,
+    requireCurrentRepositoryKnowledge: requiresCurrentRepositoryKnowledge,
+    currentRepositoryHeads: capabilityInputs.currentRepositoryHeads,
     limits: mode === "post_review_finalization"
       ? { highlights: 6, projectFacts: Math.max(6, capabilityInputs.currentRunProjectFactIds.length), evidence: 6, artifacts: 3 }
       : editorialProfile.kind === "focused"
@@ -1322,12 +1428,18 @@ async function executeProjectChatAgent(
   const memoryCatalog = buildMemoryCatalog({
     hits: memory.hits,
     currentRunProjectFactIds: capabilityInputs.currentRunProjectFactIds,
-    query: input.question,
+    query: answerObjective,
   });
   const editorialSelection = selectProjectAnswerEditorialThemes({
-    question: input.question,
-    entries: memoryCatalog.entries,
+    question: answerObjective,
+    entries: preserveCurrentAccomplishmentContinuity({
+      currentQuestion: input.question,
+      answerObjective,
+      history: input.history,
+      entries: memoryCatalog.entries,
+    }),
     profile: editorialProfile,
+    repositoryNames: capabilityInputs.repositories.map((repository) => repository.name),
   });
   if (
     editorialProfile.kind === "comparison" &&
@@ -1354,13 +1466,13 @@ async function executeProjectChatAgent(
     question: input.question,
     memoryHits: memory.hits,
     pendingCandidateIds: capabilityInputs.pendingCandidateIds,
-    allowResearch: mode === "post_review_finalization" || capabilityInputs.knowledgeRefresh ? false : input.allowResearch,
+    allowResearch: allowRepositoryResearch,
   });
   if (
     mode === "normal" &&
     deterministicIntent.kind === "direct_answer" &&
     memoryCatalog.citations.length === 0 &&
-    (!capabilityInputs.repositories.length || input.allowResearch === false)
+    (!capabilityInputs.repositories.length || allowRepositoryResearch === false)
   ) {
     const answer = capabilityInputs.repositories.length
       ? "I do not have approved project memory that supports this request, and repository research is disabled for this turn. Add or approve relevant project context, or retry with research enabled."
@@ -1379,7 +1491,7 @@ async function executeProjectChatAgent(
     runId: input.runId,
     userId: input.userId,
     workItemId: input.workItemId,
-    question: input.question,
+    question: answerObjective,
     deterministicIntent,
     memoryHits: memory.hits,
     repositories: capabilityInputs.repositories,
@@ -1419,7 +1531,7 @@ async function executeProjectChatAgent(
     mode === "normal" &&
     editorialProfile.kind === "focused" &&
     editorialSelection.selectedThemes.length === 0 &&
-    input.allowResearch !== false &&
+    allowRepositoryResearch !== false &&
     capabilityInputs.repositories.length > 0
       ? {
           ...executionRoutedIntent,
@@ -1637,7 +1749,7 @@ async function executeProjectChatAgent(
 
   if (
     resolveWorkbaseLlmProvider() === "mock" ||
-    usesDeterministicEditorialSynthesis(input.question)
+    usesDeterministicEditorialSynthesis(answerObjective)
   ) {
     const freshness = completeRefreshFreshness(capabilityInputs.knowledgeRefresh);
     const editorialBlocks = addSourceBoundedEditorialContext(
@@ -1653,7 +1765,7 @@ async function executeProjectChatAgent(
       : editorialProfile.kind === "focused"
         ? null
         : buildExactSourceRecoveryAnswer({
-          question: input.question,
+          question: answerObjective,
           entries: memoryCatalog.entries,
           catalog: memoryCatalog.citations,
           freshness,
@@ -1761,7 +1873,7 @@ async function executeProjectChatAgent(
         capabilityInputs.knowledgeRefresh
           ? "A latest-commit repository refresh mapped every eligible safe file for this turn. Treat its target SHAs and coverage matrix as authoritative freshness metadata, preserve any explicit semantic coverage gaps, and never claim more completeness than that matrix supports. Prioritize current Project Facts and use older Highlights only for nonconflicting ownership or impact context."
           : "",
-        accomplishmentSynthesisPattern.test(input.question)
+        accomplishmentSynthesisPattern.test(answerObjective)
           ? "For accomplishments, lead with product value and the strongest end-to-end systems. Clearly distinguish repository-proven implementation from self-reported ownership or impact. Avoid absolute qualifiers such as complete, full, retry-safe, reliable, type-safe, production-grade, all, or exclusively unless the cited source explicitly proves that scope."
           : "",
         "Cite factual project claims with [citation:N] using only citationIndexes in untrusted_retrieved_project_memory_json.",
@@ -1788,12 +1900,12 @@ async function executeProjectChatAgent(
         citationCount: memoryCatalog.citations.length,
         currentRunProjectFactCount: capabilityInputs.currentRunProjectFactIds.length,
         partial: capabilityInputs.researchDossier?.partial ?? false,
-        verificationMode: projectAnswerGroundingModeForQuestion(input.question),
+        verificationMode: projectAnswerGroundingModeForQuestion(answerObjective),
       },
       isUserVisible: false,
     }).catch(() => null);
     let recovered = await verifyProjectAnswerWithRecovery({
-      question: input.question,
+      question: answerObjective,
       draftAnswer: result.text,
       entries: memoryCatalog.entries,
       catalog: memoryCatalog.citations,
@@ -1805,7 +1917,7 @@ async function executeProjectChatAgent(
         maximum: editorialProfile.targetItemCount.maximum,
       },
       maxCitations: editorialProfile.comprehensive ? 20 : MAX_EDITORIAL_CITATIONS,
-      verificationMode: projectAnswerGroundingModeForQuestion(input.question),
+      verificationMode: projectAnswerGroundingModeForQuestion(answerObjective),
       comparisonContext,
     });
     let quality = recovered.status === "answered"
@@ -1822,7 +1934,7 @@ async function executeProjectChatAgent(
     const requiresEditorialFallback = Boolean(quality && !quality.passed);
     if (requiresEditorialFallback) {
       const exact = await verifyProjectAnswerWithRecovery({
-        question: input.question,
+        question: answerObjective,
         draftAnswer: "",
         entries: memoryCatalog.entries,
         catalog: memoryCatalog.citations,
@@ -1929,7 +2041,7 @@ async function executeProjectChatAgent(
   } catch (error) {
     const freshness = completeRefreshFreshness(capabilityInputs.knowledgeRefresh);
     const recovered = await verifyProjectAnswerWithRecovery({
-      question: input.question,
+      question: answerObjective,
       draftAnswer: "",
       entries: memoryCatalog.entries,
       catalog: memoryCatalog.citations,
@@ -2024,10 +2136,45 @@ async function executeProjectChatAgent(
   }
 }
 
+export function usesLegacyProjectChatTestHarness(input: {
+  provider: ReturnType<typeof resolveWorkbaseLlmProvider>;
+  nodeEnv: string | undefined;
+  vitest: string | undefined;
+}) {
+  return input.provider === "mock" &&
+    (input.nodeEnv === "test" || input.vitest === "true");
+}
+
+function legacyMockTestPath() {
+  return usesLegacyProjectChatTestHarness({
+    provider: resolveWorkbaseLlmProvider(),
+    nodeEnv: process.env.NODE_ENV,
+    vitest: process.env.VITEST,
+  });
+}
+
 export async function runProjectChatAgent(input: RunProjectChatAgentInput) {
+  const useLegacyMock = legacyMockTestPath();
+  if (!useLegacyMock) {
+    const { executeModelLedProjectChatAgent } = await import(
+      "@/src/services/project-chat-model-agent-service"
+    );
+    return executeModelLedProjectChatAgent(input);
+  }
   return executeProjectChatAgent(input, "normal");
 }
 
 export async function finalizeProjectChatAfterFactReview(input: RunProjectChatAgentInput) {
+  const useLegacyMock = legacyMockTestPath();
+  if (!useLegacyMock) {
+    const { executeModelLedProjectChatAgent } = await import(
+      "@/src/services/project-chat-model-agent-service"
+    );
+    return executeModelLedProjectChatAgent({
+      ...input,
+      allowResearch: false,
+      afterFactReview: true,
+    });
+  }
   return executeProjectChatAgent({ ...input, allowResearch: false }, "post_review_finalization");
 }

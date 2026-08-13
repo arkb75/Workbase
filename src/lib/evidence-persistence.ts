@@ -8,7 +8,11 @@ import type {
 import { buildEvidenceSearchText, inferEvidenceTags } from "@/src/lib/highlight-tags";
 import { buildManualEvidenceItemsFromSource } from "@/src/lib/evidence-items";
 import { prisma } from "@/src/lib/prisma";
-import { upsertReviewableKnowledgeChange } from "@/src/services/knowledge-change-service";
+import {
+  upsertReviewableKnowledgeChange,
+  upsertReviewableKnowledgeChangesInTransaction,
+  type ReviewableKnowledgeChangeInput,
+} from "@/src/services/knowledge-change-service";
 import { invalidateEvidenceDependents } from "@/src/services/knowledge-dependency-service";
 
 export const WORK_ITEM_DESCRIPTION_SOURCE_KIND = "work_item_description";
@@ -88,6 +92,154 @@ function buildWorkItemDescriptionEvidenceExternalId(workItemId: string) {
   return `${workItemId}:work-item-description`;
 }
 
+function evidenceContentVersion(item: EvidenceItemWrite) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      title: item.title,
+      content: item.content,
+      type: item.type,
+      metadata: item.metadata,
+    }))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function evidenceSearchText(item: EvidenceItemWrite) {
+  return item.searchText ?? buildEvidenceSearchText({
+    title: item.title,
+    content: item.content,
+    metadata: item.metadata,
+  });
+}
+
+function expectedEvidenceTags(item: EvidenceItemWrite) {
+  return inferEvidenceTags({
+    title: item.title,
+    content: item.content,
+    sourceType: item.sourceType ?? "github_repo",
+    evidenceType: item.type,
+  }).map((tag) => ({
+    dimension: tag.dimension,
+    tag: tag.tag,
+    score: tag.score ?? null,
+  }));
+}
+
+async function persistColdRepositoryEvidenceItems(
+  sourceId: string,
+  evidenceItems: EvidenceItemWrite[],
+) {
+  const autoAppliedAt = new Date();
+  const planned = evidenceItems.map((item) => ({
+    item,
+    contentVersion: evidenceContentVersion(item),
+    searchText: evidenceSearchText(item),
+    tags: expectedEvidenceTags(item),
+  }));
+
+  // A first import has no immutable predecessors to supersede or dependents to
+  // invalidate. Insert the independent rows and tags in bounded bulk writes;
+  // the unique source/external-ID key makes a concurrent replay safe.
+  await prisma.evidenceItem.createMany({
+    data: planned.map(({ item, searchText }) => ({
+      workItemId: item.workItemId,
+      sourceId: item.sourceId,
+      externalId: item.externalId,
+      logicalKey: item.externalId,
+      type: item.type,
+      title: item.title,
+      content: item.content,
+      searchText,
+      parentKind: item.parentKind ?? null,
+      parentKey: item.parentKey ?? null,
+      included: item.included,
+      metadata: item.metadata as Prisma.InputJsonValue,
+      lifecycleStatus: "active" as const,
+      reviewState: "pending_review" as const,
+      approvalSource: "automation" as const,
+      autoAppliedAt,
+    })),
+    skipDuplicates: true,
+  });
+  const persistedRows = await prisma.evidenceItem.findMany({
+    where: {
+      sourceId,
+      externalId: { in: planned.map(({ item }) => item.externalId) },
+    },
+    select: {
+      id: true,
+      externalId: true,
+      type: true,
+      title: true,
+      content: true,
+      included: true,
+    },
+  });
+  const persistedByExternalId = new Map(
+    persistedRows.map((item) => [item.externalId, item]),
+  );
+  const missing = planned
+    .map(({ item }) => item.externalId)
+    .filter((externalId) => !persistedByExternalId.has(externalId));
+  if (missing.length) {
+    throw new Error(
+      `Cold Evidence persistence omitted ${missing.length} imported item${missing.length === 1 ? "" : "s"}.`,
+    );
+  }
+
+  const tagRows = planned.flatMap(({ item, tags }) => {
+    const persisted = persistedByExternalId.get(item.externalId)!;
+    return tags.map((tag) => ({ evidenceItemId: persisted.id, ...tag }));
+  });
+  if (tagRows.length) {
+    await prisma.evidenceTag.createMany({
+      data: tagRows,
+      skipDuplicates: true,
+    });
+  }
+
+  const changes: ReviewableKnowledgeChangeInput[] = planned.map(({
+    item,
+    contentVersion,
+  }) => {
+    const persisted = persistedByExternalId.get(item.externalId)!;
+    return {
+      workItemId: item.workItemId,
+      entityKind: "evidence",
+      action: "created",
+      entityId: persisted.id,
+      afterSnapshot: {
+        id: persisted.id,
+        title: persisted.title,
+        content: persisted.content,
+        type: persisted.type,
+        lifecycleStatus: "active",
+      },
+      reason: "A GitHub import added new Evidence.",
+      provenance: { sourceId, logicalKey: item.externalId },
+      policyVersion: "knowledge-lifecycle-v2",
+      idempotencyKey:
+        `github-import:evidence:${persisted.id}:${contentVersion}:${contentVersion}`,
+    };
+  });
+  await prisma.$transaction((tx) =>
+    upsertReviewableKnowledgeChangesInTransaction(changes, tx)
+  );
+
+  // Database result ordering is undefined. Restore the import's deterministic
+  // order so downstream incremental-generation inputs remain stable.
+  return planned.map(({ item }): PersistedEvidenceItemWriteResult => {
+    const persisted = persistedByExternalId.get(item.externalId)!;
+    return {
+      id: persisted.id,
+      externalId: persisted.externalId,
+      type: persisted.type,
+      included: persisted.included,
+      wasExisting: false,
+    };
+  });
+}
+
 export async function upsertEvidenceItemsForSource(
   sourceId: string,
   evidenceItems: EvidenceItemWrite[],
@@ -112,6 +264,17 @@ export async function upsertEvidenceItemsForSource(
   );
   const nextExternalIds = evidenceItems.map((item) => item.externalId);
   const persistedItems: PersistedEvidenceItemWriteResult[] = [];
+
+  const isColdRepositoryImport =
+    existingItems.length === 0 &&
+    evidenceItems.length > 0 &&
+    evidenceItems.every(
+      (item) => item.sourceType === "github_repo" && item.sourceId === sourceId,
+    ) &&
+    new Set(nextExternalIds).size === nextExternalIds.length;
+  if (isColdRepositoryImport) {
+    return persistColdRepositoryEvidenceItems(sourceId, evidenceItems);
+  }
 
   if (existingItems.length && evidenceItems.some((item) => item.sourceType === "github_repo")) {
     const nextLogicalKeys = new Set(nextExternalIds);
@@ -162,18 +325,8 @@ export async function upsertEvidenceItemsForSource(
     const existing = item.sourceType === "github_repo"
       ? currentByLogicalKey.get(logicalKey) ?? existingByExternalId.get(item.externalId)
       : existingByExternalId.get(item.externalId);
-    const searchText =
-      item.searchText ??
-      buildEvidenceSearchText({
-        title: item.title,
-        content: item.content,
-        metadata: item.metadata,
-      });
-
-    const contentVersion = createHash("sha256")
-      .update(JSON.stringify({ title: item.title, content: item.content, type: item.type, metadata: item.metadata }))
-      .digest("hex")
-      .slice(0, 16);
+    const searchText = evidenceSearchText(item);
+    const contentVersion = evidenceContentVersion(item);
     const isChangedRepositoryEvidence = Boolean(
       item.sourceType === "github_repo" &&
       existing &&
@@ -243,18 +396,7 @@ export async function upsertEvidenceItemsForSource(
       },
     });
 
-    const tags = inferEvidenceTags({
-      title: item.title,
-      content: item.content,
-      sourceType: item.sourceType ?? "github_repo",
-      evidenceType: item.type,
-    });
-
-    const expectedTags = tags.map((tag) => ({
-      dimension: tag.dimension,
-      tag: tag.tag,
-      score: tag.score ?? null,
-    }));
+    const expectedTags = expectedEvidenceTags(item);
     const tagsAlreadyCurrent = persisted.id === existing?.id &&
       evidenceTagsAreCurrent(existing.tags, expectedTags);
     if (!tagsAlreadyCurrent) {

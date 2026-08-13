@@ -17,12 +17,15 @@ import {
 export type ProjectChatApplicationScenarioId =
   | "memory_answer"
   | "strongest_accomplishments"
+  | "strongest_accomplishments_freshness_follow_up"
   | "recruiter_top_three"
   | "concise_project_overview"
   | "repository_knowledge_data_flow"
   | "architecture_assessment"
   | "design_tradeoffs"
   | "compare_refresh_and_research"
+  | "runtime_model_matrix"
+  | "runtime_model_grid_follow_up"
   | "focused_citation_behavior"
   | "durable_runtime_deep_dive"
   | "security_posture"
@@ -107,6 +110,34 @@ export interface ProjectChatApplicationArtifactObservation {
   usedEvidenceCount: number;
 }
 
+export interface ProjectChatApplicationKnowledgeRefreshObservation {
+  trigger: string;
+  status: string;
+  qualityStatus: string;
+  targetHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  completedHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  coverageGapCount: number;
+}
+
+export interface ProjectChatApplicationRepositoryCitationFreshnessObservation {
+  targetHeads: Array<{
+    sourceId: string;
+    repository: string;
+    commitSha: string;
+  }>;
+  repositoryDerivedCitationCount: number;
+  currentRepositoryDerivedCitationCount: number;
+  staleCitationOrdinals: number[];
+}
+
 export interface ProjectChatApplicationModelAttribution {
   providers: string[];
   configuredModelIds: string[];
@@ -162,8 +193,15 @@ export interface ProjectChatApplicationObservation {
   citationOrdinals: number[];
   citationMetadata?: ProjectChatAnswerCitationMetadata[];
   tools: string[];
+  /** Durable semantic plan persisted before workflow side effects. */
+  semanticPlanAction?: "answer" | "refresh_then_answer" | "artifact" | null;
+  /** Final composition authority; production chat must be model_tool_loop. */
+  answerCompositionMode?: string | null;
   /** A refresh attached to this turn, even when it reused a completed run. */
   knowledgeRefreshRunId?: string | null;
+  knowledgeRefresh?: ProjectChatApplicationKnowledgeRefreshObservation | null;
+  repositoryCitationFreshness?:
+    ProjectChatApplicationRepositoryCitationFreshnessObservation | null;
   historyMessageCount: number;
   historyCharacterCount: number;
   historyCitationManifestCount: number;
@@ -204,6 +242,30 @@ const noRepositoryWork = {
   maxRepositoryVisibleBytes: 0,
 } as const;
 
+const strongestAccomplishmentsAnswerContract = {
+  minCharacters: 900,
+  maxCharacters: 5_500,
+  minReaderThemes: 5,
+  minPrimaryItems: 4,
+  maxPrimaryItems: 6,
+  minDevelopedItems: 4,
+  minMechanismValueItems: 3,
+  minCitedItems: 4,
+  requirePrioritizedOpening: true,
+  forbidInternalInventory: true,
+  format: "markdown",
+  requiredPatterns: [
+    "career content|resume|artifact",
+    "repository (?:knowledge|refresh|intelligence)|semantic analys",
+    "project chat|retriev|ground",
+    "workflow|openrouter|model runtime|structured generation",
+  ],
+  forbiddenPatterns: [
+    "\\b(?:every|all) (?:file|subsystem|capability)\\b",
+    "\\b512[- ]dimension(?:al)?\\b",
+  ],
+} satisfies ProjectChatAnswerQualityContract;
+
 export const projectChatApplicationScenarios = [
   {
     id: "memory_answer",
@@ -214,49 +276,53 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: true,
     envelope: {
-      maxLatencyMs: 20_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 25_000,
-      maxEstimatedCostUsd: 0.2,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
   {
     id: "strongest_accomplishments",
-    title: "Prioritized, current strongest-accomplishments synthesis",
-    question: "Summarize my strongest accomplishments and make sure your information is up to date.",
+    title: "Prioritized strongest-accomplishments synthesis",
+    question: "Summarize my strongest accomplishments",
+    workspace: "project_memory",
+    threadKey: "strongest_accomplishments",
+    allowResearch: false,
+    captureUserContext: false,
+    answerContract: strongestAccomplishmentsAnswerContract,
+    envelope: {
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
+      ...noRepositoryWork,
+    },
+  },
+  {
+    id: "strongest_accomplishments_freshness_follow_up",
+    title: "Exact freshness follow-up preserves the accomplishments objective",
+    question: "make sure your understanding is up to date",
     workspace: "project_memory",
     threadKey: "strongest_accomplishments",
     allowResearch: false,
     captureUserContext: false,
     answerContract: {
-      minCharacters: 900,
-      maxCharacters: 5_500,
-      minReaderThemes: 5,
-      minPrimaryItems: 4,
-      maxPrimaryItems: 6,
-      minDevelopedItems: 4,
-      minMechanismValueItems: 3,
-      minCitedItems: 4,
-      requirePrioritizedOpening: true,
-      forbidInternalInventory: true,
-      format: "markdown",
-      requiredPatterns: [
-        "career content|resume|artifact",
-        "repository (?:knowledge|refresh|intelligence)|semantic analys",
-        "project chat|retriev|ground",
-        "workflow|openrouter|model runtime|structured generation",
-      ],
+      ...strongestAccomplishmentsAnswerContract,
       forbiddenPatterns: [
-        "\\b(?:every|all) (?:file|subsystem|capability)\\b",
-        "\\b512[- ]dimension(?:al)?\\b",
+        ...strongestAccomplishmentsAnswerContract.forbiddenPatterns,
+        "src/lib/bedrock-converse-agent\\.ts",
+        "iterations\\s*>=\\s*(?:limits\\.)?maxIterations",
+        "\\bline\\s+956\\b",
+        "explicit conditional exit (?:`?throw`?|condition)",
       ],
     },
     envelope: {
-      maxLatencyMs: 30_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 35_000,
-      maxEstimatedCostUsd: 0.28,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -285,10 +351,10 @@ export const projectChatApplicationScenarios = [
       ],
     },
     envelope: {
-      maxLatencyMs: 25_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 28_000,
-      maxEstimatedCostUsd: 0.22,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -313,10 +379,10 @@ export const projectChatApplicationScenarios = [
       forbiddenPatterns: ["\\.ts\\b|Prisma schema|implementation file"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -348,10 +414,10 @@ export const projectChatApplicationScenarios = [
       ],
     },
     envelope: {
-      maxLatencyMs: 30_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 40_000,
-      maxEstimatedCostUsd: 0.32,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -379,10 +445,10 @@ export const projectChatApplicationScenarios = [
       forbiddenPatterns: ["perfect|guarantees? correctness|eliminates? all"],
     },
     envelope: {
-      maxLatencyMs: 30_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 38_000,
-      maxEstimatedCostUsd: 0.3,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -408,10 +474,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["enable|benefit", "cost|constraint|limit|trade-?off"],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -433,10 +499,52 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["refresh", "targeted (?:repository )?research", "project fact|highlight|memory", "when|best for|use"],
     },
     envelope: {
-      maxLatencyMs: 24_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 26_000,
-      maxEstimatedCostUsd: 0.21,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
+      ...noRepositoryWork,
+    },
+  },
+  {
+    id: "runtime_model_matrix",
+    title: "Authoritative active runtime model matrix",
+    question: "Give me a matrix of the models we are using and for what purposes.",
+    workspace: "empty_sandbox",
+    threadKey: "runtime_model_mapping",
+    allowResearch: false,
+    captureUserContext: false,
+    answerContract: {
+      minCharacters: 180,
+      maxCharacters: 3_500,
+      format: "table",
+    },
+    envelope: {
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
+      ...noRepositoryWork,
+    },
+  },
+  {
+    id: "runtime_model_grid_follow_up",
+    title: "Paraphrased same-thread runtime model grid",
+    question: "Same mapping, but organize it with rows by purpose and columns for provider and model.",
+    workspace: "empty_sandbox",
+    threadKey: "runtime_model_mapping",
+    allowResearch: false,
+    captureUserContext: false,
+    answerContract: {
+      minCharacters: 180,
+      maxCharacters: 3_500,
+      format: "table",
+    },
+    envelope: {
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -458,10 +566,10 @@ export const projectChatApplicationScenarios = [
       forbiddenPatterns: ["(?:attaches|shows|persists|returns) (?:all accumulated citations|every explored file)"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -487,10 +595,10 @@ export const projectChatApplicationScenarios = [
       forbiddenPatterns: ["career content product|linkedin experience"],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -510,10 +618,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["credential|secret|redact", "bound|authori[sz]|attached repositor"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -533,10 +641,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["github oauth|oauth", "attached|authori[sz]|permission"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -556,10 +664,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["durable workflow|workflow", "persist|resume|recover|retry"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -579,10 +687,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["artifact", "approved (?:highlight|memory)|highlight", "research|evidence gap|insufficient"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -602,10 +710,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["workspace|review", "highlight|project fact|citation|artifact"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -626,10 +734,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["persist|data model|prisma", "version|supersed|stale|retir|lifecycle"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -649,10 +757,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["test|vitest|evaluation", "chat|research|artifact|workflow|security"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -672,10 +780,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["github oauth|oauth", "ingest|import", "bound|budget|limit"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -698,10 +806,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["risk|limitation|constraint|trade-?off", "matter|cost|depend"],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -721,10 +829,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["repository|repo", "refresh|reconcil", "stale"],
     },
     envelope: {
-      maxLatencyMs: 22_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -755,10 +863,10 @@ export const projectChatApplicationScenarios = [
       ],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -783,10 +891,10 @@ export const projectChatApplicationScenarios = [
       format: "markdown",
     },
     envelope: {
-      maxLatencyMs: 24_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 26_000,
-      maxEstimatedCostUsd: 0.21,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -817,10 +925,10 @@ export const projectChatApplicationScenarios = [
       forbiddenPatterns: ["\\bUI\\b|onboarding|local setup|npm (?:install|run)|Tailwind"],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -841,10 +949,10 @@ export const projectChatApplicationScenarios = [
       requiredPatterns: ["durable workflow|persist|progress|resume", "p95|production latency|evidence boundary|does not establish"],
     },
     envelope: {
-      maxLatencyMs: 24_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 26_000,
-      maxEstimatedCostUsd: 0.21,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -857,10 +965,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: true,
     envelope: {
-      maxLatencyMs: 15_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 20_000,
-      maxEstimatedCostUsd: 0.16,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -873,10 +981,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 3_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -889,10 +997,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 20_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 24_000,
-      maxEstimatedCostUsd: 0.19,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -905,10 +1013,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 3_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -935,10 +1043,10 @@ export const projectChatApplicationScenarios = [
       ],
     },
     envelope: {
-      maxLatencyMs: 28_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 32_000,
-      maxEstimatedCostUsd: 0.25,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -951,10 +1059,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: true,
     envelope: {
-      maxLatencyMs: 15_000,
-      maxModelCalls: 1,
-      maxTotalTokens: 12_000,
-      maxEstimatedCostUsd: 0.1,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -967,10 +1075,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 12_000,
-      maxModelCalls: 1,
-      maxTotalTokens: 12_000,
-      maxEstimatedCostUsd: 0.1,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -983,10 +1091,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 8_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -999,10 +1107,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: true,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 5_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1015,10 +1123,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 3_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1031,10 +1139,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 25_000,
-      maxModelCalls: 2,
-      maxTotalTokens: 25_000,
-      maxEstimatedCostUsd: 0.2,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1047,10 +1155,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 20_000,
-      maxModelCalls: 1,
-      maxTotalTokens: 15_000,
-      maxEstimatedCostUsd: 0.12,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1063,10 +1171,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 15_000,
-      maxModelCalls: 1,
-      maxTotalTokens: 15_000,
-      maxEstimatedCostUsd: 0.12,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1079,10 +1187,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: true,
     captureUserContext: false,
     envelope: {
-      maxLatencyMs: 5_000,
-      maxModelCalls: 0,
-      maxTotalTokens: 0,
-      maxEstimatedCostUsd: 0,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1095,10 +1203,10 @@ export const projectChatApplicationScenarios = [
     allowResearch: false,
     captureUserContext: true,
     envelope: {
-      maxLatencyMs: 15_000,
-      maxModelCalls: 1,
-      maxTotalTokens: 15_000,
-      maxEstimatedCostUsd: 0.12,
+      maxLatencyMs: 45_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
+      maxEstimatedCostUsd: 0.4,
       ...noRepositoryWork,
     },
   },
@@ -1112,8 +1220,8 @@ export const projectChatApplicationScenarios = [
     captureUserContext: false,
     envelope: {
       maxLatencyMs: 90_000,
-      maxModelCalls: 3,
-      maxTotalTokens: 55_000,
+      maxModelCalls: 10,
+      maxTotalTokens: 100_000,
       maxEstimatedCostUsd: 0.5,
       maxRepositoryTreeLookups: 1,
       maxRepositorySearches: 2,
@@ -1134,6 +1242,7 @@ function addCheck(
 }
 
 const repositoryTools = new Set([
+  "research_repository",
   "research_project",
   "list_repository_paths",
   "search_repository",
@@ -1148,6 +1257,27 @@ function hasRepositoryTool(observation: ProjectChatApplicationObservation) {
 function canonicalCitationSetMatches(observation: ProjectChatApplicationObservation) {
   const used = Array.from(new Set(observation.citationOrdinals)).sort((left, right) => left - right);
   return used.length === observation.citationCount && used.every((ordinal, index) => ordinal === index + 1);
+}
+
+function markdownTableDataRowCount(answer: string) {
+  const rows = answer.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|"));
+  if (rows.length < 2) return 0;
+  const separatorIndex = rows.findIndex((row) =>
+    row.split("|").filter(Boolean).every((cell) => /^\s*:?-{3,}:?\s*$/u.test(cell))
+  );
+  return separatorIndex < 0 ? 0 : Math.max(0, rows.length - separatorIndex - 1);
+}
+
+function knowledgeRefreshHeadIdentity(
+  heads: ProjectChatApplicationKnowledgeRefreshObservation["targetHeads"],
+) {
+  return heads
+    .map((head) =>
+      `${head.sourceId}:${head.repository.toLowerCase()}@${head.commitSha.toLowerCase()}`
+    )
+    .sort();
 }
 
 function architectureAreaCount(answer: string) {
@@ -1297,7 +1427,7 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "focused paraphrase completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "focused paraphrase is cited", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "focused paraphrase avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
-      addCheck(checks, "focused paraphrase did not invoke prior-turn provenance", !observation.tools.includes("inspect_prior_turn_provenance"), observation.tools.join(", "), "no provenance inspection");
+      addCheck(checks, "focused paraphrase did not invoke prior-turn provenance", !observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "no provenance inspection");
       break;
     case "strongest_accomplishments":
     case "recruiter_top_three":
@@ -1317,6 +1447,50 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "general project answer is grounded", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "current memory answer avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
       break;
+    case "runtime_model_matrix":
+    case "runtime_model_grid_follow_up": {
+      addCheck(checks, "runtime mapping completed", observation.outcome === "answered", observation.outcome, "answered");
+      addCheck(checks, "runtime mapping used the authoritative configuration tool", observation.tools.includes("inspect_runtime_model_profiles"), observation.tools.join(", "), "inspect_runtime_model_profiles");
+      addCheck(checks, "runtime mapping did not search project prose", !observation.tools.includes("search_project_memory"), observation.tools.join(", "), "no memory search");
+      addCheck(checks, "runtime mapping avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
+      addCheck(checks, "runtime mapping was composed by the primary model", observation.answerCompositionMode === "model_tool_loop", observation.answerCompositionMode ?? "missing", "model_tool_loop");
+      addCheck(checks, "runtime mapping semantic plan answered without repository refresh", observation.semanticPlanAction === "answer", observation.semanticPlanAction ?? "missing", "answer");
+      addCheck(checks, "runtime mapping presents all seven configured roles", markdownTableDataRowCount(observation.answer) >= 7, markdownTableDataRowCount(observation.answer), 7);
+      addCheck(checks, "runtime mapping cites live configuration authority", observation.citationCount > 0, observation.citationCount, 1);
+      addCheck(checks, "runtime mapping has an audited primary answer", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
+      if (scenario.id === "runtime_model_grid_follow_up") {
+        addCheck(checks, "runtime grid follow-up received the preceding turn", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
+      }
+      break;
+    }
+    case "strongest_accomplishments_freshness_follow_up":
+      {
+      const minimumCitedItems = scenario.answerContract?.minCitedItems ?? 4;
+      addCheck(checks, "freshness follow-up completed", observation.outcome === "answered", observation.outcome, "answered");
+      addCheck(checks, "freshness follow-up received exactly the preceding user and assistant messages", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
+      addCheck(checks, "freshness follow-up retained the prior cited-source manifest", observation.historyCitationManifestCount >= minimumCitedItems, observation.historyCitationManifestCount, minimumCitedItems);
+      addCheck(checks, "freshness follow-up attached the latest-head repository barrier", Boolean(observation.knowledgeRefreshRunId), Boolean(observation.knowledgeRefreshRunId), true);
+      addCheck(
+        checks,
+        "freshness follow-up attached an ordinary immutable-head refresh generation",
+        [
+          "repository_attach",
+          "webhook_push",
+          "scheduled",
+          "manual",
+          "chat_freshness",
+        ].includes(observation.knowledgeRefresh?.trigger ?? ""),
+        observation.knowledgeRefresh?.trigger ?? "missing",
+        "an attached ordinary current-head refresh generation",
+      );
+      addCheck(checks, "freshness follow-up waited for refresh completion", observation.knowledgeRefresh?.status === "completed", observation.knowledgeRefresh?.status ?? "missing", "completed");
+      addCheck(checks, "freshness follow-up required verified semantic coverage", observation.knowledgeRefresh?.qualityStatus === "verified", observation.knowledgeRefresh?.qualityStatus ?? "missing", "verified");
+      addCheck(checks, "freshness follow-up completed the exact target heads", Boolean(observation.knowledgeRefresh?.targetHeads.length) && JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? [])) === JSON.stringify(knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? [])), knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.completedHeads ?? []).join(", ") || "missing", knowledgeRefreshHeadIdentity(observation.knowledgeRefresh?.targetHeads ?? []).join(", ") || "non-empty exact target heads");
+      addCheck(checks, "freshness follow-up retained no refresh coverage gaps", observation.knowledgeRefresh?.coverageGapCount === 0, observation.knowledgeRefresh?.coverageGapCount ?? -1, 0);
+      addCheck(checks, "freshness follow-up remained a multi-source synthesis", observation.citationCount >= minimumCitedItems, observation.citationCount, minimumCitedItems);
+      addCheck(checks, "freshness follow-up avoided redundant targeted repository research", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
+      break;
+      }
     case "insufficient_context_follow_up":
       addCheck(checks, "evidence-gap follow-up completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "evidence-gap follow-up received the prior turn", observation.historyMessageCount >= 2, observation.historyMessageCount, 2);
@@ -1361,8 +1535,9 @@ export function evaluateProjectChatApplicationObservation(
       break;
     case "prior_turn_provenance":
       addCheck(checks, "provenance answer completed", observation.outcome === "answered", observation.outcome, "answered");
-      addCheck(checks, "provenance used its bounded inspector", observation.tools.includes("inspect_prior_turn_provenance"), observation.tools.join(", "), "inspect_prior_turn_provenance");
-      addCheck(checks, "process metadata is not persisted as a factual citation", observation.citationCount === 0, observation.citationCount, 0);
+      addCheck(checks, "provenance used its bounded inspector", observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "inspect_prior_answer_sources");
+      addCheck(checks, "provenance answer cites its authoritative manifest", observation.citationCount > 0, observation.citationCount, 1);
+      addCheck(checks, "provenance citation rows match canonical markers", canonicalCitationSetMatches(observation), observation.citationOrdinals.join(","), `1..${observation.citationCount}`);
       addCheck(
         checks,
         "provenance avoided new repository work",
@@ -1374,8 +1549,9 @@ export function evaluateProjectChatApplicationObservation(
     case "prior_turn_source_scope":
       addCheck(checks, "source-scope answer completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "source-scope follow-up received the cited prior turn", observation.historyMessageCount >= 2, observation.historyMessageCount, 2);
-      addCheck(checks, "source-scope used only its bounded provenance inspector", observation.tools.includes("inspect_prior_turn_provenance"), observation.tools.join(", "), "inspect_prior_turn_provenance");
-      addCheck(checks, "source-scope did not persist process metadata as a factual citation", observation.citationCount === 0, observation.citationCount, 0);
+      addCheck(checks, "source-scope used only its bounded provenance inspector", observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "inspect_prior_answer_sources");
+      addCheck(checks, "source-scope answer cites its authoritative manifest", observation.citationCount > 0, observation.citationCount, 1);
+      addCheck(checks, "source-scope citation rows match canonical markers", canonicalCitationSetMatches(observation), observation.citationOrdinals.join(","), `1..${observation.citationCount}`);
       addCheck(checks, "source-scope avoided new repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
       addCheck(
         checks,
@@ -1580,12 +1756,19 @@ function mergeProfileAttribution(
 export async function runProjectChatApplicationScenarios(input: {
   driver: ProjectChatApplicationDriver;
   scenarioIds?: readonly ProjectChatApplicationScenarioId[];
+  scenarioCatalog?: readonly ProjectChatApplicationScenario[];
 }) {
   const requested = new Set(input.scenarioIds ?? []);
   // Referential scenarios must execute against the real preceding turns; a
   // standalone fabricated prior message would defeat the purpose of this
   // application-level suite.
   if (requested.has("conversation_follow_up")) requested.add("memory_answer");
+  if (requested.has("strongest_accomplishments_freshness_follow_up")) {
+    requested.add("strongest_accomplishments");
+  }
+  if (requested.has("runtime_model_grid_follow_up")) {
+    requested.add("runtime_model_matrix");
+  }
   if (requested.has("prior_turn_provenance")) {
     requested.add("memory_answer");
     requested.add("conversation_follow_up");
@@ -1596,14 +1779,51 @@ export async function runProjectChatApplicationScenarios(input: {
   if (requested.has("insufficient_context_follow_up")) {
     requested.add("unsupported_deployment_topology");
   }
+  const scenarioCatalog = input.scenarioCatalog ?? projectChatApplicationScenarios;
   const selected = requested.size
-    ? projectChatApplicationScenarios.filter((scenario) => requested.has(scenario.id))
-    : [...projectChatApplicationScenarios];
+    ? scenarioCatalog.filter((scenario) => requested.has(scenario.id))
+    : [...scenarioCatalog];
   const results: ProjectChatApplicationScenarioResult[] = [];
   try {
     for (const scenario of selected) {
       const observation = await input.driver.run(scenario);
       results.push(evaluateProjectChatApplicationObservation(scenario, observation));
+    }
+    const accomplishmentsBaseline = results.find(
+      (result) => result.scenario.id === "strongest_accomplishments",
+    );
+    const accomplishmentsFreshnessFollowUp = results.find(
+      (result) =>
+        result.scenario.id ===
+          "strongest_accomplishments_freshness_follow_up",
+    );
+    if (accomplishmentsBaseline && accomplishmentsFreshnessFollowUp) {
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up reused the exact accomplishments thread",
+        accomplishmentsFreshnessFollowUp.observation.threadId ===
+          accomplishmentsBaseline.observation.threadId,
+        accomplishmentsFreshnessFollowUp.observation.threadId,
+        accomplishmentsBaseline.observation.threadId,
+      );
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up remained on the same Work Item",
+        accomplishmentsFreshnessFollowUp.observation.workItemId ===
+          accomplishmentsBaseline.observation.workItemId,
+        accomplishmentsFreshnessFollowUp.observation.workItemId,
+        accomplishmentsBaseline.observation.workItemId,
+      );
+      addCheck(
+        accomplishmentsFreshnessFollowUp.checks,
+        "freshness follow-up received the baseline citation manifest intact",
+        accomplishmentsFreshnessFollowUp.observation.historyCitationManifestCount ===
+          accomplishmentsBaseline.observation.citationCount,
+        accomplishmentsFreshnessFollowUp.observation.historyCitationManifestCount,
+        accomplishmentsBaseline.observation.citationCount,
+      );
+      accomplishmentsFreshnessFollowUp.passed =
+        accomplishmentsFreshnessFollowUp.checks.every((check) => check.passed);
     }
   } finally {
     await input.driver.cleanup();

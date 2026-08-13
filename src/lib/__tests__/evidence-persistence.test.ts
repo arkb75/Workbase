@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   evidenceItem: {
     findMany: vi.fn(),
+    createMany: vi.fn(),
     upsert: vi.fn(),
     update: vi.fn(),
     deleteMany: vi.fn(),
@@ -28,9 +29,11 @@ const prismaMock = vi.hoisted(() => ({
   workItem: {
     findUniqueOrThrow: vi.fn(),
   },
+  $transaction: vi.fn(),
 }));
 const invalidateEvidenceDependentsMock = vi.hoisted(() => vi.fn());
 const upsertReviewableKnowledgeChangeMock = vi.hoisted(() => vi.fn());
+const upsertReviewableKnowledgeChangesInTransactionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/src/lib/prisma", () => ({
   prisma: prismaMock,
@@ -40,6 +43,8 @@ vi.mock("@/src/services/knowledge-dependency-service", () => ({
 }));
 vi.mock("@/src/services/knowledge-change-service", () => ({
   upsertReviewableKnowledgeChange: upsertReviewableKnowledgeChangeMock,
+  upsertReviewableKnowledgeChangesInTransaction:
+    upsertReviewableKnowledgeChangesInTransactionMock,
 }));
 
 import {
@@ -53,6 +58,9 @@ import {
 describe("evidence persistence", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    prismaMock.$transaction.mockImplementation(
+      async (task: (tx: unknown) => Promise<unknown>) => task({}),
+    );
   });
 
   it("recognizes an unchanged Evidence tag set independent of row order", () => {
@@ -70,6 +78,73 @@ describe("evidence persistence", () => {
       [{ dimension: "skill", tag: "typescript", score: 0.9 }],
       [{ dimension: "skill", tag: "typescript", score: 0.8 }],
     )).toBe(false);
+  });
+
+  it("bulk-persists a max-shape cold GitHub import with stable order and retry-safe transitions", async () => {
+    const inputs = Array.from({ length: 66 }, (_, index) => ({
+      workItemId: "work-item-1",
+      sourceId: "source-1",
+      externalId: `commit:sha-${index}`,
+      sourceType: "github_repo" as const,
+      type: "github_commit" as const,
+      title: `Commit ${index}`,
+      content: `Implemented bounded import step ${index}.`,
+      searchText: `Commit ${index} Implemented bounded import step ${index}.`,
+      parentKind: "source",
+      parentKey: "source-1",
+      included: true,
+      metadata: { sha: `sha-${index}` },
+    }));
+    const persistedRows = inputs.map((item, index) => ({
+      id: `evidence-${index}`,
+      externalId: item.externalId,
+      type: item.type,
+      title: item.title,
+      content: item.content,
+      included: item.included,
+    }));
+    prismaMock.evidenceItem.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([...persistedRows].reverse());
+    prismaMock.evidenceItem.createMany.mockResolvedValue({ count: inputs.length });
+    upsertReviewableKnowledgeChangesInTransactionMock.mockResolvedValue([]);
+
+    const result = await upsertEvidenceItemsForSource("source-1", inputs);
+
+    expect(prismaMock.evidenceItem.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.evidenceItem.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          externalId: "commit:sha-0",
+          logicalKey: "commit:sha-0",
+          lifecycleStatus: "active",
+          reviewState: "pending_review",
+          approvalSource: "automation",
+        }),
+      ]),
+      skipDuplicates: true,
+    });
+    expect(prismaMock.evidenceItem.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceTag.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceTag.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(upsertReviewableKnowledgeChangesInTransactionMock).toHaveBeenCalledTimes(1);
+    const [changes] = upsertReviewableKnowledgeChangesInTransactionMock.mock.calls[0]!;
+    expect(changes).toHaveLength(66);
+    expect(new Set(
+      changes.map((change: { idempotencyKey: string }) => change.idempotencyKey),
+    ).size).toBe(66);
+    expect(changes[0]).toMatchObject({
+      entityId: "evidence-0",
+      action: "created",
+      idempotencyKey: expect.stringMatching(
+        /^github-import:evidence:evidence-0:([a-f0-9]{16}):\1$/,
+      ),
+    });
+    expect(result.map((item) => item.externalId)).toEqual(
+      inputs.map((item) => item.externalId),
+    );
+    expect(result.every((item) => item.wasExisting === false)).toBe(true);
   });
 
   it("preserves immutable GitHub evidence revisions and retires records missing from a re-import", async () => {

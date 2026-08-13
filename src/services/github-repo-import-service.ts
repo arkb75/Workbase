@@ -12,10 +12,48 @@ import {
   fetchGitHubReadme,
   fetchGitHubReleases,
   fetchGitHubRepositoryDetail,
+  GitHubApiError,
   mapRepositorySummary,
 } from "@/src/services/github-client";
 import { configureRepositoryPushWebhook } from "@/src/services/github-webhook-service";
 import { summarizeEvidenceContent } from "@/src/lib/evidence-items";
+import type { Prisma } from "@/src/generated/prisma/client";
+
+export const GITHUB_IMPORT_DETAIL_CONCURRENCY = 6;
+const SOURCE_WRITE_MAX_ATTEMPTS = 2;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(items[index]!, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+async function changedFilesOrEmptyOnMissing(load: () => Promise<string[]>) {
+  try {
+    return await load();
+  } catch (error) {
+    // A force-push can remove an activity record between the bounded list and
+    // detail reads. Only that expected race is optional; auth, rate-limit,
+    // timeout, and provider failures must fail the import visibly.
+    if (error instanceof GitHubApiError && error.status === 404) return [];
+    throw error;
+  }
+}
 
 function toRepositoryJsonValue(repository: {
   id: string;
@@ -39,6 +77,119 @@ function toRepositoryJsonValue(repository: {
     private: repository.private,
     updatedAt: repository.updatedAt,
   };
+}
+
+function metadataRecord(metadata: unknown) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata as Record<string, JsonValue>
+    : {};
+}
+
+function importedRepositoryMetadata(input: {
+  existing?: unknown;
+  repository: ReturnType<typeof toRepositoryJsonValue>;
+  revision: JsonValue;
+}): Prisma.InputJsonValue {
+  const existing = metadataRecord(input.existing);
+  const hasDurableImportFence = Object.prototype.hasOwnProperty.call(
+    existing,
+    "repositoryImport",
+  );
+  return {
+    ...existing,
+    repository: input.repository,
+    revision: input.revision,
+    // Durable imports own their lifecycle status. Legacy synchronous imports
+    // retain the original top-level `imported` marker.
+    ...(hasDurableImportFence ? {} : { status: "imported" }),
+  };
+}
+
+function retryableSourceWriteConflict(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code) : "";
+  return code === "P2002" || code === "P2034";
+}
+
+async function persistRepositorySource(input: {
+  workItemId: string;
+  repositoryId: string;
+  repositoryLabel: string;
+  repository: ReturnType<typeof toRepositoryJsonValue>;
+  revision: JsonValue;
+}) {
+  const where = {
+    workItemId_type_externalId: {
+      workItemId: input.workItemId,
+      type: "github_repo" as const,
+      externalId: input.repositoryId,
+    },
+  };
+  const createMetadata = importedRepositoryMetadata({
+    repository: input.repository,
+    revision: input.revision,
+  });
+
+  for (let attempt = 0; attempt < SOURCE_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        // The durable workflow creates the Source before remote I/O. Lock and
+        // re-read it so a newer request-generation fence cannot be overwritten
+        // by stale metadata captured earlier in this import.
+        for (let resolutionAttempt = 0; resolutionAttempt < 3; resolutionAttempt += 1) {
+          const candidate = await tx.source.findUnique({
+            where,
+            select: { id: true },
+          });
+          if (!candidate) {
+            return tx.source.create({
+              data: {
+                workItemId: input.workItemId,
+                type: "github_repo",
+                label: input.repositoryLabel,
+                externalId: input.repositoryId,
+                metadata: createMetadata,
+              },
+            });
+          }
+
+          const locked = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT "id" FROM "Source" WHERE "id" = ${candidate.id} FOR UPDATE
+          `;
+          if (!locked.length) continue;
+
+          const current = await tx.source.findUnique({
+            where: { id: candidate.id },
+            select: { metadata: true },
+          });
+          if (!current) continue;
+
+          return tx.source.update({
+            where: { id: candidate.id },
+            data: {
+              label: input.repositoryLabel,
+              metadata: importedRepositoryMetadata({
+                existing: current.metadata,
+                repository: input.repository,
+                revision: input.revision,
+              }),
+            },
+          });
+        }
+        throw new Error("The repository Source changed repeatedly during import persistence.");
+      }, { timeout: 10_000 });
+    } catch (error) {
+      if (
+        attempt + 1 < SOURCE_WRITE_MAX_ATTEMPTS &&
+        retryableSourceWriteConflict(error)
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("The repository Source could not be persisted.");
 }
 
 function mapSourceSnapshot(source: {
@@ -75,76 +226,94 @@ export const githubRepoImportService: GitHubRepoImportService = {
     if (repositorySummary.id !== repositoryId) {
       throw new Error("The selected GitHub repository ID does not match the fetched repository.");
     }
-    const readme = await fetchGitHubReadme({ token, owner, repo });
-    const commits = await fetchGitHubCommitList({
+    const readmePromise = fetchGitHubReadme({ token, owner, repo });
+    const commitsPromise = fetchGitHubCommitList({
       token,
       owner,
       repo,
       branch: repository.default_branch,
       perPage: githubImportLimits.commits,
     });
-    const pulls = await fetchGitHubPullRequests({
+    const pullsPromise = fetchGitHubPullRequests({
       token,
       owner,
       repo,
       perPage: githubImportLimits.pulls,
     });
-    const issues = (await fetchGitHubIssues({
+    const issuesPromise = fetchGitHubIssues({
       token,
       owner,
       repo,
       perPage: githubImportLimits.issues,
-    }))
-      .filter((issue) => !issue.pull_request)
-      .slice(0, githubImportLimits.issues);
-    const releases = (await fetchGitHubReleases({
+    });
+    const releasesPromise = fetchGitHubReleases({
       token,
       owner,
       repo,
       perPage: githubImportLimits.releases,
-    })).slice(0, githubImportLimits.releases);
+    });
+    const detailResultsPromise = Promise.all([commitsPromise, pullsPromise]).then(
+      ([commits, pulls]) => {
+        const detailTasks = [
+          ...commits
+            .slice(0, githubImportLimits.changedFileFetchCommits)
+            .map((commit) => ({
+              kind: "commit" as const,
+              key: commit.sha,
+              load: () => fetchGitHubCommitChangedFiles({
+                token,
+                owner,
+                repo,
+                sha: commit.sha,
+              }),
+            })),
+          ...pulls
+            .slice(0, githubImportLimits.changedFileFetchPulls)
+            .map((pull) => ({
+              kind: "pull" as const,
+              key: pull.id,
+              load: () => fetchGitHubPullRequestFiles({
+                token,
+                owner,
+                repo,
+                number: pull.number,
+              }),
+            })),
+        ];
+        return mapWithConcurrency(
+          detailTasks,
+          GITHUB_IMPORT_DETAIL_CONCURRENCY,
+          async (task) => ({
+            kind: task.kind,
+            key: task.key,
+            files: (await changedFilesOrEmptyOnMissing(task.load)).slice(
+              0,
+              githubImportLimits.changedFilesPerRecord,
+            ),
+          }),
+        );
+      },
+    );
+    const [readme, commits, pulls, rawIssues, rawReleases, detailResults] =
+      await Promise.all([
+        readmePromise,
+        commitsPromise,
+        pullsPromise,
+        issuesPromise,
+        releasesPromise,
+        detailResultsPromise,
+      ]);
+    const issues = rawIssues
+      .filter((issue) => !issue.pull_request)
+      .slice(0, githubImportLimits.issues);
+    const releases = rawReleases.slice(0, githubImportLimits.releases);
 
     const commitChangedFiles = new Map<string, string[]>();
-
-    await Promise.all(
-      commits.slice(0, githubImportLimits.changedFileFetchCommits).map(async (commit) => {
-        try {
-          const files = await fetchGitHubCommitChangedFiles({
-            token,
-            owner,
-            repo,
-            sha: commit.sha,
-          });
-          commitChangedFiles.set(
-            commit.sha,
-            files.slice(0, githubImportLimits.changedFilesPerRecord),
-          );
-        } catch {
-          commitChangedFiles.set(commit.sha, []);
-        }
-      }),
-    );
-
     const pullChangedFiles = new Map<string, string[]>();
-
-    await Promise.all(
-      pulls.slice(0, githubImportLimits.changedFileFetchPulls).map(async (pull) => {
-        try {
-          const files = await fetchGitHubPullRequestFiles({
-            token,
-            owner,
-            repo,
-            number: pull.number,
-          });
-          pullChangedFiles.set(
-            pull.id,
-            files.slice(0, githubImportLimits.changedFilesPerRecord),
-          );
-        } catch {
-          pullChangedFiles.set(pull.id, []);
-        }
-      }),
-    );
+    for (const detail of detailResults) {
+      if (detail.kind === "commit") commitChangedFiles.set(detail.key, detail.files);
+      else pullChangedFiles.set(detail.key, detail.files);
+    }
 
     const importedAt = new Date().toISOString();
     const revision = commits[0]
@@ -154,39 +323,19 @@ export const githubRepoImportService: GitHubRepoImportService = {
           resolvedAt: importedAt,
         }
       : null;
-    const source = await prisma.source.upsert({
-      where: {
-        workItemId_type_externalId: {
-          workItemId: workItem.id,
-          type: "github_repo",
-          externalId: repositoryId,
-        },
-      },
-      create: {
-        workItemId: workItem.id,
-        type: "github_repo",
-        label: repository.full_name,
-        externalId: repositoryId,
-        metadata: {
-          repository: toRepositoryJsonValue(repositorySummary),
-          status: "imported",
-          revision,
-        },
-      },
-      update: {
-        label: repository.full_name,
-        metadata: {
-          repository: toRepositoryJsonValue(repositorySummary),
-          status: "imported",
-          revision,
-        },
-      },
+    const sourcePromise = persistRepositorySource({
+      workItemId: workItem.id,
+      repositoryId,
+      repositoryLabel: repository.full_name,
+      repository: toRepositoryJsonValue(repositorySummary),
+      revision,
     });
-    const webhook = await configureRepositoryPushWebhook({
+    const webhookPromise = configureRepositoryPushWebhook({
       token,
       owner,
       repo,
     });
+    const [source, webhook] = await Promise.all([sourcePromise, webhookPromise]);
     const importedEvidenceItems = [
       ...(readme?.content
         ? [

@@ -43,5 +43,14 @@ describe("active embedding retrieval", () => {
       expect(call[0].join("")).toContain('"indexVersionId" = ');
       expect(call).toContain("active-index-v2");
     }
+    const [highlightSql, projectFactSql, evidenceSql, artifactSql] =
+      prismaMock.$queryRaw.mock.calls.slice(1).map((call) => call[0].join(""));
+    expect(highlightSql).toContain('"Claim"."verificationStatus" = \'approved\'');
+    expect(highlightSql).toContain('"Claim"."lifecycleStatus" = \'active\'');
+    expect(projectFactSql).toContain('"ProjectFact"."status" = \'approved\'');
+    expect(projectFactSql).toContain('"ProjectFact"."lifecycleStatus" = \'active\'');
+    expect(evidenceSql).toContain('"EvidenceItem"."included" = true');
+    expect(evidenceSql).toContain('"EvidenceItem"."lifecycleStatus" = \'active\'');
+    expect(artifactSql).toContain('"Artifact"."lifecycleStatus" = \'active\'');
   });
 });

@@ -1,3 +1,5 @@
+import { projectChatAnswerExposesInternalProtocol } from "@/src/lib/project-chat-publication-safety";
+
 export type ProjectChatAnswerFormat = "markdown" | "paragraphs" | "table";
 
 export type ProjectChatReaderTheme =
@@ -85,12 +87,12 @@ const readerThemePatterns: Record<ProjectChatReaderTheme, readonly RegExp[]> = {
   ],
   engineering_foundation: [
     /prisma|postgres|data model|database schema/i,
-    /automated test|test coverage|vitest|security|oauth|workspace ui/i,
+    /automated test|test coverage|vitest|security|oauth|workspace (?:review )?ui/i,
   ],
 };
 
 const mechanismPattern =
-  /\b(?:by|through|use[sd]?|using|via|builds?|combines?|connects?|defines?|classifies?|fetches?|merges?|re-?grounds?|coordinates?|orchestrates?|enforces?|persists?|retrieves?|ingests?|refreshes?|reconciles?|validates?|routes?|delegates?|pins?|filters?|separates?|promotes?|applies?|generates?|quarantines?|records?|wraps?|divides?|executes?|consolidates?|prun(?:e|es|ing)|verif(?:y|ies|ication))\b/i;
+  /\b(?:by|through|use[sd]?|using|via|builds?|combines?|connects?|creates?|decides?|defines?|classifies?|edits?|fetches?|favors?|merges?|reuses?|re-?grounds?|reviews?|selects?|starts?|coordinates?|orchestrates?|enforces?|persists?|retrieves?|ingests?|refreshes?|reconciles?|validates?|routes?|delegates?|pins?|filters?|separates?|promotes?|applies?|generates?|quarantines?|records?|wraps?|divides?|executes?|consolidates?|prun(?:e|es|ing)|verif(?:y|ies|ication))\b/i;
 const valuePattern =
   /\b(?:so that|which (?:lets|allows|enables|keeps|ensures|prevents)|enabl(?:e|es|ing)|allow(?:s|ing)?|ensur(?:e|es|ing)|prevent(?:s|ing)?|protect(?:s|ing)?|reduce(?:s|ing)?|avoid(?:s|ing)?|preserv(?:e|es|ing)|keeps?|supports?|turns?|rather than|without|result(?:s|ing)?)\b/i;
 const claimPredicatePattern =
@@ -423,6 +425,16 @@ function supportedByCitationMetadata(
   return topicalAlignment && exactDetailsSupported;
 }
 
+function citationSupportBlocks(blocks: readonly string[]) {
+  return blocks.flatMap((block, index) => {
+    if (!citationOrdinals(block).length) return [];
+    if (stripCitationMarkers(block).trim()) return [block];
+    const prior = blocks.slice(0, index).reverse()
+      .find((candidate) => stripCitationMarkers(candidate).trim());
+    return prior ? [`${prior}\n${block}`] : [block];
+  });
+}
+
 function prioritizedOpening(answer: string, blocks: readonly string[]) {
   const openingBlock = blocks[0] ?? answer;
   const opening = blockProse(openingBlock).slice(0, 700);
@@ -485,6 +497,12 @@ export function evaluateProjectChatAnswerQuality(input: {
     "answer does not expose an internal verification or agent failure",
     !GENERIC_FAILURE_PATTERNS.some((pattern) => pattern.test(answer)),
     GENERIC_FAILURE_PATTERNS.some((pattern) => pattern.test(answer)),
+    false,
+  );
+  add(
+    "answer does not expose internal conversation or provenance transport syntax",
+    !projectChatAnswerExposesInternalProtocol(answer),
+    projectChatAnswerExposesInternalProtocol(answer),
     false,
   );
   if (contract.forbidInternalInventory) {
@@ -567,7 +585,7 @@ export function evaluateProjectChatAnswerQuality(input: {
     }
   }
   if (input.citationMetadata) {
-    const citedBlocks = blocks.filter((block) => citationOrdinals(block).length > 0);
+    const citedBlocks = citationSupportBlocks(blocks);
     const knownOrdinals = new Set(input.citationMetadata.map((source) => source.ordinal));
     const referencedOrdinals = new Set(citedBlocks.flatMap(citationOrdinals));
     const resolvedOrdinals = [...referencedOrdinals].filter((ordinal) => knownOrdinals.has(ordinal));
