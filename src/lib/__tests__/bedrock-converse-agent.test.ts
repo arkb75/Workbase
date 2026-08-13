@@ -13,6 +13,7 @@ import {
   BedrockConverseModelCapabilityError,
   BedrockConverseProviderError,
   defineBedrockConverseTool,
+  estimateBedrockConverseInputTokens,
   sanitizeBedrockConverseEventValue,
   type BedrockConverseTransport,
   type BedrockConverseTransportResponse,
@@ -426,7 +427,7 @@ describe("BedrockConverseAgent", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("enforces iteration and aggregate token limits", async () => {
+  it("enforces iteration and aggregate token limits without discarding a completed answer", async () => {
     const tool = defineBedrockConverseTool({
       name: "lookup",
       description: "Lookup.",
@@ -468,12 +469,73 @@ describe("BedrockConverseAgent", () => {
         messages: [userMessage()],
         limits: { maxTotalTokens: 10 },
       }),
+    ).resolves.toMatchObject({
+      text: "Too expensive.",
+      stopReason: "end_turn",
+      usage: { totalTokens: 13 },
+    });
+
+    const unfinishedTokenRun = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [toolRequest({ id: "budget", name: "lookup", input: {} })],
+        usage: usage(8, 5),
+      }),
+    ]);
+    await expect(
+      unfinishedTokenRun.agent.run({
+        messages: [userMessage()],
+        tools: [tool],
+        limits: { maxTotalTokens: 10 },
+      }),
     ).rejects.toMatchObject({
       code: "token_limit_exceeded",
       limit: 10,
       actual: 13,
       usage: { totalTokens: 13 },
     });
+  });
+
+  it("stops before sending an obviously oversized follow-up call", async () => {
+    const tool = defineBedrockConverseTool({
+      name: "large_lookup",
+      description: "Return a deliberately large result.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: () => ({ inventory: "x".repeat(30_000) }),
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [toolRequest({ id: "large", name: "large_lookup", input: {} })],
+        usage: usage(100, 20),
+      }),
+    ]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      tools: [tool],
+      limits: { maxTotalTokens: 5_000 },
+    })).rejects.toMatchObject({
+      code: "token_limit_exceeded",
+      limit: 5_000,
+      iterations: 1,
+      toolCalls: 1,
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("estimates model-visible JSON and tool schema size conservatively", () => {
+    const small = estimateBedrockConverseInputTokens({
+      systemPrompt: "Answer briefly.",
+      messages: [userMessage("hello")],
+    });
+    const large = estimateBedrockConverseInputTokens({
+      systemPrompt: "Answer briefly.",
+      messages: [userMessage("x".repeat(3_000))],
+    });
+    expect(small).toBeGreaterThan(0);
+    expect(large).toBeGreaterThan(1_000);
   });
 
   it.each([

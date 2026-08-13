@@ -40,12 +40,13 @@ import {
 import { createTextConverseAgent } from "@/src/services/bedrock-runtime";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
+import { resolveActiveEmbeddingIndex } from "@/src/services/embedding-index-service";
 import { projectKnowledgeRetrievalService } from "@/src/services/project-knowledge-retrieval-service";
 import { projectResearchService } from "@/src/services/project-research-service";
 import { normalizeProjectResearchResultForChat } from "@/src/services/project-research-result-normalization-service";
 import { priorTurnProvenanceService } from "@/src/services/prior-turn-provenance-service";
 
-export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v3";
+export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v4";
 
 export interface ModelLedProjectChatHistoryMessage {
   id: string;
@@ -97,12 +98,11 @@ export function modelLedProjectChatLimits(attempt: "initial" | "repair") {
         maxTotalTokens: 60_000,
       }
     : {
-        // Repair reuses the initial catalog and cannot repeat repository
-        // research. Two evidence-selection turns plus one reserved synthesis
-        // turn keep the whole turn under the 10-call gate.
-        maxIterations: 3,
-        maxToolCalls: 4,
-        maxTotalTokens: 20_000,
+        // Verification repair is one rewrite over a frozen source set. It is
+        // not a second autonomous research session.
+        maxIterations: 1,
+        maxToolCalls: 1,
+        maxTotalTokens: 30_000,
       };
 }
 
@@ -128,6 +128,21 @@ const noInputJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
   properties: {},
+};
+
+const inspectRepositoryCoverageSchema = z.object({
+  query: z.string().trim().min(1).max(300),
+  maxPaths: z.number().int().min(1).max(40),
+});
+
+const inspectRepositoryCoverageJsonSchema: JsonSchemaObject = {
+  type: "object",
+  additionalProperties: false,
+  required: ["query", "maxPaths"],
+  properties: {
+    query: { type: "string", minLength: 1, maxLength: 300 },
+    maxPaths: { type: "integer", minimum: 1, maximum: 40 },
+  },
 };
 
 const researchRepositorySchema = z.object({
@@ -159,6 +174,16 @@ function nestedString(value: unknown, path: string[]) {
   let current = value;
   for (const key of path) current = record(current)[key];
   return typeof current === "string" && current.trim() ? current.trim() : null;
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function optionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 function providerSafeText(value: string) {
@@ -357,13 +382,16 @@ function profilePurpose(profile: (typeof textModelProfiles)[number]) {
 
 export function modelLedProjectChatToolNames(input: {
   repositoryAttached: boolean;
+  repositoryCoverageAvailable?: boolean;
   requestAllowsResearch: boolean;
   attempt: "initial" | "repair";
 }) {
+  if (input.attempt === "repair") return [];
   return [
     "search_project_memory",
     "inspect_runtime_model_profiles",
     "inspect_repository_state",
+    ...(input.repositoryCoverageAvailable ? ["inspect_repository_coverage"] : []),
     "inspect_prior_answer_sources",
     ...(input.repositoryAttached &&
     input.requestAllowsResearch &&
@@ -385,6 +413,177 @@ export function resolvedRuntimeModelMatrix() {
       purpose: profilePurpose(profile),
     };
   });
+}
+
+export async function resolvedRuntimeModelAuthority() {
+  const activeEmbedding = await resolveActiveEmbeddingIndex();
+  return {
+    observedAt: new Date().toISOString(),
+    textProfiles: resolvedRuntimeModelMatrix(),
+    embeddingIndex: {
+      key: activeEmbedding.key,
+      provider: activeEmbedding.provider,
+      modelId: activeEmbedding.modelId,
+      dimensions: activeEmbedding.dimensions,
+      status: activeEmbedding.status,
+      writeEnabled: activeEmbedding.writeEnabled,
+    },
+  };
+}
+
+function summarizeCoverageDimensions(value: unknown) {
+  const dimensions = record(value);
+  return Object.fromEntries(
+    Object.entries(dimensions).flatMap(([key, status]) =>
+      typeof status === "string" ? [[key, status]] : []
+    ),
+  );
+}
+
+function summarizeCoverageTargets(value: unknown) {
+  const targets = Array.isArray(value) ? value : [];
+  const statusCounts: Record<string, number> = {};
+  for (const target of targets) {
+    const status = optionalString(record(target).status) ?? "unknown";
+    statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+  }
+  return {
+    capabilityCount: targets.length,
+    statusCounts,
+  };
+}
+
+export function compactRepositoryRefreshState(refresh: {
+  id: string;
+  status: string;
+  qualityStatus: string;
+  targetHeads: unknown;
+  coverage: unknown;
+}) {
+  const targetHeads = Array.isArray(refresh.targetHeads)
+    ? refresh.targetHeads.flatMap((target) => {
+        const value = record(target);
+        const repository = optionalString(value.repository);
+        const commitSha = optionalString(value.commitSha);
+        if (!repository || !commitSha) return [];
+        return [{
+          repository,
+          commitSha,
+          branch: optionalString(value.branch),
+          resolvedAt: optionalString(value.resolvedAt),
+        }];
+      })
+    : [];
+  const repositories = (Array.isArray(refresh.coverage) ? refresh.coverage : [])
+    .map((coverage) => {
+      const value = record(coverage);
+      const gaps = Array.isArray(value.coverageGaps)
+        ? value.coverageGaps.filter((gap): gap is string => typeof gap === "string")
+        : [];
+      return {
+        repository: optionalString(value.repository),
+        commitSha: optionalString(value.commitSha),
+        totalPaths: optionalNumber(value.totalPaths),
+        analyzedPaths: optionalNumber(value.analyzedPaths),
+        excludedPaths: optionalNumber(value.excludedPaths),
+        semanticPaths: optionalNumber(value.semanticPaths),
+        coverageStatus: optionalString(value.coverageStatus),
+        semanticCoverageStatus: optionalString(value.semanticCoverageStatus),
+        capabilityCoverageStatus: optionalString(value.capabilityCoverageStatus),
+        policyVersion: optionalString(value.policyVersion),
+        dimensions: summarizeCoverageDimensions(value.dimensions),
+        coverageGapCount: gaps.length,
+        ...summarizeCoverageTargets(value.targets),
+      };
+    });
+  return {
+    id: refresh.id,
+    status: refresh.status,
+    qualityStatus: refresh.qualityStatus,
+    targetHeads,
+    repositories,
+  };
+}
+
+export function repositoryCoverageDrilldown(input: {
+  coverage: unknown;
+  query: string;
+  maxPaths: number;
+}) {
+  const normalizedQuery = input.query.trim().toLowerCase();
+  const queryTokens = normalizedQuery === "*"
+    ? []
+    : normalizedQuery.split(/\s+/).filter(Boolean);
+  const pathLimit = Math.max(1, Math.min(40, input.maxPaths));
+  let remainingPaths = pathLimit;
+  const repositories: Array<{
+    repository: string | null;
+    commitSha: string | null;
+    matches: Array<{
+      key: string | null;
+      label: string | null;
+      status: string | null;
+      staticPathCount: number | null;
+      semanticPathCount: number | null;
+      observationCount: number | null;
+      paths: string[];
+      unresolvedQuestions: string[];
+    }>;
+  }> = [];
+
+  for (const rawCoverage of Array.isArray(input.coverage) ? input.coverage : []) {
+    const coverage = record(rawCoverage);
+    const matches = (Array.isArray(coverage.targets) ? coverage.targets : [])
+      .flatMap((rawTarget) => {
+        const target = record(rawTarget);
+        const paths = Array.isArray(target.paths)
+          ? target.paths.filter((path): path is string => typeof path === "string")
+          : [];
+        const unresolvedQuestions = Array.isArray(target.unresolvedQuestions)
+          ? target.unresolvedQuestions.filter((question): question is string =>
+              typeof question === "string"
+            )
+          : [];
+        const searchable = [
+          optionalString(target.key),
+          optionalString(target.label),
+          optionalString(target.status),
+          ...paths,
+          ...unresolvedQuestions,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (queryTokens.length && !queryTokens.every((token) => searchable.includes(token))) {
+          return [];
+        }
+        const selectedPaths = paths.slice(0, remainingPaths);
+        remainingPaths -= selectedPaths.length;
+        return [{
+          key: optionalString(target.key),
+          label: optionalString(target.label),
+          status: optionalString(target.status),
+          staticPathCount: optionalNumber(target.staticPathCount),
+          semanticPathCount: optionalNumber(target.semanticPathCount),
+          observationCount: optionalNumber(target.observationCount),
+          paths: selectedPaths.map(providerSafeText),
+          unresolvedQuestions: unresolvedQuestions.slice(0, 5).map(providerSafeText),
+        }];
+      })
+      .slice(0, 8);
+    if (matches.length) {
+      repositories.push({
+        repository: optionalString(coverage.repository),
+        commitSha: optionalString(coverage.commitSha),
+        matches,
+      });
+    }
+    if (remainingPaths <= 0) break;
+  }
+
+  return {
+    query: providerSafeText(input.query),
+    requestedPathLimit: pathLimit,
+    returnedPathCount: pathLimit - remainingPaths,
+    repositories,
+  };
 }
 
 async function loadModelAgentContext(input: ModelLedProjectChatInput) {
@@ -494,15 +693,8 @@ async function loadModelAgentContext(input: ModelLedProjectChatInput) {
     preferredProjectFactIds: run.candidates.flatMap((candidate) =>
       candidate.projectFactId ? [candidate.projectFactId] : []
     ),
-    refresh: refresh
-      ? {
-          id: refresh.id,
-          status: refresh.status,
-          qualityStatus: refresh.qualityStatus,
-          targetHeads: refresh.targetHeads,
-          coverage: refresh.coverage,
-        }
-      : null,
+    refresh: refresh ? compactRepositoryRefreshState(refresh) : null,
+    repositoryCoverage: refresh?.coverage ?? null,
   };
 }
 
@@ -515,9 +707,11 @@ function createModelTools(input: {
 }): BedrockConverseTool[] {
   const availableToolNames = modelLedProjectChatToolNames({
     repositoryAttached: input.context.repositories.length > 0,
+    repositoryCoverageAvailable: Array.isArray(input.context.repositoryCoverage),
     requestAllowsResearch: input.request.allowResearch !== false,
     attempt: input.attempt,
   });
+  if (input.attempt === "repair") return [];
   const tools: BedrockConverseTool[] = [];
   tools.push(defineBedrockConverseTool({
     name: "search_project_memory",
@@ -563,18 +757,15 @@ function createModelTools(input: {
     inputSchema: noInputSchema,
     jsonSchema: noInputJsonSchema,
     strict: true,
-    execute: () => addSyntheticAuthority({
+    execute: async () => addSyntheticAuthority({
       state: input.state,
       label: "Resolved Workbase runtime model profiles",
-      content: {
-        observedAt: new Date().toISOString(),
-        profiles: resolvedRuntimeModelMatrix(),
-      },
+      content: await resolvedRuntimeModelAuthority(),
     }),
   }));
   tools.push(defineBedrockConverseTool({
     name: "inspect_repository_state",
-    description: "Read attached repository identities, pinned/current commit heads, completed refresh quality, and coverage gaps. Use this when freshness or current repository state matters.",
+    description: "Read attached repository identities, pinned/current commit heads, completed refresh quality, and compact coverage counts. Use this when freshness or current repository state matters. Use inspect_repository_coverage only if exact paths or unresolved coverage questions are needed.",
     inputSchema: noInputSchema,
     jsonSchema: noInputJsonSchema,
     strict: true,
@@ -588,6 +779,24 @@ function createModelTools(input: {
       },
     }),
   }));
+  if (availableToolNames.includes("inspect_repository_coverage")) {
+    tools.push(defineBedrockConverseTool({
+      name: "inspect_repository_coverage",
+      description: "Inspect a query-limited slice of the persisted repository coverage inventory, including relevant paths and unresolved questions. Use only when the user asks for coverage details or specific analyzed areas; ordinary freshness checks should use inspect_repository_state.",
+      inputSchema: inspectRepositoryCoverageSchema,
+      jsonSchema: inspectRepositoryCoverageJsonSchema,
+      strict: true,
+      execute: ({ query, maxPaths }) => addSyntheticAuthority({
+        state: input.state,
+        label: `Repository coverage details for: ${providerSafeText(query)}`,
+        content: repositoryCoverageDrilldown({
+          coverage: input.context.repositoryCoverage,
+          query,
+          maxPaths,
+        }),
+      }),
+    }));
+  }
   tools.push(defineBedrockConverseTool({
     name: "inspect_prior_answer_sources",
     description: "Inspect the persisted tool activity and source manifest for the immediately prior completed answer. Use this for questions about what the assistant previously searched, refreshed, cited, or relied on.",
@@ -722,6 +931,82 @@ function modelMessages(input: {
   ];
 }
 
+function citationIndexesIn(answer: string) {
+  return Array.from(answer.matchAll(/\[citation:(\d+)\]/gi))
+    .map((match) => Number(match[1]))
+    .filter((index) => Number.isInteger(index) && index > 0);
+}
+
+export function frozenRepairSourceSet(
+  checkpoint: ProjectChatModelCheckpoint,
+  maximumCharacters = 32_000,
+) {
+  const referenced = new Set(citationIndexesIn(checkpoint.answer));
+  const entries = [...checkpoint.entries].sort((left, right) => {
+    const leftReferenced = left.citationIndexes.some((index) => referenced.has(index));
+    const rightReferenced = right.citationIndexes.some((index) => referenced.has(index));
+    return Number(rightReferenced) - Number(leftReferenced);
+  });
+  const sources: Array<{
+    title: string;
+    authority: string;
+    citationIndexes: number[];
+    content: string;
+  }> = [];
+  let remaining = Math.max(4_000, maximumCharacters);
+  for (const entry of entries) {
+    if (remaining <= 0) break;
+    const content = providerSafeText(entry.content).slice(0, remaining);
+    if (!content) continue;
+    sources.push({
+      title: providerSafeText(entry.title),
+      authority: entry.authority,
+      citationIndexes: entry.citationIndexes,
+      content,
+    });
+    remaining -= content.length;
+  }
+  return sources;
+}
+
+export function modelLedProjectChatRepairSystemPrompt() {
+  return [
+    "You are the bounded repair pass for one Workbase project-chat draft.",
+    "Rewrite the draft exactly once using only the frozen source catalog supplied in the user message.",
+    "No tools or new research are available. Do not introduce a new project fact, source, citation index, or broader claim.",
+    "Fix every verifier issue with the smallest useful edit: attach an existing citation, remove or qualify unsupported content, correct continuity, or repair the requested presentation.",
+    "Preserve supported useful content and the user's requested format. If a requested fact is absent from the frozen catalog, state that boundary plainly rather than guessing.",
+    "Return only the revised user-facing answer. Never output internal identifiers, serialized manifests, or transport tags.",
+  ].join(" ");
+}
+
+function repairMessages(input: {
+  request: ModelLedProjectChatInput;
+  plan: ProjectChatTurnPlan;
+  checkpoint: ProjectChatModelCheckpoint;
+  repairInstructions: string;
+}): Message[] {
+  const conversation = (input.request.history ?? []).slice(-6).map((message) => ({
+    role: message.role,
+    content: providerSafeText(message.content).slice(0, 2_000),
+  }));
+  return [{
+    role: "user",
+    content: [{
+      text: providerSafeText(JSON.stringify({
+        request: input.request.question,
+        conversation,
+        objective: input.plan.objective,
+        requestedFormat: input.plan.outputFormat,
+        outputRequirements: input.plan.outputRequirements,
+        originalDraft: input.checkpoint.answer,
+        verifierInstructions: input.repairInstructions,
+        frozenSources: frozenRepairSourceSet(input.checkpoint),
+      })),
+    }],
+  }];
+}
+
 export function modelLedProjectChatSystemPrompt(input: {
   afterFactReview: boolean;
 }) {
@@ -751,19 +1036,21 @@ async function executePrimaryModel(input: {
   state: ModelToolState;
   attempt: "initial" | "repair";
   repairInstructions?: string;
-  priorAnswer?: string;
+  priorCheckpoint?: ProjectChatModelCheckpoint;
 }) {
-  const messages = modelMessages({
-    request: input.request,
-    plan: input.plan,
-    context: input.context,
-  });
-  if (input.repairInstructions) {
-    messages.push(
-      { role: "assistant", content: [{ text: input.priorAnswer ?? "I need to revise my prior draft." }] },
-      { role: "user", content: [{ text: input.repairInstructions }] },
-    );
-  }
+  const messages = input.attempt === "repair" &&
+      input.repairInstructions && input.priorCheckpoint
+    ? repairMessages({
+        request: input.request,
+        plan: input.plan,
+        checkpoint: input.priorCheckpoint,
+        repairInstructions: input.repairInstructions,
+      })
+    : modelMessages({
+        request: input.request,
+        plan: input.plan,
+        context: input.context,
+      });
   const tools = createModelTools({
     request: input.request,
     plan: input.plan,
@@ -789,12 +1076,14 @@ async function executePrimaryModel(input: {
     },
     execute: async () => {
       const result = await agent.run({
-        systemPrompt: modelLedProjectChatSystemPrompt({
-          afterFactReview: input.request.afterFactReview ?? false,
-        }),
+        systemPrompt: input.attempt === "repair"
+          ? modelLedProjectChatRepairSystemPrompt()
+          : modelLedProjectChatSystemPrompt({
+              afterFactReview: input.request.afterFactReview ?? false,
+            }),
         messages,
         tools,
-        maxTokens: 5_000,
+        maxTokens: input.attempt === "repair" ? 4_000 : 5_000,
         temperature: 0,
         effort: "medium",
         enablePromptCaching: true,
@@ -830,27 +1119,39 @@ function conversationForVerifier(input: ModelLedProjectChatInput) {
   ].slice(-12);
 }
 
-async function insufficientResult(input: {
-  answer: string;
+function conservativeRepairBoundary(input: {
   checkpoint: ProjectChatModelCheckpoint;
   generationRunIds: string[];
   warnings: string[];
   freshness: FinalizedChatAnswer["freshness"];
-}): Promise<ModelLedProjectChatResult> {
+}): ModelLedProjectChatResult {
+  const repositoryAuthority = input.checkpoint.entries.find((entry) =>
+    entry.currentRun &&
+    entry.title === "Authorized current repository state" &&
+    entry.citationIndexes.length
+  );
+  const citationIndex = repositoryAuthority?.citationIndexes[0] ?? null;
+  const boundary = citationIndex
+    ? `The repository refresh completed, but the frozen sources did not support every part of the requested answer. [citation:${citationIndex}] I won’t guess or reopen research inside a repair pass; please retry if you want a new evidence-gathering turn.`
+    : "I couldn’t safely publish the requested answer from the frozen source set. I won’t guess or silently start a second research pass; please retry if you want a new evidence-gathering turn.";
+  const finalized = finalizeModelLedProjectChatAnswer({
+    answer: boundary,
+    catalog: input.checkpoint.catalog,
+    requiresProjectCitations: Boolean(citationIndex),
+    freshness: input.freshness,
+  });
   return {
     status: "insufficient_context",
-    answer: input.answer,
-    citations: [],
-    citationPolicy: "none",
-    groundedClaims: [],
-    freshness: input.freshness,
+    ...finalized,
     research: directResearchResult({
-      answer: "",
-      citations: [],
+      answer: finalized.answer,
+      citations: finalized.citations,
       research: input.checkpoint.research,
       generationRunIds: input.generationRunIds,
       warnings: input.warnings,
+      groundedClaims: finalized.groundedClaims,
     }),
+    fallbackUsed: false,
   };
 }
 
@@ -944,16 +1245,51 @@ export async function executeModelLedProjectChatAgent(
       fallbackUsed: false,
     };
   }
+  if (firstVerification.verdict === "insufficient_context") {
+    return conservativeRepairBoundary({
+      checkpoint: initial.checkpoint,
+      generationRunIds,
+      warnings: firstVerification.issues.map((issue) => issue.explanation),
+      freshness: context.freshness,
+    });
+  }
   const repairState = stateFromCheckpoint(initial.checkpoint);
-  const repaired = await executePrimaryModel({
-    request: input,
-    plan,
-    context,
-    state: repairState,
-    attempt: "repair",
-    repairInstructions: projectChatRepairInstructions(firstVerification),
-    priorAnswer: initial.checkpoint.answer,
-  });
+  let repaired: Awaited<ReturnType<typeof executePrimaryModel>>;
+  try {
+    repaired = await executePrimaryModel({
+      request: input,
+      plan,
+      context,
+      state: repairState,
+      attempt: "repair",
+      repairInstructions: projectChatRepairInstructions(firstVerification),
+      priorCheckpoint: initial.checkpoint,
+    });
+  } catch (error) {
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "tool_result",
+      toolName: "compose_project_answer",
+      payload: {
+        mode: "frozen_repair_failed",
+        modelLedChatVersion: MODEL_LED_PROJECT_CHAT_VERSION,
+        planGenerationRunId: plan.generationRunId,
+        answerGenerationRunId: initial.generationRunId,
+        verificationGenerationRunId: firstVerification.generationRunId,
+        failureName: error instanceof Error ? error.name : "Error",
+      },
+      isUserVisible: false,
+    }).catch(() => null);
+    return conservativeRepairBoundary({
+      checkpoint: initial.checkpoint,
+      generationRunIds,
+      warnings: [
+        ...firstVerification.issues.map((issue) => issue.explanation),
+        "The bounded tool-free repair did not complete.",
+      ],
+      freshness: context.freshness,
+    });
+  }
   generationRunIds.push(repaired.generationRunId);
   const secondVerification = await verifyModelLedProjectChatAnswer({
     workItemId: input.workItemId,
@@ -988,8 +1324,7 @@ export async function executeModelLedProjectChatAgent(
       },
       isUserVisible: false,
     }).catch(() => null);
-    return insufficientResult({
-      answer: "I couldn’t produce a grounded answer from the authorized project sources without risking unsupported claims.",
+    return conservativeRepairBoundary({
       checkpoint: repaired.checkpoint,
       generationRunIds,
       warnings: secondVerification.issues.map((issue) => issue.explanation),

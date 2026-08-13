@@ -16,7 +16,7 @@ import { redactRepositorySecrets } from "@/src/services/github-repository-explor
 import type { ProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v2";
+export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v3";
 
 export const projectChatAnswerVerificationSchema = z.object({
   verdict: z.enum(["publish", "repair", "insufficient_context"]),
@@ -316,10 +316,10 @@ export function projectChatRepairInstructions(
   verification: ProjectChatAnswerVerification,
 ) {
   return [
-    "Revise your prior answer once. Preserve supported useful content, but fix every issue below.",
+    "Revise your prior answer once using only the frozen source catalog. Preserve supported useful content, but fix every issue below.",
     ...verification.mechanicalIssues.map((issue) => `- Citation integrity: ${issue}`),
     ...verification.issues.map((issue) => `- ${issue.code}: ${issue.explanation}`),
-    "Use only sources already returned by tools or call an available tool if genuinely necessary.",
+    "Do not call tools, search again, or introduce new sources. The frozen source catalog is the complete evidence boundary for this repair.",
     "If the available sources cannot support the requested fact, say that boundary plainly instead of guessing; that honest boundary can itself be the complete answer.",
     "Return only the revised user-facing answer.",
   ].join("\n");

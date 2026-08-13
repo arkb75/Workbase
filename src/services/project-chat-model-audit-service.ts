@@ -17,7 +17,7 @@ import {
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 
-export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v3";
+export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v4";
 
 export interface ProjectChatModelCheckpoint {
   version: typeof PROJECT_CHAT_MODEL_CHECKPOINT_VERSION;
