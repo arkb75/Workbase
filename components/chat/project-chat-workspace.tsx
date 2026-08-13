@@ -16,6 +16,7 @@ import {
   Plus,
   RotateCcw,
   SearchCode,
+  Square,
   Sparkles,
   TriangleAlert,
   X,
@@ -148,6 +149,50 @@ export function selectLatestRunFeedback(runs: ChatWorkspaceRun[]) {
         : terminalRetryCandidate,
     latestFailure: latestRun?.status === "failed" ? latestRun.failure : null,
   };
+}
+
+export function ChatComposerAction({
+  activeRun,
+  cancelFormId,
+  canSend,
+}: {
+  activeRun: ChatWorkspaceRun | null;
+  cancelFormId: string | null;
+  canSend: boolean;
+}) {
+  const baseClassName =
+    "absolute right-3 bottom-3 inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition focus-visible:outline-2 focus-visible:outline-offset-2";
+
+  if (activeRun && cancelFormId) {
+    return (
+      <button
+        type="submit"
+        form={cancelFormId}
+        aria-label="Stop generating"
+        title="Stop generating"
+        className={cn(
+          baseClassName,
+          "bg-[color:var(--ink-strong)] shadow-[0_10px_24px_rgba(15,23,42,0.2)] hover:scale-105 focus-visible:outline-[color:var(--ink-strong)]",
+        )}
+      >
+        <Square className="h-3.5 w-3.5 fill-current" />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="submit"
+      aria-label="Send message"
+      disabled={!canSend}
+      className={cn(
+        baseClassName,
+        "bg-[color:var(--accent)] shadow-[0_10px_24px_rgba(15,118,110,0.25)] hover:-translate-y-0.5 focus-visible:outline-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-35",
+      )}
+    >
+      <ArrowUp className="h-4 w-4" />
+    </button>
+  );
 }
 
 const starterPrompts = [
@@ -544,7 +589,9 @@ export function ProjectChatWorkspace({
   const activeRuns = runs.filter((run) =>
     ["queued", "running", "awaiting_review"].includes(run.status),
   );
-  const activeRunId = activeRuns[0]?.id ?? null;
+  const activeRun = activeRuns[0] ?? null;
+  const activeRunId = activeRun?.id ?? null;
+  const cancelFormId = activeRun ? `cancel-chat-run-${activeRun.id}` : null;
   const { retryableRun, latestFailure } = selectLatestRunFeedback(runs);
   const latestEvents = useMemo(() => events.slice(-4), [events]);
 
@@ -671,16 +718,7 @@ export function ProjectChatWorkspace({
             </div>
             <div className="flex items-center gap-2">
               {sensitiveContextAvailable ? <Badge tone="warning">Sensitive context available</Badge> : null}
-              {activeRuns.length ? (
-                <form action={cancelAgentRunAction}>
-                  <input type="hidden" name="workItemId" value={workItemId} />
-                  <input type="hidden" name="threadId" value={activeThreadId ?? ""} />
-                  <input type="hidden" name="runId" value={activeRuns[0]?.id ?? ""} />
-                  <button className="text-xs font-medium text-[color:var(--ink-muted)] hover:text-[color:var(--danger)]">
-                    Stop
-                  </button>
-                </form>
-              ) : retryableRun ? (
+              {!activeRun && retryableRun ? (
                 <form action={retryAgentRunAction}>
                   <input type="hidden" name="workItemId" value={workItemId} />
                   <input type="hidden" name="runId" value={retryableRun.id} />
@@ -859,42 +897,48 @@ export function ProjectChatWorkspace({
 
           <footer className="border-t border-black/7 bg-white px-4 py-4 sm:px-7">
             {activeThreadId ? (
-              <form
-                action={sendProjectChatMessageAction}
-                className="mx-auto max-w-3xl"
-                onSubmit={() => window.setTimeout(() => setDraft(""), 0)}
-              >
-                <input type="hidden" name="workItemId" value={workItemId} />
-                <input type="hidden" name="threadId" value={activeThreadId} />
-                <input
-                  type="hidden"
-                  name="idempotencyKey"
-                  value={`chat:${activeThreadId}:${messages.length}`}
-                />
-                <div className="relative rounded-[24px] border border-black/10 bg-[color:var(--panel-muted)]/60 p-2 pr-14 transition focus-within:border-[color:var(--accent)]/45 focus-within:bg-white focus-within:shadow-[0_16px_40px_rgba(15,23,42,0.07)]">
-                  <Textarea
-                    name="message"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    placeholder="Ask about the work, inspect an implementation, or request an artifact…"
-                    className="min-h-16 resize-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
-                    required
-                    minLength={2}
-                    maxLength={4000}
+              <>
+                {activeRun && cancelFormId ? (
+                  <form id={cancelFormId} action={cancelAgentRunAction} className="hidden">
+                    <input type="hidden" name="workItemId" value={workItemId} />
+                    <input type="hidden" name="threadId" value={activeThreadId} />
+                    <input type="hidden" name="runId" value={activeRun.id} />
+                  </form>
+                ) : null}
+                <form
+                  action={sendProjectChatMessageAction}
+                  className="mx-auto max-w-3xl"
+                  onSubmit={() => window.setTimeout(() => setDraft(""), 0)}
+                >
+                  <input type="hidden" name="workItemId" value={workItemId} />
+                  <input type="hidden" name="threadId" value={activeThreadId} />
+                  <input
+                    type="hidden"
+                    name="idempotencyKey"
+                    value={`chat:${activeThreadId}:${messages.length}`}
                   />
-                  <button
-                    type="submit"
-                    aria-label="Send message"
-                    disabled={!draft.trim() || activeRuns.length > 0}
-                    className="absolute right-3 bottom-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--accent)] text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-35"
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </button>
-                </div>
-                <p className="mt-2 px-2 text-[10px] leading-4 text-[color:var(--ink-muted)]">
-                  Repository research is read-only. Public artifacts use approved, visibility-safe highlights only.
-                </p>
-              </form>
+                  <div className="relative rounded-[24px] border border-black/10 bg-[color:var(--panel-muted)]/60 p-2 pr-14 transition focus-within:border-[color:var(--accent)]/45 focus-within:bg-white focus-within:shadow-[0_16px_40px_rgba(15,23,42,0.07)]">
+                    <Textarea
+                      name="message"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      placeholder="Ask about the work, inspect an implementation, or request an artifact…"
+                      className="min-h-16 resize-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
+                      required
+                      minLength={2}
+                      maxLength={4000}
+                    />
+                    <ChatComposerAction
+                      activeRun={activeRun}
+                      cancelFormId={cancelFormId}
+                      canSend={Boolean(draft.trim())}
+                    />
+                  </div>
+                  <p className="mt-2 px-2 text-[10px] leading-4 text-[color:var(--ink-muted)]">
+                    Repository research is read-only. Public artifacts use approved, visibility-safe highlights only.
+                  </p>
+                </form>
+              </>
             ) : (
               <form action={createChatThreadAction} className="mx-auto max-w-3xl">
                 <input type="hidden" name="workItemId" value={workItemId} />

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { buildChatClipboardPayload } from "@/components/chat/chat-citation-presentation";
 import {
   CitationList,
+  ChatComposerAction,
   CopyChatAnswerButton,
   MessageContent,
   selectLatestRunFeedback,
@@ -205,6 +206,33 @@ describe("project chat citation rendering", () => {
 });
 
 describe("project chat run feedback", () => {
+  it("replaces the send arrow with a composer-local stop control while a run is active", () => {
+    const activeRun = {
+      id: "run-active",
+      status: "running" as const,
+      kind: "chat_turn",
+      failure: null,
+    };
+    const activeMarkup = renderToStaticMarkup(createElement(ChatComposerAction, {
+      activeRun,
+      cancelFormId: "cancel-chat-run-run-active",
+      canSend: false,
+    }));
+
+    expect(activeMarkup).toContain('aria-label="Stop generating"');
+    expect(activeMarkup).toContain('form="cancel-chat-run-run-active"');
+    expect(activeMarkup).toContain("fill-current");
+    expect(activeMarkup).not.toContain('aria-label="Send message"');
+
+    const idleMarkup = renderToStaticMarkup(createElement(ChatComposerAction, {
+      activeRun: null,
+      cancelFormId: null,
+      canSend: true,
+    }));
+    expect(idleMarkup).toContain('aria-label="Send message"');
+    expect(idleMarkup).not.toContain('aria-label="Stop generating"');
+  });
+
   it("clears a stale failure banner and Retry control after a successful retry", () => {
     const result = selectLatestRunFeedback([
       {
