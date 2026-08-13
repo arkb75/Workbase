@@ -244,13 +244,18 @@ export function evaluateProjectChatScenario(
   const usedSources = observation.sources.filter((source) => source.used && source.presentation !== "nested_provenance");
   for (const source of observation.sources) {
     const nestedRepositoryProvenance = source.kind === "github_file" && source.presentation === "nested_provenance";
+    const selectedRepositoryEvidence =
+      source.kind === "github_file" &&
+      source.presentation !== "nested_provenance" &&
+      fixture.expected.allowedSourceKinds.includes("github_file") &&
+      invokedTools.has("read_project_source");
     check(checks, "unused_source", source.used, `Persisted source is used by the final answer: ${source.title}.`, source.used, true);
     check(checks, "source_kind", nestedRepositoryProvenance || fixture.expected.allowedSourceKinds.includes(source.kind),
       `Source kind is allowed: ${source.kind}.`, source.kind, fixture.expected.allowedSourceKinds.join(", "));
     check(checks, "source_authority", nestedRepositoryProvenance || fixture.expected.allowedAuthorities.includes(source.authority),
       `Source authority is allowed: ${source.authority}.`, source.authority, fixture.expected.allowedAuthorities.join(", "));
-    check(checks, "raw_repository_source", source.kind !== "github_file" || source.presentation === "nested_provenance",
-      "Raw GitHub files may appear only as nested provenance, never as peer sources.", source.presentation ?? "primary", "nested_provenance");
+    check(checks, "raw_repository_source", source.kind !== "github_file" || nestedRepositoryProvenance || selectedRepositoryEvidence,
+      "Repository files must be selected by a bounded read or retained only as nested provenance.", source.presentation ?? "primary", "bounded read or nested provenance");
   }
   for (const sourceKind of fixture.expected.requiredSourceKinds) {
     check(checks, "required_source", usedSources.some((source) => source.kind === sourceKind),

@@ -5,6 +5,16 @@ import {
   type ProjectChatSemanticRobustnessObservation,
 } from "@/src/evals/project-chat-semantic-robustness";
 
+const capabilityTool = {
+  knowledge_search: "search_project_knowledge",
+  source_inventory: "list_project_sources",
+  durable_refresh: "refresh_project_sources",
+  source_search: "search_project_sources",
+  source_read: "read_project_source",
+  prior_turn_inspection: "inspect_prior_turn",
+  artifact_creation: "create_project_artifact",
+} as const;
+
 function observation(
   scenario: (typeof projectChatSemanticRobustnessScenarios)[number],
 ): ProjectChatSemanticRobustnessObservation {
@@ -19,17 +29,20 @@ function observation(
   return {
     scenarioId: scenario.id,
     family: scenario.family,
+    repositoryDomain: scenario.repositoryDomain,
     prompt: scenario.prompt,
-    expectedAction: scenario.expectedAction,
-    observedAction: scenario.expectedAction,
-    requiredToolNames: [...scenario.requiredToolNames],
-    observedToolNames: [...scenario.requiredToolNames],
+    observedOutcome: scenario.expectedOutcome,
+    observedToolNames: scenario.requiredCapabilities.map((capability) =>
+      capabilityTool[capability]
+    ),
     compositionMode: "model_tool_loop",
-    planningRunCount: 1,
     primaryAnswerRunCount: 1,
-    semanticVerificationRunCount: 1,
+    semanticVerificationRunCount:
+      scenario.expectedOutcome === "answered" ? 1 : 0,
     deterministicAnswerRunCount: 0,
-    answer: "A natural model-authored answer whose exact wording is not part of the contract.",
+    answer: scenario.expectedOutcome === "answered"
+      ? "A natural model-authored answer whose exact wording is not part of the contract."
+      : "",
     unsupportedClaimCount: 0,
     primaryAnswerAttribution: {
       provider: "openrouter",
@@ -54,27 +67,36 @@ function observation(
 }
 
 describe("project-chat semantic robustness gate", () => {
-  it("passes varied wording, multi-turn, distractor, format, and parity observations without answer regexes", () => {
+  it("passes varied repositories, wording, source strategies, formatting, and direct-agent parity without answer regexes", () => {
     const result = evaluateProjectChatSemanticRobustness({
       observations: projectChatSemanticRobustnessScenarios.map(observation),
     });
     expect(result.passed).toBe(true);
     expect(result.scenarioCount).toBe(projectChatSemanticRobustnessScenarios.length);
+    expect(result.familyCount).toBeGreaterThanOrEqual(8);
     expect(result.checks.every((check) => check.passed)).toBe(true);
   });
 
-  it("catches one paraphrase falling back to a lexical route", () => {
+  it("catches one freshness paraphrase that fails to request durable synchronization", () => {
     const observations = projectChatSemanticRobustnessScenarios.map(observation);
-    const target = observations.find((candidate) => candidate.scenarioId === "freshness_pronoun")!;
-    target.observedAction = "answer";
+    const target = observations.find((candidate) => candidate.scenarioId === "freshness_elliptical")!;
+    target.observedToolNames = ["search_project_knowledge"];
     const result = evaluateProjectChatSemanticRobustness({ observations });
     expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({
-      name: "freshness_pronoun: planner preserves intended action",
+      name: "freshness_elliptical: required capabilities were exercised",
       passed: false,
     }));
+  });
+
+  it("rejects over-eager full refresh for a narrow current-source inspection", () => {
+    const observations = projectChatSemanticRobustnessScenarios.map(observation);
+    const target = observations.find((candidate) => candidate.scenarioId === "source_current_config")!;
+    target.observedToolNames.push("refresh_project_sources");
+    const result = evaluateProjectChatSemanticRobustness({ observations });
+    expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({
-      name: "freshness_follow_up: paraphrases preserve action semantics",
+      name: "source_current_config: forbidden capabilities were avoided",
       passed: false,
     }));
   });
@@ -107,14 +129,12 @@ describe("project-chat semantic robustness gate", () => {
     }));
   });
 
-  it("requires audited semantic-judge identity instead of accepting self-scored output", () => {
-    const observations = projectChatSemanticRobustnessScenarios.map(observation);
-    observations[0]!.judge.requestId = "";
-    expect(() => evaluateProjectChatSemanticRobustness({ observations }))
+  it("requires audited semantic-judge identity and a same-model direct control", () => {
+    const invalidJudge = projectChatSemanticRobustnessScenarios.map(observation);
+    invalidJudge[0]!.judge.requestId = "";
+    expect(() => evaluateProjectChatSemanticRobustness({ observations: invalidJudge }))
       .toThrow();
-  });
 
-  it("requires an authoritative same-model direct-agent control", () => {
     const observations = projectChatSemanticRobustnessScenarios.map(observation);
     observations[0]!.directAgentBaseline = null;
     observations[1]!.directAgentBaseline!.modelId = "different-model";
@@ -123,7 +143,7 @@ describe("project-chat semantic robustness gate", () => {
     expect(result.checks.filter((check) => !check.passed).map((check) => check.name))
       .toEqual(expect.arrayContaining([
         "freshness_plain: same-model direct control is present",
-        "freshness_pronoun: direct control uses the same primary model",
+        "freshness_elliptical: direct control uses the same primary model",
       ]));
   });
 });

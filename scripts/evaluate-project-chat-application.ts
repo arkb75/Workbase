@@ -1202,12 +1202,10 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
     if (executionMode === "durable_workflow") {
       outcome = applicationOutcomeFromAgentRunStatus(storedRun.status);
     }
-    const storedPlan = record(record(storedRun.request).projectChatTurnPlan);
     const compositionEvent = [...events].reverse().find((event) =>
       event.type === "tool_result" && event.toolName === "compose_project_answer"
     );
     const compositionMode = record(compositionEvent?.payload).mode;
-    const semanticPlanAction = storedPlan.action;
     return {
       scenarioId: scenario.id,
       runId: run.id,
@@ -1229,12 +1227,6 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         statement: citation.excerpt,
       })),
       tools: events.flatMap((event) => event.type === "tool_call" && event.toolName ? [event.toolName] : []),
-      semanticPlanAction:
-        semanticPlanAction === "answer" ||
-        semanticPlanAction === "refresh_then_answer" ||
-        semanticPlanAction === "artifact"
-          ? semanticPlanAction
-          : null,
       answerCompositionMode:
         typeof compositionMode === "string" ? compositionMode : null,
       knowledgeRefreshRunId: storedRun.knowledgeRefreshRunId,
@@ -1408,7 +1400,6 @@ async function main() {
           executionMode: result.observation.executionMode,
           metrics: result.observation.metrics,
           tools: result.observation.tools,
-          semanticPlanAction: result.observation.semanticPlanAction ?? null,
           answerCompositionMode: result.observation.answerCompositionMode ?? null,
           knowledgeRefreshRunId: result.observation.knowledgeRefreshRunId ?? null,
           knowledgeRefresh: result.observation.knowledgeRefresh ?? null,

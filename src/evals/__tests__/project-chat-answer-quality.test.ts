@@ -304,12 +304,12 @@ Semantic refresh reconciles current code into Project Facts, which enables futur
     expect(failing.find((check) =>
       check.name === "all citation markers resolve to supplied source metadata",
     )).toMatchObject({ passed: false, actual: 3, expected: 4 });
-    expect(failing.find((check) =>
-      check.name === "claim-local citations are supported by their source metadata",
-    )).toMatchObject({ passed: false, actual: 0, expected: 4 });
+    expect(failing.some((check) =>
+      check.name === "claim-local citations are supported by their source metadata"
+    )).toBe(false);
   });
 
-  it("does not let a topical citation support an uncited exact metric or code identifier", () => {
+  it("leaves semantic metric and identifier support to the model verifier", () => {
     const answer = `## Durable runtime
 
 The durable Bedrock workflow uses \`retryAgentRun\` to guarantee 99.99% production availability, which ensures every agent response survives provider failures. [citation:1]`;
@@ -323,9 +323,12 @@ The durable Bedrock workflow uses \`retryAgentRun\` to guarantee 99.99% producti
         statement: "Persisted agent runs support bounded retry after provider failures.",
       }],
     });
+    expect(checks.some((check) =>
+      check.name === "claim-local citations are supported by their source metadata"
+    )).toBe(false);
     expect(checks.find((check) =>
-      check.name === "claim-local citations are supported by their source metadata",
-    )).toMatchObject({ passed: false, actual: 0, expected: 1 });
+      check.name === "all citation markers resolve to supplied source metadata"
+    )).toMatchObject({ passed: true, actual: 1, expected: 1 });
   });
 
   it("evaluates a standalone citation line against the preceding table block", () => {

@@ -10,29 +10,12 @@ const mocks = vi.hoisted(() => ({
   auditRun: vi.fn(),
   verify: vi.fn(),
   appendEvent: vi.fn(),
-  resolveEmbedding: vi.fn(),
 }));
 
 vi.mock("@/src/lib/prisma", () => ({
   prisma: {
     agentRun: { findFirstOrThrow: mocks.agentRunFind },
   },
-}));
-
-vi.mock("@/src/services/project-chat-turn-planner-service", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/src/services/project-chat-turn-planner-service")>()),
-  ensureProjectChatTurnPlan: vi.fn(async () => ({
-    version: "project-chat-turn-plan-v1",
-    objective: "Refresh the repository and update the previous runtime matrix.",
-    action: "refresh_then_answer",
-    allowRepositoryResearch: false,
-    knowledgeQueries: ["runtime model configuration"],
-    outputFormat: "Updated matrix",
-    outputRequirements: ["Report what changed."],
-    reasonCodes: ["new_push"],
-    confidence: 0.95,
-    generationRunId: "plan-generation",
-  })),
 }));
 
 vi.mock("@/src/services/bedrock-runtime", () => ({
@@ -47,10 +30,6 @@ vi.mock("@/src/services/project-chat-model-audit-service", async (importOriginal
 vi.mock("@/src/services/project-chat-answer-verification-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/src/services/project-chat-answer-verification-service")>()),
   verifyModelLedProjectChatAnswer: mocks.verify,
-}));
-
-vi.mock("@/src/services/embedding-index-service", () => ({
-  resolveActiveEmbeddingIndex: mocks.resolveEmbedding,
 }));
 
 vi.mock("@/src/services/project-chat-store", async (importOriginal) => ({
@@ -96,7 +75,7 @@ function modelResult(text: string, toolNames: string[]) {
 function largeCoverage() {
   const paths = Array.from({ length: 393 }, (_, index) => `src/path-${index}.ts`);
   return [{
-    repository: "arkb75/Workbase",
+    repository: "acme/robotics-controller",
     commitSha: "a".repeat(40),
     totalPaths: 437,
     analyzedPaths: 393,
@@ -129,23 +108,15 @@ describe("project-chat bounded repair regression", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.appendEvent.mockResolvedValue(null);
-    mocks.resolveEmbedding.mockResolvedValue({
-      id: "embedding-1",
-      key: "bedrock-titan-512",
-      provider: "bedrock",
-      modelId: "amazon.titan-embed-text-v2:0",
-      dimensions: 512,
-      status: "active",
-      writeEnabled: true,
-    });
     mocks.agentRunFind.mockResolvedValue({
       workItem: {
-        title: "Workbase",
+        title: "Robotics controller",
         type: "project",
         description: "",
         sources: [{
           id: "source-1",
-          label: "arkb75/Workbase",
+          type: "github_repo",
+          label: "acme/robotics-controller",
           metadata: {},
           updatedAt: new Date("2026-08-13T06:00:00.000Z"),
         }],
@@ -157,7 +128,7 @@ describe("project-chat bounded repair regression", () => {
         qualityStatus: "verified",
         targetHeads: [{
           sourceId: "source-1",
-          repository: "arkb75/Workbase",
+          repository: "acme/robotics-controller",
           branch: "main",
           commitSha: "a".repeat(40),
           resolvedAt: "2026-08-13T06:00:00.000Z",
@@ -175,11 +146,12 @@ describe("project-chat bounded repair regression", () => {
         generationRunId: `answer-generation-${auditAttempt}`,
         replayed: false,
         checkpoint: {
-          version: "project-chat-model-checkpoint-v4",
+          version: "project-chat-model-checkpoint-v7",
           answer: executed.result.text,
           catalog: executed.checkpoint.catalog,
           entries: executed.checkpoint.entries,
           research: executed.checkpoint.research,
+          control: executed.checkpoint.control,
           toolNames: executed.result.events
             .filter((event: BedrockConverseAgentEvent) =>
               event.type === "tool_call_completed"
@@ -199,7 +171,7 @@ describe("project-chat bounded repair regression", () => {
         formatSatisfied: true,
         issues: [{
           code: "uncited_project_claim",
-          explanation: "Attach the runtime citation directly to the embedding row.",
+          explanation: "Attach the source citation to the repository row.",
         }],
         generationRunId: "verification-1",
         mechanicalIssues: [],
@@ -218,53 +190,53 @@ describe("project-chat bounded repair regression", () => {
     mocks.agentRun.mockImplementation(async (input) => {
       modelAttempt += 1;
       if (modelAttempt === 1) {
-        const repositoryTool = input.tools.find((tool: TextConverseTool) =>
-          tool.name === "inspect_repository_state"
+        const readTool = input.tools.find((tool: TextConverseTool) =>
+          tool.name === "read_project_source"
         );
-        const runtimeTool = input.tools.find((tool: TextConverseTool) =>
-          tool.name === "inspect_runtime_model_profiles"
+        expect(readTool?.jsonSchema).toMatchObject({
+          properties: {
+            handles: {
+              items: expect.any(Object),
+            },
+          },
+        });
+        expect(readTool?.jsonSchema.properties).not.toHaveProperty("requests");
+        const sourceTool = input.tools.find((tool: TextConverseTool) =>
+          tool.name === "list_project_sources"
         );
         const context = { iteration: 1, toolCall: 1, toolUseId: "tool" };
-        const repositoryResult = await repositoryTool.execute({}, context);
-        const runtimeResult = await runtimeTool.execute({}, context);
-        expect(JSON.stringify(repositoryResult).length).toBeLessThan(3_000);
-        expect(JSON.stringify(repositoryResult)).not.toContain("src/path-0.ts");
-        expect(JSON.stringify(runtimeResult)).toContain("amazon.titan-embed-text-v2:0");
+        const sourceResult = await sourceTool.execute({}, context);
+        expect(JSON.stringify(sourceResult).length).toBeLessThan(3_000);
+        expect(JSON.stringify(sourceResult)).not.toContain("src/path-0.ts");
+        expect(JSON.stringify(sourceResult)).toContain("acme/robotics-controller");
         return modelResult([
-          "| Purpose | Model |",
+          "| Source | Revision |",
           "|---|---|",
-          "| Text | Sonnet [citation:2] |",
-          "| Embeddings | Titan 512 |",
-          "",
-          "The refreshed repository has complete coverage. [citation:1]",
+          "| Robotics controller | Current imported revision [citation:1] |",
         ].join("\n"), [
-          "inspect_repository_state",
-          "inspect_runtime_model_profiles",
+          "list_project_sources",
         ]);
       }
       expect(input.tools).toEqual([]);
       expect(input.systemPrompt).toContain("No tools or new research are available");
       const serialized = JSON.stringify(input.messages);
       expect(serialized).toContain("frozenSources");
-      expect(serialized).toContain("amazon.titan-embed-text-v2:0");
+      expect(serialized).toContain("acme/robotics-controller");
       expect(serialized).not.toContain("src/path-0.ts");
       expect(serialized.length).toBeLessThan(45_000);
       return modelResult([
-        "| Purpose | Model |",
+        "| Source | Revision |",
         "|---|---|",
-        "| Text | Sonnet [citation:2] |",
-        "| Embeddings | Titan, 512 dimensions [citation:2] |",
-        "",
-        "The refreshed repository has complete coverage. [citation:1]",
+        "| Robotics controller | Current imported revision [citation:1] |",
       ].join("\n"), []);
     });
   });
 
   it.each([
-    "i pushed some stuff",
-    "I just pushed a few changes—update that",
-    "There are new commits now; make the previous matrix current",
-  ])("repairs a refreshed large-repository answer without reopening tools: %s", async (question) => {
+    "summarize the attached source in a table",
+    "put the repository snapshot in a grid",
+    "show the attached project source side by side with its revision",
+  ])("repairs varied formatting without reopening tools: %s", async (question) => {
     await expect(executeModelLedProjectChatAgent({
       runId: "run-1",
       userId: "user-1",
@@ -280,12 +252,89 @@ describe("project-chat bounded repair regression", () => {
       }],
     })).resolves.toMatchObject({
       status: "answered",
-      answer: expect.stringContaining("Titan, 512 dimensions"),
+      answer: expect.stringContaining("Robotics controller"),
       citationPolicy: "required_inline",
       fallbackUsed: false,
     });
     expect(mocks.agentRun).toHaveBeenCalledTimes(2);
     expect(mocks.verify).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows one final semantic repair over the same frozen sources", async () => {
+    const repairVerdict = (explanation: string) => ({
+      verdict: "repair" as const,
+      requiresProjectCitations: true,
+      groundingSatisfied: false,
+      instructionSatisfied: true,
+      formatSatisfied: true,
+      issues: [{ code: "unsupported_claim", explanation }],
+      generationRunId: `verification-${explanation.length}`,
+      mechanicalIssues: [],
+    });
+    mocks.verify.mockReset()
+      .mockResolvedValueOnce(repairVerdict("Remove the unsupported path."))
+      .mockResolvedValueOnce(repairVerdict("Remove the remaining unsupported qualifier."))
+      .mockResolvedValueOnce({
+        verdict: "publish",
+        requiresProjectCitations: true,
+        groundingSatisfied: true,
+        instructionSatisfied: true,
+        formatSatisfied: true,
+        issues: [],
+        generationRunId: "verification-final",
+        mechanicalIssues: [],
+      });
+
+    await expect(executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question: "Compare the controller components in a compact grid.",
+      history: [],
+    })).resolves.toMatchObject({
+      status: "answered",
+      answer: expect.stringContaining("Robotics controller"),
+    });
+    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
+    expect(mocks.verify).toHaveBeenCalledTimes(3);
+    expect(mocks.agentRun.mock.calls[1]?.[0].tools).toEqual([]);
+    expect(mocks.agentRun.mock.calls[2]?.[0].tools).toEqual([]);
+  });
+
+  it("fails closed after both frozen-source revisions remain unsupported", async () => {
+    mocks.verify.mockReset();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      mocks.verify.mockResolvedValueOnce({
+        verdict: "repair",
+        requiresProjectCitations: true,
+        groundingSatisfied: false,
+        instructionSatisfied: true,
+        formatSatisfied: true,
+        issues: [{
+          code: "unsupported_claim",
+          explanation: `Unsupported claim remains after verification ${attempt}.`,
+        }],
+        generationRunId: `verification-${attempt}`,
+        mechanicalIssues: [],
+      });
+    }
+
+    await expect(executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question: "Map the supported project components.",
+      history: [],
+    })).resolves.toMatchObject({
+      status: "insufficient_context",
+      fallbackUsed: false,
+    });
+    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
+    expect(mocks.verify).toHaveBeenCalledTimes(3);
   });
 
   it("returns a cited frozen-source boundary when the tool-free repair cannot complete", async () => {
@@ -303,11 +352,11 @@ describe("project-chat bounded repair regression", () => {
       workItemId: "work-1",
       threadId: "thread-1",
       messageId: "message-1",
-      question: "i pushed some stuff",
+      question: "summarize the attached source in a table",
       history: [],
     })).resolves.toMatchObject({
       status: "insufficient_context",
-      answer: expect.stringContaining("frozen sources did not support every part"),
+      answer: expect.stringContaining("frozen project sources"),
       citationPolicy: "required_inline",
       fallbackUsed: false,
     });
@@ -316,5 +365,58 @@ describe("project-chat bounded repair regression", () => {
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ mode: "frozen_repair_failed" }),
     }));
+  });
+
+  it.each([
+    {
+      question: "New commits landed; update the reusable project picture before answering.",
+      toolName: "refresh_project_sources",
+      toolInput: { reason: "The user requested a durable update." },
+      expected: {
+        status: "refresh_requested",
+        reason: "The user requested a durable update.",
+      },
+    },
+    {
+      question: "Turn the supported robotics work into a short case study.",
+      toolName: "create_project_artifact",
+      toolInput: { brief: "A short robotics-controller case study." },
+      expected: {
+        status: "artifact_requested",
+        brief: "A short robotics-controller case study.",
+      },
+    },
+  ])("honors the primary model's $toolName control decision", async ({
+    question,
+    toolName,
+    toolInput,
+    expected,
+  }) => {
+    mocks.verify.mockReset();
+    mocks.agentRun.mockImplementationOnce(async (input) => {
+      const selected = input.tools.find((tool: TextConverseTool) =>
+        tool.name === toolName
+      );
+      expect(selected).toBeDefined();
+      if (!selected) throw new Error(`Missing tool ${toolName}`);
+      await selected.execute(toolInput, {
+        iteration: 1,
+        toolCall: 1,
+        toolUseId: "control-tool",
+      });
+      return modelResult("", [toolName]);
+    });
+
+    await expect(executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question,
+      history: [],
+    })).resolves.toMatchObject(expected);
+    expect(mocks.verify).not.toHaveBeenCalled();
+    expect(mocks.agentRun).toHaveBeenCalledTimes(1);
   });
 });

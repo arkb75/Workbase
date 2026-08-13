@@ -173,7 +173,7 @@ describe("project-chat evaluation fixtures", () => {
   it("fails wrong routing, unnecessary research, unused citations, and peer GitHub files", () => {
     const result = evaluateProjectChatScenario(architectureObservation({
       route: "targeted_repository_research",
-      tools: ["research_project"],
+      tools: ["search_project_sources"],
       sources: [{
         kind: "github_file",
         authority: "included_evidence",
@@ -208,6 +208,42 @@ describe("project-chat evaluation fixtures", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("allows a current repository file as primary evidence only after bounded search and read", () => {
+    const fixture = projectChatEvaluationFixtures.find(
+      (entry) => entry.id === "targeted_code_question",
+    )!;
+    const result = evaluateProjectChatScenario({
+      scenarioId: fixture.id,
+      route: "targeted_repository_research",
+      lifecycle: "answered",
+      tools: ["search_project_sources", "read_project_source"],
+      sources: [{
+        kind: "github_file",
+        authority: "included_evidence",
+        title: "src/retry.rs at immutable head",
+        used: true,
+        presentation: "primary",
+        repository: "acme/cli",
+      }],
+      metrics: {
+        latencyMs: 1_500,
+        modelCalls: 1,
+        totalTokens: 2_500,
+        estimatedCostUsd: 0.02,
+        repositoryTreeLookups: 1,
+        repositorySearches: 1,
+        repositoryFileReads: 1,
+        repositoryVisibleBytes: 2_000,
+        workerCount: 1,
+      },
+      answer: "The retry loop stops at its configured attempt bound. [citation:1]",
+      coverageGaps: [],
+      partial: false,
+      repositoryHeadsCurrent: true,
+    });
+    expect(result.checks.filter((check) => !check.passed)).toEqual([]);
+  });
+
   it("enforces latency, model-call, token, cost, and repository-work budgets", () => {
     const result = evaluateProjectChatScenario(architectureObservation({
       metrics: {
@@ -231,7 +267,7 @@ describe("project-chat evaluation fixtures", () => {
       scenarioId: "provider_limit_partial_result",
       route: "partial_finalization",
       lifecycle: "partially_answered",
-      tools: ["refresh_repository_knowledge"],
+      tools: ["refresh_project_sources"],
       sources: [],
       metrics: {
         latencyMs: 40_000,
@@ -264,10 +300,10 @@ describe("project-chat evaluation fixtures", () => {
       scenarioId: "multi_repository_research",
       route: "targeted_repository_research",
       lifecycle: "answered",
-      tools: ["research_project"],
+      tools: ["search_project_sources", "read_project_source"],
       sources: [
-        { kind: "project_fact", authority: "verified_project_fact", title: "Request entry", used: true, repository: "owner/repo-a" },
-        { kind: "project_fact", authority: "verified_project_fact", title: "Request handler", used: true, repository: "owner/repo-a" },
+        { kind: "github_file", authority: "included_evidence", title: "Request entry", used: true, repository: "owner/repo-a" },
+        { kind: "github_file", authority: "included_evidence", title: "Request handler", used: true, repository: "owner/repo-a" },
       ],
       metrics: {
         latencyMs: 10_000,

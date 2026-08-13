@@ -3801,7 +3801,7 @@ export type ListEnumKnowledgeRefreshQualityFieldRefInput<$PrismaModel> = FieldRe
  * Reference to a field of type 'GitHubWebhookDeliveryStatus'
  */
 export type EnumGitHubWebhookDeliveryStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GitHubWebhookDeliveryStatus'>
-
+    
 
 
 /**
@@ -3829,7 +3829,7 @@ export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel,
  * Reference to a field of type 'Boolean'
  */
 export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
-
+    
 
 
 /**
@@ -4088,14 +4088,14 @@ export type ListEnumVisibilityLevelFieldRefInput<$PrismaModel> = FieldRefInputTy
  * Reference to a field of type 'Decimal'
  */
 export type DecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal'>
-
+    
 
 
 /**
  * Reference to a field of type 'Decimal[]'
  */
 export type ListDecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal[]'>
-
+    
 
 
 /**
@@ -4186,14 +4186,14 @@ export type ListEnumArtifactToneFieldRefInput<$PrismaModel> = FieldRefInputType<
  * Reference to a field of type 'EmbeddingIndexStatus'
  */
 export type EnumEmbeddingIndexStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EmbeddingIndexStatus'>
-
+    
 
 
 /**
  * Reference to a field of type 'EmbeddingIndexStatus[]'
  */
 export type ListEnumEmbeddingIndexStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'EmbeddingIndexStatus[]'>
-
+    
 
 
 /**

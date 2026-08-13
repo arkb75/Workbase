@@ -1240,6 +1240,8 @@ interface RunProjectChatAgentInput {
   history?: ProjectChatHistoryMessage[];
   rollingSummary?: string | null;
   allowResearch?: boolean;
+  afterFactReview?: boolean;
+  sourceRefreshCompleted?: boolean;
   onAgentEvent?: (event: BedrockConverseAgentEvent) => void | Promise<void>;
 }
 

@@ -17,7 +17,13 @@ import {
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 
-export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v4";
+export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v7";
+
+export interface ProjectChatModelControl {
+  refreshRequested: boolean;
+  refreshReason: string | null;
+  artifactBrief: string | null;
+}
 
 export interface ProjectChatModelCheckpoint {
   version: typeof PROJECT_CHAT_MODEL_CHECKPOINT_VERSION;
@@ -26,6 +32,7 @@ export interface ProjectChatModelCheckpoint {
   entries: ProjectAnswerGroundingEntry[];
   research: ProjectResearchResult | null;
   toolNames: string[];
+  control: ProjectChatModelControl;
 }
 
 const replayCheckpointSchema = z.object({
@@ -47,6 +54,11 @@ const replayCheckpointSchema = z.object({
   }).passthrough()).max(100),
   research: z.unknown().nullable(),
   toolNames: z.array(z.string().min(1).max(100)).max(30),
+  control: z.object({
+    refreshRequested: z.boolean(),
+    refreshReason: z.string().max(1_000).nullable(),
+    artifactBrief: z.string().max(5_000).nullable(),
+  }),
 });
 
 interface ExecutedProjectChatModel {
@@ -75,6 +87,7 @@ function parseCheckpoint(value: unknown): ProjectChatModelCheckpoint {
       ? parsed.research as ProjectResearchResult
       : null,
     toolNames: parsed.toolNames,
+    control: parsed.control,
   };
 }
 
@@ -114,7 +127,8 @@ function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
 export async function runAuditedProjectChatModel(input: {
   workItemId: string;
   agentRunId: string;
-  attempt: "initial" | "repair";
+  phase: "initial" | "after_source_refresh" | "after_fact_review";
+  attempt: "initial" | "repair_1" | "repair_2";
   inputSummary: Record<string, unknown>;
   execute: () => Promise<ExecutedProjectChatModel>;
 }) {
@@ -122,6 +136,7 @@ export async function runAuditedProjectChatModel(input: {
     "project-chat-answer",
     input.agentRunId,
     PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
+    input.phase,
     input.attempt,
   ].join(":");
   const replay = await findSuccessfulGenerationRunReplay({
@@ -151,6 +166,7 @@ export async function runAuditedProjectChatModel(input: {
       entries: executed.checkpoint.entries,
       research: executed.checkpoint.research,
       toolNames,
+      control: executed.checkpoint.control,
     };
     const generationRun = await createGenerationRunIdempotently({
       workItemId: input.workItemId,
@@ -163,6 +179,7 @@ export async function runAuditedProjectChatModel(input: {
         ...input.inputSummary,
         profile: "primary_answer",
         attempt: input.attempt,
+        phase: input.phase,
         checkpointVersion: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
       })),
       rawOutput: result.text,
@@ -198,6 +215,7 @@ export async function runAuditedProjectChatModel(input: {
         ...input.inputSummary,
         profile: "primary_answer",
         attempt: input.attempt,
+        phase: input.phase,
         checkpointVersion: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
       })),
       validationErrors: sanitizeBedrockConverseEventValue({

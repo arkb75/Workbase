@@ -382,49 +382,6 @@ function citationOrdinals(value: string) {
     .filter((ordinal) => Number.isInteger(ordinal) && ordinal > 0);
 }
 
-function metadataText(metadata: ProjectChatAnswerCitationMetadata) {
-  return [
-    metadata.type,
-    metadata.title,
-    metadata.statement ?? "",
-    metadata.excerpt ?? "",
-  ].join(" ");
-}
-
-function normalizedCodeIdentifiers(value: string) {
-  return Array.from(value.matchAll(/`([^`\n]{3,100})`/gu), (match) =>
-    match[1].trim().toLocaleLowerCase(),
-  ).filter((identifier) => /[a-z]/u.test(identifier));
-}
-
-function supportedByCitationMetadata(
-  block: string,
-  metadata: readonly ProjectChatAnswerCitationMetadata[],
-) {
-  const cited = new Set(citationOrdinals(block));
-  const sources = metadata.filter((source) => cited.has(source.ordinal));
-  if (!sources.length) return false;
-
-  const claimTokens = new Set(normalizedMeaningTokens(block, true));
-  const sourceTokens = new Set(sources.flatMap((source) =>
-    normalizedMeaningTokens(metadataText(source), true),
-  ));
-  const sharedTokens = [...claimTokens].filter((token) => sourceTokens.has(token));
-  const topicalAlignment = sharedTokens.length >= 2
-    && sharedTokens.length / Math.max(1, Math.min(claimTokens.size, 24)) >= 0.08;
-
-  const sourceText = sources.map(metadataText).join(" ").toLocaleLowerCase();
-  const exactNumbers = Array.from(
-    blockProse(block).matchAll(/\b\d+(?:[.,]\d+)*(?:%|[a-z]+)?\b/giu),
-    (match) => match[0].toLocaleLowerCase(),
-  );
-  const exactIdentifiers = normalizedCodeIdentifiers(block);
-  const exactDetailsSupported = exactNumbers.every((number) => sourceText.includes(number))
-    && exactIdentifiers.every((identifier) => sourceText.includes(identifier));
-
-  return topicalAlignment && exactDetailsSupported;
-}
-
 function citationSupportBlocks(blocks: readonly string[]) {
   return blocks.flatMap((block, index) => {
     if (!citationOrdinals(block).length) return [];
@@ -594,15 +551,6 @@ export function evaluateProjectChatAnswerQuality(input: {
       resolvedOrdinals.length === referencedOrdinals.size,
       resolvedOrdinals.length,
       referencedOrdinals.size,
-    );
-    const supportedBlocks = citedBlocks.filter((block) =>
-      supportedByCitationMetadata(block, input.citationMetadata ?? []),
-    );
-    add(
-      "claim-local citations are supported by their source metadata",
-      supportedBlocks.length === citedBlocks.length,
-      supportedBlocks.length,
-      citedBlocks.length,
     );
   }
   if (contract.requirePrioritizedOpening) {

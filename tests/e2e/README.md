@@ -156,19 +156,24 @@ camel-case fields (`workItemTitle`, `repository`,
 
 ## Model-led project-chat semantic robustness
 
-The application catalog includes the exact runtime-model matrix regression and
-a same-thread grid paraphrase. Both must use
-`inspect_runtime_model_profiles`, persist an audited `primary_answer` run, and
-record `answerCompositionMode=model_tool_loop`; repository prose and
-`deterministic_source_synthesis` are not acceptable substitutes.
+The application catalog includes the runtime-model matrix regression and a
+same-thread grid paraphrase. Both must let the primary answer model inspect the
+attached repository through `search_project_sources` followed by bounded
+`read_project_source` calls, persist an audited `primary_answer` run, and record
+`answerCompositionMode=model_tool_loop`. There is no host-runtime shortcut:
+the answer must reflect the project source the user attached, and
+`deterministic_source_synthesis` is not an acceptable substitute.
 
 The broader semantic observation contract lives in
 `src/evals/project-chat-semantic-robustness.ts`. It covers freshness
-paraphrases, format synonyms, elliptical source questions, multi-turn
-reformatting, distractors, and unsupported metrics. Answers are scored by an
+paraphrases, current-source investigation, durable-memory questions, prior-turn
+provenance, artifact actions, formatting, conversation, and unsupported
+metrics across web, mobile, CLI, ML, infrastructure, scientific, data,
+compiler, game, and design-system repositories. Answers are scored by an
 attributed semantic judge and compared with a same-model direct Codex/agent
-control; the gate does not match expected answer phrases. Evaluate a collected
-observation set with:
+control. The gate describes outcomes and capabilities; it does not match
+expected answer phrases, fixed queries, or routing regexes. Evaluate a
+collected observation set with:
 
 ```bash
 npm run eval:project-chat:semantic-robustness -- \

@@ -63,7 +63,7 @@ export type Source = Prisma.SourceModel
 export type KnowledgeRefreshRun = Prisma.KnowledgeRefreshRunModel
 /**
  * Model GitHubWebhookDelivery
- *
+ * 
  */
 export type GitHubWebhookDelivery = Prisma.GitHubWebhookDeliveryModel
 /**
@@ -158,12 +158,12 @@ export type Artifact = Prisma.ArtifactModel
 export type ArtifactEmbedding = Prisma.ArtifactEmbeddingModel
 /**
  * Model EmbeddingIndexVersion
- *
+ * 
  */
 export type EmbeddingIndexVersion = Prisma.EmbeddingIndexVersionModel
 /**
  * Model EmbeddingIndexControl
- *
+ * 
  */
 export type EmbeddingIndexControl = Prisma.EmbeddingIndexControlModel
 /**

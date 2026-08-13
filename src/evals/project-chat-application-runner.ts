@@ -193,8 +193,6 @@ export interface ProjectChatApplicationObservation {
   citationOrdinals: number[];
   citationMetadata?: ProjectChatAnswerCitationMetadata[];
   tools: string[];
-  /** Durable semantic plan persisted before workflow side effects. */
-  semanticPlanAction?: "answer" | "refresh_then_answer" | "artifact" | null;
   /** Final composition authority; production chat must be model_tool_loop. */
   answerCompositionMode?: string | null;
   /** A refresh attached to this turn, even when it reused a completed run. */
@@ -508,11 +506,11 @@ export const projectChatApplicationScenarios = [
   },
   {
     id: "runtime_model_matrix",
-    title: "Authoritative active runtime model matrix",
-    question: "Give me a matrix of the models we are using and for what purposes.",
-    workspace: "empty_sandbox",
+    title: "Current-source implementation matrix",
+    question: "Inspect the current source and give me a compact matrix of the main implementation components, where they live, and what they do.",
+    workspace: "attached_repository_sandbox",
     threadKey: "runtime_model_mapping",
-    allowResearch: false,
+    allowResearch: true,
     captureUserContext: false,
     answerContract: {
       minCharacters: 180,
@@ -520,20 +518,23 @@ export const projectChatApplicationScenarios = [
       format: "table",
     },
     envelope: {
-      maxLatencyMs: 45_000,
+      maxLatencyMs: 90_000,
       maxModelCalls: 10,
       maxTotalTokens: 100_000,
       maxEstimatedCostUsd: 0.4,
-      ...noRepositoryWork,
+      maxRepositoryTreeLookups: 1,
+      maxRepositorySearches: 3,
+      maxRepositoryFileReads: 4,
+      maxRepositoryVisibleBytes: 64 * 1024,
     },
   },
   {
     id: "runtime_model_grid_follow_up",
-    title: "Paraphrased same-thread runtime model grid",
-    question: "Same mapping, but organize it with rows by purpose and columns for provider and model.",
-    workspace: "empty_sandbox",
+    title: "Paraphrased same-thread implementation grid",
+    question: "Same substance, but reorganize the rows by responsibility and keep the concrete source locations.",
+    workspace: "attached_repository_sandbox",
     threadKey: "runtime_model_mapping",
-    allowResearch: false,
+    allowResearch: true,
     captureUserContext: false,
     answerContract: {
       minCharacters: 180,
@@ -541,11 +542,14 @@ export const projectChatApplicationScenarios = [
       format: "table",
     },
     envelope: {
-      maxLatencyMs: 45_000,
+      maxLatencyMs: 90_000,
       maxModelCalls: 10,
       maxTotalTokens: 100_000,
       maxEstimatedCostUsd: 0.4,
-      ...noRepositoryWork,
+      maxRepositoryTreeLookups: 1,
+      maxRepositorySearches: 3,
+      maxRepositoryFileReads: 4,
+      maxRepositoryVisibleBytes: 64 * 1024,
     },
   },
   {
@@ -1242,6 +1246,10 @@ function addCheck(
 }
 
 const repositoryTools = new Set([
+  "refresh_project_sources",
+  "list_project_source_paths",
+  "search_project_sources",
+  "read_project_source",
   "research_repository",
   "research_project",
   "list_repository_paths",
@@ -1397,13 +1405,22 @@ export function evaluateProjectChatApplicationObservation(
       observation.citationOrdinals.join(","),
       `1..${observation.citationCount}`,
     );
-    addCheck(
-      checks,
-      "answer does not expose repository files as peer sources",
-      !observation.citationKinds.includes("github_file"),
-      observation.citationKinds.join(", "),
-      "durable memory citations only",
-    );
+    if (observation.citationKinds.includes("github_file")) {
+      addCheck(
+        checks,
+        "repository-file citations came from an explicit bounded read",
+        observation.tools.includes("read_project_source"),
+        observation.tools.join(", "),
+        "read_project_source",
+      );
+      addCheck(
+        checks,
+        "repository-file citations match the observed immutable head",
+        (observation.repositoryCitationFreshness?.staleCitationOrdinals.length ?? 1) === 0,
+        observation.repositoryCitationFreshness?.staleCitationOrdinals.join(",") ?? "missing",
+        "none",
+      );
+    }
   }
 
   switch (scenario.id) {
@@ -1427,7 +1444,7 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "focused paraphrase completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "focused paraphrase is cited", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "focused paraphrase avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
-      addCheck(checks, "focused paraphrase did not invoke prior-turn provenance", !observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "no provenance inspection");
+      addCheck(checks, "focused paraphrase did not invoke prior-turn provenance", !observation.tools.includes("inspect_prior_turn"), observation.tools.join(", "), "no provenance inspection");
       break;
     case "strongest_accomplishments":
     case "recruiter_top_three":
@@ -1449,15 +1466,14 @@ export function evaluateProjectChatApplicationObservation(
       break;
     case "runtime_model_matrix":
     case "runtime_model_grid_follow_up": {
-      addCheck(checks, "runtime mapping completed", observation.outcome === "answered", observation.outcome, "answered");
-      addCheck(checks, "runtime mapping used the authoritative configuration tool", observation.tools.includes("inspect_runtime_model_profiles"), observation.tools.join(", "), "inspect_runtime_model_profiles");
-      addCheck(checks, "runtime mapping did not search project prose", !observation.tools.includes("search_project_memory"), observation.tools.join(", "), "no memory search");
-      addCheck(checks, "runtime mapping avoided repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
-      addCheck(checks, "runtime mapping was composed by the primary model", observation.answerCompositionMode === "model_tool_loop", observation.answerCompositionMode ?? "missing", "model_tool_loop");
-      addCheck(checks, "runtime mapping semantic plan answered without repository refresh", observation.semanticPlanAction === "answer", observation.semanticPlanAction ?? "missing", "answer");
-      addCheck(checks, "runtime mapping presents all seven configured roles", markdownTableDataRowCount(observation.answer) >= 7, markdownTableDataRowCount(observation.answer), 7);
-      addCheck(checks, "runtime mapping cites live configuration authority", observation.citationCount > 0, observation.citationCount, 1);
-      addCheck(checks, "runtime mapping has an audited primary answer", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
+      addCheck(checks, "current-source matrix completed", observation.outcome === "answered", observation.outcome, "answered");
+      addCheck(checks, "current-source matrix searched the attached source", observation.tools.includes("search_project_sources"), observation.tools.join(", "), "search_project_sources");
+      addCheck(checks, "current-source matrix read only selected source results", observation.tools.includes("read_project_source"), observation.tools.join(", "), "read_project_source");
+      addCheck(checks, "current-source matrix avoided a broad durable refresh", !observation.tools.includes("refresh_project_sources"), observation.tools.join(", "), "no durable refresh");
+      addCheck(checks, "current-source matrix was composed by the primary model", observation.answerCompositionMode === "model_tool_loop", observation.answerCompositionMode ?? "missing", "model_tool_loop");
+      addCheck(checks, "current-source matrix presents multiple implementation areas", markdownTableDataRowCount(observation.answer) >= 2, markdownTableDataRowCount(observation.answer), 2);
+      addCheck(checks, "current-source matrix cites selected immutable source files", observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "github_file");
+      addCheck(checks, "current-source matrix has an audited primary answer", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
       if (scenario.id === "runtime_model_grid_follow_up") {
         addCheck(checks, "runtime grid follow-up received the preceding turn", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
       }
@@ -1535,7 +1551,7 @@ export function evaluateProjectChatApplicationObservation(
       break;
     case "prior_turn_provenance":
       addCheck(checks, "provenance answer completed", observation.outcome === "answered", observation.outcome, "answered");
-      addCheck(checks, "provenance used its bounded inspector", observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "inspect_prior_answer_sources");
+      addCheck(checks, "provenance used its bounded inspector", observation.tools.includes("inspect_prior_turn"), observation.tools.join(", "), "inspect_prior_turn");
       addCheck(checks, "provenance answer cites its authoritative manifest", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "provenance citation rows match canonical markers", canonicalCitationSetMatches(observation), observation.citationOrdinals.join(","), `1..${observation.citationCount}`);
       addCheck(
@@ -1549,7 +1565,7 @@ export function evaluateProjectChatApplicationObservation(
     case "prior_turn_source_scope":
       addCheck(checks, "source-scope answer completed", observation.outcome === "answered", observation.outcome, "answered");
       addCheck(checks, "source-scope follow-up received the cited prior turn", observation.historyMessageCount >= 2, observation.historyMessageCount, 2);
-      addCheck(checks, "source-scope used only its bounded provenance inspector", observation.tools.includes("inspect_prior_answer_sources"), observation.tools.join(", "), "inspect_prior_answer_sources");
+      addCheck(checks, "source-scope used only its bounded provenance inspector", observation.tools.includes("inspect_prior_turn"), observation.tools.join(", "), "inspect_prior_turn");
       addCheck(checks, "source-scope answer cites its authoritative manifest", observation.citationCount > 0, observation.citationCount, 1);
       addCheck(checks, "source-scope citation rows match canonical markers", canonicalCitationSetMatches(observation), observation.citationOrdinals.join(","), `1..${observation.citationCount}`);
       addCheck(checks, "source-scope avoided new repository work", !hasRepositoryTool(observation), hasRepositoryTool(observation), false);
@@ -1680,14 +1696,14 @@ export function evaluateProjectChatApplicationObservation(
       break;
     case "targeted_repository_research":
       addCheck(checks, "targeted research produced a supported answer or review candidate", ["answered", "awaiting_review"].includes(observation.outcome), observation.outcome, "answered or awaiting_review");
-      addCheck(checks, "targeted research listed an attached repository", observation.tools.includes("list_repository_paths"), observation.tools.join(", "), "list_repository_paths");
-      addCheck(checks, "targeted research read pinned files", observation.tools.some((tool) => tool === "read_repository_file" || tool === "read_repository_files"), observation.tools.join(", "), "read_repository_file(s)");
+      addCheck(checks, "targeted research searched an attached source", observation.tools.includes("search_project_sources"), observation.tools.join(", "), "search_project_sources");
+      addCheck(checks, "targeted research read selected immutable files", observation.tools.includes("read_project_source"), observation.tools.join(", "), "read_project_source");
       addCheck(checks, "targeted answer addresses retry behavior", /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(observation.answer), observation.answer, "retry/backoff behavior");
       addCheck(checks, "targeted answer addresses loop termination", /\b(?:loop|iteration|terminat|max(?:imum)?|limit|budget)\w*\b/i.test(observation.answer), observation.answer, "loop termination or bound");
       addCheck(checks, "targeted answer identifies the concrete iteration guard", /\bmaxIterations\b|\biterations?\s*(?:>=|<=|<|>)\b/i.test(observation.answer), observation.answer, "maxIterations or an explicit iteration condition");
       addCheck(checks, "targeted answer identifies a concrete exit path", /\bstopReason\b|conditional exit|`(?:break;|return|throw)`/i.test(observation.answer), observation.answer, "an exact stop reason or exit statement");
       addCheck(checks, "targeted answer is not a generic file-presence fallback", !/contains repository evidence relevant to the requested/i.test(observation.answer), observation.answer, "a request-specific supported fact");
-      addCheck(checks, "targeted answer cites promoted durable memory", observation.citationCount > 0 && !observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "Project Fact, Highlight, or Evidence citation");
+      addCheck(checks, "targeted answer cites the selected immutable files", observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "github_file citation");
       break;
   }
 

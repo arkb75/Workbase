@@ -80,7 +80,7 @@ const result: BedrockConverseAgentRunResult = {
       iteration: 1,
       toolCall: 1,
       toolUseId: "tool-1",
-      toolName: "inspect_runtime_model_profiles",
+      toolName: "search_project_sources",
       outcome: "success",
       durationMs: 2,
       output: { citationIndex: 1 },
@@ -106,11 +106,21 @@ describe("project-chat primary-model audit", () => {
   it("persists authoritative primary-answer identity, tools, usage, cost, and replay state", async () => {
     const executed = vi.fn(async () => ({
       result,
-      checkpoint: { catalog: [], entries: [], research: null },
+      checkpoint: {
+        catalog: [],
+        entries: [],
+        research: null,
+        control: {
+          refreshRequested: false,
+          refreshReason: null,
+          artifactBrief: null,
+        },
+      },
     }));
     const audited = await runAuditedProjectChatModel({
       workItemId: "work-1",
       agentRunId: "agent-1",
+      phase: "initial",
       attempt: "initial",
       inputSummary: { objective: "runtime mapping" },
       execute: executed,
@@ -120,7 +130,7 @@ describe("project-chat primary-model audit", () => {
     expect(audited.checkpoint).toMatchObject({
       version: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
       answer: "The model-authored answer.",
-      toolNames: ["inspect_runtime_model_profiles"],
+      toolNames: ["search_project_sources"],
     });
     expect(mocks.createIdempotently).toHaveBeenCalledWith(expect.objectContaining({
       kind: "project_chat_answer",
@@ -132,7 +142,7 @@ describe("project-chat primary-model audit", () => {
         profile: "primary_answer",
         configuredModelId: "configured-primary-model",
         requestIds: ["request-1"],
-        toolNames: ["inspect_runtime_model_profiles"],
+        toolNames: ["search_project_sources"],
         auditEvidenceTruncated: false,
       }),
       tokenUsage: expect.objectContaining({
@@ -151,13 +161,19 @@ describe("project-chat primary-model audit", () => {
         catalog: [],
         entries: [],
         research: null,
-        toolNames: ["search_project_memory"],
+        toolNames: ["search_project_knowledge"],
+        control: {
+          refreshRequested: false,
+          refreshReason: null,
+          artifactBrief: null,
+        },
       },
     });
     const execute = vi.fn();
     await expect(runAuditedProjectChatModel({
       workItemId: "work-1",
       agentRunId: "agent-1",
+      phase: "initial",
       attempt: "initial",
       inputSummary: {},
       execute,
@@ -180,11 +196,17 @@ describe("project-chat primary-model audit", () => {
         entries: [],
         research: null,
         toolNames: [],
+        control: {
+          refreshRequested: false,
+          refreshReason: null,
+          artifactBrief: null,
+        },
       },
     });
     await expect(runAuditedProjectChatModel({
       workItemId: "work-1",
       agentRunId: "agent-1",
+      phase: "initial",
       attempt: "initial",
       inputSummary: {},
       execute: vi.fn(),
@@ -198,6 +220,7 @@ describe("project-chat primary-model audit", () => {
     await expect(runAuditedProjectChatModel({
       workItemId: "work-1",
       agentRunId: "agent-1",
+      phase: "initial",
       attempt: "initial",
       inputSummary: {},
       execute: async () => { throw error; },

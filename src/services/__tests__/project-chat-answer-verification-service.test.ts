@@ -3,6 +3,7 @@ import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import {
   analyzeProjectChatCitationSyntax,
   finalizeModelLedProjectChatAnswer,
+  projectChatAnswerVerificationSystemPrompt,
   projectChatRepairInstructions,
 } from "@/src/services/project-chat-answer-verification-service";
 import { analyzeProjectChatPublicationSafety } from "@/src/lib/project-chat-publication-safety";
@@ -107,7 +108,7 @@ describe("model-led project-chat answer boundaries", () => {
     })).toThrow("internal conversation or provenance transport syntax");
   });
 
-  it("rejects a broad uncited catch-all after otherwise grounded claims", () => {
+  it("leaves semantic catch-all grounding to the verifier instead of a layout regex", () => {
     const answer = [
       "The active runtime is resolved from configuration. [citation:1]",
       "",
@@ -121,16 +122,16 @@ describe("model-led project-chat answer boundaries", () => {
       code: "uncited_project_claim_block",
       explanation: "Substantive project claim block 2 has no inline source attachment.",
     }));
-    expect(() => finalizeModelLedProjectChatAnswer({
+    expect(finalizeModelLedProjectChatAnswer({
       answer,
       catalog,
       requiresProjectCitations: true,
-    })).toThrow("Substantive project claim block 2");
-    expect(() => finalizeModelLedProjectChatAnswer({
+    }).answer).toBe(answer);
+    expect(finalizeModelLedProjectChatAnswer({
       answer,
       catalog,
       requiresProjectCitations: false,
-    })).toThrow("Substantive project claim block 2");
+    }).answer).toBe(answer);
   });
 
   it("keeps formatting flexible while requiring each substantive list claim to be grounded", () => {
@@ -187,5 +188,16 @@ describe("model-led project-chat answer boundaries", () => {
     expect(instructions).toContain("say that boundary plainly instead of guessing");
     expect(instructions).toContain("Return only the revised user-facing answer");
     expect(instructions).not.toContain("Here is what I found");
+  });
+
+  it("does not discard a supported bounded revision solely for redundant table-marker placement", () => {
+    expect(projectChatAnswerVerificationSystemPrompt(1))
+      .not.toContain("bounded revision 1 of at most 2");
+    expect(projectChatAnswerVerificationSystemPrompt(2))
+      .toContain("Do not request another repair merely to repeat an already-referenced supporting source in every table row");
+    expect(projectChatAnswerVerificationSystemPrompt(2))
+      .toContain("Still reject any unsupported fact");
+    expect(projectChatAnswerVerificationSystemPrompt(3))
+      .toContain("bounded revision 2 of at most 2");
   });
 });

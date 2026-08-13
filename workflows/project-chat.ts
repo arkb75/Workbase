@@ -23,7 +23,6 @@ import {
   finalizeProjectChatAfterFactReview,
   runProjectChatAgent,
 } from "@/src/services/project-chat-agent-service";
-import { ensureProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import {
   isKnowledgeRefreshPartial,
   knowledgeRefreshService,
@@ -418,18 +417,9 @@ async function startRequiredKnowledgeRefresh(runId: string) {
       terminalStatus: run.status as TerminalAgentRunStatus,
     };
   }
-  const plan = await ensureProjectChatTurnPlan(run.id);
-  // Semantic freshness is model-owned. The workflow enforces the model's
-  // bounded decision as a durable side-effect barrier; it does not reinterpret
-  // user wording with lexical triggers.
-  if (plan.action !== "refresh_then_answer") {
-    return {
-      required: false as const,
-      refreshRunId: null,
-      alreadyComplete: false,
-      terminalStatus: null,
-    };
-  }
+  // The primary answer model selected refresh_project_sources in the prior
+  // bounded tool turn. This Workflow step performs that requested durable
+  // side effect; it does not reinterpret user wording or run a second router.
   const refresh = await startKnowledgeRefresh({
     userId: run.userId,
     workItemId: run.workItemId,
@@ -1067,7 +1057,11 @@ async function hasValidAwaitingReviewCheckpoint(runId: string) {
   });
 }
 
-async function answerProjectQuestion(runId: string, afterFactReview = false) {
+async function answerProjectQuestion(
+  runId: string,
+  afterFactReview = false,
+  sourceRefreshCompleted = false,
+) {
   "use step";
 
   const persisted = await prisma.agentRun.findUniqueOrThrow({
@@ -1194,6 +1188,7 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
     history,
     rollingSummary: run.thread?.rollingSummary,
     allowResearch: !afterFactReview,
+    sourceRefreshCompleted,
     // Agent telemetry must never be in the model/tool critical path. The
     // persisted answer and citations are authoritative; progress events are a
     // best-effort audit/UX stream.
@@ -1241,6 +1236,18 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
       },
     });
     return { status: "artifact_requested" as const };
+  }
+
+  if (result.status === "refresh_requested") {
+    await appendAgentRunEvent({
+      runId,
+      type: "tool_result",
+      toolName: "refresh_project_sources",
+      message: "The primary agent requested a durable project-source refresh.",
+      payload: { reason: result.reason },
+      isUserVisible: false,
+    }).catch(() => null);
+    return { status: "refresh_requested" as const, reason: result.reason };
   }
 
   if (result.status === "insufficient_context") {
@@ -1520,16 +1527,27 @@ export async function projectChatTurnWorkflow(runId: string) {
     await assertApplicationRuntimeReady();
     const running = await setAgentRunStarted(runId);
     if (!running.active) return terminalAgentRunResult(running.status);
-    // startRequiredKnowledgeRefresh and answerProjectQuestion both perform
-    // their own terminal-state fences. Separate status-only Workflow steps
-    // here added three remote round trips to every turn without closing a race
-    // that those authoritative transitions did not already close.
-    const refresh = await runRequiredKnowledgeRefresh(runId);
-    if (refresh?.terminalStatus) {
-      return terminalAgentRunResult(refresh.terminalStatus);
-    }
     await emitProgress(runId, "Searching verified project memory.", "retrieval");
     let result = await answerProjectQuestion(runId);
+    let sourceRefreshCompleted = false;
+    if (result.status === "refresh_requested") {
+      await emitProgress(
+        runId,
+        "Refreshing attached project sources at their latest immutable revisions.",
+        "research",
+      );
+      const refresh = await runRequiredKnowledgeRefresh(runId);
+      if (refresh?.terminalStatus) {
+        return terminalAgentRunResult(refresh.terminalStatus);
+      }
+      sourceRefreshCompleted = true;
+      await emitProgress(
+        runId,
+        "Project sources refreshed. Resuming the answer from the current snapshot.",
+        "retrieval",
+      );
+      result = await answerProjectQuestion(runId, false, true);
+    }
     if (result.status === "artifact_requested") {
       await emitProgress(runId, "Starting the approval-gated artifact workflow.", "artifact");
       return await runArtifactLifecycle(runId);
@@ -1548,7 +1566,11 @@ export async function projectChatTurnWorkflow(runId: string) {
         return await finishDeniedProjectFactReview(runId);
       }
       await emitProgress(runId, "Fact review complete. Resuming the saved research and finalizing from approved facts.", "retrieval");
-      result = await answerProjectQuestion(runId, true);
+      result = await answerProjectQuestion(
+        runId,
+        true,
+        sourceRefreshCompleted,
+      );
     }
     const progress = result.status === "completed"
       ? { message: "Answer grounded and citations attached.", type: "complete" as const }
@@ -1590,10 +1612,6 @@ export async function artifactGenerationWorkflow(runId: string) {
     await assertApplicationRuntimeReady();
     const running = await setAgentRunStarted(runId);
     if (!running.active) return terminalAgentRunResult(running.status);
-    const refresh = await runRequiredKnowledgeRefresh(runId);
-    if (refresh?.terminalStatus) {
-      return terminalAgentRunResult(refresh.terminalStatus);
-    }
     return await runArtifactLifecycle(runId);
   } catch (error) {
     const terminalStatus = await terminalAgentRunStatus(runId);

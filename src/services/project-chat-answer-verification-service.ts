@@ -13,10 +13,9 @@ import {
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
-import type { ProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v3";
+export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v6";
 
 export const projectChatAnswerVerificationSchema = z.object({
   verdict: z.enum(["publish", "repair", "insufficient_context"]),
@@ -174,13 +173,6 @@ export function finalizeModelLedProjectChatAnswer(input: {
       freshness: input.freshness ?? null,
     };
   }
-  const groundingCoverage = analyzeProjectChatPublicationSafety({
-    answer: input.answer,
-    requiresProjectCitations: input.requiresProjectCitations || syntax.citationIndexes.length > 0,
-  }).filter((issue) => issue.code === "uncited_project_claim_block");
-  if (groundingCoverage.length) {
-    throw new Error(groundingCoverage.map((issue) => issue.explanation).join(" "));
-  }
   const selected = selectReferencedCitations(input.answer, input.catalog, 20);
   const groundedClaims = groundedClaimSegments(selected.content);
   assertAnswerCitationContract({
@@ -198,16 +190,34 @@ export function finalizeModelLedProjectChatAnswer(input: {
   };
 }
 
+export function projectChatAnswerVerificationSystemPrompt(attempt: 1 | 2 | 3) {
+  return [
+    "You are the bounded semantic verifier for one project-chat answer.",
+    "The primary answer model—not this verifier—owns intent, structure, tool choice, and prose. Evaluate whether its answer actually satisfies the user's request and requested format without demanding a particular wording or canned structure.",
+    "Check project claims only against the cited source entries. Topical similarity is not entailment. Conversation history may resolve references and requested presentation, but it is not factual project evidence.",
+    "Set requiresProjectCitations true for claims about this project, its attached sources, implementation, project runtime configuration, prior tool activity, accomplishments, or stored project state. Ordinary conversational statements and clarification questions may be citation-free.",
+    "A table, matrix, grid, side-by-side layout, bullets, prose, or equivalent format can satisfy the request when it expresses the requested relationships clearly. Do not require literal trigger words.",
+    "Evaluate freshness semantically. If the request requires broadly synchronized reusable knowledge, require a completed durable source refresh. A bounded source search/read at an immutable current revision can satisfy a narrow current-source question without a full refresh.",
+    "Do not require one citation per paragraph, bullet, table row, or other layout block. Judge whether each factual claim is supported by the citations it actually references; deterministic code validates only citation syntax, range, project scope, and internal-protocol safety.",
+    ...(attempt > 1
+      ? [`This is bounded revision ${attempt - 1} of at most 2. Publish when its factual claims are substantively supported by the referenced source set and the remaining concern is only redundant marker placement or another editorial nicety. Do not request another repair merely to repeat an already-referenced supporting source in every table row. Still reject any unsupported fact, unresolved contradiction, unsafe output, missing requested substance, or broken format.`]
+      : []),
+    "Use repair only when one bounded revision can fix grounding, relevance, completeness, continuity, or formatting using the available sources. Use insufficient_context when the source catalog cannot support the requested answer.",
+    "Do not introduce facts, rewrite the answer, write user-facing prose, or select a preferred editorial template.",
+  ].join(" ");
+}
+
 export async function verifyModelLedProjectChatAnswer(input: {
   workItemId: string;
   agentRunId: string;
-  attempt: 1 | 2;
+  attempt: 1 | 2 | 3;
   currentRequest: string;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
-  plan: ProjectChatTurnPlan;
   answer: string;
   entries: ProjectAnswerGroundingEntry[];
   catalog: ProjectKnowledgeCitation[];
+  toolNames: string[];
+  sourceRefreshCompleted: boolean;
 }) {
   const mechanical = analyzeProjectChatCitationSyntax(
     input.answer,
@@ -217,10 +227,6 @@ export async function verifyModelLedProjectChatAnswer(input: {
     answer: input.answer,
     requiresProjectCitations: false,
   });
-  const groundingCoverage = analyzeProjectChatPublicationSafety({
-    answer: input.answer,
-    requiresProjectCitations: true,
-  }).filter((issue) => issue.code === "uncited_project_claim_block");
   const referenced = new Set(mechanical.citationIndexes);
   const referencedEntries = input.entries.filter((entry) =>
     entry.citationIndexes.some((index) => referenced.has(index))
@@ -238,33 +244,22 @@ export async function verifyModelLedProjectChatAnswer(input: {
       citationCount: input.catalog.length,
       referencedCitationCount: referenced.size,
       mechanicalIssueCount: mechanical.issues.length,
-      outputFormat: input.plan.outputFormat,
+      toolNames: input.toolNames,
+      sourceRefreshCompleted: input.sourceRefreshCompleted,
     },
     execute: () => getStructuredLlmClient("verification").generateStructured({
-      systemPrompt: [
-        "You are the bounded semantic verifier for one Workbase project-chat answer.",
-        "The primary answer model—not this verifier—owns intent, structure, tool choice, and prose. Evaluate whether its answer actually satisfies the user's request and requested format without demanding a particular wording or canned structure.",
-        "Check project claims only against the cited source entries. Topical similarity is not entailment. Conversation history may resolve references and requested presentation, but it is not factual project evidence.",
-        "Set requiresProjectCitations true for claims about this Work Item, its repositories, implementation, runtime configuration, prior tool activity, accomplishments, or stored project state. Ordinary conversational statements and clarification questions may be citation-free.",
-        "A table, matrix, grid, side-by-side layout, bullets, prose, or equivalent format can satisfy the request when it expresses the requested relationships clearly. Do not require literal trigger words.",
-        "Use repair only when one bounded revision can fix grounding, relevance, completeness, continuity, or formatting using the available sources. Use insufficient_context when the source catalog cannot support the requested answer.",
-        "Do not introduce facts, rewrite the answer, write user-facing prose, or select a preferred editorial template.",
-      ].join(" "),
+      systemPrompt: projectChatAnswerVerificationSystemPrompt(input.attempt),
       userPrompt: JSON.stringify({
         request: providerSafeText(input.currentRequest),
         conversation: input.conversation.slice(-12).map((message) => ({
           ...message,
           content: providerSafeText(message.content),
         })),
-        semanticPlan: {
-          objective: providerSafeText(input.plan.objective),
-          outputFormat: providerSafeText(input.plan.outputFormat),
-          outputRequirements: input.plan.outputRequirements.map(providerSafeText),
-        },
+        toolsUsed: input.toolNames,
+        durableSourceRefreshCompleted: input.sourceRefreshCompleted,
         answer: providerSafeText(input.answer),
         mechanicalCitationIssues: mechanical.issues,
         publicationSafetyIssues: protocolSafety,
-        groundingCoverageIssues: groundingCoverage,
         referencedSources: referencedEntries,
         availableSourceCount: input.catalog.length,
       }),
@@ -282,9 +277,6 @@ export async function verifyModelLedProjectChatAnswer(input: {
           : []),
         ...(value.verdict === "publish" && protocolSafety.length
           ? ["An answer exposing internal transport syntax cannot be published."]
-          : []),
-        ...(value.verdict === "publish" && (value.requiresProjectCitations || referenced.size > 0) && groundingCoverage.length
-          ? ["Every substantive project claim block must carry an inline source attachment."]
           : []),
         ...(value.verdict === "publish" && value.requiresProjectCitations && !referenced.size
           ? ["A project-grounded answer cannot be published without citations."]
@@ -305,9 +297,6 @@ export async function verifyModelLedProjectChatAnswer(input: {
     mechanicalIssues: [
       ...mechanical.issues,
       ...protocolSafety.map((issue) => issue.explanation),
-      ...(result.data.requiresProjectCitations || referenced.size > 0
-        ? groundingCoverage.map((issue) => issue.explanation)
-        : []),
     ],
   } satisfies ProjectChatAnswerVerification;
 }

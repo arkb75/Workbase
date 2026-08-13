@@ -56,6 +56,30 @@ function citedProjectAnswer(
   };
 }
 
+function citedRepositoryAnswer(
+  base: ProjectChatApplicationObservation,
+  answer: string,
+): ProjectChatApplicationObservation {
+  const cited = citedProjectAnswer(base, answer);
+  return {
+    ...cited,
+    citationKinds: Array.from(
+      { length: cited.citationCount },
+      () => "github_file",
+    ),
+    repositoryCitationFreshness: {
+      targetHeads: [{
+        sourceId: "source-repository",
+        repository: "example/project",
+        commitSha: "a".repeat(40),
+      }],
+      repositoryDerivedCitationCount: cited.citationCount,
+      currentRepositoryDerivedCitationCount: cited.citationCount,
+      staleCitationOrdinals: [],
+    },
+  };
+}
+
 function successfulObservation(
   scenario: ProjectChatApplicationScenario,
   historyMessageCount: number,
@@ -151,10 +175,9 @@ Built review, supersession, staleness reconciliation, and provenance handling ar
 3. **Implemented a grounded, durable AI agent.** Multi-turn project chat combines retrieval, citations, bounded research, Bedrock structured generation, and retry-safe workflow boundaries, which supports technically deep answers without sacrificing control or recovery. [citation:3]`);
     case "runtime_model_matrix":
     case "runtime_model_grid_follow_up":
-      return citedProjectAnswer({
+      return citedRepositoryAnswer({
         ...base,
-        tools: ["inspect_runtime_model_profiles"],
-        semanticPlanAction: "answer",
+        tools: ["list_project_sources", "list_project_source_paths", "search_project_sources", "read_project_source"],
         answerCompositionMode: "model_tool_loop",
         metrics: {
           ...zeroMetrics,
@@ -186,17 +209,13 @@ Built review, supersession, staleness reconciliation, and provenance handling ar
           },
         },
       }, [
-        "| Purpose | Profile | Provider / model |",
+        "| Responsibility | Location | What it does |",
         "|---|---|---|",
-        "| Final answer | `primary_answer` | OpenRouter / primary |",
-        "| Durable synthesis | `deep_synthesis` | OpenRouter / synthesis |",
-        "| Semantic verification | `verification` | OpenRouter / verifier |",
-        "| Candidate drafting | `drafting` | OpenRouter / drafter |",
-        "| Repository extraction | `code_extraction` | OpenRouter / extractor |",
-        "| Execution planning | `routing` | OpenRouter / router |",
-        "| Structured repair | `json_repair` | OpenRouter / repair |",
+        "| Membership admission | `src/membership/join.ts` | Validates an invite and creates the membership transition. |",
+        "| Circle activation | `src/circles/activate.ts` | Applies the active-state rules after admission. |",
+        "| Persistence | `src/data/memberships.ts` | Commits the resulting membership state. |",
         "",
-        "This mapping comes from the live runtime configuration. [citation:1]",
+        "This mapping comes from the selected current source files. [citation:1]",
       ].join("\n"));
     case "concise_project_overview":
       return citedProjectAnswer(base, `Workbase is a career-content product that turns evidence from a software project into trustworthy resume bullets, LinkedIn content, and project summaries. It uses reviewed Highlights and Project Facts rather than sending raw notes directly to public artifact generation, which lets a hiring manager see useful outcomes while preserving a clear source trail and review lifecycle. [citation:1]
@@ -331,12 +350,12 @@ The workflow boundary matters because a chat or research operation can retain it
         "The chat layer fails closed when current supporting evidence is missing instead of guessing. [citation:1]",
       );
     case "prior_turn_provenance":
-      return citedProjectAnswer({ ...base, tools: ["inspect_prior_answer_sources"] }, "No. The authoritative prior-turn manifest shows that the prior answer did not inspect the repository. [citation:1]");
+      return citedProjectAnswer({ ...base, tools: ["inspect_prior_turn"] }, "No. The authoritative prior-turn manifest shows that the prior answer did not inspect the repository. [citation:1]");
     case "historical_source_baseline":
       return citedProjectAnswer(base, "Workbase combines repository knowledge, grounded project chat, and durable artifact workflows. [citation:1]");
     case "prior_turn_source_scope":
       return citedProjectAnswer(
-        { ...base, tools: ["inspect_prior_answer_sources"] },
+        { ...base, tools: ["inspect_prior_turn"] },
         "No new repository research was performed. The authoritative prior-turn manifest shows that the sources actually used were cited durable Project Facts already present in project memory. [citation:1]",
       );
     case "long_thread_rollover":
@@ -434,11 +453,11 @@ The workflow boundary matters because a chat or research operation can retain it
       };
     case "targeted_repository_research":
       return {
-        ...citedProjectAnswer(
+        ...citedRepositoryAnswer(
           base,
           "No retry policy was found. The loop exits by throwing when `iterations >= maxIterations`, and `stopReason` controls response exits. [citation:1]",
         ),
-        tools: ["list_repository_paths", "search_repository", "read_repository_file"],
+        tools: ["list_project_sources", "search_project_sources", "read_project_source"],
         metrics: {
           ...zeroMetrics,
           latencyMs: 1_000,
@@ -529,7 +548,7 @@ describe("project-chat application scenario runner", () => {
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
-  it("hard-gates the exact runtime-matrix regression on live config authority and model composition", () => {
+  it("hard-gates the repository-neutral current-source matrix on reads and model composition", () => {
     const scenario = projectChatApplicationScenarios.find(
       (entry) => entry.id === "runtime_model_matrix",
     )!;
@@ -538,15 +557,15 @@ describe("project-chat application scenario runner", () => {
 
     const failed = evaluateProjectChatApplicationObservation(scenario, {
       ...valid,
-      tools: ["search_project_memory"],
+      tools: ["search_project_knowledge"],
       answerCompositionMode: "deterministic_source_synthesis",
     });
     expect(failed.passed).toBe(false);
     expect(failed.checks.filter((check) => !check.passed).map((check) => check.name))
       .toEqual(expect.arrayContaining([
-        "runtime mapping used the authoritative configuration tool",
-        "runtime mapping did not search project prose",
-        "runtime mapping was composed by the primary model",
+        "current-source matrix searched the attached source",
+        "current-source matrix read only selected source results",
+        "current-source matrix was composed by the primary model",
       ]));
   });
 
@@ -662,7 +681,7 @@ describe("project-chat application scenario runner", () => {
     const observation = successfulObservation(scenario, 0);
     const result = evaluateProjectChatApplicationObservation(scenario, {
       ...observation,
-      tools: ["read_repository_file"],
+      tools: ["read_project_source"],
       metrics: { ...observation.metrics, totalTokens: 25 },
     });
 
