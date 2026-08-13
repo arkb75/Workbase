@@ -1210,9 +1210,27 @@ async function answerProjectQuestion(runId: string, afterFactReview = false) {
   ) {
     return terminalAgentRunResult(beforeAgent?.status ?? "missing");
   }
-  const result = afterFactReview
-    ? await finalizeProjectChatAfterFactReview(agentInput)
-    : await runProjectChatAgent(agentInput);
+  let result: Awaited<ReturnType<typeof runProjectChatAgent>>;
+  try {
+    result = afterFactReview
+      ? await finalizeProjectChatAfterFactReview(agentInput)
+      : await runProjectChatAgent(agentInput);
+  } catch (error) {
+    const failure = classifyWorkflowFailure(error);
+    if (failure.retryable) throw error;
+    const message = [failure.message, failure.recovery].filter(Boolean).join(" ");
+    await failAgentRun({
+      runId,
+      message,
+      failure: {
+        code: failure.code,
+        stage: "Running project chat",
+        retryable: false,
+        recovery: failure.recovery,
+      },
+    });
+    return { status: "failed" as const, message };
+  }
 
   if (result.status === "artifact_requested") {
     await prisma.agentRun.update({

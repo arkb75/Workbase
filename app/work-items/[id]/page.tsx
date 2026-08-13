@@ -59,6 +59,10 @@ import {
   repositoryRefreshIsActive,
 } from "@/src/lib/github-repository-import-state";
 import {
+  projectChatAnswerExposesInternalProtocol,
+  WITHHELD_PROJECT_CHAT_ANSWER,
+} from "@/src/lib/project-chat-publication-safety";
+import {
   nestArtifactEvidenceUnderHighlights,
   readArtifactEvidenceProvenance,
   readArtifactHighlightProvenance,
@@ -1153,24 +1157,30 @@ export default async function WorkItemDetailPage({
     title: chatThread.title,
     updatedAt: chatThread.updatedAt.toISOString(),
   })) ?? [];
-  const chatMessages = chatWorkspace?.messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    status:
-      message.status === "queued"
-        ? ("pending" as const)
-        : message.status === "running"
-          ? ("streaming" as const)
-          : message.status,
-    createdAt: message.createdAt.toISOString(),
-    freshness: readChatFreshness(message.metadata),
-    citationIntegrity: readSourceMetadata(message.metadata)?.citationIntegrity === "legacy_unverifiable"
-      ? "legacy_unverifiable" as const
-      : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
-        ? "verified" as const
-        : null,
-    citations: message.citations.map((citation) => {
+  const chatMessages = chatWorkspace?.messages.map((message) => {
+    const internalProtocolExposed = message.role === "assistant" &&
+      projectChatAnswerExposesInternalProtocol(message.content);
+    return {
+      id: message.id,
+      role: message.role,
+      content: internalProtocolExposed ? WITHHELD_PROJECT_CHAT_ANSWER : message.content,
+      status: internalProtocolExposed
+        ? ("failed" as const)
+        : message.status === "queued"
+          ? ("pending" as const)
+          : message.status === "running"
+            ? ("streaming" as const)
+            : message.status,
+      createdAt: message.createdAt.toISOString(),
+      freshness: internalProtocolExposed ? null : readChatFreshness(message.metadata),
+      citationIntegrity: internalProtocolExposed
+        ? null
+        : readSourceMetadata(message.metadata)?.citationIntegrity === "legacy_unverifiable"
+          ? "legacy_unverifiable" as const
+          : readSourceMetadata(message.metadata)?.citationIntegrity === "verified"
+            ? "verified" as const
+            : null,
+      citations: message.citations.map((citation) => {
       const citationMetadata = readSourceMetadata(citation.metadata);
       const snapshottedProvenance = Array.isArray(citationMetadata?.provenance)
         ? citationMetadata.provenance.flatMap((entry) => {
@@ -1210,8 +1220,9 @@ export default async function WorkItemDetailPage({
           };
         }) ?? [],
       };
-    }),
-  })) ?? [];
+      }),
+    };
+  }) ?? [];
   const chatEvents = chatWorkspace?.events.map((event) => ({
     id: event.id,
     runId: event.runId,

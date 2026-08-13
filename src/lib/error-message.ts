@@ -25,6 +25,7 @@ export interface ClassifiedWorkflowFailure {
     | "database_schema_out_of_date"
     | "database_unavailable"
     | "model_provider_unavailable"
+    | "model_execution_limit"
     | "repository_provider_unavailable"
     | "shared_refresh_timeout"
     | "workflow_failed";
@@ -74,6 +75,19 @@ function providerFailureSemantics(value: unknown, seen = new Set<unknown>()): {
 export function classifyWorkflowFailure(error: unknown): ClassifiedWorkflowFailure {
   const raw = errorMessageFromUnknown(error);
   const providerFailure = providerFailureSemantics(error);
+  if (
+    providerFailure?.code === "iteration_limit_exceeded" ||
+    providerFailure?.code === "tool_call_limit_exceeded" ||
+    providerFailure?.code === "token_limit_exceeded" ||
+    providerFailure?.code === "output_token_limit_reached"
+  ) {
+    return {
+      code: "model_execution_limit",
+      message: "Workbase stopped the model after it reached a bounded execution limit.",
+      recovery: "Retry with a narrower request, or inspect the run's tool activity if the same limit repeats.",
+      retryable: false,
+    };
+  }
   if (/database_schema_out_of_date|database migrations?.{0,40}out of date/i.test(raw)) {
     return {
       code: "database_schema_out_of_date",

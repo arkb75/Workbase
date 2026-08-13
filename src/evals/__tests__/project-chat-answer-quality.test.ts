@@ -69,6 +69,24 @@ describe("project-chat answer quality contracts", () => {
     ]);
   });
 
+  it("rejects leaked conversation and provenance transport syntax", () => {
+    const result = evaluateProjectChatAnswerQuality({
+      answer: [
+        "The repository is current. [citation:1]",
+        "<message_id>cmsr2hs5d00yob3un3nmthh9k</message_id>",
+        '<used_sources>[{"ordinal":1}]</used_sources>',
+      ].join("\n"),
+      contract: {},
+    });
+
+    expect(result).toContainEqual({
+      name: "answer does not expose internal conversation or provenance transport syntax",
+      passed: false,
+      actual: true,
+      expected: false,
+    });
+  });
+
   it("rejects broad answers that are shallow, exhaustive, and led by low-value implementation detail", () => {
     const answer = `## Details
 

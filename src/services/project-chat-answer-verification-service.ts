@@ -5,6 +5,7 @@ import type {
   ProjectKnowledgeCitation,
 } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import { analyzeProjectChatPublicationSafety } from "@/src/lib/project-chat-publication-safety";
 import {
   assertAnswerCitationContract,
   selectReferencedCitations,
@@ -15,7 +16,7 @@ import { redactRepositorySecrets } from "@/src/services/github-repository-explor
 import type { ProjectChatTurnPlan } from "@/src/services/project-chat-turn-planner-service";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v1";
+export const PROJECT_CHAT_ANSWER_VERIFIER_VERSION = "project-chat-answer-verifier-v2";
 
 export const projectChatAnswerVerificationSchema = z.object({
   verdict: z.enum(["publish", "repair", "insufficient_context"]),
@@ -144,8 +145,15 @@ export function finalizeModelLedProjectChatAnswer(input: {
     input.answer,
     input.catalog.length,
   );
-  if (syntax.issues.length) {
-    throw new Error(syntax.issues.join(" "));
+  const protocolSafety = analyzeProjectChatPublicationSafety({
+    answer: input.answer,
+    requiresProjectCitations: false,
+  });
+  if (syntax.issues.length || protocolSafety.length) {
+    throw new Error([
+      ...syntax.issues,
+      ...protocolSafety.map((issue) => issue.explanation),
+    ].join(" "));
   }
   if (!syntax.citationIndexes.length) {
     if (input.requiresProjectCitations) {
@@ -165,6 +173,13 @@ export function finalizeModelLedProjectChatAnswer(input: {
       groundedClaims: [] as Array<{ claim: string; citationIndexes: number[] }>,
       freshness: input.freshness ?? null,
     };
+  }
+  const groundingCoverage = analyzeProjectChatPublicationSafety({
+    answer: input.answer,
+    requiresProjectCitations: input.requiresProjectCitations || syntax.citationIndexes.length > 0,
+  }).filter((issue) => issue.code === "uncited_project_claim_block");
+  if (groundingCoverage.length) {
+    throw new Error(groundingCoverage.map((issue) => issue.explanation).join(" "));
   }
   const selected = selectReferencedCitations(input.answer, input.catalog, 20);
   const groundedClaims = groundedClaimSegments(selected.content);
@@ -198,6 +213,14 @@ export async function verifyModelLedProjectChatAnswer(input: {
     input.answer,
     input.catalog.length,
   );
+  const protocolSafety = analyzeProjectChatPublicationSafety({
+    answer: input.answer,
+    requiresProjectCitations: false,
+  });
+  const groundingCoverage = analyzeProjectChatPublicationSafety({
+    answer: input.answer,
+    requiresProjectCitations: true,
+  }).filter((issue) => issue.code === "uncited_project_claim_block");
   const referenced = new Set(mechanical.citationIndexes);
   const referencedEntries = input.entries.filter((entry) =>
     entry.citationIndexes.some((index) => referenced.has(index))
@@ -240,6 +263,8 @@ export async function verifyModelLedProjectChatAnswer(input: {
         },
         answer: providerSafeText(input.answer),
         mechanicalCitationIssues: mechanical.issues,
+        publicationSafetyIssues: protocolSafety,
+        groundingCoverageIssues: groundingCoverage,
         referencedSources: referencedEntries,
         availableSourceCount: input.catalog.length,
       }),
@@ -254,6 +279,12 @@ export async function verifyModelLedProjectChatAnswer(input: {
       extraValidation: (value) => [
         ...(value.verdict === "publish" && mechanical.issues.length
           ? ["An answer with mechanical citation errors cannot be published."]
+          : []),
+        ...(value.verdict === "publish" && protocolSafety.length
+          ? ["An answer exposing internal transport syntax cannot be published."]
+          : []),
+        ...(value.verdict === "publish" && (value.requiresProjectCitations || referenced.size > 0) && groundingCoverage.length
+          ? ["Every substantive project claim block must carry an inline source attachment."]
           : []),
         ...(value.verdict === "publish" && value.requiresProjectCitations && !referenced.size
           ? ["A project-grounded answer cannot be published without citations."]
@@ -271,7 +302,13 @@ export async function verifyModelLedProjectChatAnswer(input: {
   return {
     ...result.data,
     generationRunId: result.generationRunId,
-    mechanicalIssues: mechanical.issues,
+    mechanicalIssues: [
+      ...mechanical.issues,
+      ...protocolSafety.map((issue) => issue.explanation),
+      ...(result.data.requiresProjectCitations || referenced.size > 0
+        ? groundingCoverage.map((issue) => issue.explanation)
+        : []),
+    ],
   } satisfies ProjectChatAnswerVerification;
 }
 

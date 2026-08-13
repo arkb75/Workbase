@@ -1,3 +1,5 @@
+import { projectChatAnswerExposesInternalProtocol } from "@/src/lib/project-chat-publication-safety";
+
 export type ProjectChatAnswerFormat = "markdown" | "paragraphs" | "table";
 
 export type ProjectChatReaderTheme =
@@ -495,6 +497,12 @@ export function evaluateProjectChatAnswerQuality(input: {
     "answer does not expose an internal verification or agent failure",
     !GENERIC_FAILURE_PATTERNS.some((pattern) => pattern.test(answer)),
     GENERIC_FAILURE_PATTERNS.some((pattern) => pattern.test(answer)),
+    false,
+  );
+  add(
+    "answer does not expose internal conversation or provenance transport syntax",
+    !projectChatAnswerExposesInternalProtocol(answer),
+    projectChatAnswerExposesInternalProtocol(answer),
     false,
   );
   if (contract.forbidInternalInventory) {

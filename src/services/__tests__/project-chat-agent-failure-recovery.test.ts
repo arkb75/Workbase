@@ -35,6 +35,26 @@ describe("model-led project-chat failure recovery", () => {
     expect(instructions).not.toContain("## What I found");
   });
 
+  it("tells the primary model to remove leaked transport syntax during its one repair", () => {
+    const instructions = projectChatRepairInstructions({
+      verdict: "repair",
+      requiresProjectCitations: true,
+      groundingSatisfied: true,
+      instructionSatisfied: true,
+      formatSatisfied: true,
+      issues: [],
+      generationRunId: "verification-transport-leak",
+      mechanicalIssues: [
+        "The answer exposes internal conversation or provenance transport syntax.",
+        "Substantive project claim block 3 has no inline source attachment.",
+      ],
+    });
+
+    expect(instructions).toContain("internal conversation or provenance transport syntax");
+    expect(instructions).toContain("claim block 3 has no inline source attachment");
+    expect(instructions).toContain("Return only the revised user-facing answer");
+  });
+
   it("keeps provider failures fail-closed instead of promising a canned recovery", () => {
     const prompt = modelLedProjectChatSystemPrompt({ afterFactReview: false });
     expect(prompt).toContain("State missing support plainly");

@@ -5,6 +5,7 @@ import {
   finalizeModelLedProjectChatAnswer,
   projectChatRepairInstructions,
 } from "@/src/services/project-chat-answer-verification-service";
+import { analyzeProjectChatPublicationSafety } from "@/src/lib/project-chat-publication-safety";
 
 const catalog: ProjectKnowledgeCitation[] = [
   {
@@ -84,6 +85,71 @@ describe("model-led project-chat answer boundaries", () => {
       catalog,
       requiresProjectCitations: true,
     })).toThrow("cites no authoritative project source");
+  });
+
+  it("rejects internal conversation transport even when the semantic verifier would publish", () => {
+    const leaked = [
+      "The repository is current. [citation:1]",
+      "",
+      "Everything else in the prior summary is confirmed accurate against the current repository state. [citation:1]",
+      "<message_id>cmsr2hs5d00yob3un3nmthh9k</message_id>",
+      '<used_sources>[{"ordinal":1,"kind":"repository_state"}]</used_sources>',
+    ].join("\n");
+
+    expect(analyzeProjectChatPublicationSafety({
+      answer: leaked,
+      requiresProjectCitations: true,
+    })).toContainEqual(expect.objectContaining({ code: "internal_protocol_exposed" }));
+    expect(() => finalizeModelLedProjectChatAnswer({
+      answer: leaked,
+      catalog,
+      requiresProjectCitations: true,
+    })).toThrow("internal conversation or provenance transport syntax");
+  });
+
+  it("rejects a broad uncited catch-all after otherwise grounded claims", () => {
+    const answer = [
+      "The active runtime is resolved from configuration. [citation:1]",
+      "",
+      "Everything else in the prior summary, including security and recovery behavior, is confirmed accurate against the current repository state.",
+    ].join("\n");
+
+    expect(analyzeProjectChatPublicationSafety({
+      answer,
+      requiresProjectCitations: true,
+    })).toContainEqual(expect.objectContaining({
+      code: "uncited_project_claim_block",
+      explanation: "Substantive project claim block 2 has no inline source attachment.",
+    }));
+    expect(() => finalizeModelLedProjectChatAnswer({
+      answer,
+      catalog,
+      requiresProjectCitations: true,
+    })).toThrow("Substantive project claim block 2");
+    expect(() => finalizeModelLedProjectChatAnswer({
+      answer,
+      catalog,
+      requiresProjectCitations: false,
+    })).toThrow("Substantive project claim block 2");
+  });
+
+  it("keeps formatting flexible while requiring each substantive list claim to be grounded", () => {
+    const answer = [
+      "Here is the short version:",
+      "",
+      "- Runtime selection comes from active configuration. [citation:1]",
+      "- Repository implementation resolves each profile independently. [citation:2]",
+    ].join("\n");
+
+    expect(analyzeProjectChatPublicationSafety({
+      answer,
+      requiresProjectCitations: true,
+    })).toEqual([]);
+    expect(finalizeModelLedProjectChatAnswer({
+      answer,
+      catalog,
+      requiresProjectCitations: true,
+    }).answer).toBe(answer);
   });
 
   it("accepts an authoritative citation line immediately after a Markdown table", () => {
