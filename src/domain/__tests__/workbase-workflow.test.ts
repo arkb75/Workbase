@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildArtifactFromApprovedClaims,
   buildClaimGenerationDrafts,
-  toClaimSnapshot,
 } from "@/src/domain/workbase-workflows";
 import type {
   EvidenceItemSnapshot,
@@ -82,7 +81,9 @@ describe("workbase workflow", () => {
     expect(claimPlan.drafts.length).toBeGreaterThan(0);
 
     const approvedHighlight = {
-      ...toClaimSnapshot(workItem.id, "highlight-approved", claimPlan.drafts[0]),
+      id: "highlight-approved",
+      workItemId: workItem.id,
+      ...claimPlan.drafts[0],
       verificationStatus: transitionClaimStatus(
         claimPlan.drafts[0].verificationStatus,
         "approve",

@@ -27,7 +27,7 @@ export function HighlightSuggestionToast({
       durationMs: 9000,
       action: {
         label: "View suggestions",
-        href: `/work-items/${workItemId}/claims#suggested-updates`,
+        href: `/work-items/${workItemId}?tab=highlights#suggested-updates`,
       },
     });
   }, [pushToast, suggestionCount, workItemId]);

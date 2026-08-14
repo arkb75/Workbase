@@ -9,7 +9,6 @@ import { normalizeWhitespace } from "@/src/lib/utils";
 import { syncWorkItemDescriptionEvidenceForWorkItem } from "@/src/lib/evidence-persistence";
 import { filterSupersededProjectClaims } from "@/src/services/project-knowledge-policy";
 import {
-  buildHighlightEmbeddingText,
   ensureHighlightEmbeddings,
 } from "@/src/services/highlight-embedding-service";
 import { explicitSelfReportedOwnershipAuthority } from "@/src/services/evidence-ownership-authority";
@@ -1273,5 +1272,3 @@ export const projectKnowledgeRetrievalService = {
     };
   },
 } satisfies ProjectKnowledgeRetrievalService;
-
-export { buildHighlightEmbeddingText };

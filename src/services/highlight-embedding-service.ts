@@ -1,9 +1,6 @@
 import type { ClaimDraft, ClaimSnapshot, HighlightTagAssignment } from "@/src/domain/types";
 import { Prisma } from "@/src/generated/prisma/client";
-import {
-  type EmbeddingIndexIdentity,
-  WORKBASE_EMBEDDING_DIMENSIONS,
-} from "@/src/lib/embedding-config";
+import type { EmbeddingIndexIdentity } from "@/src/lib/embedding-config";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import {
@@ -22,7 +19,6 @@ import {
   vectorToSqlLiteral,
 } from "@/src/services/embedding-runtime";
 
-export const HIGHLIGHT_EMBEDDING_DIMENSIONS = WORKBASE_EMBEDDING_DIMENSIONS;
 export { hashEmbeddingInput, vectorToSqlLiteral };
 
 type EmbeddableHighlight = Pick<
@@ -94,10 +90,6 @@ export function buildHighlightEmbeddingText(highlight: EmbeddableHighlight) {
       ...evidenceText,
     ].join("\n"),
   );
-}
-
-export async function resolveCurrentHighlightEmbeddingIdentity() {
-  return resolveActiveEmbeddingIndex();
 }
 
 export async function generateHighlightEmbedding(

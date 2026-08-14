@@ -544,16 +544,6 @@ export async function createProjectChatRun(input: {
   });
 }
 
-export async function attachWorkflowToAgentRun(input: {
-  runId: string;
-  workflowId: string;
-}) {
-  await prisma.agentRun.update({
-    where: { id: input.runId },
-    data: { workflowId: input.workflowId },
-  });
-}
-
 export async function appendAgentRunEvent(input: {
   runId: string;
   type: "progress" | "tool_call" | "tool_result" | "status_change" | "warning" | "error";

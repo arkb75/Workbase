@@ -147,8 +147,6 @@ const semanticAnalysisJsonSchema: JsonSchemaObject = {
     unresolvedQuestions: { type: "array", maxItems: 4, items: { type: "string", minLength: 2, maxLength: 300 } },
   },
 };
-export type RepositorySemanticAnalysis = z.infer<typeof semanticAnalysisSchema>;
-
 // The provider-facing JSON schema below is strict and dynamic, but the
 // transport parser deliberately is not. Native structured-output providers
 // can still return a partially malformed object during fallback/repair. Keep

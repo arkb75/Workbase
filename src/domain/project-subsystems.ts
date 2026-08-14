@@ -1,24 +1,16 @@
-export const PROJECT_SUBSYSTEM_KEYS = [
-  "product_surface",
-  "domain_data",
-  "ai_runtime",
-  "ingestion_integrations",
-  "retrieval_provenance",
-  "workflow_orchestration",
-  "repository_knowledge_lifecycle",
-  "project_chat_grounding",
-  "artifact_generation",
-  "knowledge_review_lifecycle",
-  "review_ui",
-  "tests_operations",
-] as const;
-
-export type ProjectSubsystemKey = (typeof PROJECT_SUBSYSTEM_KEYS)[number];
-
-export function isProjectSubsystemKey(value: unknown): value is ProjectSubsystemKey {
-  return typeof value === "string" &&
-    (PROJECT_SUBSYSTEM_KEYS as readonly string[]).includes(value);
-}
+export type ProjectSubsystemKey =
+  | "product_surface"
+  | "domain_data"
+  | "ai_runtime"
+  | "ingestion_integrations"
+  | "retrieval_provenance"
+  | "workflow_orchestration"
+  | "repository_knowledge_lifecycle"
+  | "project_chat_grounding"
+  | "artifact_generation"
+  | "knowledge_review_lifecycle"
+  | "review_ui"
+  | "tests_operations";
 
 /**
  * Classifies reviewed knowledge that was created without a subsystem tag.

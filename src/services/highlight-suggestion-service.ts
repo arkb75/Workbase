@@ -1,6 +1,5 @@
 import { Prisma } from "@/src/generated/prisma/client";
 import type { ClaimDraft, ClaimSnapshot, JsonValue } from "@/src/domain/types";
-import { prisma } from "@/src/lib/prisma";
 import {
   buildHighlightEmbeddingText,
   upsertHighlightEmbedding,
@@ -94,49 +93,6 @@ export function coerceStoredHighlightDraft(value: unknown): ClaimDraft | null {
     evidence: draft.evidence,
     tags: draft.tags,
   };
-}
-
-export async function createOrUpdateHighlightSuggestion(input: {
-  workItemId: string;
-  sourceHighlight: ClaimSnapshot;
-  draft: ClaimDraft;
-  matchReason: string;
-  cosineDistance: number | null;
-  generationRunIds: string[];
-}) {
-  const existingPending = await prisma.highlightSuggestion.findFirst({
-    where: {
-      sourceHighlightId: input.sourceHighlight.id,
-      status: "pending",
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-  const data = {
-    workItemId: input.workItemId,
-    sourceHighlightId: input.sourceHighlight.id,
-    suggestionType: "revision",
-    currentSnapshot: snapshotHighlight(input.sourceHighlight) as Prisma.InputJsonValue,
-    suggestedDraft: serializeHighlightDraft(input.draft) as Prisma.InputJsonValue,
-    matchReason: input.matchReason,
-    cosineDistance: input.cosineDistance,
-    sourceEvidenceIds: getDraftEvidenceIds(input.draft) as Prisma.InputJsonValue,
-    generationRunIds: input.generationRunIds as Prisma.InputJsonValue,
-  };
-
-  if (existingPending) {
-    return prisma.highlightSuggestion.update({
-      where: {
-        id: existingPending.id,
-      },
-      data,
-    });
-  }
-
-  return prisma.highlightSuggestion.create({
-    data,
-  });
 }
 
 export async function applyDraftToHighlight(input: {

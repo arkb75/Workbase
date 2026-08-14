@@ -11,15 +11,11 @@ export const careerStageOptions = [
   { value: "early_career_engineer", label: "Early-career engineer" },
 ] as const;
 
-export type CareerStage = (typeof careerStageOptions)[number]["value"];
-
 export const focusPreferenceOptions = [
   { value: "projects", label: "Projects" },
   { value: "work_experience", label: "Work experience" },
   { value: "both", label: "Both" },
 ] as const;
-
-export type FocusPreference = (typeof focusPreferenceOptions)[number]["value"];
 
 export const workItemTypeOptions = [
   { value: "project", label: "Project" },
@@ -76,18 +72,6 @@ export const verificationStatusOptions = [
 
 export type VerificationStatus =
   (typeof verificationStatusOptions)[number]["value"];
-
-export const projectFactCategoryOptions = [
-  { value: "architecture", label: "Architecture" },
-  { value: "behavior", label: "Behavior" },
-  { value: "data_flow", label: "Data flow" },
-  { value: "code_location", label: "Code location" },
-  { value: "dependency", label: "Dependency" },
-  { value: "configuration", label: "Configuration" },
-] as const;
-
-export type ProjectFactCategory =
-  (typeof projectFactCategoryOptions)[number]["value"];
 
 export const visibilityOptions = [
   { value: "private", label: "Private" },

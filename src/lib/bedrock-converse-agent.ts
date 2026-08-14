@@ -1485,19 +1485,3 @@ export class BedrockConverseAgent {
     }
   }
 }
-
-// Provider-neutral names for new integrations. The Bedrock-prefixed exports
-// remain stable for rollback compatibility and existing persisted event code.
-export { BedrockConverseAgent as TextConverseAgent };
-export {
-  BedrockConverseAgentError as TextConverseAgentError,
-  BedrockConverseLimitError as TextConverseLimitError,
-  BedrockConverseModelCapabilityError as TextConverseModelCapabilityError,
-  BedrockConverseProviderError as TextConverseProviderError,
-};
-export type TextConverseAgentErrorCode = BedrockConverseAgentErrorCode;
-export type TextConverseAgentEvent = BedrockConverseAgentEvent;
-export type TextConverseAgentRunInput = BedrockConverseAgentRunInput;
-export type TextConverseAgentRunResult = BedrockConverseAgentRunResult;
-export type TextConverseTool = BedrockConverseTool;
-export const defineTextConverseTool = defineBedrockConverseTool;

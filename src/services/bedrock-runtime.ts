@@ -136,14 +136,3 @@ export function createTextConverseAgent(input: {
     "A conversation model agent is unavailable when WORKBASE_LLM_PROVIDER=mock.",
   );
 }
-
-/** @deprecated New call sites should select an explicit model profile. */
-export function getBedrockStructuredLlmClient(
-  profile: TextModelProfile = "deep_synthesis",
-) {
-  return getStructuredLlmClient(profile);
-}
-
-export function resetTextRuntimeCacheForTests() {
-  cachedClients.clear();
-}

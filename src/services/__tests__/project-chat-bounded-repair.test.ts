@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BedrockConverseAgentEvent,
-  TextConverseTool,
+  BedrockConverseTool,
 } from "@/src/lib/bedrock-converse-agent";
 
 const mocks = vi.hoisted(() => ({
@@ -326,7 +326,7 @@ describe("project-chat bounded repair regression", () => {
     mocks.agentRun.mockImplementation(async (input) => {
       modelAttempt += 1;
       if (modelAttempt === 1) {
-        const inspectionTool = input.tools.find((tool: TextConverseTool) =>
+        const inspectionTool = input.tools.find((tool: BedrockConverseTool) =>
           tool.name === "inspect_project"
         );
         expect(inspectionTool?.jsonSchema).toMatchObject({
@@ -467,7 +467,7 @@ describe("project-chat bounded repair regression", () => {
     let attempt = 0;
     mocks.agentRun.mockImplementation(async (agentInput) => {
       attempt += 1;
-      const inspection = agentInput.tools.find((tool: TextConverseTool) =>
+      const inspection = agentInput.tools.find((tool: BedrockConverseTool) =>
         tool.name === "inspect_project"
       );
       expect(inspection).toBeDefined();
@@ -483,7 +483,7 @@ describe("project-chat bounded repair regression", () => {
           ["inspect_project"],
         );
       }
-      expect(agentInput.tools.map((tool: TextConverseTool) => tool.name))
+      expect(agentInput.tools.map((tool: BedrockConverseTool) => tool.name))
         .toEqual(["inspect_project"]);
       expect(agentInput.systemPrompt).toContain("one bounded evidence continuation");
       expect(JSON.stringify(agentInput.messages)).toContain(
@@ -672,7 +672,7 @@ describe("project-chat bounded repair regression", () => {
     mocks.agentRun.mockImplementation(async (agentInput) => {
       attempt += 1;
       if (attempt === 1) {
-        const inspect = agentInput.tools.find((tool: TextConverseTool) =>
+        const inspect = agentInput.tools.find((tool: BedrockConverseTool) =>
           tool.name === "inspect_project"
         )!;
         await inspect.execute({
@@ -920,7 +920,7 @@ describe("project-chat bounded repair regression", () => {
   }) => {
     mocks.verify.mockReset();
     mocks.agentRun.mockImplementationOnce(async (input) => {
-      const selected = input.tools.find((tool: TextConverseTool) =>
+      const selected = input.tools.find((tool: BedrockConverseTool) =>
         tool.name === toolName
       );
       expect(selected).toBeDefined();

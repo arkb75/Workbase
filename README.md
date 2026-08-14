@@ -127,8 +127,8 @@ npm run openrouter:preflight
 - `/dashboard`
 - `/work-items/new`
 - `/work-items/[id]`
-- `/work-items/[id]/claims`
-- `/work-items/[id]/artifacts/new`
+- `/work-items/[id]?tab=highlights`
+- `/work-items/[id]?tab=artifacts`
 - `/api/github/connect`
 - `/api/github/callback`
 - `/api/github/webhook`

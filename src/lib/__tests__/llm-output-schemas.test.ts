@@ -1,77 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   batchHighlightGenerationLlmOutputSchema,
-  clusterClaimResearchLlmOutputSchema,
-  claimResearchLlmOutputSchema,
   claimVerificationLlmOutputSchema,
-  evidenceClusteringLlmOutputSchema,
-  highlightGenerationLlmOutputSchema,
 } from "@/src/lib/llm-output-schemas";
 
-describe("claimResearchLlmOutputSchema", () => {
-  it("normalizes claim and evidenceRefs aliases from research payloads", () => {
-    const parsed = claimResearchLlmOutputSchema.parse({
-      claims: [
-        {
-          claim: "Implemented role-aware filters for internal and public datasets.",
-          category: "backend",
-          confidence: "medium",
-          ownershipClarity: "partial",
-          evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
-          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
-          risksSummary: null,
-          missingInfo: null,
-          evidenceRefs: ["evidence-1", "evidence-2"],
-        },
-      ],
-    });
-
-    expect(parsed).toEqual({
-      claims: [
-        {
-          claimText: "Implemented role-aware filters for internal and public datasets.",
-          category: "backend",
-          confidence: "medium",
-          ownershipClarity: "partial",
-          evidenceSummary: "Notes and repo evidence both point to role-aware filtering work.",
-          rationaleSummary: "The sources support the feature, but individual ownership is partial.",
-          risksSummary: null,
-          missingInfo: null,
-          sourceRefs: ["evidence-1", "evidence-2"],
-        },
-      ],
-    });
-  });
-
-  it("rejects title and description drift when required claim fields are missing", () => {
-    const parsed = claimResearchLlmOutputSchema.safeParse({
-      claims: [
-        {
-          title: "Developed a background CSV import worker for multi-team uploads.",
-          category: "data_engineering",
-          description: "Created CSV normalization scripts for multi-team imports.",
-          evidenceRefs: ["evidence-1"],
-        },
-      ],
-    });
-
-    expect(parsed.success).toBe(false);
-  });
-
-  it("allows empty cluster-local claim output when a cluster is not claim-worthy", () => {
-    const parsed = clusterClaimResearchLlmOutputSchema.parse({
-      claims: [],
-    });
-
-    expect(parsed).toEqual({
-      claims: [],
-    });
-  });
-});
-
-describe("highlightGenerationLlmOutputSchema", () => {
+describe("batchHighlightGenerationLlmOutputSchema", () => {
   it("normalizes claim-shaped legacy payloads into highlight fields", () => {
-    const parsed = highlightGenerationLlmOutputSchema.parse({
+    const parsed = batchHighlightGenerationLlmOutputSchema.parse({
       claims: [
         {
           claimText: "Implemented role-aware filters for internal and public datasets.",
@@ -216,38 +151,6 @@ describe("claimVerificationLlmOutputSchema", () => {
         "Consider specifying what the candidate's individual role was within the collaboration.",
       visibilitySuggestion: "private",
       sensitivityWarning: true,
-    });
-  });
-});
-
-describe("evidenceClusteringLlmOutputSchema", () => {
-  it("normalizes shorthand cluster item ids into evidence item references", () => {
-    const parsed = evidenceClusteringLlmOutputSchema.parse({
-      clusters: [
-        {
-          title: "Dashboard work",
-          summary: "Frontend and review surface improvements for the work item flow.",
-          theme: "Dashboard and UX",
-          confidence: "high",
-          items: ["evidence-1", { id: "evidence-2" }, { evidenceItemId: "evidence-3" }],
-        },
-      ],
-    });
-
-    expect(parsed).toEqual({
-      clusters: [
-        {
-          title: "Dashboard work",
-          summary: "Frontend and review surface improvements for the work item flow.",
-          theme: "Dashboard and UX",
-          confidence: "high",
-          items: [
-            { evidenceItemId: "evidence-1" },
-            { evidenceItemId: "evidence-2" },
-            { evidenceItemId: "evidence-3" },
-          ],
-        },
-      ],
     });
   });
 });

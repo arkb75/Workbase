@@ -8,7 +8,6 @@ vi.mock("@/src/lib/llm-config", async (importOriginal) => {
 });
 
 vi.mock("@/src/services/bedrock-runtime", () => ({
-  getBedrockStructuredLlmClient: () => ({ generateStructured: generateStructuredMock }),
   getStructuredLlmClient: () => ({ generateStructured: generateStructuredMock }),
 }));
 

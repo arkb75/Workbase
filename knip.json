@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "app/**/*.{ts,tsx}",
+    "scripts/**/*.ts",
+    "workflows/**/*.ts",
+    "tests/e2e/**/*.mjs",
+    "*.config.{ts,mjs}"
+  ],
+  "project": [
+    "**/*.{ts,tsx,mjs,css}",
+    "!src/generated/**"
+  ],
+  "ignoreDependencies": ["@prisma/client", "postcss"],
+  "ignoreUnresolved": ["@/src/generated/prisma/client"],
+  "ignoreExportsUsedInFile": true
+}

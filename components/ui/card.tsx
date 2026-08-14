@@ -57,18 +57,6 @@ export function CardContent({
   return <div className={cn("p-6", className)} {...props} />;
 }
 
-export function CardFooter({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn("flex flex-wrap items-center gap-3 p-6 pt-0", className)}
-      {...props}
-    />
-  );
-}
-
 export function KeyValue({
   label,
   value,

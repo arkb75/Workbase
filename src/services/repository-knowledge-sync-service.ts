@@ -21,8 +21,6 @@ import {
 // forcing every unchanged repository blob through static analysis again.
 export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v16";
 export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v18";
-/** @deprecated Prefer the layer-specific analyzer version. */
-export const REPOSITORY_KNOWLEDGE_ANALYZER_VERSION = REPOSITORY_STATIC_ANALYZER_VERSION;
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 

@@ -70,12 +70,6 @@ export type ManualEvidenceHighlightTrigger =
   | "manual_source_add"
   | "manual_evidence_change";
 
-export type ManualEvidenceHighlightTerminalOutcome =
-  | "ready"
-  | "no_safe_candidates"
-  | "no_evidence"
-  | "superseded_input";
-
 export type ManualEvidenceHighlightRequestEvidence = {
   id: string;
   sourceId: string;

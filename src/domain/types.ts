@@ -3,14 +3,12 @@ import type {
   ArtifactType,
   ClaimConfidence,
   EvidenceItemType,
-  FocusPreference,
   OwnershipClarity,
   TargetAngle,
   VerificationStatus,
   VisibilityLevel,
   WorkItemType,
   SourceType,
-  CareerStage,
 } from "@/src/lib/options";
 import type {
   HighlightTagDimension,
@@ -24,17 +22,6 @@ export type JsonValue =
   | null
   | { [key: string]: JsonValue }
   | JsonValue[];
-
-export interface WorkbaseUserProfile {
-  id: string;
-  email: string;
-  name: string;
-  careerStage: CareerStage | null;
-  currentGoal: string | null;
-  focusPreference: FocusPreference | null;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
 
 export interface WorkItemSnapshot {
   id: string;
@@ -175,31 +162,4 @@ export interface NormalizedEvidenceItem {
   excerpts: string[];
   metadata: JsonValue | null;
   tags?: HighlightTagAssignment[];
-}
-
-export interface GenerationTraceSnapshot {
-  id: string;
-  workItemId: string;
-  kind:
-    | "claim_research"
-    | "claim_cluster_research"
-    | "claim_merge"
-    | "claim_verification"
-    | "highlight_generation"
-    | "highlight_verification"
-    | "artifact_retrieval"
-    | "artifact_generation"
-    | "evidence_clustering";
-  status: "success" | "provider_error" | "parse_error" | "validation_error";
-  provider: string;
-  modelId: string;
-  inputSummary: JsonValue;
-  rawOutput: string | null;
-  parsedOutput: JsonValue | null;
-  validationErrors: JsonValue | null;
-  resultRefs: JsonValue | null;
-  tokenUsage: JsonValue | null;
-  estimatedCostUsd: number | null;
-  createdAt?: Date;
-  updatedAt?: Date;
 }

@@ -839,19 +839,3 @@ export async function getWorkItemWorkspaceForUser(
     },
   };
 }
-
-export async function getArtifactForUser(
-  userId: string,
-  artifactId: string | null | undefined,
-) {
-  if (!artifactId) {
-    return null;
-  }
-
-  return prisma.artifact.findFirst({
-    where: {
-      id: artifactId,
-      userId,
-    },
-  });
-}

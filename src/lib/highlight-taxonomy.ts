@@ -142,10 +142,3 @@ export const audienceFitDefaultsByArtifactType = {
   linkedin_experience: ["linkedin_safe", "resume_safe"],
   project_summary: ["project_summary", "linkedin_safe"],
 } as const;
-
-export function isAllowedHighlightTag(
-  dimension: HighlightTagDimension,
-  tag: string,
-) {
-  return (highlightTagVocabulary[dimension] as readonly string[]).includes(tag);
-}

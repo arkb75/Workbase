@@ -538,7 +538,3 @@ export async function resolveAgentCandidate(
     resumedRunId,
   };
 }
-
-export const candidateReviewService: CandidateReviewService = {
-  resolve: resolveAgentCandidate,
-};

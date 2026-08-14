@@ -1,10 +1,8 @@
 import { filterDuplicateClaimDrafts, partitionClaimsByPersistence } from "@/src/domain/claim-regeneration";
 import type {
   ArtifactRequest,
-  HighlightDraft,
   ClaimSnapshot,
   EvidenceItemSnapshot,
-  NormalizedEvidenceItem,
   SourceSnapshot,
   WorkItemSnapshot,
 } from "@/src/domain/types";
@@ -114,78 +112,6 @@ export async function buildClaimGenerationDrafts(params: {
   };
 }
 
-export async function buildIncrementalClaimGenerationDrafts(params: {
-  workItem: WorkItemSnapshot;
-  sources: SourceSnapshot[];
-  evidenceItems: EvidenceItemSnapshot[];
-  incrementalEvidenceItemIds: string[];
-  existingClaims: ClaimSnapshot[];
-  agentRunId?: string;
-  sourceIngestionService: SourceIngestionService;
-  claimResearchService: ClaimResearchService;
-  claimVerificationService: ClaimVerificationService;
-}) {
-  const incrementalEvidenceIds = new Set(params.incrementalEvidenceItemIds);
-  const normalizedEvidenceItems = await params.sourceIngestionService.normalize({
-    workItem: params.workItem,
-    sources: params.sources,
-    evidenceItems: params.evidenceItems,
-  });
-  const selectedEvidenceItems = normalizedEvidenceItems.filter((item) =>
-    incrementalEvidenceIds.has(item.id),
-  );
-
-  if (!selectedEvidenceItems.length) {
-    return {
-      normalizedEvidenceItems,
-      drafts: [] as HighlightDraft[],
-      generationRunIds: {
-        generation: [] as string[],
-        verification: null as string | null,
-      },
-    };
-  }
-
-  const selectedSourceIds = new Set(selectedEvidenceItems.map((item) => item.sourceId));
-  const contextEvidenceItems = normalizedEvidenceItems
-    .filter(
-      (item) =>
-        !incrementalEvidenceIds.has(item.id) &&
-        (item.evidenceType === "github_readme" ||
-          (item.evidenceType === "manual_note_excerpt" && item.parentKind === "work_item") ||
-          selectedSourceIds.has(item.sourceId)),
-    )
-    .slice(0, 6);
-  const rejectedGuidanceSource = buildRejectedHighlightGuidanceSource(
-    params.existingClaims.filter((claim) => claim.verificationStatus === "rejected"),
-  );
-  const researchEvidenceItems = rejectedGuidanceSource
-    ? [...selectedEvidenceItems, ...contextEvidenceItems, rejectedGuidanceSource]
-    : [...selectedEvidenceItems, ...contextEvidenceItems];
-  const candidateClaims = await params.claimResearchService.generate({
-    workItem: params.workItem,
-    evidenceItems: researchEvidenceItems,
-    existingHighlights: params.existingClaims,
-    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
-  });
-  const verifiedClaims = await params.claimVerificationService.verify({
-    workItem: params.workItem,
-    evidenceItems: researchEvidenceItems,
-    highlights: candidateClaims.highlights,
-    ...(params.agentRunId ? { agentRunId: params.agentRunId } : {}),
-  });
-  const verificationRun = readGenerationRunMetadata(verifiedClaims);
-
-  return {
-    normalizedEvidenceItems,
-    drafts: filterDuplicateClaimDrafts(verifiedClaims, []),
-    generationRunIds: {
-      generation: candidateClaims.generationRunIds.generation,
-      verification: verificationRun?.id ?? null,
-    },
-  };
-}
-
 export async function buildArtifactFromApprovedClaims(params: {
   request: ArtifactRequest;
   agentRunId?: string;
@@ -232,38 +158,4 @@ export async function buildArtifactFromApprovedClaims(params: {
     generationRunId: generationRun?.id ?? null,
     fallback: null,
   };
-}
-
-export function countClaimsByStatus(claims: ClaimSnapshot[]) {
-  return claims.reduce<Record<string, number>>((counts, claim) => {
-    counts[claim.verificationStatus] =
-      (counts[claim.verificationStatus] ?? 0) + 1;
-    return counts;
-  }, {});
-}
-
-export function toClaimSnapshot(
-  workItemId: string,
-  id: string,
-  claim: HighlightDraft,
-): ClaimSnapshot {
-  return {
-    id,
-    workItemId,
-    ...claim,
-  };
-}
-
-export function hasUsableSources(sources: SourceSnapshot[]) {
-  return sources.some(
-    (source) => source.type === "manual_note" || Boolean(source.metadata),
-  );
-}
-
-export function summarizeNormalizedSources(evidenceItems: NormalizedEvidenceItem[]) {
-  return evidenceItems.map((source) => ({
-    id: source.id,
-    label: source.label,
-    excerptCount: source.excerpts.length,
-  }));
 }

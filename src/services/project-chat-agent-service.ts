@@ -78,15 +78,10 @@ const repositoryRefreshStatusPattern =
 const conversationalFreshnessScopePattern =
   /(?:\b(?:previous|prior|last|recent|latest)\s+(?:answer|message|conversation|thread|chat)\b)|(?:\b(?:latest|recent|newest|current)\b.{0,50}\b(?:message|conversation|thread|chat history)\b)|(?:\b(?:review|candidate|artifact)\s+status(?:es)?\b)/i;
 const accomplishmentSynthesisPattern = /\b(?:strongest|top|key|major|overall)\b.{0,80}\b(?:accomplishments?|achievements?|contributions?|work|features?)\b|\b(?:summari[sz]e|assess|rank)\b.{0,100}\b(?:accomplishments?|achievements?|contributions?)\b/i;
-const accomplishmentFormatConstraintPattern = /(?:\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:sentences?|bullets?|paragraphs?|words?|items?)\b)|(?:\b(?:recruiter|hiring manager|executive|technical audience|first person|third person|concise|brief|detailed|table|json|email|cover letter|linkedin|resume)\b)/i;
 const retryQuestionPattern = /\b(?:which|what)\b.{0,80}\b(?:retr(?:y|ied|ies)|backoff)\b|\b(?:retr(?:y|ied|ies)|backoff)\b.{0,80}\bwhy\b/i;
 const semanticAnswerVerificationIntentPattern =
   /(?:\b(?:assess|evaluate|critique|compar(?:e|ed|es|ing|ison)|contrast(?:ed|s|ing)?|versus|vs|differences?\s+between|trade[- ]?offs?|recommend|should|risk|weakness|limitation|implication|pros?\s+and\s+cons?|why is|why does|how good|how well)\b|\bvs\.(?=\s|$))/i;
 const MAX_EDITORIAL_CITATIONS = 16;
-
-export function supportsDeterministicAccomplishmentFormat(question: string) {
-  return accomplishmentSynthesisPattern.test(question) && !accomplishmentFormatConstraintPattern.test(question);
-}
 
 /**
  * A second model pass is useful for analytical conclusions, but redundant for

@@ -15,13 +15,6 @@ export function isRejectedGuidanceSource(source: NormalizedEvidenceItem) {
   );
 }
 
-export function buildRejectedGuidance(evidenceItems: NormalizedEvidenceItem[]) {
-  return evidenceItems
-    .filter(isRejectedGuidanceSource)
-    .map((source) => source.body)
-    .join("\n\n");
-}
-
 export function buildResearchSourceCatalog(
   evidenceItems: NormalizedEvidenceItem[],
 ) {

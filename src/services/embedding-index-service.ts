@@ -534,10 +534,6 @@ async function findIndexByKey(
   return toIndexVersion(rows[0]);
 }
 
-export function resolveEmbeddingIndexByKey(key: string) {
-  return findIndexByKey(prisma, key);
-}
-
 function serializeReconciliationTimestamp(value: Date | null | undefined) {
   return value ? value.toISOString() : null;
 }

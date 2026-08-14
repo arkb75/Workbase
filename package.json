@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "predev": "npm run db:prepare",
     "prebuild": "prisma generate",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:dead-code": "knip",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
@@ -49,6 +51,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/mdast": "^4.0.4",
     "@types/node": "^20",
@@ -60,6 +63,7 @@
     "dotenv": "^17.4.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "knip": "5.88.1",
     "prisma": "^7.6.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",

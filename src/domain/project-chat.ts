@@ -109,8 +109,6 @@ export type ProjectFactCategory =
   | "dependency"
   | "configuration";
 
-export type ProjectFactStatus = "draft" | "approved" | "rejected" | "superseded";
-
 export interface ProjectFactDraft {
   statement: string;
   category: ProjectFactCategory;

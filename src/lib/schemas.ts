@@ -63,12 +63,6 @@ export const manualSourceSchema = z.object({
   rawContent: z.string().trim().min(20).max(3000),
 });
 
-export const githubSourceSchema = z.object({
-  workItemId: z.string().trim().min(1),
-  label: z.string().trim().min(2).max(80),
-  repoUrl: z.string().trim().url().max(300),
-});
-
 export const githubRepoImportSchema = z.object({
   workItemId: z.string().trim().min(1),
   repositoryId: z.string().trim().min(1),
@@ -79,10 +73,6 @@ export const evidenceInclusionSchema = z.object({
   workItemId: z.string().trim().min(1),
   evidenceItemId: z.string().trim().min(1),
   included: z.boolean(),
-});
-
-export const reclusterEvidenceSchema = z.object({
-  workItemId: z.string().trim().min(1),
 });
 
 export const claimUpdateSchema = z.object({

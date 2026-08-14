@@ -1432,7 +1432,3 @@ export class BedrockStructuredLlmClient {
     );
   }
 }
-
-// Provider-neutral name for new call sites. Keep the historical export so the
-// Bedrock rollback path and its contract tests remain source-compatible.
-export { BedrockStructuredLlmClient as StructuredLlmClient };

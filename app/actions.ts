@@ -14,7 +14,6 @@ import {
   claimUpdateSchema,
   evidenceInclusionSchema,
   formDataToBoolean,
-  githubSourceSchema,
   githubRepoImportSchema,
   highlightSuggestionActionSchema,
   manualSourceSchema,
@@ -586,8 +585,6 @@ export async function resolveAgentCandidateAction(formData: FormData) {
     idempotencyKey: `candidate:${candidateId}:${decision}`,
   });
   revalidatePath(`/work-items/${workItemId}`);
-  revalidatePath(`/work-items/${workItemId}/claims`);
-  revalidatePath(`/work-items/${workItemId}/artifacts/new`);
 }
 
 export async function cancelAgentRunAction(formData: FormData) {
@@ -938,41 +935,6 @@ export async function createManualSourceAction(formData: FormData) {
   redirect(appendRedirectParams(returnTo, { result: "manual-highlight-queued" }));
 }
 
-export async function createGithubSourceAction(formData: FormData) {
-  const demoUser = await ensureDemoUser();
-  const parsed = githubSourceSchema.safeParse({
-    workItemId: formData.get("workItemId"),
-    label: formData.get("label"),
-    repoUrl: formData.get("repoUrl"),
-  });
-
-  if (!parsed.success) {
-    redirect(`/work-items/${formData.get("workItemId")}?error=invalid-repo`);
-  }
-
-  await prisma.workItem.findFirstOrThrow({
-    where: {
-      id: parsed.data.workItemId,
-      userId: demoUser.id,
-    },
-  });
-
-  await prisma.source.create({
-    data: {
-      workItemId: parsed.data.workItemId,
-      type: "github_repo",
-      label: parsed.data.label,
-      metadata: {
-        repoUrl: parsed.data.repoUrl,
-        status: "placeholder",
-      },
-    },
-  });
-
-  revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  redirect(`/work-items/${parsed.data.workItemId}`);
-}
-
 export async function attachGithubRepoAction(formData: FormData) {
   const demoUser = await ensureDemoUser();
   const rawWorkItemId = String(formData.get("workItemId") ?? "");
@@ -1083,7 +1045,6 @@ export async function toggleEvidenceInclusionAction(formData: FormData) {
   }
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   redirect(
     appendRedirectParams(returnTo, {
       result: parsed.data.included ? "evidence-included" : "evidence-excluded",
@@ -1126,12 +1087,6 @@ export async function retryManualEvidenceHighlightsAction(formData: FormData) {
   redirect(appendRedirectParams(returnTo, { result: "manual-highlight-retry-queued" }));
 }
 
-export async function reclusterEvidenceAction(formData: FormData) {
-  const workItemId = String(formData.get("workItemId") ?? "");
-  revalidatePath(`/work-items/${workItemId}`);
-  redirect(`/work-items/${workItemId}?result=clusters-current`);
-}
-
 export async function generateClaimsAction(
   workItemId: string,
   returnToOrFormData?: string | FormData,
@@ -1141,7 +1096,7 @@ export async function generateClaimsAction(
     typeof returnToOrFormData === "string" ? returnToOrFormData : undefined;
   const destination = returnTo?.startsWith(`/work-items/${workItemId}`)
     ? returnTo
-    : `/work-items/${workItemId}/claims`;
+    : `/work-items/${workItemId}?tab=highlights`;
   await syncManualEvidenceItemsForWorkItem(workItemId);
   await syncWorkItemDescriptionEvidenceForWorkItem(workItemId);
   const workItem = await getWorkItemGenerationContext(demoUser.id, workItemId);
@@ -1175,7 +1130,6 @@ export async function generateClaimsAction(
   });
 
   revalidatePath(`/work-items/${workItem.id}`);
-  revalidatePath(`/work-items/${workItem.id}/claims`);
   redirect(appendRedirectParams(destination, { result: "highlights-generated" }));
 }
 
@@ -1185,7 +1139,7 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   const returnTo = readWorkItemReturnTo(
     formData,
     workItemId,
-    `/work-items/${workItemId}/claims`,
+    `/work-items/${workItemId}?tab=highlights`,
   );
 
   if (!workItemId) {
@@ -1208,8 +1162,6 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   });
 
   revalidatePath(`/work-items/${workItem.id}`);
-  revalidatePath(`/work-items/${workItem.id}/claims`);
-  revalidatePath(`/work-items/${workItem.id}/artifacts/new`);
   redirect(appendRedirectParams(returnTo, {
     result: approved.count > 0 ? "approved-all" : "no-eligible-highlights",
   }));
@@ -1241,7 +1193,7 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   const returnTo = readWorkItemReturnTo(
     formData,
     rawWorkItemId,
-    `/work-items/${claim.workItemId}/claims`,
+    `/work-items/${claim.workItemId}?tab=highlights`,
   );
 
   const parsed = claimUpdateSchema.safeParse({
@@ -1288,8 +1240,6 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
       idempotencyKey: `highlight-form:${runCandidate.id}:${parsed.data.intent}`,
     });
     revalidatePath(`/work-items/${parsed.data.workItemId}`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
     redirect(
       appendRedirectParams(returnTo, {
         result: parsed.data.intent === "approve" ? "approved" : "rejected",
@@ -1323,8 +1273,6 @@ export async function updateClaimAction(claimId: string, formData: FormData) {
   }
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
   const result =
     parsed.data.intent === "approve" || nextStatus === "approved"
         ? "approved"
@@ -1342,7 +1290,7 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
   const returnTo = readWorkItemReturnTo(
     formData,
     rawWorkItemId,
-    `/work-items/${rawWorkItemId}/claims`,
+    `/work-items/${rawWorkItemId}?tab=highlights`,
   );
   const parsed = highlightSuggestionActionSchema.safeParse({
     suggestionId: formData.get("suggestionId"),
@@ -1381,8 +1329,6 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
       idempotencyKey: `suggestion-form:${runCandidate.id}:approve`,
     });
     revalidatePath(`/work-items/${parsed.data.workItemId}`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
     redirect(appendRedirectParams(returnTo, { result: "suggestion-accepted" }));
   }
   const draft = coerceStoredHighlightDraft(suggestion.suggestedDraft);
@@ -1417,8 +1363,6 @@ export async function acceptHighlightSuggestionAction(formData: FormData) {
   });
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
   redirect(appendRedirectParams(returnTo, { result: "suggestion-accepted" }));
 }
 
@@ -1428,7 +1372,7 @@ export async function dismissHighlightSuggestionAction(formData: FormData) {
   const returnTo = readWorkItemReturnTo(
     formData,
     rawWorkItemId,
-    `/work-items/${rawWorkItemId}/claims`,
+    `/work-items/${rawWorkItemId}?tab=highlights`,
   );
   const parsed = highlightSuggestionActionSchema.safeParse({
     suggestionId: formData.get("suggestionId"),
@@ -1456,7 +1400,6 @@ export async function dismissHighlightSuggestionAction(formData: FormData) {
       idempotencyKey: `suggestion-form:${runCandidate.id}:deny`,
     });
     revalidatePath(`/work-items/${parsed.data.workItemId}`);
-    revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
     redirect(appendRedirectParams(returnTo, { result: "suggestion-dismissed" }));
   }
 
@@ -1475,7 +1418,6 @@ export async function dismissHighlightSuggestionAction(formData: FormData) {
   });
 
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/claims`);
   redirect(appendRedirectParams(returnTo, { result: "suggestion-dismissed" }));
 }
 
@@ -1485,7 +1427,7 @@ export async function generateArtifactAction(formData: FormData) {
   const returnTo = readWorkItemReturnTo(
     formData,
     rawWorkItemId,
-    `/work-items/${rawWorkItemId}/artifacts/new`,
+    `/work-items/${rawWorkItemId}?tab=artifacts`,
   );
   const parsed = artifactGenerationSchema.safeParse({
     workItemId: formData.get("workItemId"),
@@ -1524,7 +1466,6 @@ export async function generateArtifactAction(formData: FormData) {
     throw new Error("Artifact workflow did not enter the durable queue.");
   }
   revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  revalidatePath(`/work-items/${parsed.data.workItemId}/artifacts/new`);
   redirect(
     `/work-items/${parsed.data.workItemId}?tab=chat&thread=${state.threadId}&result=artifact-started`,
   );
