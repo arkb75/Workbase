@@ -1227,6 +1227,15 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
         statement: citation.excerpt,
       })),
       tools: events.flatMap((event) => event.type === "tool_call" && event.toolName ? [event.toolName] : []),
+      inspectionModes: Array.from(new Set(events.flatMap((event) => {
+        if (event.type !== "tool_call" || event.toolName !== "inspect_project") return [];
+        const modes = record(event.payload).inspectionModes;
+        return Array.isArray(modes)
+          ? modes.filter((mode): mode is "knowledge" | "repository" =>
+              mode === "knowledge" || mode === "repository"
+            )
+          : [];
+      }))),
       answerCompositionMode:
         typeof compositionMode === "string" ? compositionMode : null,
       knowledgeRefreshRunId: storedRun.knowledgeRefreshRunId,

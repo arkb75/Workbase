@@ -183,6 +183,18 @@ The test suite covers:
   selection, answer structure, and prose. Deterministic chat boundaries are
   intentionally narrow: authorization, side-effect admission, budgets,
   idempotency, citation syntax/provenance, current-head validation, and secret
-  handling. A semantic verifier may request one bounded model repair; it never
-  replaces the answer with a canned template.
+  handling. Its four project-neutral choices are `inspect_project`,
+  `refresh_project_knowledge`, `inspect_prior_turn`, and
+  `create_project_artifact`. `inspect_project` combines conceptual search over
+  durable project knowledge with bounded read-only Git inspection of an
+  authorized pinned repository, so the model can use either evidence mode or
+  both without choosing between overlapping tools. The Git capability accepts
+  ordinary argument vectors but exposes no shell, mutation, network, or
+  arbitrary host-filesystem access.
+  A semantic verifier sees a compact manifest of the entire frozen evidence
+  set. When a central evidence gap can be resolved by an authorized capability,
+  it may authorize one smaller evidence continuation before the single frozen
+  rewrite. `publish_with_limitations` is reserved for grounded, non-central,
+  irreducible boundaries; the verifier never replaces the model answer with a
+  canned template.
 - Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import {
   analyzeProjectChatCitationSyntax,
+  compactProjectChatVerificationSources,
   finalizeModelLedProjectChatAnswer,
+  projectChatAnswerVerificationSchema,
   projectChatAnswerVerificationSystemPrompt,
   projectChatRepairInstructions,
 } from "@/src/services/project-chat-answer-verification-service";
@@ -28,6 +30,52 @@ const catalog: ProjectKnowledgeCitation[] = [
 ];
 
 describe("model-led project-chat answer boundaries", () => {
+  it("shows the verifier every frozen source, including uncited repair candidates", () => {
+    const sources = compactProjectChatVerificationSources(catalog);
+    expect(sources).toEqual([
+      expect.objectContaining({ citationIndex: 1, label: "Resolved runtime profiles" }),
+      expect.objectContaining({ citationIndex: 2, label: "Runtime implementation" }),
+    ]);
+    expect(sources[1]?.excerpt).toContain("resolves every profile independently");
+  });
+
+  it("permits a useful grounded answer to publish with an explicit limitation", () => {
+    expect(projectChatAnswerVerificationSchema.parse({
+      verdict: "publish_with_limitations",
+      requiresProjectCitations: true,
+      groundingSatisfied: true,
+      instructionSatisfied: false,
+      formatSatisfied: true,
+      researchObjective: null,
+      recommendedCapabilities: [],
+      issues: [{
+        code: "qualified_majority",
+        explanation: "The sources establish merged scope but not an objective ranking of importance.",
+        candidateCitationIndexes: [1, 2],
+      }],
+    }).verdict).toBe("publish_with_limitations");
+  });
+
+  it("requests one semantic evidence continuation instead of publishing a central resolvable gap", () => {
+    expect(projectChatAnswerVerificationSchema.parse({
+      verdict: "continue_research",
+      requiresProjectCitations: true,
+      groundingSatisfied: true,
+      instructionSatisfied: false,
+      formatSatisfied: true,
+      researchObjective: "Establish the requested ordering and merge relationship from the attached repository.",
+      recommendedCapabilities: ["repository_git"],
+      issues: [{
+        code: "ordering_not_established",
+        explanation: "Durable memory names changes but does not establish their relative order.",
+        candidateCitationIndexes: [1],
+      }],
+    })).toMatchObject({
+      verdict: "continue_research",
+      recommendedCapabilities: ["repository_git"],
+    });
+  });
+
   it("limits deterministic citation validation to syntax and catalog range", () => {
     expect(analyzeProjectChatCitationSyntax(
       "Supported [citation:1] and implemented here [citation:2].",
@@ -180,7 +228,9 @@ describe("model-led project-chat answer boundaries", () => {
       groundingSatisfied: false,
       instructionSatisfied: true,
       formatSatisfied: true,
-      issues: [{ code: "missing_metric", explanation: "No source establishes p95." }],
+      researchObjective: null,
+      recommendedCapabilities: [],
+      issues: [{ code: "missing_metric", explanation: "No source establishes p95.", candidateCitationIndexes: [] }],
       generationRunId: "verification-1",
       mechanicalIssues: [],
     });
@@ -191,13 +241,33 @@ describe("model-led project-chat answer boundaries", () => {
   });
 
   it("does not discard a supported bounded revision solely for redundant table-marker placement", () => {
-    expect(projectChatAnswerVerificationSystemPrompt(1))
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 1,
+      researchContinuationUsed: false,
+    }))
       .not.toContain("bounded revision 1 of at most 2");
-    expect(projectChatAnswerVerificationSystemPrompt(2))
-      .toContain("Do not request another repair merely to repeat an already-referenced supporting source in every table row");
-    expect(projectChatAnswerVerificationSystemPrompt(2))
-      .toContain("Still reject any unsupported fact");
-    expect(projectChatAnswerVerificationSystemPrompt(3))
-      .toContain("bounded revision 2 of at most 2");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 2,
+      researchContinuationUsed: false,
+    }))
+      .toContain("Do not request another repair merely to repeat a supporting source in every table row");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 2,
+      researchContinuationUsed: false,
+    }))
+      .toContain("Still reject unsupported facts");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 2,
+      researchContinuationUsed: false,
+    }))
+      .toContain("This is the only bounded revision");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 1,
+      researchContinuationUsed: false,
+    })).toContain("Use continue_research when a material relationship");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 2,
+      researchContinuationUsed: true,
+    })).toContain("Do not request another");
   });
 });

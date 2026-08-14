@@ -4,12 +4,16 @@ import {
   compactRepositoryRefreshState,
   frozenRepairSourceSet,
   modelLedProjectChatLimits,
+  modelLedProjectChatInspectionModes,
   modelLedProjectChatRepairSystemPrompt,
+  modelLedProjectChatResearchContinuationSystemPrompt,
   modelLedProjectChatToolNames,
   modelLedProjectChatSystemPrompt,
-  repositoryCoverageDrilldown,
 } from "@/src/services/project-chat-model-agent-service";
-import type { ProjectChatModelCheckpoint } from "@/src/services/project-chat-model-audit-service";
+import {
+  PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
+  type ProjectChatModelCheckpoint,
+} from "@/src/services/project-chat-model-audit-service";
 
 describe("model-led project-chat agent contract", () => {
   it("carries chronological prose without exposing internal source transport to the primary model", () => {
@@ -90,7 +94,7 @@ describe("model-led project-chat agent contract", () => {
     expect(prompt).toContain("Matrix, table, grid, side-by-side columns");
     expect(prompt).not.toContain("exactly 2 items");
     expect(prompt).not.toContain("deterministic_source_synthesis");
-    expect(prompt).toContain("stop searching and write it");
+    expect(prompt).toContain("stop searching and write the answer");
     expect(prompt).toContain("Do not pursue exhaustive coverage");
   });
 
@@ -105,6 +109,11 @@ describe("model-led project-chat agent contract", () => {
       maxToolCalls: 1,
       maxTotalTokens: 30_000,
     });
+    expect(modelLedProjectChatLimits("research_1")).toEqual({
+      maxIterations: 4,
+      maxToolCalls: 5,
+      maxTotalTokens: 50_000,
+    });
   });
 
   it("keeps user and source content out of the system boundary", () => {
@@ -114,18 +123,22 @@ describe("model-led project-chat agent contract", () => {
     expect(prompt).toContain("Never output internal message identifiers");
   });
 
-  it("permits tools only on the initial bounded attempt", () => {
+  it("requires relationship-level evidence without prescribing Git commands", () => {
+    const prompt = modelLedProjectChatSystemPrompt({ afterFactReview: false });
+    expect(prompt).toContain("does not by itself establish their order, merge status, recency, exact diff, tag boundary, line history, or current configuration");
+    expect(prompt).toContain("inspect the repository before answering");
+    expect(prompt).not.toContain("git log --merges");
+    expect(prompt).not.toContain("git show");
+  });
+
+  it("exposes one clear project inspector and only verifier-selected continuation capabilities", () => {
     expect(modelLedProjectChatToolNames({
       repositoryAttached: true,
       requestAllowsResearch: true,
       attempt: "initial",
     })).toEqual(expect.arrayContaining([
-      "search_project_knowledge",
-      "list_project_sources",
-      "refresh_project_sources",
-      "list_project_source_paths",
-      "search_project_sources",
-      "read_project_source",
+      "inspect_project",
+      "refresh_project_knowledge",
       "inspect_prior_turn",
       "create_project_artifact",
     ]));
@@ -138,18 +151,55 @@ describe("model-led project-chat agent contract", () => {
       repositoryAttached: false,
       requestAllowsResearch: true,
       attempt: "initial",
-    })).not.toContain("search_project_sources");
+    })).toContain("inspect_project");
     expect(modelLedProjectChatToolNames({
       repositoryAttached: true,
       requestAllowsResearch: false,
       attempt: "initial",
-    })).not.toContain("search_project_sources");
+    })).toContain("inspect_project");
     expect(modelLedProjectChatToolNames({
       repositoryAttached: true,
       requestAllowsResearch: true,
       sourceRefreshCompleted: true,
       attempt: "initial",
-    })).not.toContain("refresh_project_sources");
+    })).not.toContain("refresh_project_knowledge");
+    expect(modelLedProjectChatToolNames({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      attempt: "research_1",
+      researchCapabilities: ["repository_git"],
+    })).toEqual(["inspect_project"]);
+    expect(modelLedProjectChatToolNames({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      attempt: "research_1",
+      researchCapabilities: ["prior_turn"],
+    })).toEqual(["inspect_prior_turn"]);
+  });
+
+  it("keeps Git authority separately fenced inside the unified inspector", () => {
+    expect(modelLedProjectChatInspectionModes({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      attempt: "initial",
+    })).toEqual(["knowledge", "repository"]);
+    expect(modelLedProjectChatInspectionModes({
+      repositoryAttached: true,
+      requestAllowsResearch: false,
+      attempt: "initial",
+    })).toEqual(["knowledge"]);
+    expect(modelLedProjectChatInspectionModes({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      afterFactReview: true,
+      attempt: "initial",
+    })).toEqual(["knowledge"]);
+    expect(modelLedProjectChatInspectionModes({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      attempt: "research_1",
+      researchCapabilities: ["repository_git"],
+    })).toEqual(["repository"]);
   });
 
   it("uses repository-neutral tools instead of exposing the host runtime", () => {
@@ -160,6 +210,8 @@ describe("model-led project-chat agent contract", () => {
     });
     expect(tools).not.toContain("inspect_runtime_model_profiles");
     expect(tools).not.toContain("research_repository");
+    expect(tools).not.toContain("run_git");
+    expect(tools.filter((tool) => tool === "inspect_project")).toHaveLength(1);
     expect(tools.every((tool) => !tool.includes("workbase"))).toBe(true);
   });
 
@@ -169,6 +221,17 @@ describe("model-led project-chat agent contract", () => {
     expect(prompt).toContain("No tools or new research are available");
     expect(prompt).toContain("only the frozen source catalog");
     expect(prompt).not.toContain("Choose tools iteratively");
+  });
+
+  it("keeps evidence continuation model-led, bounded, and invisible to the user", () => {
+    const prompt = modelLedProjectChatResearchContinuationSystemPrompt({
+      afterFactReview: false,
+    });
+    expect(prompt).toContain("one bounded evidence continuation");
+    expect(prompt).toContain("available inspection capabilities");
+    expect(prompt).toContain("Do not broaden the investigation");
+    expect(prompt).not.toContain("git log --merges");
+    expect(prompt).not.toContain("exactly two commits");
   });
 
   it("projects a large coverage inventory into a compact freshness authority", () => {
@@ -221,44 +284,9 @@ describe("model-led project-chat agent contract", () => {
     });
   });
 
-  it("returns only the requested bounded coverage slice on drill-down", () => {
-    const details = repositoryCoverageDrilldown({
-      query: "ai runtime",
-      maxPaths: 2,
-      coverage: [{
-        repository: "arkb75/Workbase",
-        commitSha: "b".repeat(40),
-        targets: [
-          {
-            key: "ai_runtime",
-            label: "AI runtime",
-            status: "semantic_verified",
-            paths: ["src/lib/llm-config.ts", "src/lib/openrouter-client.ts", "README.md"],
-            unresolvedQuestions: ["Which fallback is active?"],
-          },
-          {
-            key: "review_ui",
-            label: "Review UI",
-            paths: ["app/work-items/[id]/page.tsx"],
-            unresolvedQuestions: [],
-          },
-        ],
-      }],
-    });
-    expect(details.returnedPathCount).toBe(2);
-    expect(details.repositories).toHaveLength(1);
-    expect(details.repositories[0]?.matches).toEqual([
-      expect.objectContaining({
-        key: "ai_runtime",
-        paths: ["src/lib/llm-config.ts", "src/lib/openrouter-client.ts"],
-      }),
-    ]);
-    expect(JSON.stringify(details)).not.toContain("app/work-items");
-  });
-
   it("prioritizes cited frozen sources and bounds repair context", () => {
     const checkpoint = {
-      version: "project-chat-model-checkpoint-v7",
+      version: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
       answer: "The runtime is current. [citation:2]",
       catalog: [],
       entries: [
@@ -282,7 +310,7 @@ describe("model-led project-chat agent contract", () => {
         },
       ],
       research: null,
-      toolNames: ["search_project_sources", "read_project_source"],
+      toolNames: ["inspect_project"],
       control: {
         refreshRequested: false,
         refreshReason: null,
@@ -294,6 +322,9 @@ describe("model-led project-chat agent contract", () => {
     expect(frozen[0]?.content).toContain("ACTIVE_RUNTIME");
     expect(frozen.reduce((sum, source) => sum + source.content.length, 0))
       .toBeLessThanOrEqual(4_000);
+
+    const candidateFirst = frozenRepairSourceSet(checkpoint, 4_000, [1]);
+    expect(candidateFirst[0]?.title).toBe("Unreferenced source");
   });
 
 });

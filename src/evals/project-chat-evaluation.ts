@@ -248,7 +248,7 @@ export function evaluateProjectChatScenario(
       source.kind === "github_file" &&
       source.presentation !== "nested_provenance" &&
       fixture.expected.allowedSourceKinds.includes("github_file") &&
-      invokedTools.has("read_project_source");
+      invokedTools.has("inspect_project");
     check(checks, "unused_source", source.used, `Persisted source is used by the final answer: ${source.title}.`, source.used, true);
     check(checks, "source_kind", nestedRepositoryProvenance || fixture.expected.allowedSourceKinds.includes(source.kind),
       `Source kind is allowed: ${source.kind}.`, source.kind, fixture.expected.allowedSourceKinds.join(", "));

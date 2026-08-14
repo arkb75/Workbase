@@ -158,11 +158,17 @@ camel-case fields (`workItemTitle`, `repository`,
 
 The application catalog includes the runtime-model matrix regression and a
 same-thread grid paraphrase. Both must let the primary answer model inspect the
-attached repository through `search_project_sources` followed by bounded
-`read_project_source` calls, persist an audited `primary_answer` run, and record
+attached repository through `inspect_project` with bounded
+read-only Git queries, persist an audited `primary_answer` run, and record
 `answerCompositionMode=model_tool_loop`. There is no host-runtime shortcut:
 the answer must reflect the project source the user attached, and
 `deterministic_source_synthesis` is not an acceptable substitute.
+The same top-level inspector also supports durable knowledge searches; live
+observations record whether each call used `knowledge`, `repository`, or both,
+so a memory-only call cannot satisfy a current-source gate. If an initial draft
+publishes a central limitation that an authorized inspection could resolve,
+the semantic verifier may authorize exactly one smaller evidence continuation.
+It may not prescribe exact Git commands, and a second continuation is rejected.
 
 The broader semantic observation contract lives in
 `src/evals/project-chat-semantic-robustness.ts`. It covers freshness

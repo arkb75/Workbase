@@ -193,6 +193,7 @@ export interface ProjectChatApplicationObservation {
   citationOrdinals: number[];
   citationMetadata?: ProjectChatAnswerCitationMetadata[];
   tools: string[];
+  inspectionModes?: Array<"knowledge" | "repository">;
   /** Final composition authority; production chat must be model_tool_loop. */
   answerCompositionMode?: string | null;
   /** A refresh attached to this turn, even when it reused a completed run. */
@@ -1246,10 +1247,7 @@ function addCheck(
 }
 
 const repositoryTools = new Set([
-  "refresh_project_sources",
-  "list_project_source_paths",
-  "search_project_sources",
-  "read_project_source",
+  "refresh_project_knowledge",
   "research_repository",
   "research_project",
   "list_repository_paths",
@@ -1258,8 +1256,16 @@ const repositoryTools = new Set([
   "read_repository_files",
 ]);
 
+function hasGitInspectionCitation(observation: ProjectChatApplicationObservation) {
+  return (observation.citationMetadata ?? []).some((citation) =>
+    /\s—\sgit\s/u.test(citation.title)
+  );
+}
+
 function hasRepositoryTool(observation: ProjectChatApplicationObservation) {
-  return observation.tools.some((tool) => repositoryTools.has(tool));
+  return observation.tools.some((tool) => repositoryTools.has(tool)) ||
+    observation.inspectionModes?.includes("repository") === true ||
+    hasGitInspectionCitation(observation);
 }
 
 function canonicalCitationSetMatches(observation: ProjectChatApplicationObservation) {
@@ -1408,10 +1414,12 @@ export function evaluateProjectChatApplicationObservation(
     if (observation.citationKinds.includes("github_file")) {
       addCheck(
         checks,
-        "repository-file citations came from an explicit bounded read",
-        observation.tools.includes("read_project_source"),
+        "repository-file citations came from explicit bounded inspection",
+        observation.tools.includes("inspect_project") &&
+          observation.inspectionModes?.includes("repository") === true &&
+          hasGitInspectionCitation(observation),
         observation.tools.join(", "),
-        "read_project_source",
+        "inspect_project with pinned Git evidence",
       );
       addCheck(
         checks,
@@ -1467,12 +1475,11 @@ export function evaluateProjectChatApplicationObservation(
     case "runtime_model_matrix":
     case "runtime_model_grid_follow_up": {
       addCheck(checks, "current-source matrix completed", observation.outcome === "answered", observation.outcome, "answered");
-      addCheck(checks, "current-source matrix searched the attached source", observation.tools.includes("search_project_sources"), observation.tools.join(", "), "search_project_sources");
-      addCheck(checks, "current-source matrix read only selected source results", observation.tools.includes("read_project_source"), observation.tools.join(", "), "read_project_source");
-      addCheck(checks, "current-source matrix avoided a broad durable refresh", !observation.tools.includes("refresh_project_sources"), observation.tools.join(", "), "no durable refresh");
+      addCheck(checks, "current-source matrix inspected the attached repository", observation.tools.includes("inspect_project") && observation.inspectionModes?.includes("repository") === true && hasGitInspectionCitation(observation), observation.tools.join(", "), "inspect_project with pinned Git evidence");
+      addCheck(checks, "current-source matrix avoided a broad durable refresh", !observation.tools.includes("refresh_project_knowledge"), observation.tools.join(", "), "no durable refresh");
       addCheck(checks, "current-source matrix was composed by the primary model", observation.answerCompositionMode === "model_tool_loop", observation.answerCompositionMode ?? "missing", "model_tool_loop");
       addCheck(checks, "current-source matrix presents multiple implementation areas", markdownTableDataRowCount(observation.answer) >= 2, markdownTableDataRowCount(observation.answer), 2);
-      addCheck(checks, "current-source matrix cites selected immutable source files", observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "github_file");
+      addCheck(checks, "current-source matrix cites pinned repository inspection", observation.citationKinds.includes("evidence") || observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "repository inspection evidence");
       addCheck(checks, "current-source matrix has an audited primary answer", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
       if (scenario.id === "runtime_model_grid_follow_up") {
         addCheck(checks, "runtime grid follow-up received the preceding turn", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
@@ -1696,14 +1703,13 @@ export function evaluateProjectChatApplicationObservation(
       break;
     case "targeted_repository_research":
       addCheck(checks, "targeted research produced a supported answer or review candidate", ["answered", "awaiting_review"].includes(observation.outcome), observation.outcome, "answered or awaiting_review");
-      addCheck(checks, "targeted research searched an attached source", observation.tools.includes("search_project_sources"), observation.tools.join(", "), "search_project_sources");
-      addCheck(checks, "targeted research read selected immutable files", observation.tools.includes("read_project_source"), observation.tools.join(", "), "read_project_source");
+      addCheck(checks, "targeted research inspected an attached repository", observation.tools.includes("inspect_project") && observation.inspectionModes?.includes("repository") === true && hasGitInspectionCitation(observation), observation.tools.join(", "), "inspect_project with pinned Git evidence");
       addCheck(checks, "targeted answer addresses retry behavior", /\b(?:retr(?:y|ied|ies)|backoff)\b/i.test(observation.answer), observation.answer, "retry/backoff behavior");
       addCheck(checks, "targeted answer addresses loop termination", /\b(?:loop|iteration|terminat|max(?:imum)?|limit|budget)\w*\b/i.test(observation.answer), observation.answer, "loop termination or bound");
       addCheck(checks, "targeted answer identifies the concrete iteration guard", /\bmaxIterations\b|\biterations?\s*(?:>=|<=|<|>)\b/i.test(observation.answer), observation.answer, "maxIterations or an explicit iteration condition");
       addCheck(checks, "targeted answer identifies a concrete exit path", /\bstopReason\b|conditional exit|`(?:break;|return|throw)`/i.test(observation.answer), observation.answer, "an exact stop reason or exit statement");
       addCheck(checks, "targeted answer is not a generic file-presence fallback", !/contains repository evidence relevant to the requested/i.test(observation.answer), observation.answer, "a request-specific supported fact");
-      addCheck(checks, "targeted answer cites the selected immutable files", observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "github_file citation");
+      addCheck(checks, "targeted answer cites pinned repository evidence", observation.citationKinds.includes("evidence") || observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "repository inspection citation");
       break;
   }
 

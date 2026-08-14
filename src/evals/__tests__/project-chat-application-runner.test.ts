@@ -63,10 +63,15 @@ function citedRepositoryAnswer(
   const cited = citedProjectAnswer(base, answer);
   return {
     ...cited,
+    inspectionModes: ["repository"],
     citationKinds: Array.from(
       { length: cited.citationCount },
       () => "github_file",
     ),
+    citationMetadata: (cited.citationMetadata ?? []).map((citation) => ({
+      ...citation,
+      title: "example/project — git show HEAD:src/runtime.ts",
+    })),
     repositoryCitationFreshness: {
       targetHeads: [{
         sourceId: "source-repository",
@@ -177,7 +182,7 @@ Built review, supersession, staleness reconciliation, and provenance handling ar
     case "runtime_model_grid_follow_up":
       return citedRepositoryAnswer({
         ...base,
-        tools: ["list_project_sources", "list_project_source_paths", "search_project_sources", "read_project_source"],
+        tools: ["inspect_project"],
         answerCompositionMode: "model_tool_loop",
         metrics: {
           ...zeroMetrics,
@@ -457,7 +462,7 @@ The workflow boundary matters because a chat or research operation can retain it
           base,
           "No retry policy was found. The loop exits by throwing when `iterations >= maxIterations`, and `stopReason` controls response exits. [citation:1]",
         ),
-        tools: ["list_project_sources", "search_project_sources", "read_project_source"],
+        tools: ["inspect_project"],
         metrics: {
           ...zeroMetrics,
           latencyMs: 1_000,
@@ -557,14 +562,17 @@ describe("project-chat application scenario runner", () => {
 
     const failed = evaluateProjectChatApplicationObservation(scenario, {
       ...valid,
-      tools: ["search_project_knowledge"],
+      tools: ["inspect_project"],
+      citationMetadata: (valid.citationMetadata ?? []).map((citation) => ({
+        ...citation,
+        title: "Stored project memory",
+      })),
       answerCompositionMode: "deterministic_source_synthesis",
     });
     expect(failed.passed).toBe(false);
     expect(failed.checks.filter((check) => !check.passed).map((check) => check.name))
       .toEqual(expect.arrayContaining([
-        "current-source matrix searched the attached source",
-        "current-source matrix read only selected source results",
+        "current-source matrix inspected the attached repository",
         "current-source matrix was composed by the primary model",
       ]));
   });
@@ -681,7 +689,11 @@ describe("project-chat application scenario runner", () => {
     const observation = successfulObservation(scenario, 0);
     const result = evaluateProjectChatApplicationObservation(scenario, {
       ...observation,
-      tools: ["read_project_source"],
+      tools: ["inspect_project"],
+      citationMetadata: (observation.citationMetadata ?? []).map((citation) => ({
+        ...citation,
+        title: "example/project — git log --oneline -10",
+      })),
       metrics: { ...observation.metrics, totalTokens: 25 },
     });
 
