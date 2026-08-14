@@ -6,11 +6,9 @@ import {
 } from "@/src/evals/project-chat-semantic-robustness";
 
 const capabilityTool = {
-  knowledge_search: "search_project_knowledge",
-  source_inventory: "list_project_sources",
-  durable_refresh: "refresh_project_sources",
-  source_search: "search_project_sources",
-  source_read: "read_project_source",
+  knowledge_search: "inspect_project",
+  durable_refresh: "refresh_project_knowledge",
+  repository_inspection: "inspect_project",
   prior_turn_inspection: "inspect_prior_turn",
   artifact_creation: "create_project_artifact",
 } as const;
@@ -35,6 +33,14 @@ function observation(
     observedToolNames: scenario.requiredCapabilities.map((capability) =>
       capabilityTool[capability]
     ),
+    observedInspectionModes: [
+      ...(scenario.requiredCapabilities.includes("knowledge_search")
+        ? ["knowledge" as const]
+        : []),
+      ...(scenario.requiredCapabilities.includes("repository_inspection")
+        ? ["repository" as const]
+        : []),
+    ],
     compositionMode: "model_tool_loop",
     primaryAnswerRunCount: 1,
     semanticVerificationRunCount:
@@ -80,7 +86,8 @@ describe("project-chat semantic robustness gate", () => {
   it("catches one freshness paraphrase that fails to request durable synchronization", () => {
     const observations = projectChatSemanticRobustnessScenarios.map(observation);
     const target = observations.find((candidate) => candidate.scenarioId === "freshness_elliptical")!;
-    target.observedToolNames = ["search_project_knowledge"];
+    target.observedToolNames = ["inspect_project"];
+    target.observedInspectionModes = ["knowledge"];
     const result = evaluateProjectChatSemanticRobustness({ observations });
     expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({
@@ -92,7 +99,7 @@ describe("project-chat semantic robustness gate", () => {
   it("rejects over-eager full refresh for a narrow current-source inspection", () => {
     const observations = projectChatSemanticRobustnessScenarios.map(observation);
     const target = observations.find((candidate) => candidate.scenarioId === "source_current_config")!;
-    target.observedToolNames.push("refresh_project_sources");
+    target.observedToolNames.push("refresh_project_knowledge");
     const result = evaluateProjectChatSemanticRobustness({ observations });
     expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({

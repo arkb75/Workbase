@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   auditRun: vi.fn(),
   verify: vi.fn(),
   appendEvent: vi.fn(),
+  retrieve: vi.fn(),
+  inspectRepository: vi.fn(),
+  disposeRepository: vi.fn(),
 }));
 
 vi.mock("@/src/lib/prisma", () => ({
@@ -35,6 +38,18 @@ vi.mock("@/src/services/project-chat-answer-verification-service", async (import
 vi.mock("@/src/services/project-chat-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/src/services/project-chat-store")>()),
   appendAgentRunEvent: mocks.appendEvent,
+}));
+
+vi.mock("@/src/services/project-knowledge-retrieval-service", () => ({
+  projectKnowledgeRetrievalService: { retrieve: mocks.retrieve },
+}));
+
+vi.mock("@/src/services/project-chat-repository-inspection-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/src/services/project-chat-repository-inspection-service")>()),
+  ProjectChatRepositoryInspector: class {
+    inspect = mocks.inspectRepository;
+    dispose = mocks.disposeRepository;
+  },
 }));
 
 import { executeModelLedProjectChatAgent } from "@/src/services/project-chat-model-agent-service";
@@ -108,6 +123,42 @@ describe("project-chat bounded repair regression", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.appendEvent.mockResolvedValue(null);
+    mocks.disposeRepository.mockResolvedValue(undefined);
+    mocks.inspectRepository.mockResolvedValue({
+      status: "completed",
+      snapshot: {
+        sourceId: "source-1",
+        repository: "acme/robotics-controller",
+        commitSha: "a".repeat(40),
+        defaultBranch: "main",
+        committedAt: "2026-08-13T06:00:00.000Z",
+        commitUrl: `https://github.com/acme/robotics-controller/commit/${"a".repeat(40)}`,
+      },
+      results: [{
+        args: ["log", "--merges", "--oneline", "-10"],
+        status: "success",
+        exitCode: 0,
+        output: "aaaa newest merge\nbbbb prior merge",
+        outputHash: "f".repeat(64),
+        truncated: false,
+      }],
+      usage: { queries: 1, visibleBytes: 35 },
+      remainingQueryBudget: 9,
+    });
+    mocks.retrieve.mockResolvedValue({
+      hits: [{
+        kind: "project_fact",
+        authority: "project_fact",
+        title: "Robotics controller repository snapshot",
+        content: `acme/robotics-controller is validated through ${"a".repeat(40)}.`,
+        citations: [{
+          kind: "evidence",
+          label: "Robotics controller repository state",
+          excerpt: `acme/robotics-controller at ${"a".repeat(40)}`,
+        }],
+      }],
+      warnings: [],
+    });
     mocks.agentRunFind.mockResolvedValue({
       workItem: {
         title: "Robotics controller",
@@ -146,7 +197,7 @@ describe("project-chat bounded repair regression", () => {
         generationRunId: `answer-generation-${auditAttempt}`,
         replayed: false,
         checkpoint: {
-          version: "project-chat-model-checkpoint-v7",
+          version: "project-chat-model-checkpoint-v9",
           answer: executed.result.text,
           catalog: executed.checkpoint.catalog,
           entries: executed.checkpoint.entries,
@@ -169,9 +220,12 @@ describe("project-chat bounded repair regression", () => {
         groundingSatisfied: false,
         instructionSatisfied: true,
         formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
         issues: [{
           code: "uncited_project_claim",
           explanation: "Attach the source citation to the repository row.",
+          candidateCitationIndexes: [1],
         }],
         generationRunId: "verification-1",
         mechanicalIssues: [],
@@ -182,6 +236,8 @@ describe("project-chat bounded repair regression", () => {
         groundingSatisfied: true,
         instructionSatisfied: true,
         formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
         issues: [],
         generationRunId: "verification-2",
         mechanicalIssues: [],
@@ -190,31 +246,38 @@ describe("project-chat bounded repair regression", () => {
     mocks.agentRun.mockImplementation(async (input) => {
       modelAttempt += 1;
       if (modelAttempt === 1) {
-        const readTool = input.tools.find((tool: TextConverseTool) =>
-          tool.name === "read_project_source"
+        const inspectionTool = input.tools.find((tool: TextConverseTool) =>
+          tool.name === "inspect_project"
         );
-        expect(readTool?.jsonSchema).toMatchObject({
+        expect(inspectionTool?.jsonSchema).toMatchObject({
           properties: {
-            handles: {
+            knowledgeQueries: {
+              items: expect.any(Object),
+            },
+            repositoryQueries: {
               items: expect.any(Object),
             },
           },
         });
-        expect(readTool?.jsonSchema.properties).not.toHaveProperty("requests");
-        const sourceTool = input.tools.find((tool: TextConverseTool) =>
-          tool.name === "list_project_sources"
-        );
         const context = { iteration: 1, toolCall: 1, toolUseId: "tool" };
-        const sourceResult = await sourceTool.execute({}, context);
-        expect(JSON.stringify(sourceResult).length).toBeLessThan(3_000);
-        expect(JSON.stringify(sourceResult)).not.toContain("src/path-0.ts");
-        expect(JSON.stringify(sourceResult)).toContain("acme/robotics-controller");
+        await inspectionTool.execute({
+          objective: "Ground the requested source summary.",
+          knowledgeQueries: [{
+            query: "current attached repository snapshot",
+            maxResults: 5,
+          }],
+          repositoryQueries: [],
+        }, context);
+        const serializedMessages = JSON.stringify(input.messages);
+        expect(serializedMessages.length).toBeLessThan(8_000);
+        expect(serializedMessages).not.toContain("src/path-0.ts");
+        expect(serializedMessages).toContain("acme/robotics-controller");
         return modelResult([
           "| Source | Revision |",
           "|---|---|",
           "| Robotics controller | Current imported revision [citation:1] |",
         ].join("\n"), [
-          "list_project_sources",
+          "inspect_project",
         ]);
       }
       expect(input.tools).toEqual([]);
@@ -260,30 +323,122 @@ describe("project-chat bounded repair regression", () => {
     expect(mocks.verify).toHaveBeenCalledTimes(2);
   });
 
-  it("allows one final semantic repair over the same frozen sources", async () => {
-    const repairVerdict = (explanation: string) => ({
-      verdict: "repair" as const,
-      requiresProjectCitations: true,
-      groundingSatisfied: false,
-      instructionSatisfied: true,
-      formatSatisfied: true,
-      issues: [{ code: "unsupported_claim", explanation }],
-      generationRunId: `verification-${explanation.length}`,
-      mechanicalIssues: [],
-    });
+  it.each([
+    "Which two merged changes are newest, and how did their scope differ?",
+    "Compare the latest pair of merged changes and justify the ordering.",
+    "Show the most recent substantial merges side by side with their actual changes.",
+  ])("uses one verifier-authorized evidence continuation for a central resolvable gap: %s", async (question) => {
     mocks.verify.mockReset()
-      .mockResolvedValueOnce(repairVerdict("Remove the unsupported path."))
-      .mockResolvedValueOnce(repairVerdict("Remove the remaining unsupported qualifier."))
+      .mockResolvedValueOnce({
+        verdict: "continue_research",
+        requiresProjectCitations: true,
+        groundingSatisfied: true,
+        instructionSatisfied: false,
+        formatSatisfied: true,
+        researchObjective: "Establish the requested ordering, merge status, and changed scope from the attached repository.",
+        recommendedCapabilities: ["repository_git"],
+        issues: [{
+          code: "central_relationship_unresolved",
+          explanation: "Durable memory names changes but does not establish their order or merge status.",
+          candidateCitationIndexes: [1],
+        }],
+        generationRunId: "verification-research-1",
+        mechanicalIssues: [],
+      })
       .mockResolvedValueOnce({
         verdict: "publish",
         requiresProjectCitations: true,
         groundingSatisfied: true,
         instructionSatisfied: true,
         formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
         issues: [],
-        generationRunId: "verification-final",
+        generationRunId: "verification-research-2",
         mechanicalIssues: [],
       });
+
+    let attempt = 0;
+    mocks.agentRun.mockImplementation(async (agentInput) => {
+      attempt += 1;
+      const inspection = agentInput.tools.find((tool: TextConverseTool) =>
+        tool.name === "inspect_project"
+      );
+      expect(inspection).toBeDefined();
+      if (attempt === 1) {
+        const context = { iteration: 1, toolCall: 1, toolUseId: "knowledge" };
+        await inspection.execute({
+          objective: "Find substantial recent changes.",
+          knowledgeQueries: [{ query: "substantial recent changes", maxResults: 5 }],
+          repositoryQueries: [],
+        }, context);
+        return modelResult(
+          "The memory names changes, but I cannot establish their order. [citation:1]",
+          ["inspect_project"],
+        );
+      }
+      expect(agentInput.tools.map((tool: TextConverseTool) => tool.name))
+        .toEqual(["inspect_project"]);
+      expect(agentInput.systemPrompt).toContain("one bounded evidence continuation");
+      expect(JSON.stringify(agentInput.messages)).toContain(
+        "Establish the requested ordering, merge status",
+      );
+      await inspection.execute({
+        objective: "Establish the requested ordering and changed scope.",
+        knowledgeQueries: [],
+        repositoryQueries: [{
+          sourceId: "source-1",
+          args: ["log", "--merges", "--oneline", "-10"],
+        }],
+      }, { iteration: 1, toolCall: 1, toolUseId: "repository" });
+      return modelResult([
+        "| Order | Merge | Scope |",
+        "|---|---|---|",
+        "| Newest | `aaaa` | Current repository evidence establishes the newer merge. [citation:2] |",
+        "| Previous | `bbbb` | The preceding merge is second in the pinned history. [citation:2] |",
+      ].join("\n"), ["inspect_project"]);
+    });
+
+    await expect(executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question,
+      history: [],
+    })).resolves.toMatchObject({
+      status: "answered",
+      answer: expect.stringContaining("| Newest |"),
+      citationPolicy: "required_inline",
+    });
+    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
+    expect(mocks.verify).toHaveBeenCalledTimes(2);
+    expect(mocks.inspectRepository).toHaveBeenCalledTimes(1);
+    expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        researchContinuationUsed: true,
+        repaired: false,
+      }),
+    }));
+  });
+
+  it("does not loop through a second semantic repair", async () => {
+    const repairVerdict = (explanation: string) => ({
+      verdict: "repair" as const,
+      requiresProjectCitations: true,
+      groundingSatisfied: false,
+      instructionSatisfied: true,
+      formatSatisfied: true,
+      researchObjective: null,
+      recommendedCapabilities: [],
+      issues: [{ code: "unsupported_claim", explanation, candidateCitationIndexes: [] }],
+      generationRunId: `verification-${explanation.length}`,
+      mechanicalIssues: [],
+    });
+    mocks.verify.mockReset()
+      .mockResolvedValueOnce(repairVerdict("Remove the unsupported path."))
+      .mockResolvedValueOnce(repairVerdict("Remove the remaining unsupported qualifier."));
 
     await expect(executeModelLedProjectChatAgent({
       runId: "run-1",
@@ -294,27 +449,86 @@ describe("project-chat bounded repair regression", () => {
       question: "Compare the controller components in a compact grid.",
       history: [],
     })).resolves.toMatchObject({
+      status: "insufficient_context",
+    });
+    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
+    expect(mocks.verify).toHaveBeenCalledTimes(2);
+    expect(mocks.agentRun.mock.calls[1]?.[0].tools).toEqual([]);
+  });
+
+  it("publishes a grounded useful revision with a transparent limitation", async () => {
+    mocks.verify.mockReset()
+      .mockResolvedValueOnce({
+        verdict: "repair",
+        requiresProjectCitations: true,
+        groundingSatisfied: false,
+        instructionSatisfied: false,
+        formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
+        issues: [{
+          code: "unsupported_ranking",
+          explanation: "The source establishes the changes but not an objective importance ranking.",
+          candidateCitationIndexes: [1],
+        }],
+        generationRunId: "verification-ranking",
+        mechanicalIssues: [],
+      })
+      .mockResolvedValueOnce({
+        verdict: "publish_with_limitations",
+        requiresProjectCitations: true,
+        groundingSatisfied: true,
+        instructionSatisfied: false,
+        formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
+        issues: [{
+          code: "qualified_ranking",
+          explanation: "The answer explicitly describes scope as its ranking basis.",
+          candidateCitationIndexes: [1],
+        }],
+        generationRunId: "verification-qualified",
+        mechanicalIssues: [],
+      });
+
+    await expect(executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question: "Which recent change was most substantial? Qualify how you judged that.",
+      history: [],
+    })).resolves.toMatchObject({
       status: "answered",
       answer: expect.stringContaining("Robotics controller"),
+      citationPolicy: "required_inline",
     });
-    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
-    expect(mocks.verify).toHaveBeenCalledTimes(3);
-    expect(mocks.agentRun.mock.calls[1]?.[0].tools).toEqual([]);
-    expect(mocks.agentRun.mock.calls[2]?.[0].tools).toEqual([]);
+    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
+    expect(mocks.verify).toHaveBeenCalledTimes(2);
+    expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        publicationMode: "publish_with_limitations",
+        repaired: true,
+      }),
+    }));
   });
 
   it("fails closed after both frozen-source revisions remain unsupported", async () => {
     mocks.verify.mockReset();
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       mocks.verify.mockResolvedValueOnce({
         verdict: "repair",
         requiresProjectCitations: true,
         groundingSatisfied: false,
         instructionSatisfied: true,
         formatSatisfied: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
         issues: [{
           code: "unsupported_claim",
           explanation: `Unsupported claim remains after verification ${attempt}.`,
+          candidateCitationIndexes: [],
         }],
         generationRunId: `verification-${attempt}`,
         mechanicalIssues: [],
@@ -333,8 +547,8 @@ describe("project-chat bounded repair regression", () => {
       status: "insufficient_context",
       fallbackUsed: false,
     });
-    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
-    expect(mocks.verify).toHaveBeenCalledTimes(3);
+    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
+    expect(mocks.verify).toHaveBeenCalledTimes(2);
   });
 
   it("returns a cited frozen-source boundary when the tool-free repair cannot complete", async () => {
@@ -356,7 +570,7 @@ describe("project-chat bounded repair regression", () => {
       history: [],
     })).resolves.toMatchObject({
       status: "insufficient_context",
-      answer: expect.stringContaining("frozen project sources"),
+      answer: expect.stringContaining("couldn’t verify enough project evidence"),
       citationPolicy: "required_inline",
       fallbackUsed: false,
     });
@@ -370,7 +584,7 @@ describe("project-chat bounded repair regression", () => {
   it.each([
     {
       question: "New commits landed; update the reusable project picture before answering.",
-      toolName: "refresh_project_sources",
+      toolName: "refresh_project_knowledge",
       toolInput: { reason: "The user requested a durable update." },
       expected: {
         status: "refresh_requested",

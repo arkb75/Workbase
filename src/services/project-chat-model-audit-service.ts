@@ -17,7 +17,7 @@ import {
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 
-export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v7";
+export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v9";
 
 export interface ProjectChatModelControl {
   refreshRequested: boolean;
@@ -42,7 +42,7 @@ const replayCheckpointSchema = z.object({
     kind: z.enum(["highlight", "project_fact", "evidence", "artifact", "github_file"]),
     label: z.string().min(1).max(1_000),
     excerpt: z.string().max(20_000),
-  }).passthrough()).max(30),
+  }).passthrough()).max(40),
   entries: z.array(z.object({
     kind: z.string().min(1).max(100),
     authority: z.string().min(1).max(100),
@@ -128,7 +128,7 @@ export async function runAuditedProjectChatModel(input: {
   workItemId: string;
   agentRunId: string;
   phase: "initial" | "after_source_refresh" | "after_fact_review";
-  attempt: "initial" | "repair_1" | "repair_2";
+  attempt: "initial" | "research_1" | "repair_1";
   inputSummary: Record<string, unknown>;
   execute: () => Promise<ExecutedProjectChatModel>;
 }) {

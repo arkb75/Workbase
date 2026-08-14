@@ -173,7 +173,7 @@ describe("project-chat evaluation fixtures", () => {
   it("fails wrong routing, unnecessary research, unused citations, and peer GitHub files", () => {
     const result = evaluateProjectChatScenario(architectureObservation({
       route: "targeted_repository_research",
-      tools: ["search_project_sources"],
+      tools: ["inspect_project"],
       sources: [{
         kind: "github_file",
         authority: "included_evidence",
@@ -185,7 +185,6 @@ describe("project-chat evaluation fixtures", () => {
     expect(result.passed).toBe(false);
     expect(result.checks.filter((entry) => !entry.passed).map((entry) => entry.code)).toEqual(expect.arrayContaining([
       "route",
-      "forbidden_tool",
       "unused_source",
       "source_kind",
       "raw_repository_source",
@@ -208,7 +207,7 @@ describe("project-chat evaluation fixtures", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("allows a current repository file as primary evidence only after bounded search and read", () => {
+  it("allows pinned repository inspection evidence only after the bounded inspector ran", () => {
     const fixture = projectChatEvaluationFixtures.find(
       (entry) => entry.id === "targeted_code_question",
     )!;
@@ -216,9 +215,9 @@ describe("project-chat evaluation fixtures", () => {
       scenarioId: fixture.id,
       route: "targeted_repository_research",
       lifecycle: "answered",
-      tools: ["search_project_sources", "read_project_source"],
+      tools: ["inspect_project"],
       sources: [{
-        kind: "github_file",
+        kind: "evidence",
         authority: "included_evidence",
         title: "src/retry.rs at immutable head",
         used: true,
@@ -267,7 +266,7 @@ describe("project-chat evaluation fixtures", () => {
       scenarioId: "provider_limit_partial_result",
       route: "partial_finalization",
       lifecycle: "partially_answered",
-      tools: ["refresh_project_sources"],
+      tools: ["refresh_project_knowledge"],
       sources: [],
       metrics: {
         latencyMs: 40_000,
@@ -300,10 +299,10 @@ describe("project-chat evaluation fixtures", () => {
       scenarioId: "multi_repository_research",
       route: "targeted_repository_research",
       lifecycle: "answered",
-      tools: ["search_project_sources", "read_project_source"],
+      tools: ["inspect_project"],
       sources: [
-        { kind: "github_file", authority: "included_evidence", title: "Request entry", used: true, repository: "owner/repo-a" },
-        { kind: "github_file", authority: "included_evidence", title: "Request handler", used: true, repository: "owner/repo-a" },
+        { kind: "evidence", authority: "included_evidence", title: "Request entry", used: true, repository: "owner/repo-a" },
+        { kind: "evidence", authority: "included_evidence", title: "Request handler", used: true, repository: "owner/repo-a" },
       ],
       metrics: {
         latencyMs: 10_000,

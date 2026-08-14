@@ -22,10 +22,8 @@ const outcomeSchema = z.enum([
 
 type ProjectChatSemanticCapability =
   | "knowledge_search"
-  | "source_inventory"
   | "durable_refresh"
-  | "source_search"
-  | "source_read"
+  | "repository_inspection"
   | "prior_turn_inspection"
   | "artifact_creation";
 
@@ -45,6 +43,7 @@ export const projectChatSemanticRobustnessObservationSchema = z.object({
   prompt: z.string().trim().min(1).max(4_000),
   observedOutcome: outcomeSchema,
   observedToolNames: z.array(z.string().trim().min(1).max(100)).max(30),
+  observedInspectionModes: z.array(z.enum(["knowledge", "repository"])).max(2),
   compositionMode: z.string().trim().min(1).max(100),
   primaryAnswerRunCount: z.number().int().min(0),
   semanticVerificationRunCount: z.number().int().min(0),
@@ -123,7 +122,7 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     repositoryDomain: "machine_learning_library",
     prompt: "Check the current source and show which execution backends are configured, in a table.",
     expectedOutcome: "answered",
-    requiredCapabilities: ["source_search", "source_read"],
+    requiredCapabilities: ["repository_inspection"],
     forbiddenCapabilities: ["durable_refresh"],
   },
   {
@@ -132,7 +131,7 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     repositoryDomain: "game_engine",
     prompt: "Where is frame pacing implemented, and what does the relevant code actually do?",
     expectedOutcome: "answered",
-    requiredCapabilities: ["source_search", "source_read"],
+    requiredCapabilities: ["repository_inspection"],
     forbiddenCapabilities: ["durable_refresh"],
   },
   {
@@ -141,7 +140,43 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     repositoryDomain: "infrastructure_operator",
     prompt: "Trace how credentials move from configuration to the deployment client; cite the exact files.",
     expectedOutcome: "answered",
-    requiredCapabilities: ["source_search", "source_read"],
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_merged_work",
+    family: "current_source_investigation",
+    repositoryDomain: "developer_platform",
+    prompt: "What were the last two substantial changes merged here? Compare what each one changed and qualify how you judged their scope.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_release_delta",
+    family: "current_source_investigation",
+    repositoryDomain: "scientific_pipeline",
+    prompt: "What changed between the two most recent release tags, especially in the analysis pipeline?",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_change_rationale",
+    family: "current_source_investigation",
+    repositoryDomain: "network_service",
+    prompt: "When was the retry ceiling introduced, what changed around it, and what repository evidence explains why?",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_project_orientation",
+    family: "current_source_investigation",
+    repositoryDomain: "embedded_system",
+    prompt: "Orient me to this unfamiliar repository: map the important areas, then inspect only what you need to explain the command path.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
     forbiddenCapabilities: ["durable_refresh"],
   },
   {
@@ -215,26 +250,29 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     prompt: "That makes sense, thanks.",
     expectedOutcome: "answered",
     requiredCapabilities: [],
-    forbiddenCapabilities: ["durable_refresh", "source_search", "source_read"],
+    forbiddenCapabilities: ["durable_refresh", "repository_inspection"],
   },
 ] as const;
 
 const toolCapabilities: Record<string, ProjectChatSemanticCapability> = {
-  search_project_knowledge: "knowledge_search",
-  list_project_sources: "source_inventory",
-  list_project_source_paths: "source_search",
-  refresh_project_sources: "durable_refresh",
-  search_project_sources: "source_search",
-  read_project_source: "source_read",
+  refresh_project_knowledge: "durable_refresh",
   inspect_prior_turn: "prior_turn_inspection",
   create_project_artifact: "artifact_creation",
 };
 
-export function projectChatCapabilitiesForTools(toolNames: readonly string[]) {
-  return new Set(toolNames.flatMap((toolName) => {
+export function projectChatCapabilitiesForTools(
+  toolNames: readonly string[],
+  inspectionModes: readonly ("knowledge" | "repository")[] = [],
+) {
+  const capabilities = toolNames.flatMap((toolName) => {
     const capability = toolCapabilities[toolName];
     return capability ? [capability] : [];
-  }));
+  });
+  if (toolNames.includes("inspect_project")) {
+    if (inspectionModes.includes("knowledge")) capabilities.push("knowledge_search");
+    if (inspectionModes.includes("repository")) capabilities.push("repository_inspection");
+  }
+  return new Set(capabilities);
 }
 
 export interface ProjectChatSemanticRobustnessCheck {
@@ -297,7 +335,10 @@ export function evaluateProjectChatSemanticRobustness(input: {
     const observation = byId.get(scenario.id);
     if (!observation) continue;
     const prefix = scenario.id;
-    const capabilities = projectChatCapabilitiesForTools(observation.observedToolNames);
+    const capabilities = projectChatCapabilitiesForTools(
+      observation.observedToolNames,
+      observation.observedInspectionModes,
+    );
     check(checks, `${prefix}: family matches`, observation.family === scenario.family, observation.family, scenario.family);
     check(checks, `${prefix}: repository domain matches`, observation.repositoryDomain === scenario.repositoryDomain, observation.repositoryDomain, scenario.repositoryDomain);
     check(checks, `${prefix}: model-led outcome matches`, observation.observedOutcome === scenario.expectedOutcome, observation.observedOutcome, scenario.expectedOutcome);

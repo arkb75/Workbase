@@ -21,9 +21,11 @@ describe("model-led project-chat failure recovery", () => {
       groundingSatisfied: false,
       instructionSatisfied: true,
       formatSatisfied: false,
+      researchObjective: null,
+      recommendedCapabilities: [],
       issues: [
-        { code: "unsupported_claim", explanation: "One claim is not supported by the cited source." },
-        { code: "format_mismatch", explanation: "The requested relationships are not presented clearly." },
+        { code: "unsupported_claim", explanation: "One claim is not supported by the cited source.", candidateCitationIndexes: [3] },
+        { code: "format_mismatch", explanation: "The requested relationships are not presented clearly.", candidateCitationIndexes: [] },
       ],
       generationRunId: "verification-1",
       mechanicalIssues: [],
@@ -31,6 +33,7 @@ describe("model-led project-chat failure recovery", () => {
     expect(instructions).toContain("Revise your prior answer once");
     expect(instructions).toContain("unsupported_claim");
     expect(instructions).toContain("format_mismatch");
+    expect(instructions).toContain("[citation:3]");
     expect(instructions).toContain("Do not call tools, search again, or introduce new sources");
     expect(instructions).toContain("frozen source catalog");
     expect(instructions).not.toContain("deterministic_source_synthesis");
@@ -44,6 +47,8 @@ describe("model-led project-chat failure recovery", () => {
       groundingSatisfied: true,
       instructionSatisfied: true,
       formatSatisfied: true,
+      researchObjective: null,
+      recommendedCapabilities: [],
       issues: [],
       generationRunId: "verification-transport-leak",
       mechanicalIssues: [

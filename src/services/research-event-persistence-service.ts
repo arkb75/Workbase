@@ -6,12 +6,34 @@ export async function persistResearchAgentEvent(
   event: BedrockConverseAgentEvent,
 ) {
   if (event.type === "tool_call_started") {
+    const toolInput = event.input && typeof event.input === "object" &&
+        !Array.isArray(event.input)
+      ? event.input as Record<string, unknown>
+      : {};
+    const inspectionModes = event.toolName === "inspect_project"
+      ? [
+          ...(Array.isArray(toolInput.knowledgeQueries) &&
+          toolInput.knowledgeQueries.length
+            ? ["knowledge"]
+            : []),
+          ...(Array.isArray(toolInput.repositoryQueries) &&
+          toolInput.repositoryQueries.length
+            ? ["repository"]
+            : []),
+        ]
+      : [];
     await appendAgentRunEvent({
       runId,
       type: "tool_call",
       toolName: event.toolName,
       message:
-        event.toolName === "read_repository_file" || event.toolName === "read_repository_files"
+        event.toolName === "inspect_project" && inspectionModes.length === 2
+          ? "Inspecting project knowledge and the pinned repository."
+          : event.toolName === "inspect_project" && inspectionModes.includes("repository")
+            ? "Inspecting the pinned repository."
+            : event.toolName === "inspect_project"
+              ? "Searching project knowledge."
+              : event.toolName === "read_repository_file" || event.toolName === "read_repository_files"
           ? "Reading pinned repository excerpts."
           : event.toolName === "search_repository"
             ? "Searching an attached repository."
@@ -20,6 +42,7 @@ export async function persistResearchAgentEvent(
         iteration: event.iteration,
         toolCall: event.toolCall,
         toolUseId: event.toolUseId,
+        ...(inspectionModes.length ? { inspectionModes } : {}),
       },
     });
     return;

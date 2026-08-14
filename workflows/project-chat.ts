@@ -417,7 +417,7 @@ async function startRequiredKnowledgeRefresh(runId: string) {
       terminalStatus: run.status as TerminalAgentRunStatus,
     };
   }
-  // The primary answer model selected refresh_project_sources in the prior
+  // The primary answer model selected refresh_project_knowledge in the prior
   // bounded tool turn. This Workflow step performs that requested durable
   // side effect; it does not reinterpret user wording or run a second router.
   const refresh = await startKnowledgeRefresh({
@@ -1242,7 +1242,7 @@ async function answerProjectQuestion(
     await appendAgentRunEvent({
       runId,
       type: "tool_result",
-      toolName: "refresh_project_sources",
+      toolName: "refresh_project_knowledge",
       message: "The primary agent requested a durable project-source refresh.",
       payload: { reason: result.reason },
       isUserVisible: false,

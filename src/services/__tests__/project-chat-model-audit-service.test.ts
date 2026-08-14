@@ -80,7 +80,7 @@ const result: BedrockConverseAgentRunResult = {
       iteration: 1,
       toolCall: 1,
       toolUseId: "tool-1",
-      toolName: "search_project_sources",
+      toolName: "inspect_project",
       outcome: "success",
       durationMs: 2,
       output: { citationIndex: 1 },
@@ -130,7 +130,7 @@ describe("project-chat primary-model audit", () => {
     expect(audited.checkpoint).toMatchObject({
       version: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
       answer: "The model-authored answer.",
-      toolNames: ["search_project_sources"],
+      toolNames: ["inspect_project"],
     });
     expect(mocks.createIdempotently).toHaveBeenCalledWith(expect.objectContaining({
       kind: "project_chat_answer",
@@ -142,7 +142,7 @@ describe("project-chat primary-model audit", () => {
         profile: "primary_answer",
         configuredModelId: "configured-primary-model",
         requestIds: ["request-1"],
-        toolNames: ["search_project_sources"],
+        toolNames: ["inspect_project"],
         auditEvidenceTruncated: false,
       }),
       tokenUsage: expect.objectContaining({
@@ -161,7 +161,7 @@ describe("project-chat primary-model audit", () => {
         catalog: [],
         entries: [],
         research: null,
-        toolNames: ["search_project_knowledge"],
+        toolNames: ["inspect_project"],
         control: {
           refreshRequested: false,
           refreshReason: null,
