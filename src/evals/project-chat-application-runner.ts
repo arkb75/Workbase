@@ -196,6 +196,15 @@ export interface ProjectChatApplicationObservation {
   inspectionModes?: Array<"knowledge" | "repository">;
   /** Final composition authority; production chat must be model_tool_loop. */
   answerCompositionMode?: string | null;
+  publicationOutcome?: "answered" | "answered_with_gaps" | null;
+  claimLedger?: {
+    version: string;
+    entryCount: number;
+    keptCount: number;
+    qualifiedCount: number;
+    researchCount: number;
+    removedCount: number;
+  } | null;
   /** A refresh attached to this turn, even when it reused a completed run. */
   knowledgeRefreshRunId?: string | null;
   knowledgeRefresh?: ProjectChatApplicationKnowledgeRefreshObservation | null;
@@ -507,8 +516,8 @@ export const projectChatApplicationScenarios = [
   },
   {
     id: "runtime_model_matrix",
-    title: "Current-source implementation matrix",
-    question: "Inspect the current source and give me a compact matrix of the main implementation components, where they live, and what they do.",
+    title: "Current-source model responsibility matrix",
+    question: "What models are used for what? Inspect the current repository configuration and give me a compact matrix of each model role and purpose.",
     workspace: "attached_repository_sandbox",
     threadKey: "runtime_model_mapping",
     allowResearch: true,
@@ -531,8 +540,8 @@ export const projectChatApplicationScenarios = [
   },
   {
     id: "runtime_model_grid_follow_up",
-    title: "Paraphrased same-thread implementation grid",
-    question: "Same substance, but reorganize the rows by responsibility and keep the concrete source locations.",
+    title: "Paraphrased same-thread model-role grid",
+    question: "Same substance, but reorganize the model assignments by responsibility and keep the concrete source locations.",
     workspace: "attached_repository_sandbox",
     threadKey: "runtime_model_mapping",
     allowResearch: true,
@@ -1481,6 +1490,8 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "current-source matrix presents multiple implementation areas", markdownTableDataRowCount(observation.answer) >= 2, markdownTableDataRowCount(observation.answer), 2);
       addCheck(checks, "current-source matrix cites pinned repository inspection", observation.citationKinds.includes("evidence") || observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "repository inspection evidence");
       addCheck(checks, "current-source matrix has an audited primary answer", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
+      addCheck(checks, "current-source matrix retained an internal claim ledger", (observation.claimLedger?.entryCount ?? 0) > 0 && (observation.claimLedger?.keptCount ?? 0) > 0, `${observation.claimLedger?.keptCount ?? 0}/${observation.claimLedger?.entryCount ?? 0}`, "at least one kept audited claim");
+      addCheck(checks, "current-source matrix has an explicit publication outcome", observation.publicationOutcome === "answered" || observation.publicationOutcome === "answered_with_gaps", observation.publicationOutcome ?? "missing", "answered or answered_with_gaps");
       if (scenario.id === "runtime_model_grid_follow_up") {
         addCheck(checks, "runtime grid follow-up received the preceding turn", observation.historyMessageCount === 2, observation.historyMessageCount, 2);
       }

@@ -7,6 +7,7 @@ import type {
   ProjectResearchDossier,
   ProjectResearchResult,
 } from "@/src/domain/project-chat";
+import type { ProjectChatClaimAudit } from "@/src/services/project-chat-model-agent-service";
 import {
   type BedrockConverseAgentEvent,
 } from "@/src/lib/bedrock-converse-agent";
@@ -216,6 +217,8 @@ export type ProjectChatAgentResult =
       groundedClaims: Array<{ claim: string; citationIndexes: number[] }>;
       freshness: FinalizedChatAnswer["freshness"];
       fallbackUsed?: boolean;
+      publicationOutcome?: "answered" | "answered_with_gaps";
+      claimAudit?: ProjectChatClaimAudit;
     }
   | { status: "artifact_requested"; brief: string };
 

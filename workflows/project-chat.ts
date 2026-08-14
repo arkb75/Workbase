@@ -1296,6 +1296,8 @@ async function answerProjectQuestion(
       exploredEvidenceCount: result.research.exploredEvidence.length,
       groundedClaims: result.research.groundedClaims ?? [],
       fallbackUsed: result.fallbackUsed ?? false,
+      publicationOutcome: result.publicationOutcome,
+      claimAudit: result.claimAudit,
     },
     citations: result.citations,
     citationPolicy: result.citationPolicy,

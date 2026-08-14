@@ -175,6 +175,46 @@ function stringArray(value: unknown) {
     : [];
 }
 
+function claimLedgerObservation(value: unknown) {
+  const result = record(value);
+  const audit = record(result.claimAudit);
+  const ledger = record(audit.ledger);
+  const entries = Array.isArray(ledger.entries)
+    ? ledger.entries.map(record)
+    : [];
+  const actions = entries.map((entry) => entry.action).filter((action): action is string =>
+    typeof action === "string"
+  );
+  const historyActions = (Array.isArray(audit.verificationHistory)
+    ? audit.verificationHistory.map(record)
+    : []).flatMap((historyEntry) => {
+      const historyLedger = record(historyEntry.ledger);
+      return Array.isArray(historyLedger.entries)
+        ? historyLedger.entries.map(record).map((entry) => entry.action)
+            .filter((action): action is string => typeof action === "string")
+        : [];
+    });
+  const publicationOutcome: "answered" | "answered_with_gaps" | null =
+    result.publicationOutcome === "answered" ||
+      result.publicationOutcome === "answered_with_gaps"
+    ? result.publicationOutcome
+    : null;
+  if (!entries.length && !publicationOutcome) {
+    return { publicationOutcome: null, claimLedger: null };
+  }
+  return {
+    publicationOutcome,
+    claimLedger: {
+      version: typeof ledger.version === "string" ? ledger.version : "missing",
+      entryCount: entries.length,
+      keptCount: actions.filter((action) => action.startsWith("keep_")).length,
+      qualifiedCount: historyActions.filter((action) => action === "qualify").length,
+      researchCount: historyActions.filter((action) => action === "research").length,
+      removedCount: historyActions.filter((action) => action.startsWith("remove_")).length,
+    },
+  };
+}
+
 function researchUsage(value: unknown) {
   const root = record(value);
   const usage = record(root.usage);
@@ -1206,6 +1246,7 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       event.type === "tool_result" && event.toolName === "compose_project_answer"
     );
     const compositionMode = record(compositionEvent?.payload).mode;
+    const claimAudit = claimLedgerObservation(storedRun.result);
     return {
       scenarioId: scenario.id,
       runId: run.id,
@@ -1238,6 +1279,8 @@ class PrismaProjectChatApplicationDriver implements ProjectChatApplicationDriver
       }))),
       answerCompositionMode:
         typeof compositionMode === "string" ? compositionMode : null,
+      publicationOutcome: claimAudit.publicationOutcome,
+      claimLedger: claimAudit.claimLedger,
       knowledgeRefreshRunId: storedRun.knowledgeRefreshRunId,
       knowledgeRefresh: storedRun.knowledgeRefreshRun ? {
         trigger: storedRun.knowledgeRefreshRun.trigger,

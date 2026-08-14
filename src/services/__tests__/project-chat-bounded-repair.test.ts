@@ -62,6 +62,50 @@ const usage = {
   cacheWriteInputTokens: 0,
 };
 
+function verificationFixture(input: {
+  action?: "keep_direct" | "keep_inference" | "qualify" | "repair_citation" | "research" | "remove_unfounded";
+  support?: "direct" | "reasonable_inference" | "ambiguous" | "unfounded";
+  quote?: string;
+  explanation?: string;
+  instructionSatisfied?: boolean;
+  answerUseful?: boolean;
+  researchObjective?: string | null;
+  recommendedCapabilities?: string[];
+  generationRunId?: string;
+  citationIndexes?: number[];
+}) {
+  const action = input.action ?? "keep_direct";
+  const support = input.support ?? "direct";
+  const needsPremise = ["ambiguous", "unfounded"].includes(support);
+  return {
+    requiresProjectCitations: true,
+    instructionSatisfied: input.instructionSatisfied ?? true,
+    formatSatisfied: true,
+    answerUseful: input.answerUseful ?? true,
+    researchObjective: input.researchObjective ?? null,
+    recommendedCapabilities: input.recommendedCapabilities ?? [],
+    claimLedger: {
+      version: "project-chat-claim-ledger-v1",
+      entries: [{
+        id: "claim_1",
+        quote: input.quote ?? "The robotics controller is at the current imported revision.",
+        centrality: "central",
+        support,
+        action,
+        citationIndexes: input.citationIndexes ?? [1],
+        missingOrContradictedPremise: needsPremise
+          ? input.explanation ?? "The necessary premise is not established."
+          : null,
+        rationale: input.explanation ?? "The current source supports this claim.",
+        confidence: "high",
+      }],
+    },
+    issues: [],
+    generationRunId: input.generationRunId ?? "verification-fixture",
+    mechanicalIssues: [],
+  };
+}
+
 function modelResult(text: string, toolNames: string[]) {
   return {
     text,
@@ -197,7 +241,7 @@ describe("project-chat bounded repair regression", () => {
         generationRunId: `answer-generation-${auditAttempt}`,
         replayed: false,
         checkpoint: {
-          version: "project-chat-model-checkpoint-v9",
+          version: "project-chat-model-checkpoint-v10",
           answer: executed.result.text,
           catalog: executed.checkpoint.catalog,
           entries: executed.checkpoint.entries,
@@ -215,13 +259,36 @@ describe("project-chat bounded repair regression", () => {
     });
     mocks.verify
       .mockResolvedValueOnce({
-        verdict: "repair",
         requiresProjectCitations: true,
-        groundingSatisfied: false,
         instructionSatisfied: true,
         formatSatisfied: true,
+        answerUseful: true,
         researchObjective: null,
         recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "Robotics controller is at the current imported revision.",
+            centrality: "central",
+            support: "direct",
+            action: "repair_citation",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The source supports the row but its citation attachment needs repair.",
+            confidence: "high",
+          }, {
+            id: "claim_2",
+            quote: "Robotics controller is the attached project source.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The attached source record directly establishes the project source.",
+            confidence: "high",
+          }],
+        },
         issues: [{
           code: "uncited_project_claim",
           explanation: "Attach the source citation to the repository row.",
@@ -231,13 +298,26 @@ describe("project-chat bounded repair regression", () => {
         mechanicalIssues: [],
       })
       .mockResolvedValueOnce({
-        verdict: "publish",
         requiresProjectCitations: true,
-        groundingSatisfied: true,
         instructionSatisfied: true,
         formatSatisfied: true,
+        answerUseful: true,
         researchObjective: null,
         recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "Robotics controller is at the current imported revision.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The current repository source supports the row.",
+            confidence: "high",
+          }],
+        },
         issues: [],
         generationRunId: "verification-2",
         mechanicalIssues: [],
@@ -330,13 +410,26 @@ describe("project-chat bounded repair regression", () => {
   ])("uses one verifier-authorized evidence continuation for a central resolvable gap: %s", async (question) => {
     mocks.verify.mockReset()
       .mockResolvedValueOnce({
-        verdict: "continue_research",
         requiresProjectCitations: true,
-        groundingSatisfied: true,
         instructionSatisfied: false,
         formatSatisfied: true,
+        answerUseful: true,
         researchObjective: "Establish the requested ordering, merge status, and changed scope from the attached repository.",
         recommendedCapabilities: ["repository_git"],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "The memory names changes, but I cannot establish their order.",
+            centrality: "central",
+            support: "ambiguous",
+            action: "research",
+            citationIndexes: [1],
+            missingOrContradictedPremise: "The relative order and merge relationship are not established.",
+            rationale: "Pinned Git history can resolve the central requested relationship.",
+            confidence: "high",
+          }],
+        },
         issues: [{
           code: "central_relationship_unresolved",
           explanation: "Durable memory names changes but does not establish their order or merge status.",
@@ -346,13 +439,26 @@ describe("project-chat bounded repair regression", () => {
         mechanicalIssues: [],
       })
       .mockResolvedValueOnce({
-        verdict: "publish",
         requiresProjectCitations: true,
-        groundingSatisfied: true,
         instructionSatisfied: true,
         formatSatisfied: true,
+        answerUseful: true,
         researchObjective: null,
         recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "The pinned history establishes the newest and previous merges.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [2],
+            missingOrContradictedPremise: null,
+            rationale: "The inspected merge log directly establishes the ordering.",
+            confidence: "high",
+          }],
+        },
         issues: [],
         generationRunId: "verification-research-2",
         mechanicalIssues: [],
@@ -423,22 +529,26 @@ describe("project-chat bounded repair regression", () => {
     }));
   });
 
-  it("does not loop through a second semantic repair", async () => {
-    const repairVerdict = (explanation: string) => ({
-      verdict: "repair" as const,
-      requiresProjectCitations: true,
-      groundingSatisfied: false,
-      instructionSatisfied: true,
-      formatSatisfied: true,
-      researchObjective: null,
-      recommendedCapabilities: [],
-      issues: [{ code: "unsupported_claim", explanation, candidateCitationIndexes: [] }],
-      generationRunId: `verification-${explanation.length}`,
-      mechanicalIssues: [],
-    });
+  it("projects a useful partial answer instead of globally refusing after a second criticism", async () => {
     mocks.verify.mockReset()
-      .mockResolvedValueOnce(repairVerdict("Remove the unsupported path."))
-      .mockResolvedValueOnce(repairVerdict("Remove the remaining unsupported qualifier."));
+      .mockResolvedValueOnce(verificationFixture({
+        action: "qualify",
+        support: "reasonable_inference",
+        explanation: "The implementation suggests this role, but does not define it exhaustively.",
+      }))
+      .mockResolvedValueOnce(verificationFixture({
+        action: "remove_unfounded",
+        support: "unfounded",
+        quote: "The controller reduced latency by 40%.",
+        explanation: "No source establishes the 40% metric.",
+        citationIndexes: [],
+      }))
+      .mockResolvedValueOnce(verificationFixture({
+        action: "keep_direct",
+        support: "direct",
+        explanation: "The final projection retains only the supported repository row.",
+        generationRunId: "verification-projection",
+      }));
 
     await expect(executeModelLedProjectChatAgent({
       runId: "run-1",
@@ -449,47 +559,205 @@ describe("project-chat bounded repair regression", () => {
       question: "Compare the controller components in a compact grid.",
       history: [],
     })).resolves.toMatchObject({
-      status: "insufficient_context",
+      status: "answered",
+      publicationOutcome: "answered_with_gaps",
     });
-    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
-    expect(mocks.verify).toHaveBeenCalledTimes(2);
+    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
+    expect(mocks.verify).toHaveBeenCalledTimes(3);
     expect(mocks.agentRun.mock.calls[1]?.[0].tools).toEqual([]);
+    expect(mocks.agentRun.mock.calls[2]?.[0].systemPrompt).toContain(
+      "final publication projection",
+    );
+  });
+
+  it("preserves verified model-role rows when peripheral role descriptions remain unsupported", async () => {
+    mocks.verify.mockReset()
+      .mockResolvedValueOnce({
+        requiresProjectCitations: true,
+        instructionSatisfied: true,
+        formatSatisfied: true,
+        answerUseful: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "Primary answers use Terra and verification uses Luna.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The inspected configuration directly maps both profiles.",
+            confidence: "high",
+          }, {
+            id: "claim_2",
+            quote: "Every Artifact is embedded.",
+            centrality: "supporting",
+            support: "unfounded",
+            action: "remove_unfounded",
+            citationIndexes: [1],
+            missingOrContradictedPremise: "The source does not establish Artifact embedding coverage.",
+            rationale: "The universal expands beyond the configured entity types.",
+            confidence: "high",
+          }],
+        },
+        issues: [],
+        generationRunId: "verification-models-1",
+        mechanicalIssues: [],
+      })
+      .mockResolvedValueOnce({
+        requiresProjectCitations: true,
+        instructionSatisfied: true,
+        formatSatisfied: true,
+        answerUseful: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "Primary answers use Terra and verification uses Luna.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The current configuration directly maps both profiles.",
+            confidence: "high",
+          }, {
+            id: "claim_2",
+            quote: "Routing controls all research decisions.",
+            centrality: "supporting",
+            support: "unfounded",
+            action: "remove_unfounded",
+            citationIndexes: [1],
+            missingOrContradictedPremise: "The profile assignment does not establish control of every research decision.",
+            rationale: "The role description is broader than the source.",
+            confidence: "high",
+          }],
+        },
+        issues: [],
+        generationRunId: "verification-models-2",
+        mechanicalIssues: [],
+      })
+      .mockResolvedValueOnce({
+        requiresProjectCitations: true,
+        instructionSatisfied: true,
+        formatSatisfied: true,
+        answerUseful: true,
+        researchObjective: null,
+        recommendedCapabilities: [],
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entries: [{
+            id: "claim_1",
+            quote: "Primary answers use Terra and verification uses Luna.",
+            centrality: "central",
+            support: "direct",
+            action: "keep_direct",
+            citationIndexes: [1],
+            missingOrContradictedPremise: null,
+            rationale: "The final matrix preserves the directly configured roles.",
+            confidence: "high",
+          }],
+        },
+        issues: [],
+        generationRunId: "verification-models-3",
+        mechanicalIssues: [],
+      });
+
+    let attempt = 0;
+    mocks.agentRun.mockImplementation(async (agentInput) => {
+      attempt += 1;
+      if (attempt === 1) {
+        const inspect = agentInput.tools.find((tool: TextConverseTool) =>
+          tool.name === "inspect_project"
+        )!;
+        await inspect.execute({
+          objective: "Inspect the current model-role configuration.",
+          knowledgeQueries: [],
+          repositoryQueries: [{
+            sourceId: "source-1",
+            args: ["show", "HEAD:src/lib/llm-config.ts"],
+          }],
+        }, { iteration: 1, toolCall: 1, toolUseId: "models" });
+        return modelResult([
+          "| Role | Model | Purpose |",
+          "|---|---|---|",
+          "| Primary answer | Terra | User-facing answers. [citation:1] |",
+          "| Verification | Luna | Semantic verification. [citation:1] |",
+          "| Embeddings | Titan | Every Artifact is embedded. [citation:1] |",
+        ].join("\n"), ["inspect_project"]);
+      }
+      if (attempt === 2) {
+        return modelResult([
+          "| Role | Model | Purpose |",
+          "|---|---|---|",
+          "| Primary answer | Terra | User-facing answers. [citation:1] |",
+          "| Verification | Luna | Semantic verification. [citation:1] |",
+          "| Routing | Luna | Controls all research decisions. [citation:1] |",
+        ].join("\n"), []);
+      }
+      expect(agentInput.systemPrompt).toContain("final publication projection");
+      return modelResult([
+        "| Role | Model | Purpose |",
+        "|---|---|---|",
+        "| Primary answer | Terra | User-facing answers. [citation:1] |",
+        "| Verification | Luna | Semantic verification. [citation:1] |",
+      ].join("\n"), []);
+    });
+
+    const result = await executeModelLedProjectChatAgent({
+      runId: "run-model-matrix",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question: "What models are used for what?",
+      history: [],
+    });
+
+    expect(result).toMatchObject({
+      status: "answered",
+      publicationOutcome: "answered_with_gaps",
+      answer: expect.stringContaining("Primary answer"),
+      claimAudit: {
+        verificationHistory: expect.arrayContaining([
+          expect.objectContaining({ attempt: 1 }),
+          expect.objectContaining({ attempt: 2 }),
+          expect.objectContaining({ attempt: 3 }),
+        ]),
+        ledger: { entries: expect.arrayContaining([
+          expect.objectContaining({ action: "keep_direct" }),
+        ]) },
+      },
+    });
+    if (result.status === "answered") {
+      expect(result.answer).toContain("Verification");
+      expect(result.answer).not.toContain("Every Artifact");
+      expect(result.answer).not.toContain("all research decisions");
+    }
+    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
+    expect(mocks.verify).toHaveBeenCalledTimes(3);
   });
 
   it("publishes a grounded useful revision with a transparent limitation", async () => {
     mocks.verify.mockReset()
-      .mockResolvedValueOnce({
-        verdict: "repair",
-        requiresProjectCitations: true,
-        groundingSatisfied: false,
+      .mockResolvedValueOnce(verificationFixture({
+        action: "qualify",
+        support: "reasonable_inference",
         instructionSatisfied: false,
-        formatSatisfied: true,
-        researchObjective: null,
-        recommendedCapabilities: [],
-        issues: [{
-          code: "unsupported_ranking",
-          explanation: "The source establishes the changes but not an objective importance ranking.",
-          candidateCitationIndexes: [1],
-        }],
+        explanation: "The source establishes scope but not an objective importance ranking.",
         generationRunId: "verification-ranking",
-        mechanicalIssues: [],
-      })
-      .mockResolvedValueOnce({
-        verdict: "publish_with_limitations",
-        requiresProjectCitations: true,
-        groundingSatisfied: true,
-        instructionSatisfied: false,
-        formatSatisfied: true,
-        researchObjective: null,
-        recommendedCapabilities: [],
-        issues: [{
-          code: "qualified_ranking",
-          explanation: "The answer explicitly describes scope as its ranking basis.",
-          candidateCitationIndexes: [1],
-        }],
+      }))
+      .mockResolvedValueOnce(verificationFixture({
+        action: "keep_inference",
+        support: "reasonable_inference",
+        explanation: "The answer now explicitly describes scope as its ranking basis.",
         generationRunId: "verification-qualified",
-        mechanicalIssues: [],
-      });
+      }));
 
     await expect(executeModelLedProjectChatAgent({
       runId: "run-1",
@@ -503,37 +771,36 @@ describe("project-chat bounded repair regression", () => {
       status: "answered",
       answer: expect.stringContaining("Robotics controller"),
       citationPolicy: "required_inline",
+      publicationOutcome: "answered_with_gaps",
     });
     expect(mocks.agentRun).toHaveBeenCalledTimes(2);
     expect(mocks.verify).toHaveBeenCalledTimes(2);
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({
-        publicationMode: "publish_with_limitations",
+        publicationMode: "answered_with_gaps",
         repaired: true,
       }),
     }));
   });
 
-  it("fails closed after both frozen-source revisions remain unsupported", async () => {
+  it("removes only an unfounded claim after the bounded revision", async () => {
     mocks.verify.mockReset();
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      mocks.verify.mockResolvedValueOnce({
-        verdict: "repair",
-        requiresProjectCitations: true,
-        groundingSatisfied: false,
-        instructionSatisfied: true,
-        formatSatisfied: true,
-        researchObjective: null,
-        recommendedCapabilities: [],
-        issues: [{
-          code: "unsupported_claim",
-          explanation: `Unsupported claim remains after verification ${attempt}.`,
-          candidateCitationIndexes: [],
-        }],
+      mocks.verify.mockResolvedValueOnce(verificationFixture({
+        action: "remove_unfounded",
+        support: "unfounded",
+        quote: "The controller reduced latency by 40%.",
+        explanation: `No source establishes the metric after verification ${attempt}.`,
         generationRunId: `verification-${attempt}`,
-        mechanicalIssues: [],
-      });
+        citationIndexes: [],
+      }));
     }
+    mocks.verify.mockResolvedValueOnce(verificationFixture({
+      action: "keep_direct",
+      support: "direct",
+      explanation: "The final projection contains only the supported repository row.",
+      generationRunId: "verification-3",
+    }));
 
     await expect(executeModelLedProjectChatAgent({
       runId: "run-1",
@@ -544,11 +811,11 @@ describe("project-chat bounded repair regression", () => {
       question: "Map the supported project components.",
       history: [],
     })).resolves.toMatchObject({
-      status: "insufficient_context",
-      fallbackUsed: false,
+      status: "answered",
+      publicationOutcome: "answered_with_gaps",
     });
-    expect(mocks.agentRun).toHaveBeenCalledTimes(2);
-    expect(mocks.verify).toHaveBeenCalledTimes(2);
+    expect(mocks.agentRun).toHaveBeenCalledTimes(3);
+    expect(mocks.verify).toHaveBeenCalledTimes(3);
   });
 
   it("returns a cited frozen-source boundary when the tool-free repair cannot complete", async () => {
@@ -569,15 +836,60 @@ describe("project-chat bounded repair regression", () => {
       question: "summarize the attached source in a table",
       history: [],
     })).resolves.toMatchObject({
-      status: "insufficient_context",
-      answer: expect.stringContaining("couldn’t verify enough project evidence"),
-      citationPolicy: "required_inline",
-      fallbackUsed: false,
+      status: "answered",
+      answer: expect.stringContaining("Robotics controller"),
+      publicationOutcome: "answered_with_gaps",
+      fallbackUsed: true,
     });
     expect(mocks.agentRun).toHaveBeenCalledTimes(2);
     expect(mocks.verify).toHaveBeenCalledTimes(1);
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ mode: "frozen_repair_failed" }),
+    }));
+  });
+
+  it("publishes the mechanically grounded answer when semantic verification cannot complete", async () => {
+    mocks.verify.mockReset().mockRejectedValueOnce(
+      new Error("semantic verifier exhausted its structured retries"),
+    );
+
+    const result = await executeModelLedProjectChatAgent({
+      runId: "run-1",
+      userId: "user-1",
+      workItemId: "work-1",
+      threadId: "thread-1",
+      messageId: "message-1",
+      question: "summarize the attached source in a table",
+      history: [],
+    });
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: expect.stringContaining("Robotics controller"),
+      publicationOutcome: "answered_with_gaps",
+      fallbackUsed: true,
+      claimAudit: {
+        verificationHistory: [],
+        ledger: {
+          entries: expect.arrayContaining([
+            expect.objectContaining({
+              support: "ambiguous",
+              action: "qualify",
+            }),
+          ]),
+        },
+      },
+      research: {
+        warnings: expect.arrayContaining([
+          expect.stringContaining("Semantic claim verification did not complete"),
+        ]),
+      },
+    });
+    if (result.status === "answered") {
+      expect(result.answer).toContain("Semantic verification did not complete");
+    }
+    expect(mocks.agentRun).toHaveBeenCalledTimes(1);
+    expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ mode: "semantic_verification_failed" }),
     }));
   });
 

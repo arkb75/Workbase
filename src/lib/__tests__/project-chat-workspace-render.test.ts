@@ -8,6 +8,7 @@ import {
   CopyChatAnswerButton,
   MessageContent,
   selectLatestRunFeedback,
+  shouldSubmitProjectChatComposer,
   type ChatWorkspaceCitation,
 } from "@/components/chat/project-chat-workspace";
 
@@ -206,6 +207,33 @@ describe("project chat citation rendering", () => {
 });
 
 describe("project chat run feedback", () => {
+  it("submits on Enter while preserving Shift+Enter and IME composition", () => {
+    expect(shouldSubmitProjectChatComposer({
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+      activeRun: false,
+    })).toBe(true);
+    expect(shouldSubmitProjectChatComposer({
+      key: "Enter",
+      shiftKey: true,
+      isComposing: false,
+      activeRun: false,
+    })).toBe(false);
+    expect(shouldSubmitProjectChatComposer({
+      key: "Enter",
+      shiftKey: false,
+      isComposing: true,
+      activeRun: false,
+    })).toBe(false);
+    expect(shouldSubmitProjectChatComposer({
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+      activeRun: true,
+    })).toBe(false);
+  });
+
   it("replaces the send arrow with a composer-local stop control while a run is active", () => {
     const activeRun = {
       id: "run-active",

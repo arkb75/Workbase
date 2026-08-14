@@ -16,13 +16,26 @@ describe("model-led project-chat failure recovery", () => {
 
   it("uses one model repair for verifier issues without prescribing fallback prose", () => {
     const instructions = projectChatRepairInstructions({
-      verdict: "repair",
       requiresProjectCitations: true,
-      groundingSatisfied: false,
       instructionSatisfied: true,
       formatSatisfied: false,
+      answerUseful: true,
       researchObjective: null,
       recommendedCapabilities: [],
+      claimLedger: {
+        version: "project-chat-claim-ledger-v1",
+        entries: [{
+          id: "claim_1",
+          quote: "The unsupported path is src/unknown.ts.",
+          centrality: "supporting",
+          support: "unfounded",
+          action: "remove_unfounded",
+          citationIndexes: [3],
+          missingOrContradictedPremise: "No source establishes that path.",
+          rationale: "The cited source does not contain the path.",
+          confidence: "high",
+        }],
+      },
       issues: [
         { code: "unsupported_claim", explanation: "One claim is not supported by the cited source.", candidateCitationIndexes: [3] },
         { code: "format_mismatch", explanation: "The requested relationships are not presented clearly.", candidateCitationIndexes: [] },
@@ -42,13 +55,26 @@ describe("model-led project-chat failure recovery", () => {
 
   it("tells the primary model to remove leaked transport syntax during its one repair", () => {
     const instructions = projectChatRepairInstructions({
-      verdict: "repair",
       requiresProjectCitations: true,
-      groundingSatisfied: true,
       instructionSatisfied: true,
       formatSatisfied: true,
+      answerUseful: true,
       researchObjective: null,
       recommendedCapabilities: [],
+      claimLedger: {
+        version: "project-chat-claim-ledger-v1",
+        entries: [{
+          id: "claim_1",
+          quote: "The supported project answer cites its source.",
+          centrality: "central",
+          support: "direct",
+          action: "keep_direct",
+          citationIndexes: [1],
+          missingOrContradictedPremise: null,
+          rationale: "The source directly supports the answer.",
+          confidence: "high",
+        }],
+      },
       issues: [],
       generationRunId: "verification-transport-leak",
       mechanicalIssues: [

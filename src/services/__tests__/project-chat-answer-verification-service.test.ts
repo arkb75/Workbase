@@ -9,6 +9,10 @@ import {
   projectChatRepairInstructions,
 } from "@/src/services/project-chat-answer-verification-service";
 import { analyzeProjectChatPublicationSafety } from "@/src/lib/project-chat-publication-safety";
+import {
+  claimLedgerValidationIssues,
+  supportedClaimLedgerAnswer,
+} from "@/src/services/project-chat-claim-ledger-service";
 
 const catalog: ProjectKnowledgeCitation[] = [
   {
@@ -39,40 +43,68 @@ describe("model-led project-chat answer boundaries", () => {
     expect(sources[1]?.excerpt).toContain("resolves every profile independently");
   });
 
-  it("permits a useful grounded answer to publish with an explicit limitation", () => {
-    expect(projectChatAnswerVerificationSchema.parse({
-      verdict: "publish_with_limitations",
+  it("records a useful qualified claim without rejecting the whole answer", () => {
+    const parsed = projectChatAnswerVerificationSchema.parse({
       requiresProjectCitations: true,
-      groundingSatisfied: true,
       instructionSatisfied: false,
       formatSatisfied: true,
+      answerUseful: true,
       researchObjective: null,
       recommendedCapabilities: [],
+      claimLedger: {
+        version: "project-chat-claim-ledger-v1",
+        entries: [{
+          id: "claim_1",
+          quote: "This was the most important change.",
+          centrality: "central",
+          support: "reasonable_inference",
+          action: "qualify",
+          citationIndexes: [1, 2],
+          missingOrContradictedPremise: null,
+          rationale: "Scope is established, but importance is a judgment.",
+          confidence: "high",
+        }],
+      },
       issues: [{
         code: "qualified_majority",
         explanation: "The sources establish merged scope but not an objective ranking of importance.",
         candidateCitationIndexes: [1, 2],
       }],
-    }).verdict).toBe("publish_with_limitations");
+    });
+    expect(parsed.answerUseful).toBe(true);
+    expect(parsed.claimLedger.entries[0]?.action).toBe("qualify");
   });
 
   it("requests one semantic evidence continuation instead of publishing a central resolvable gap", () => {
     expect(projectChatAnswerVerificationSchema.parse({
-      verdict: "continue_research",
       requiresProjectCitations: true,
-      groundingSatisfied: true,
       instructionSatisfied: false,
       formatSatisfied: true,
+      answerUseful: true,
       researchObjective: "Establish the requested ordering and merge relationship from the attached repository.",
       recommendedCapabilities: ["repository_git"],
+      claimLedger: {
+        version: "project-chat-claim-ledger-v1",
+        entries: [{
+          id: "claim_1",
+          quote: "Change A preceded change B.",
+          centrality: "central",
+          support: "ambiguous",
+          action: "research",
+          citationIndexes: [1],
+          missingOrContradictedPremise: "The frozen sources do not establish commit ordering.",
+          rationale: "Pinned Git history can resolve the central relationship.",
+          confidence: "high",
+        }],
+      },
       issues: [{
         code: "ordering_not_established",
         explanation: "Durable memory names changes but does not establish their relative order.",
         candidateCitationIndexes: [1],
       }],
     })).toMatchObject({
-      verdict: "continue_research",
       recommendedCapabilities: ["repository_git"],
+      claimLedger: { entries: [expect.objectContaining({ action: "research" })] },
     });
   });
 
@@ -223,19 +255,32 @@ describe("model-led project-chat answer boundaries", () => {
 
   it("asks the primary model—not a template—to repair or state an evidence boundary", () => {
     const instructions = projectChatRepairInstructions({
-      verdict: "insufficient_context",
       requiresProjectCitations: true,
-      groundingSatisfied: false,
       instructionSatisfied: true,
       formatSatisfied: true,
+      answerUseful: true,
       researchObjective: null,
       recommendedCapabilities: [],
+      claimLedger: {
+        version: "project-chat-claim-ledger-v1",
+        entries: [{
+          id: "claim_1",
+          quote: "The system has a 20 ms p95.",
+          centrality: "supporting",
+          support: "unfounded",
+          action: "remove_unfounded",
+          citationIndexes: [],
+          missingOrContradictedPremise: "No source establishes p95.",
+          rationale: "The metric is not present in the frozen evidence.",
+          confidence: "high",
+        }],
+      },
       issues: [{ code: "missing_metric", explanation: "No source establishes p95.", candidateCitationIndexes: [] }],
       generationRunId: "verification-1",
       mechanicalIssues: [],
     });
     expect(instructions).toContain("No source establishes p95.");
-    expect(instructions).toContain("say that boundary plainly instead of guessing");
+    expect(instructions).toContain("remove only claims explicitly marked remove");
     expect(instructions).toContain("Return only the revised user-facing answer");
     expect(instructions).not.toContain("Here is what I found");
   });
@@ -250,24 +295,115 @@ describe("model-led project-chat answer boundaries", () => {
       attempt: 2,
       researchContinuationUsed: false,
     }))
-      .toContain("Do not request another repair merely to repeat a supporting source in every table row");
+      .toContain("Do not turn editorial preferences or repeated citation placement into substantive objections");
     expect(projectChatAnswerVerificationSystemPrompt({
       attempt: 2,
       researchContinuationUsed: false,
     }))
-      .toContain("Still reject unsupported facts");
+      .toContain("Classify the remaining claims precisely");
     expect(projectChatAnswerVerificationSystemPrompt({
       attempt: 2,
       researchContinuationUsed: false,
     }))
-      .toContain("This is the only bounded revision");
+      .toContain("already received its bounded revision");
     expect(projectChatAnswerVerificationSystemPrompt({
       attempt: 1,
       researchContinuationUsed: false,
-    })).toContain("Use continue_research when a material relationship");
+    })).toContain("Build an internal claim ledger");
+    expect(projectChatAnswerVerificationSystemPrompt({
+      attempt: 1,
+      researchContinuationUsed: false,
+    })).toContain("harmless wording or Markdown differences are not verification failures");
     expect(projectChatAnswerVerificationSystemPrompt({
       attempt: 2,
       researchContinuationUsed: true,
     })).toContain("Do not request another");
+  });
+
+  it("requires high confidence and an explicit premise before removing a claim", () => {
+    expect(claimLedgerValidationIssues({
+      version: "project-chat-claim-ledger-v1",
+      entries: [{
+        id: "claim_1",
+        quote: "The migration reduced latency by 40%.",
+        centrality: "supporting",
+        support: "unfounded",
+        action: "remove_unfounded",
+        citationIndexes: [],
+        missingOrContradictedPremise: null,
+        rationale: "The metric was not found.",
+        confidence: "medium",
+      }],
+    })).toEqual([
+      "Removing claim_1 requires high confidence.",
+      "claim_1 must identify the missing or contradicted premise.",
+    ]);
+  });
+
+  it("can salvage verified claims without retaining a rejected peripheral claim", () => {
+    expect(supportedClaimLedgerAnswer({
+      version: "project-chat-claim-ledger-v1",
+      entries: [{
+        id: "claim_1",
+        quote: "Drafting uses model-a.",
+        centrality: "central",
+        support: "direct",
+        action: "keep_direct",
+        citationIndexes: [1],
+        missingOrContradictedPremise: null,
+        rationale: "The configuration directly establishes the assignment.",
+        confidence: "high",
+      }, {
+        id: "claim_2",
+        quote: "This reduced latency by 40%.",
+        centrality: "supporting",
+        support: "unfounded",
+        action: "remove_unfounded",
+        citationIndexes: [],
+        missingOrContradictedPremise: "No performance measurement is present.",
+        rationale: "The metric is invented.",
+        confidence: "high",
+      }],
+    })).toBe("- Drafting uses model-a. [citation:1]");
+  });
+
+  it("keeps a scoped reasonable inference in fallback publication but drops an ambiguous claim", () => {
+    expect(supportedClaimLedgerAnswer({
+      version: "project-chat-claim-ledger-v1",
+      entries: [{
+        id: "claim_1",
+        quote: "The invite flow is implemented transactionally.",
+        centrality: "central",
+        support: "direct",
+        action: "keep_direct",
+        citationIndexes: [1],
+        missingOrContradictedPremise: null,
+        rationale: "The service directly establishes the transaction.",
+        confidence: "high",
+      }, {
+        id: "claim_2",
+        quote: "No production p95 is established by the repository evidence inspected.",
+        centrality: "central",
+        support: "reasonable_inference",
+        action: "qualify",
+        citationIndexes: [1, 2],
+        missingOrContradictedPremise: "The inspected sources contain no production telemetry, but the search was bounded.",
+        rationale: "The negative claim is explicitly limited to inspected evidence.",
+        confidence: "medium",
+      }, {
+        id: "claim_3",
+        quote: "The session is cookie-backed.",
+        centrality: "supporting",
+        support: "ambiguous",
+        action: "qualify",
+        citationIndexes: [2],
+        missingOrContradictedPremise: "The inspected route requires a session but does not establish its storage mechanism.",
+        rationale: "The storage mechanism needs another source.",
+        confidence: "high",
+      }],
+    })).toBe([
+      "- The invite flow is implemented transactionally. [citation:1]",
+      "- Based on the inspected evidence: No production p95 is established by the repository evidence inspected. [citation:1] [citation:2]",
+    ].join("\n"));
   });
 });

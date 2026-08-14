@@ -184,6 +184,15 @@ Built review, supersession, staleness reconciliation, and provenance handling ar
         ...base,
         tools: ["inspect_project"],
         answerCompositionMode: "model_tool_loop",
+        publicationOutcome: "answered",
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entryCount: 3,
+          keptCount: 3,
+          qualifiedCount: 0,
+          researchCount: 0,
+          removedCount: 0,
+        },
         metrics: {
           ...zeroMetrics,
           modelCalls: 1,
@@ -214,11 +223,11 @@ Built review, supersession, staleness reconciliation, and provenance handling ar
           },
         },
       }, [
-        "| Responsibility | Location | What it does |",
+        "| Model role | Location | What it does |",
         "|---|---|---|",
-        "| Membership admission | `src/membership/join.ts` | Validates an invite and creates the membership transition. |",
-        "| Circle activation | `src/circles/activate.ts` | Applies the active-state rules after admission. |",
-        "| Persistence | `src/data/memberships.ts` | Commits the resulting membership state. |",
+        "| Primary answer | `src/lib/llm-config.ts` | Resolves the model used to compose user-facing answers. |",
+        "| Verification | `src/lib/llm-config.ts` | Resolves the model used for semantic claim review. |",
+        "| JSON repair | `src/lib/llm-config.ts` | Resolves the bounded structured-output repair model. |",
         "",
         "This mapping comes from the selected current source files. [citation:1]",
       ].join("\n"));
