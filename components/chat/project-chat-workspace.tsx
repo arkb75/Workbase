@@ -151,6 +151,18 @@ export function selectLatestRunFeedback(runs: ChatWorkspaceRun[]) {
   };
 }
 
+export function shouldSubmitProjectChatComposer(input: {
+  key: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+  activeRun: boolean;
+}) {
+  return input.key === "Enter" &&
+    !input.shiftKey &&
+    !input.isComposing &&
+    !input.activeRun;
+}
+
 export function ChatComposerAction({
   activeRun,
   cancelFormId,
@@ -922,6 +934,16 @@ export function ProjectChatWorkspace({
                       name="message"
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (!shouldSubmitProjectChatComposer({
+                          key: event.key,
+                          shiftKey: event.shiftKey,
+                          isComposing: event.nativeEvent.isComposing,
+                          activeRun: Boolean(activeRun),
+                        })) return;
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }}
                       placeholder="Ask about the work, inspect an implementation, or request an artifact…"
                       className="min-h-16 resize-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
                       required
