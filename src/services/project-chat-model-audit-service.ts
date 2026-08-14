@@ -17,7 +17,7 @@ import {
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 
-export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v9";
+export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v10";
 
 export interface ProjectChatModelControl {
   refreshRequested: boolean;
@@ -128,7 +128,7 @@ export async function runAuditedProjectChatModel(input: {
   workItemId: string;
   agentRunId: string;
   phase: "initial" | "after_source_refresh" | "after_fact_review";
-  attempt: "initial" | "research_1" | "repair_1";
+  attempt: "initial" | "research_1" | "repair_1" | "publication_1";
   inputSummary: Record<string, unknown>;
   execute: () => Promise<ExecutedProjectChatModel>;
 }) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const PROJECT_CHAT_SEMANTIC_ROBUSTNESS_SCHEMA_VERSION =
-  "workbase-project-chat-semantic-robustness-v2";
+  "workbase-project-chat-semantic-robustness-v3";
 
 const familySchema = z.enum([
   "durable_freshness",
@@ -10,6 +10,7 @@ const familySchema = z.enum([
   "prior_turn_provenance",
   "artifact_action",
   "formatting",
+  "partial_support",
   "unsupported_request",
   "conversational",
 ]);
@@ -50,6 +51,14 @@ export const projectChatSemanticRobustnessObservationSchema = z.object({
   deterministicAnswerRunCount: z.number().int().min(0),
   answer: z.string().max(20_000),
   unsupportedClaimCount: z.number().int().min(0),
+  publicationOutcome: z.enum(["answered", "answered_with_gaps"]).nullable(),
+  claimLedger: z.object({
+    version: z.literal("project-chat-claim-ledger-v1"),
+    entryCount: z.number().int().min(0),
+    supportedCount: z.number().int().min(0),
+    qualifiedCount: z.number().int().min(0),
+    removedCount: z.number().int().min(0),
+  }).nullable(),
   primaryAnswerAttribution: z.object({
     provider: z.string().trim().min(1).max(100),
     modelId: z.string().trim().min(1).max(300),
@@ -121,6 +130,24 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     family: "current_source_investigation",
     repositoryDomain: "machine_learning_library",
     prompt: "Check the current source and show which execution backends are configured, in a table.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_model_roles_plain",
+    family: "current_source_investigation",
+    repositoryDomain: "ai_application",
+    prompt: "What models are used for what? Check the current repository and give me the role mapping.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "source_model_roles_matrix",
+    family: "current_source_investigation",
+    repositoryDomain: "agent_platform",
+    prompt: "Put the configured LLMs beside their responsibilities in a compact matrix and cite the current source.",
     expectedOutcome: "answered",
     requiredCapabilities: ["repository_inspection"],
     forbiddenCapabilities: ["durable_refresh"],
@@ -244,6 +271,33 @@ export const projectChatSemanticRobustnessScenarios: readonly ProjectChatSemanti
     requiredCapabilities: ["knowledge_search"],
   },
   {
+    id: "partial_model_roles_with_unknown_cost",
+    family: "partial_support",
+    repositoryDomain: "ai_application",
+    prompt: "Map the configured models to their roles and tell me which role is cheapest, but keep whatever you can verify if the cost comparison is not in the repo.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "partial_architecture_with_missing_metric",
+    family: "partial_support",
+    repositoryDomain: "network_service",
+    prompt: "Explain the retry architecture and include production p95 if it is actually available; don't throw away the architecture answer if that metric is absent.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
+    id: "partial_inference_from_configuration",
+    family: "partial_support",
+    repositoryDomain: "developer_tool",
+    prompt: "Based on the current configuration, what responsibilities does the routing model appear to have? Separate reasonable inference from anything the source states directly.",
+    expectedOutcome: "answered",
+    requiredCapabilities: ["repository_inspection"],
+    forbiddenCapabilities: ["durable_refresh"],
+  },
+  {
     id: "conversational_acknowledgement",
     family: "conversational",
     repositoryDomain: "any",
@@ -350,6 +404,15 @@ export function evaluateProjectChatSemanticRobustness(input: {
     check(checks, `${prefix}: forbidden capabilities were avoided`, (scenario.forbiddenCapabilities ?? []).every((capability) => !capabilities.has(capability)), Array.from(capabilities).sort().join(","), (scenario.forbiddenCapabilities ?? []).join(","));
     check(checks, `${prefix}: answered output is non-empty`, observation.observedOutcome !== "answered" || observation.answer.trim().length > 0, observation.answer.trim().length, observation.observedOutcome === "answered" ? 1 : 0);
     check(checks, `${prefix}: no unsupported claims`, observation.unsupportedClaimCount === 0, observation.unsupportedClaimCount, 0);
+    if (observation.observedOutcome === "answered") {
+      check(checks, `${prefix}: publication outcome is explicit`, observation.publicationOutcome === "answered" || observation.publicationOutcome === "answered_with_gaps", observation.publicationOutcome ?? "missing", "answered or answered_with_gaps");
+      if (scenario.requiredCapabilities.length) {
+        check(checks, `${prefix}: material claims have a durable internal ledger`, Boolean(observation.claimLedger && observation.claimLedger.entryCount > 0 && observation.claimLedger.supportedCount > 0), `${observation.claimLedger?.supportedCount ?? 0}/${observation.claimLedger?.entryCount ?? 0}`, "at least one supported claim");
+      }
+    }
+    if (scenario.family === "partial_support") {
+      check(checks, `${prefix}: partial support publishes surviving content with gaps`, observation.publicationOutcome === "answered_with_gaps" && Boolean(observation.claimLedger && observation.claimLedger.supportedCount > 0 && observation.claimLedger.qualifiedCount + observation.claimLedger.removedCount > 0), `${observation.publicationOutcome}/${observation.claimLedger?.supportedCount ?? 0}/${(observation.claimLedger?.qualifiedCount ?? 0) + (observation.claimLedger?.removedCount ?? 0)}`, "answered_with_gaps / supported content survives / gap audited");
+    }
     check(checks, `${prefix}: primary-answer attribution is authoritative`, new Set(observation.primaryAnswerAttribution.requestIds).size === observation.primaryAnswerAttribution.requestIds.length && observation.primaryAnswerAttribution.requestIds.length >= observation.primaryAnswerRunCount && observation.primaryAnswerAttribution.usageComplete && observation.primaryAnswerAttribution.failedProviderAttempts === 0 && !observation.primaryAnswerAttribution.fallbackUsed, `${observation.primaryAnswerAttribution.requestIds.length}/${observation.primaryAnswerAttribution.usageComplete}/${observation.primaryAnswerAttribution.failedProviderAttempts}/${observation.primaryAnswerAttribution.fallbackUsed}`, "unique request IDs cover runs / complete usage / zero failures / no fallback");
     check(checks, `${prefix}: semantic judge attribution is complete`, Boolean(observation.judge.provider && observation.judge.modelId && observation.judge.requestId), Boolean(observation.judge.requestId), true);
     check(checks, `${prefix}: same-model direct control is present`, observation.directAgentBaseline !== null, observation.directAgentBaseline !== null, true);

@@ -163,6 +163,30 @@ const mocks = vi.hoisted(() => {
           inspectedAt: "2026-07-19T12:00:00.000Z",
           partial: false,
         },
+        publicationOutcome: "answered" as const,
+        claimAudit: {
+          version: "project-chat-claim-ledger-v1" as const,
+          publicationOutcome: "answered" as const,
+          ledger: {
+            version: "project-chat-claim-ledger-v1" as const,
+            entries: [{
+              id: "claim_1",
+              quote: "The H2 revision adds incremental semantic reconciliation while replacing the earlier H1 behavior.",
+              centrality: "central" as const,
+              support: "direct" as const,
+              action: "keep_direct" as const,
+              citationIndexes: [1],
+              missingOrContradictedPremise: null,
+              rationale: "The current Project Fact directly supports the claim.",
+              confidence: "high" as const,
+            }],
+          },
+          verificationHistory: [],
+          verificationGenerationRunIds: [],
+          researchContinuationUsed: false,
+          repairUsed: false,
+          publicationProjectionUsed: false,
+        },
         research: {
           status: "answered" as const,
           answer: "The H2 revision adds incremental semantic reconciliation while replacing the earlier H1 behavior.",
@@ -458,6 +482,7 @@ describe("project chat latest-commit freshness orchestration", () => {
     const completion = mocks.completeRun.mock.calls[0]![0] as {
       content: string;
       citations: Array<{ kind: string; projectFactId?: string }>;
+      result: Record<string, unknown>;
     };
     expect(completion.content).toContain("H2 revision");
     expect(completion.content).not.toContain("H1 behavior is current");
@@ -470,6 +495,13 @@ describe("project chat latest-commit freshness orchestration", () => {
     expect(completion.citations).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: "github_file" })]),
     );
+    expect(completion.result).toMatchObject({
+      publicationOutcome: "answered",
+      claimAudit: {
+        version: "project-chat-claim-ledger-v1",
+        ledger: { entries: [expect.objectContaining({ action: "keep_direct" })] },
+      },
+    });
     expect(JSON.stringify(completion)).not.toContain("fact-h1-stale");
     expect(mocks.failRun).not.toHaveBeenCalled();
   });

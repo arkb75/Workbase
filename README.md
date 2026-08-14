@@ -153,8 +153,9 @@ The test suite covers:
   semantic verification, and durable provider/model/usage attribution. Real
   providers do not use lexical routing or deterministic source-shaped prose
 - semantic robustness families covering freshness and format paraphrases,
-  elliptical follow-ups, runtime-configuration authority, distractors,
-  unsupported questions, and non-inferiority to a same-model direct-agent run
+  elliptical follow-ups, current model-role questions, partial-support
+  survival, reasonable inference, distractors, unsupported questions, and
+  non-inferiority to a same-model direct-agent run
 - exact same-thread accomplishments freshness follow-ups, including current-head
   breadth continuity and cross-repository contamination rejection
 - commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
@@ -192,9 +193,15 @@ The test suite covers:
   ordinary argument vectors but exposes no shell, mutation, network, or
   arbitrary host-filesystem access.
   A semantic verifier sees a compact manifest of the entire frozen evidence
-  set. When a central evidence gap can be resolved by an authorized capability,
-  it may authorize one smaller evidence continuation before the single frozen
-  rewrite. `publish_with_limitations` is reserved for grounded, non-central,
-  irreducible boundaries; the verifier never replaces the model answer with a
-  canned template.
+  set and records a versioned internal ledger for every material claim:
+  direct support, multi-source synthesis, reasonable inference,
+  qualification, citation repair, focused research, or high-confidence
+  removal with the missing or contradicted premise. When a central evidence
+  gap can be resolved by an authorized capability, it may authorize one
+  smaller evidence continuation before a frozen rewrite. A final bounded
+  projection preserves supported claims and removes only ledger-rejected
+  content; completed runs persist the ledger history and distinguish
+  `answered` from `answered_with_gaps`. The verifier never replaces the model
+  answer with a canned template, and one peripheral issue cannot suppress the
+  supported remainder.
 - Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.

@@ -699,6 +699,11 @@ export async function completeAgentRun(input: {
 }) {
   const content = input.content.trim();
   const citations = input.citations ?? [];
+  const requestedPublicationOutcome = record(input.result)?.publicationOutcome;
+  const publicationOutcome = requestedPublicationOutcome === "answered" ||
+      requestedPublicationOutcome === "answered_with_gaps"
+    ? requestedPublicationOutcome
+    : null;
   assertAnswerCitationContract({ content, citations, policy: input.citationPolicy, groundedClaims: input.groundedClaims });
   return prisma.$transaction(async (tx) => {
     const runs = await tx.$queryRaw<Array<{
@@ -778,6 +783,7 @@ export async function completeAgentRun(input: {
           renderVersion: 2,
           citationPolicy: finalCitationPolicy,
           freshness: input.freshness ?? null,
+          ...(publicationOutcome ? { publicationOutcome } : {}),
           ...(provenanceFailureMessage ? {
             outcome: "insufficient_context",
             operationalFailure: false,

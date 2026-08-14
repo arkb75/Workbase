@@ -23,10 +23,21 @@ import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-
 import {
   finalizeModelLedProjectChatAnswer,
   projectChatRepairInstructions,
+  projectChatPublicationInstructions,
   verifyModelLedProjectChatAnswer,
   type ProjectChatAnswerVerification,
   type ProjectChatResearchCapability,
 } from "@/src/services/project-chat-answer-verification-service";
+import {
+  claimLedgerHasGaps,
+  claimLedgerHasUsefulContent,
+  claimLedgerCoverageGaps,
+  claimLedgerNeedsResearch,
+  claimLedgerNeedsRevision,
+  PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+  supportedClaimLedgerAnswer,
+  type ProjectChatClaimLedger,
+} from "@/src/services/project-chat-claim-ledger-service";
 import {
   runAuditedProjectChatModel,
   type ProjectChatModelControl,
@@ -43,9 +54,24 @@ import {
   type ProjectChatAttachedSource,
 } from "@/src/services/project-chat-repository-inspection-service";
 
-export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v9";
+export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v10";
 const MAX_PROJECT_KNOWLEDGE_HITS_PER_TURN = 20;
-type ProjectChatModelAttempt = "initial" | "research_1" | "repair_1";
+type ProjectChatModelAttempt = "initial" | "research_1" | "repair_1" | "publication_1";
+
+export interface ProjectChatClaimAudit {
+  version: typeof PROJECT_CHAT_CLAIM_LEDGER_VERSION;
+  publicationOutcome: "answered" | "answered_with_gaps";
+  ledger: ProjectChatClaimLedger;
+  verificationHistory: Array<{
+    attempt: 1 | 2 | 3 | 4;
+    generationRunId: string | null;
+    ledger: ProjectChatClaimLedger;
+  }>;
+  verificationGenerationRunIds: string[];
+  researchContinuationUsed: boolean;
+  repairUsed: boolean;
+  publicationProjectionUsed: boolean;
+}
 
 export interface ModelLedProjectChatHistoryMessage {
   id: string;
@@ -78,6 +104,8 @@ export type ModelLedProjectChatResult =
       citationPolicy: AnswerCitationPolicy;
       groundedClaims: Array<{ claim: string; citationIndexes: number[] }>;
       freshness: FinalizedChatAnswer["freshness"];
+      publicationOutcome: "answered" | "answered_with_gaps";
+      claimAudit: ProjectChatClaimAudit;
       fallbackUsed?: boolean;
     }
   | {
@@ -89,6 +117,8 @@ export type ModelLedProjectChatResult =
       citationPolicy: "none";
       groundedClaims: [];
       freshness: null;
+      publicationOutcome?: never;
+      claimAudit?: never;
       fallbackUsed: false;
     }
   | { status: "artifact_requested"; brief: string };
@@ -127,8 +157,8 @@ export function modelLedProjectChatLimits(attempt: ProjectChatModelAttempt) {
     };
   }
   return {
-        // Verification repair is one rewrite over a frozen source set. It is
-        // not a second autonomous research session.
+        // Repair and final publication projection are tool-free rewrites over
+        // one frozen source set, never autonomous research sessions.
         maxIterations: 1,
         maxToolCalls: 1,
         maxTotalTokens: 30_000,
@@ -275,6 +305,8 @@ function directResearchResult(input: {
   generationRunIds?: string[];
   research?: ProjectResearchResult | null;
   groundedClaims?: Array<{ claim: string; citationIndexes: number[] }>;
+  partial?: boolean;
+  coverageGaps?: string[];
 }): ProjectResearchResult {
   if (input.research) {
     return {
@@ -285,6 +317,11 @@ function directResearchResult(input: {
         ...input.research.warnings,
         ...(input.warnings ?? []),
       ])),
+      coverageGaps: Array.from(new Set([
+        ...input.research.coverageGaps,
+        ...(input.coverageGaps ?? []),
+      ])),
+      partial: input.partial ?? input.research.partial,
       generationRunIds: Array.from(new Set([
         ...input.research.generationRunIds,
         ...(input.generationRunIds ?? []),
@@ -297,11 +334,11 @@ function directResearchResult(input: {
     answer: input.answer,
     findings: [],
     citations: input.citations,
-    coverageGaps: input.answer ? [] : ["The available authorized sources could not support the requested answer."],
+    coverageGaps: input.coverageGaps ?? (input.answer ? [] : ["The available authorized sources could not support the requested answer."]),
     warnings: input.warnings ?? [],
     candidateIds: [],
     generationRunIds: input.generationRunIds ?? [],
-    partial: false,
+    partial: input.partial ?? false,
     exploredEvidence: [],
     coverage: null,
     groundedClaims: input.groundedClaims,
@@ -442,7 +479,7 @@ export function modelLedProjectChatToolNames(input: {
   attempt: ProjectChatModelAttempt;
   researchCapabilities?: ProjectChatResearchCapability[];
 }) {
-  if (input.attempt === "repair_1") return [];
+  if (input.attempt === "repair_1" || input.attempt === "publication_1") return [];
   if (input.attempt === "research_1") {
     const capabilities = new Set(input.researchCapabilities ?? []);
     return [
@@ -1021,6 +1058,16 @@ export function modelLedProjectChatRepairSystemPrompt() {
   ].join(" ");
 }
 
+export function modelLedProjectChatPublicationSystemPrompt() {
+  return [
+    "You are the final publication projection for one project-chat answer.",
+    "Use only the prior draft, frozen source catalog, and internal claim-ledger instructions supplied in the user message. No tools or new research are available.",
+    "Preserve supported content and the user's requested format. Apply only the ledger-directed qualifications, citation repairs, and removals. Do not add a new factual claim.",
+    "A partial grounded answer is useful. Never replace surviving supported content with a generic refusal or orchestration explanation.",
+    "Return only the final user-facing answer with normal [citation:N] markers. Never output claim IDs, ledger labels, serialized manifests, or transport tags.",
+  ].join(" ");
+}
+
 export function modelLedProjectChatResearchContinuationSystemPrompt(input: {
   afterFactReview: boolean;
 }) {
@@ -1074,6 +1121,9 @@ function researchContinuationMessages(input: {
             objective: input.verification.researchObjective,
             recommendedCapabilities: input.verification.recommendedCapabilities,
             issues: input.verification.issues,
+            unresolvedClaims: input.verification.claimLedger.entries.filter((entry) =>
+              entry.action === "research"
+            ),
           },
           priorDraft: input.checkpoint.answer,
           existingSources: frozenRepairSourceSet(
@@ -1125,7 +1175,7 @@ async function executePrimaryModel(input: {
   researchCapabilities?: ProjectChatResearchCapability[];
   priorCheckpoint?: ProjectChatModelCheckpoint;
 }) {
-  const messages = input.attempt === "repair_1" &&
+  const messages = (input.attempt === "repair_1" || input.attempt === "publication_1") &&
     input.repairInstructions && input.priorCheckpoint
     ? repairMessages({
         request: input.request,
@@ -1174,8 +1224,10 @@ async function executePrimaryModel(input: {
     },
     execute: async () => {
       const result = await agent.run({
-        systemPrompt: input.attempt === "repair_1"
-          ? modelLedProjectChatRepairSystemPrompt()
+        systemPrompt: input.attempt === "repair_1" || input.attempt === "publication_1"
+          ? input.attempt === "publication_1"
+            ? modelLedProjectChatPublicationSystemPrompt()
+            : modelLedProjectChatRepairSystemPrompt()
           : input.attempt === "research_1"
             ? modelLedProjectChatResearchContinuationSystemPrompt({
                 afterFactReview: input.request.afterFactReview ?? false,
@@ -1249,8 +1301,11 @@ function availableResearchCapabilities(input: {
   ];
 }
 
-function verificationAllowsPublication(verdict: string) {
-  return verdict === "publish" || verdict === "publish_with_limitations";
+function verificationNeedsRevision(verification: ProjectChatAnswerVerification) {
+  return verification.mechanicalIssues.length > 0 ||
+    !verification.instructionSatisfied ||
+    !verification.formatSatisfied ||
+    claimLedgerNeedsRevision(verification.claimLedger);
 }
 
 function freshnessAfterToolUse(
@@ -1286,28 +1341,53 @@ function freshnessAfterToolUse(
   };
 }
 
-function conservativeFailureBoundary(input: {
+function specificEvidenceBoundary(ledger: ProjectChatClaimLedger) {
+  const central = ledger.entries.find((entry) => entry.centrality === "central") ??
+    ledger.entries[0];
+  if (!central) {
+    return "I couldn’t establish a project-specific answer from the authorized sources available to this turn.";
+  }
+  const premise = central.missingOrContradictedPremise ?? central.rationale;
+  return [
+    "I couldn’t establish the requested project claim from the authorized sources available to this turn.",
+    `The unresolved evidence boundary is: ${premise}`,
+  ].join(" ");
+}
+
+function supportedPublicationBoundary(input: {
   checkpoint: ProjectChatModelCheckpoint;
+  verification: ProjectChatAnswerVerification;
   generationRunIds: string[];
   warnings: string[];
   freshness: FinalizedChatAnswer["freshness"];
+  verificationGenerationRunIds: string[];
+  verificationHistory: ProjectChatClaimAudit["verificationHistory"];
+  researchContinuationUsed: boolean;
+  repaired: boolean;
 }): ModelLedProjectChatResult {
-  const repositoryAuthority = input.checkpoint.entries.find((entry) =>
-    entry.currentRun && entry.citationIndexes.length
-  ) ?? input.checkpoint.entries.find((entry) => entry.citationIndexes.length);
-  const citationIndex = repositoryAuthority?.citationIndexes[0] ?? null;
-  const boundary = citationIndex
-    ? `I couldn’t verify enough project evidence to answer this reliably. The bounded inspection established only part of the request. [citation:${citationIndex}] I won’t fill the remaining gap by guessing.`
-    : "I couldn’t verify enough authorized project evidence to answer this reliably, and I won’t fill the gap by guessing.";
+  const supported = supportedClaimLedgerAnswer(input.verification.claimLedger);
+  const boundary = supported ?? specificEvidenceBoundary(input.verification.claimLedger);
   const finalized = finalizeModelLedProjectChatAnswer({
     answer: boundary,
     catalog: input.checkpoint.catalog,
-    requiresProjectCitations: Boolean(citationIndex),
+    requiresProjectCitations: Boolean(supported),
     freshness: input.freshness,
   });
+  const publicationOutcome = "answered_with_gaps" as const;
   return {
-    status: "insufficient_context",
+    status: "answered",
     ...finalized,
+    publicationOutcome,
+    claimAudit: {
+      version: PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+      publicationOutcome,
+      ledger: input.verification.claimLedger,
+      verificationHistory: input.verificationHistory,
+      verificationGenerationRunIds: input.verificationGenerationRunIds,
+      researchContinuationUsed: input.researchContinuationUsed,
+      repairUsed: input.repaired,
+      publicationProjectionUsed: false,
+    },
     research: directResearchResult({
       answer: finalized.answer,
       citations: finalized.citations,
@@ -1315,9 +1395,127 @@ function conservativeFailureBoundary(input: {
       generationRunIds: input.generationRunIds,
       warnings: input.warnings,
       groundedClaims: finalized.groundedClaims,
+      partial: true,
+      coverageGaps: claimLedgerCoverageGaps(input.verification.claimLedger),
     }),
-    fallbackUsed: false,
+    fallbackUsed: true,
   };
+}
+
+function verificationUnavailableClaimLedger(
+  groundedClaims: Array<{ claim: string; citationIndexes: number[] }>,
+): ProjectChatClaimLedger {
+  return {
+    version: PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+    entries: groundedClaims.slice(0, 40).map((claim, index) => ({
+      id: `claim_${index + 1}`,
+      quote: claim.claim.slice(0, 1_200),
+      centrality: index === 0 ? "central" : "supporting",
+      support: "ambiguous",
+      action: "qualify",
+      citationIndexes: claim.citationIndexes,
+      missingOrContradictedPremise:
+        "Semantic claim verification did not complete before publication.",
+      rationale:
+        "The claim has mechanically valid current-source citations, but its semantic support was not independently verified.",
+      confidence: "low",
+    })),
+  };
+}
+
+function verificationUnavailablePublicationBoundary(input: {
+  checkpoint: ProjectChatModelCheckpoint;
+  generationRunIds: string[];
+  freshness: FinalizedChatAnswer["freshness"];
+  warning: string;
+}): ModelLedProjectChatResult {
+  let candidateAnswer = input.checkpoint.answer;
+  let requiresProjectCitations = input.checkpoint.catalog.length > 0;
+  try {
+    const finalized = finalizeModelLedProjectChatAnswer({
+      answer: candidateAnswer,
+      catalog: input.checkpoint.catalog,
+      requiresProjectCitations,
+      freshness: input.freshness,
+    });
+    const ledger = verificationUnavailableClaimLedger(finalized.groundedClaims);
+    return {
+      status: "answered",
+      ...finalized,
+      publicationOutcome: "answered_with_gaps",
+      claimAudit: {
+        version: PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+        publicationOutcome: "answered_with_gaps",
+        ledger,
+        verificationHistory: [],
+        verificationGenerationRunIds: [],
+        researchContinuationUsed: false,
+        repairUsed: false,
+        publicationProjectionUsed: false,
+      },
+      research: directResearchResult({
+        answer: finalized.answer,
+        citations: finalized.citations,
+        research: input.checkpoint.research,
+        generationRunIds: input.generationRunIds,
+        warnings: [input.warning],
+        groundedClaims: finalized.groundedClaims,
+        partial: true,
+        coverageGaps: [
+          "Semantic claim verification did not complete before publication.",
+        ],
+      }),
+      fallbackUsed: true,
+    };
+  } catch {
+    const firstSource = input.checkpoint.catalog[0];
+    if (firstSource) {
+      candidateAnswer = [
+        "I could verify one project-specific evidence boundary before semantic verification stopped:",
+        "The first attached project source was available to this turn. [citation:1]",
+      ].join("\n\n");
+      requiresProjectCitations = true;
+    } else {
+      candidateAnswer =
+        "Semantic verification did not complete, and this turn had no mechanically publishable project citation. The saved project context is unchanged.";
+      requiresProjectCitations = false;
+    }
+    const finalized = finalizeModelLedProjectChatAnswer({
+      answer: candidateAnswer,
+      catalog: input.checkpoint.catalog,
+      requiresProjectCitations,
+      freshness: input.freshness,
+    });
+    const ledger = verificationUnavailableClaimLedger(finalized.groundedClaims);
+    return {
+      status: "answered",
+      ...finalized,
+      publicationOutcome: "answered_with_gaps",
+      claimAudit: {
+        version: PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+        publicationOutcome: "answered_with_gaps",
+        ledger,
+        verificationHistory: [],
+        verificationGenerationRunIds: [],
+        researchContinuationUsed: false,
+        repairUsed: false,
+        publicationProjectionUsed: false,
+      },
+      research: directResearchResult({
+        answer: finalized.answer,
+        citations: finalized.citations,
+        research: input.checkpoint.research,
+        generationRunIds: input.generationRunIds,
+        warnings: [input.warning],
+        groundedClaims: finalized.groundedClaims,
+        partial: true,
+        coverageGaps: [
+          "Semantic claim verification and final citation projection did not complete.",
+        ],
+      }),
+      fallbackUsed: true,
+    };
+  }
 }
 
 export async function executeModelLedProjectChatAgent(
@@ -1358,7 +1556,9 @@ export async function executeModelLedProjectChatAgent(
   });
   let active = initial;
   let activeState = initialState;
-  let verificationAttempt: 1 | 2 | 3 = 1;
+  let verificationAttempt: 1 | 2 | 3 | 4 = 1;
+  const verificationHistory: ProjectChatClaimAudit["verificationHistory"] = [];
+  let encounteredClaimGaps = false;
   let researchContinuationUsed = false;
   let repaired = false;
 
@@ -1408,11 +1608,46 @@ export async function executeModelLedProjectChatAgent(
       generationRunIds.push(verification.generationRunId);
       verificationGenerationRunIds.push(verification.generationRunId);
     }
+    verificationHistory.push({
+      attempt: verificationAttempt,
+      generationRunId: verification.generationRunId,
+      ledger: verification.claimLedger,
+    });
+    encounteredClaimGaps = encounteredClaimGaps ||
+      claimLedgerHasGaps(verification.claimLedger) ||
+      !verification.answerUseful;
     return verification;
   };
 
-  let verification = await verifyActive();
-  if (verification.verdict === "continue_research") {
+  let verification: ProjectChatAnswerVerification;
+  try {
+    verification = await verifyActive();
+  } catch (error) {
+    await appendAgentRunEvent({
+      runId: input.runId,
+      type: "tool_result",
+      toolName: "compose_project_answer",
+      payload: {
+        mode: "semantic_verification_failed",
+        modelLedChatVersion: MODEL_LED_PROJECT_CHAT_VERSION,
+        answerGenerationRunIds,
+        failureName: error instanceof Error ? error.name : "Error",
+      },
+      isUserVisible: false,
+    }).catch(() => null);
+    return verificationUnavailablePublicationBoundary({
+      checkpoint: active.checkpoint,
+      generationRunIds,
+      warning:
+        "Semantic claim verification did not complete; this answer was published only from mechanically valid current-source citations.",
+      freshness: freshnessAfterToolUse(
+        context,
+        activeState,
+        active.checkpoint.catalog,
+      ),
+    });
+  }
+  if (claimLedgerNeedsResearch(verification.claimLedger)) {
     const continuationState = stateFromCheckpoint({
       checkpoint: active.checkpoint,
       repositoryInspector,
@@ -1451,8 +1686,9 @@ export async function executeModelLedProjectChatAgent(
         },
         isUserVisible: false,
       }).catch(() => null);
-      return conservativeFailureBoundary({
+      return supportedPublicationBoundary({
         checkpoint: active.checkpoint,
+        verification,
         generationRunIds,
         warnings: [
           ...verification.issues.map((issue) => issue.explanation),
@@ -1463,11 +1699,15 @@ export async function executeModelLedProjectChatAgent(
           activeState,
           active.checkpoint.catalog,
         ),
+        verificationGenerationRunIds,
+        verificationHistory,
+        researchContinuationUsed,
+        repaired,
       });
     }
   }
 
-  if (verification.verdict === "repair") {
+  if (verificationNeedsRevision(verification)) {
     const repairState = stateFromCheckpoint({
       checkpoint: active.checkpoint,
       repositoryInspector,
@@ -1503,8 +1743,9 @@ export async function executeModelLedProjectChatAgent(
         },
         isUserVisible: false,
       }).catch(() => null);
-      return conservativeFailureBoundary({
+      return supportedPublicationBoundary({
         checkpoint: active.checkpoint,
+        verification,
         generationRunIds,
         warnings: [
           ...verification.issues.map((issue) => issue.explanation),
@@ -1515,6 +1756,109 @@ export async function executeModelLedProjectChatAgent(
           activeState,
           active.checkpoint.catalog,
         ),
+        verificationGenerationRunIds,
+        verificationHistory,
+        researchContinuationUsed,
+        repaired,
+      });
+    }
+  }
+
+  let publicationProjectionUsed = false;
+  if (verificationNeedsRevision(verification) || !verification.answerUseful) {
+    const publicationState = stateFromCheckpoint({
+      checkpoint: active.checkpoint,
+      repositoryInspector,
+      observedRepositoryHeads: activeState.observedRepositoryHeads,
+    });
+    try {
+      active = await executePrimaryModel({
+        request: input,
+        context,
+        state: publicationState,
+        attempt: "publication_1",
+        repairInstructions: projectChatPublicationInstructions(verification),
+        priorCheckpoint: active.checkpoint,
+      });
+      activeState = publicationState;
+      publicationProjectionUsed = true;
+      generationRunIds.push(active.generationRunId);
+      answerGenerationRunIds.push(active.generationRunId);
+      allToolNames.push(...active.checkpoint.toolNames);
+      verificationAttempt = verificationAttempt === 1
+        ? 2
+        : verificationAttempt === 2
+          ? 3
+          : 4;
+      verification = await verifyActive();
+      if (
+        verificationNeedsRevision(verification) ||
+        claimLedgerNeedsResearch(verification.claimLedger) ||
+        !verification.answerUseful
+      ) {
+        await appendAgentRunEvent({
+          runId: input.runId,
+          type: "tool_result",
+          toolName: "compose_project_answer",
+          payload: {
+            mode: "claim_projection_pruned",
+            modelLedChatVersion: MODEL_LED_PROJECT_CHAT_VERSION,
+            answerGenerationRunIds,
+            verificationGenerationRunIds,
+            claimLedger: verification.claimLedger,
+          },
+          isUserVisible: false,
+        }).catch(() => null);
+        return supportedPublicationBoundary({
+          checkpoint: active.checkpoint,
+          verification,
+          generationRunIds,
+          warnings: [
+            ...verification.issues.map((issue) => issue.explanation),
+            "The final projection contained claims that still required qualification or removal; only verified surviving claims were published.",
+          ],
+          freshness: freshnessAfterToolUse(
+            context,
+            activeState,
+            active.checkpoint.catalog,
+          ),
+          verificationGenerationRunIds,
+          verificationHistory,
+          researchContinuationUsed,
+          repaired,
+        });
+      }
+    } catch (error) {
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "tool_result",
+        toolName: "compose_project_answer",
+        payload: {
+          mode: "claim_projection_failed",
+          modelLedChatVersion: MODEL_LED_PROJECT_CHAT_VERSION,
+          answerGenerationRunIds,
+          verificationGenerationRunIds,
+          failureName: error instanceof Error ? error.name : "Error",
+        },
+        isUserVisible: false,
+      }).catch(() => null);
+      return supportedPublicationBoundary({
+        checkpoint: active.checkpoint,
+        verification,
+        generationRunIds,
+        warnings: [
+          ...verification.issues.map((issue) => issue.explanation),
+          "The final claim-ledger publication projection did not complete.",
+        ],
+        freshness: freshnessAfterToolUse(
+          context,
+          activeState,
+          active.checkpoint.catalog,
+        ),
+        verificationGenerationRunIds,
+        verificationHistory,
+        researchContinuationUsed,
+        repaired,
       });
     }
   }
@@ -1524,36 +1868,56 @@ export async function executeModelLedProjectChatAgent(
     activeState,
     active.checkpoint.catalog,
   );
-  if (!verificationAllowsPublication(verification.verdict)) {
+  let finalized: ReturnType<typeof finalizeModelLedProjectChatAnswer>;
+  try {
+    finalized = finalizeModelLedProjectChatAnswer({
+      answer: active.checkpoint.answer,
+      catalog: active.checkpoint.catalog,
+      requiresProjectCitations: verification.requiresProjectCitations &&
+        claimLedgerHasUsefulContent(verification.claimLedger),
+      freshness,
+    });
+  } catch (error) {
     await appendAgentRunEvent({
       runId: input.runId,
       type: "tool_result",
       toolName: "compose_project_answer",
       payload: {
-        mode: "model_failure_boundary",
+        mode: "claim_projection_integrity_failed",
         modelLedChatVersion: MODEL_LED_PROJECT_CHAT_VERSION,
-        answerGenerationRunIds: Array.from(new Set(answerGenerationRunIds)),
-        verificationGenerationRunIds: Array.from(new Set(verificationGenerationRunIds)),
-        toolNames: Array.from(new Set(allToolNames)),
-        verdict: verification.verdict,
-        researchContinuationUsed,
+        failureName: error instanceof Error ? error.name : "Error",
       },
       isUserVisible: false,
     }).catch(() => null);
-    return conservativeFailureBoundary({
+    return supportedPublicationBoundary({
       checkpoint: active.checkpoint,
+      verification,
       generationRunIds,
-      warnings: verification.issues.map((issue) => issue.explanation),
+      warnings: [
+        ...verification.issues.map((issue) => issue.explanation),
+        "The final projection did not satisfy mechanical publication integrity.",
+      ],
       freshness,
+      verificationGenerationRunIds,
+      verificationHistory,
+      researchContinuationUsed,
+      repaired,
     });
   }
-
-  const finalized = finalizeModelLedProjectChatAnswer({
-    answer: active.checkpoint.answer,
-    catalog: active.checkpoint.catalog,
-    requiresProjectCitations: verification.requiresProjectCitations,
-    freshness,
-  });
+  const publicationOutcome = encounteredClaimGaps ||
+      claimLedgerHasGaps(verification.claimLedger) || !verification.answerUseful
+    ? "answered_with_gaps" as const
+    : "answered" as const;
+  const claimAudit: ProjectChatClaimAudit = {
+    version: PROJECT_CHAT_CLAIM_LEDGER_VERSION,
+    publicationOutcome,
+    ledger: verification.claimLedger,
+    verificationHistory,
+    verificationGenerationRunIds: Array.from(new Set(verificationGenerationRunIds)),
+    researchContinuationUsed,
+    repairUsed: repaired,
+    publicationProjectionUsed,
+  };
   await appendAgentRunEvent({
     runId: input.runId,
     type: "tool_result",
@@ -1566,19 +1930,29 @@ export async function executeModelLedProjectChatAgent(
       toolNames: Array.from(new Set(allToolNames)),
       repaired,
       researchContinuationUsed,
-      publicationMode: verification.verdict,
+      publicationProjectionUsed,
+      publicationMode: publicationOutcome,
+      claimLedger: verification.claimLedger,
     },
     isUserVisible: false,
   }).catch(() => null);
   return {
     status: "answered",
     ...finalized,
+    publicationOutcome,
+    claimAudit,
     research: directResearchResult({
       answer: finalized.answer,
       citations: finalized.citations,
       research: active.checkpoint.research,
       generationRunIds,
       groundedClaims: finalized.groundedClaims,
+      partial: publicationOutcome === "answered_with_gaps",
+      coverageGaps: publicationOutcome === "answered_with_gaps"
+        ? Array.from(new Set(verificationHistory.flatMap((entry) =>
+            claimLedgerCoverageGaps(entry.ledger)
+          )))
+        : [],
     }),
     fallbackUsed: false,
   };

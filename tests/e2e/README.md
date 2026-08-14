@@ -156,8 +156,8 @@ camel-case fields (`workItemTitle`, `repository`,
 
 ## Model-led project-chat semantic robustness
 
-The application catalog includes the runtime-model matrix regression and a
-same-thread grid paraphrase. Both must let the primary answer model inspect the
+The application catalog includes the literal “What models are used for what?”
+regression and a same-thread model-role grid paraphrase. Both must let the primary answer model inspect the
 attached repository through `inspect_project` with bounded
 read-only Git queries, persist an audited `primary_answer` run, and record
 `answerCompositionMode=model_tool_loop`. There is no host-runtime shortcut:
@@ -169,12 +169,18 @@ so a memory-only call cannot satisfy a current-source gate. If an initial draft
 publishes a central limitation that an authorized inspection could resolve,
 the semantic verifier may authorize exactly one smaller evidence continuation.
 It may not prescribe exact Git commands, and a second continuation is rejected.
+The verifier emits a versioned internal claim ledger rather than one
+answer-wide veto. Live observations require at least one retained audited claim
+and an explicit `answered` or `answered_with_gaps` publication outcome.
+Supported claims survive qualification or removal of a peripheral claim; a
+second verifier criticism cannot become a generic refusal.
 
 The broader semantic observation contract lives in
 `src/evals/project-chat-semantic-robustness.ts`. It covers freshness
 paraphrases, current-source investigation, durable-memory questions, prior-turn
 provenance, artifact actions, formatting, conversation, and unsupported
-metrics across web, mobile, CLI, ML, infrastructure, scientific, data,
+metrics, plus partial-support and reasonable-inference cases across web,
+mobile, CLI, ML, infrastructure, scientific, data,
 compiler, game, and design-system repositories. Answers are scored by an
 attributed semantic judge and compared with a same-model direct Codex/agent
 control. The gate describes outcomes and capabilities; it does not match

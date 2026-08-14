@@ -133,7 +133,7 @@ describe("project chat completion citation replacement", () => {
     await completeAgentRun({
       runId: "run-resumed-after-review",
       content: "The approved fact now supports the final answer. [citation:1]",
-      result: { status: "answered" },
+      result: { status: "answered", publicationOutcome: "answered_with_gaps" },
       citations: [{
         kind: "project_fact",
         label: "Approved Project Fact",
@@ -156,6 +156,13 @@ describe("project chat completion citation replacement", () => {
       where: { messageId: "assistant-message" },
     });
     expect(mocks.createCitations).toHaveBeenCalledTimes(1);
+    expect(mocks.updateMessage).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        metadata: expect.objectContaining({
+          publicationOutcome: "answered_with_gaps",
+        }),
+      }),
+    }));
     expect(mocks.deleteCitations.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.createCitations.mock.invocationCallOrder[0]!,
     );

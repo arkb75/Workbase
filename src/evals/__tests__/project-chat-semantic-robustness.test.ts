@@ -50,6 +50,20 @@ function observation(
       ? "A natural model-authored answer whose exact wording is not part of the contract."
       : "",
     unsupportedClaimCount: 0,
+    publicationOutcome: scenario.expectedOutcome === "answered"
+      ? scenario.family === "partial_support"
+        ? "answered_with_gaps"
+        : "answered"
+      : null,
+    claimLedger: scenario.expectedOutcome === "answered" && scenario.requiredCapabilities.length
+      ? {
+          version: "project-chat-claim-ledger-v1",
+          entryCount: scenario.family === "partial_support" ? 3 : 2,
+          supportedCount: 2,
+          qualifiedCount: scenario.family === "partial_support" ? 1 : 0,
+          removedCount: 0,
+        }
+      : null,
     primaryAnswerAttribution: {
       provider: "openrouter",
       modelId: "same-primary-model",
@@ -118,6 +132,23 @@ describe("project-chat semantic robustness gate", () => {
       .toEqual(expect.arrayContaining([
         "freshness_plain: answer is model composed",
         "freshness_plain: no deterministic answer synthesis",
+      ]));
+  });
+
+  it("rejects over-refusal when a partial-support prompt has surviving grounded claims", () => {
+    const observations = projectChatSemanticRobustnessScenarios.map(observation);
+    const target = observations.find((candidate) =>
+      candidate.scenarioId === "partial_model_roles_with_unknown_cost"
+    )!;
+    target.observedOutcome = "insufficient_context";
+    target.answer = "I could not safely publish the requested answer.";
+    target.publicationOutcome = null;
+    const result = evaluateProjectChatSemanticRobustness({ observations });
+    expect(result.passed).toBe(false);
+    expect(result.checks.filter((check) => !check.passed).map((check) => check.name))
+      .toEqual(expect.arrayContaining([
+        "partial_model_roles_with_unknown_cost: model-led outcome matches",
+        "partial_model_roles_with_unknown_cost: partial support publishes surviving content with gaps",
       ]));
   });
 
