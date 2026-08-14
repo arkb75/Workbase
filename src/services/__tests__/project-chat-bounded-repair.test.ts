@@ -853,7 +853,7 @@ describe("project-chat bounded repair regression", () => {
       new Error("semantic verifier exhausted its structured retries"),
     );
 
-    await expect(executeModelLedProjectChatAgent({
+    const result = await executeModelLedProjectChatAgent({
       runId: "run-1",
       userId: "user-1",
       workItemId: "work-1",
@@ -861,7 +861,8 @@ describe("project-chat bounded repair regression", () => {
       messageId: "message-1",
       question: "summarize the attached source in a table",
       history: [],
-    })).resolves.toMatchObject({
+    });
+    expect(result).toMatchObject({
       status: "answered",
       answer: expect.stringContaining("Robotics controller"),
       publicationOutcome: "answered_with_gaps",
@@ -883,6 +884,9 @@ describe("project-chat bounded repair regression", () => {
         ]),
       },
     });
+    if (result.status === "answered") {
+      expect(result.answer).toContain("Semantic verification did not complete");
+    }
     expect(mocks.agentRun).toHaveBeenCalledTimes(1);
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ mode: "semantic_verification_failed" }),

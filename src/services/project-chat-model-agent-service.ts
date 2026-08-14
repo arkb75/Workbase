@@ -1429,7 +1429,10 @@ function verificationUnavailablePublicationBoundary(input: {
   freshness: FinalizedChatAnswer["freshness"];
   warning: string;
 }): ModelLedProjectChatResult {
-  let candidateAnswer = input.checkpoint.answer;
+  let candidateAnswer = [
+    "Semantic verification did not complete. The project details below are limited to the cited current-source inspection and should be retried for claim-level confirmation.",
+    input.checkpoint.answer,
+  ].join("\n\n");
   let requiresProjectCitations = input.checkpoint.catalog.length > 0;
   try {
     const finalized = finalizeModelLedProjectChatAnswer({
