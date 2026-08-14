@@ -12,6 +12,5 @@
     "!src/generated/**"
   ],
   "ignoreDependencies": ["@prisma/client", "postcss"],
-  "ignoreUnresolved": ["@/src/generated/prisma/client"],
   "ignoreExportsUsedInFile": true
 }
