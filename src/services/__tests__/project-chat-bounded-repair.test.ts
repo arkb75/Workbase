@@ -182,11 +182,31 @@ describe("project-chat bounded repair regression", () => {
         args: ["log", "--merges", "--oneline", "-10"],
         status: "success",
         exitCode: 0,
-        output: "aaaa newest merge\nbbbb prior merge",
+        evidenceId: "evidence-1234567890",
         outputHash: "f".repeat(64),
+        totalBytes: 35,
+        totalLines: 2,
+        segments: [{
+          evidenceId: "evidence-1234567890",
+          segmentId: "segment-1",
+          sourceId: "source-1",
+          repository: "acme/robotics-controller",
+          commitSha: "a".repeat(40),
+          args: ["log", "--merges", "--oneline", "-10"],
+          command: "git log --merges --oneline -10",
+          excerpt: "aaaa newest merge\nbbbb prior merge",
+          excerptHash: "e".repeat(64),
+          outputHash: "f".repeat(64),
+          startLine: 1,
+          endLine: 2,
+          totalLines: 2,
+          totalBytes: 35,
+          truncated: false,
+        }],
         truncated: false,
       }],
-      usage: { queries: 1, visibleBytes: 35 },
+      expansions: [],
+      usage: { queries: 1, expansions: 0, visibleBytes: 35 },
       remainingQueryBudget: 9,
     });
     mocks.retrieve.mockResolvedValue({
@@ -885,7 +905,8 @@ describe("project-chat bounded repair regression", () => {
       },
     });
     if (result.status === "answered") {
-      expect(result.answer).toContain("Semantic verification did not complete");
+      expect(result.answer).toContain("portion I could support directly");
+      expect(result.answer).not.toContain("Semantic verification did not complete");
     }
     expect(mocks.agentRun).toHaveBeenCalledTimes(1);
     expect(mocks.appendEvent).toHaveBeenCalledWith(expect.objectContaining({

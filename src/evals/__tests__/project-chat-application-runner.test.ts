@@ -472,9 +472,60 @@ The workflow boundary matters because a chat or research operation can retain it
           "No retry policy was found. The loop exits by throwing when `iterations >= maxIterations`, and `stopReason` controls response exits. [citation:1]",
         ),
         tools: ["inspect_project"],
+        answerCompositionMode: "model_tool_loop",
+        publicationOutcome: "answered",
+        claimLedger: {
+          version: "project-chat-claim-ledger-v1",
+          entryCount: 2,
+          keptCount: 2,
+          qualifiedCount: 0,
+          researchCount: 0,
+          removedCount: 0,
+        },
         metrics: {
           ...zeroMetrics,
           latencyMs: 1_000,
+          modelCalls: 2,
+          totalTokens: 200,
+          estimatedCostUsd: 0.002,
+          modelAttribution: {
+            ...zeroMetrics.modelAttribution,
+            providers: ["openrouter"],
+            configuredModelIds: ["model-primary", "model-verifier"],
+            actualModelIds: ["model-primary", "model-verifier"],
+            requestIds: ["request-primary", "request-verifier"],
+            providerAttempts: 2,
+            profiles: {
+              primary_answer: {
+                providers: ["openrouter"],
+                configuredModelIds: ["model-primary"],
+                expectedModelIds: ["model-primary"],
+                actualModelIds: ["model-primary"],
+                providerAttempts: 1,
+                failedProviderAttempts: 0,
+                totalTokens: 100,
+                estimatedCostUsd: 0.001,
+                usageComplete: true,
+                authoritativeAttributionComplete: true,
+                fallbackUsed: false,
+                configuredRoutingMatched: true,
+              },
+              verification: {
+                providers: ["openrouter"],
+                configuredModelIds: ["model-verifier"],
+                expectedModelIds: ["model-verifier"],
+                actualModelIds: ["model-verifier"],
+                providerAttempts: 1,
+                failedProviderAttempts: 0,
+                totalTokens: 100,
+                estimatedCostUsd: 0.001,
+                usageComplete: true,
+                authoritativeAttributionComplete: true,
+                fallbackUsed: false,
+                configuredRoutingMatched: true,
+              },
+            },
+          },
           repositoryTreeLookups: 1,
           repositorySearches: 1,
           repositoryFileReads: 3,
@@ -1093,6 +1144,51 @@ describe("project-chat application scenario runner", () => {
     expect(result.passed).toBe(false);
     expect(result.checks).toContainEqual(expect.objectContaining({
       name: "provenance avoided new repository work",
+      passed: false,
+    }));
+  });
+
+  it("keeps the repository-operation gate independent of Workbase-specific identifiers", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "targeted_repository_research",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      answer: [
+        "The invite-code transaction is bounded to six attempts.",
+        "A uniqueness conflict continues only before the sixth attempt; success returns,",
+        "while any other error or the final conflict is thrown. [citation:1]",
+      ].join(" "),
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checks.map((check) => check.name)).not.toEqual(
+      expect.arrayContaining([
+        "targeted answer identifies the concrete iteration guard",
+        "targeted answer identifies a concrete exit path",
+      ]),
+    );
+  });
+
+  it("does not let a repository citation substitute for the semantic claim audit", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "targeted_repository_research",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      answer: "A cited but semantically rejected response. [citation:1]",
+      claimLedger: {
+        ...observation.claimLedger!,
+        keptCount: 0,
+        removedCount: observation.claimLedger!.entryCount,
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "targeted answer retained a semantically audited claim",
       passed: false,
     }));
   });

@@ -163,6 +163,12 @@ read-only Git queries, persist an audited `primary_answer` run, and record
 `answerCompositionMode=model_tool_loop`. There is no host-runtime shortcut:
 the answer must reflect the project source the user attached, and
 `deterministic_source_synthesis` is not an acceptable substitute.
+Broad repository questions may use the same public `inspect_project` choice to
+delegate one isolated research context. The observation must retain exact
+current-head evidence citations while raw Git output remains outside the root
+model transcript. Tool/call limits reserve a separate tool-free synthesis
+turn, and recovered partial evidence must remain publishable if the research
+worker exhausts its own budget.
 The same top-level inspector also supports durable knowledge searches; live
 observations record whether each call used `knowledge`, `repository`, or both,
 so a memory-only call cannot satisfy a current-source gate. If an initial draft

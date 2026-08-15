@@ -453,6 +453,18 @@ describe("BedrockConverseAgent", () => {
       limit: 1,
       actual: 2,
       toolCalls: 1,
+      requestIds: ["request-1"],
+      usage: { totalTokens: 5 },
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          type: "model_call_completed",
+          requestId: "request-1",
+        }),
+        expect.objectContaining({
+          type: "tool_call_completed",
+          toolName: "lookup",
+        }),
+      ]),
     });
     expect(iterationRun.transport.calls).toHaveLength(1);
 

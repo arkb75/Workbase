@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BedrockConverseAgentRunResult } from "@/src/lib/bedrock-converse-agent";
+import {
+  BedrockConverseLimitError,
+  type BedrockConverseAgentRunResult,
+} from "@/src/lib/bedrock-converse-agent";
 
 const mocks = vi.hoisted(() => ({
   findReplay: vi.fn(),
@@ -233,5 +236,45 @@ describe("project-chat primary-model audit", () => {
       validationErrors: expect.objectContaining({ name: "TimeoutError" }),
     }));
     expect(mocks.createIdempotently).not.toHaveBeenCalled();
+  });
+
+  it("preserves completed provider attempts when a bounded research run reaches its host limit", async () => {
+    const error = new BedrockConverseLimitError(
+      "research budget reached",
+      "iteration_limit_exceeded",
+      7,
+      8,
+      {
+        iterations: 7,
+        toolCalls: 6,
+        usage: result.usage,
+        events: result.events,
+        requestIds: ["request-1"],
+        routedProviders: ["openai"],
+        reportedCostUsd: 0.01,
+      },
+    );
+    await expect(runAuditedProjectChatModel({
+      workItemId: "work-1",
+      agentRunId: "agent-1",
+      phase: "initial",
+      attempt: "initial",
+      inputSummary: {},
+      execute: async () => { throw error; },
+    })).rejects.toBe(error);
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      status: "provider_error",
+      estimatedCostUsd: 0.01,
+      resultRefs: expect.objectContaining({
+        requestIds: ["request-1"],
+        routedProviders: ["openai"],
+        iterations: 7,
+        toolCallCount: 6,
+      }),
+      tokenUsage: expect.objectContaining({
+        providerAttemptCount: 1,
+        attempts: [expect.objectContaining({ requestId: "request-1" })],
+      }),
+    }));
   });
 });

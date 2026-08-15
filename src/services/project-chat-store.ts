@@ -107,10 +107,21 @@ export function buildChatCitationRows(messageId: string, citations: ProjectKnowl
     startLine: citation.startLine ?? null,
     endLine: citation.endLine ?? null,
     contentHash: citation.contentHash ?? null,
-    metadata: citation.redacted || citation.redactionCategories?.length || citation.provenance?.length
+    metadata: citation.redacted || citation.redactionCategories?.length ||
+        citation.provenance?.length || citation.evidenceHandle ||
+        citation.sourceOutputHash || citation.sourceCommand ||
+        citation.truncated !== undefined
       ? toInputJson({
           redacted: citation.redacted ?? false,
           redactionCategories: citation.redactionCategories ?? [],
+          evidenceHandle: citation.evidenceHandle ?? null,
+          sourceOutputHash: citation.sourceOutputHash ?? null,
+          sourceOutputBytes: citation.sourceOutputBytes ?? null,
+          sourceCommand: citation.sourceCommand ?? null,
+          sourceStartLine: citation.sourceStartLine ?? null,
+          sourceEndLine: citation.sourceEndLine ?? null,
+          sourceTotalLines: citation.sourceTotalLines ?? null,
+          truncated: citation.truncated ?? false,
           // Snapshot nested provenance at answer time so later fact edits cannot
           // silently rewrite the historical source panel.
           provenance: citation.provenance ?? [],

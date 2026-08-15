@@ -192,6 +192,13 @@ The test suite covers:
   both without choosing between overlapping tools. The Git capability accepts
   ordinary argument vectors but exposes no shell, mutation, network, or
   arbitrary host-filesystem access.
+  Narrow lookups run directly. Broad, causal, or multi-step repository
+  questions delegate to one fresh bounded research context, which can adapt
+  across related Git queries without copying its tool transcript into the
+  answer model. Full redacted Git results are archived outside model context;
+  the worker returns exact citable excerpts with immutable hashes, output-line
+  ranges, and expansion handles. Research has its own call/token budget and
+  cannot consume the final tool-free answer turn.
   A semantic verifier sees a compact manifest of the entire frozen evidence
   set and records a versioned internal ledger for every material claim:
   direct support, multi-source synthesis, reasonable inference,
@@ -203,5 +210,7 @@ The test suite covers:
   content; completed runs persist the ledger history and distinguish
   `answered` from `answered_with_gaps`. The verifier never replaces the model
   answer with a canned template, and one peripheral issue cannot suppress the
-  supported remainder.
+  supported remainder. If a bounded research, continuation, or repair phase
+  still fails, Workbase publishes the supported evidence-backed remainder
+  instead of replacing it with an operational-failure message.
 - Sensitive, private-only, or visibility-incompatible Highlights are excluded from public-facing Artifact generation.
