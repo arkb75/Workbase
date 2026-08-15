@@ -9,6 +9,7 @@ import type {
   ProjectResearchResult,
 } from "@/src/domain/project-chat";
 import {
+  BedrockConverseLimitError,
   defineBedrockConverseTool,
   type BedrockConverseAgentEvent,
   type BedrockConverseTool,
@@ -39,6 +40,7 @@ import {
   type ProjectChatClaimLedger,
 } from "@/src/services/project-chat-claim-ledger-service";
 import {
+  PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
   runAuditedProjectChatModel,
   type ProjectChatModelControl,
   type ProjectChatModelCheckpoint,
@@ -53,10 +55,25 @@ import {
   projectChatRepositorySummary,
   type ProjectChatAttachedSource,
 } from "@/src/services/project-chat-repository-inspection-service";
+import {
+  runProjectChatRepositoryResearchWorker,
+} from "@/src/services/project-chat-repository-research-worker-service";
+import type {
+  ProjectRepositoryEvidenceSegment,
+} from "@/src/services/project-chat-repository-evidence-service";
+import {
+  createProjectRepositoryRawEvidence,
+  PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
+} from "@/src/services/project-chat-repository-evidence-service";
 
-export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v10";
+export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v11";
 const MAX_PROJECT_KNOWLEDGE_HITS_PER_TURN = 20;
-type ProjectChatModelAttempt = "initial" | "research_1" | "repair_1" | "publication_1";
+type ProjectChatModelAttempt =
+  | "initial"
+  | "research_1"
+  | "limit_synthesis_1"
+  | "repair_1"
+  | "publication_1";
 
 export interface ProjectChatClaimAudit {
   version: typeof PROJECT_CHAT_CLAIM_LEDGER_VERSION;
@@ -128,6 +145,9 @@ interface ModelToolState {
   entries: ProjectAnswerGroundingEntry[];
   research: ProjectResearchResult | null;
   control: ProjectChatModelControl;
+  usedToolNames: Set<string>;
+  repositoryResearchUsed: boolean;
+  supportingGenerationRunIds: string[];
   repositoryInspector: ProjectChatRepositoryInspector;
   observedRepositoryHeads: Map<string, {
     repository: string;
@@ -139,12 +159,11 @@ interface ModelToolState {
 export function modelLedProjectChatLimits(attempt: ProjectChatModelAttempt) {
   if (attempt === "initial") {
     return {
-        // The tool-call cap remains the primary research bound. Eight model
-        // turns leave room to recover from one malformed tool request and
-        // still reserve a final synthesis turn for unfamiliar repositories.
-        maxIterations: 8,
+        // Research cannot consume the final answer opportunity. A separate
+        // tool-free attempt receives the remaining 30K-token reserve.
+        maxIterations: 7,
         maxToolCalls: 10,
-        maxTotalTokens: 100_000,
+        maxTotalTokens: 70_000,
       };
   }
   if (attempt === "research_1") {
@@ -175,15 +194,41 @@ const inspectProjectRepositoryQuerySchema = z.object({
   args: z.array(z.string().min(1).max(1_000)).min(1).max(40),
 });
 
+const inspectProjectRepositoryExpansionSchema = z.object({
+  sourceId: z.string().trim().min(1).max(200),
+  evidenceId: z.string().trim().min(16).max(128),
+  startLine: z.number().int().positive(),
+  maxLines: z.number().int().min(1).max(120),
+});
+
 const inspectProjectSchema = z.object({
   objective: z.string().trim().min(1).max(1_000),
   knowledgeQueries: z.array(inspectProjectKnowledgeQuerySchema).max(4),
   repositoryQueries: z.array(inspectProjectRepositoryQuerySchema).max(4),
+  repositoryExpansions: z.array(inspectProjectRepositoryExpansionSchema).max(2).default([]),
+  adaptiveRepositorySourceIds: z.array(
+    z.string().trim().min(1).max(200),
+  ).max(3).default([]),
 }).superRefine((value, context) => {
-  if (!value.knowledgeQueries.length && !value.repositoryQueries.length) {
+  if (
+    !value.knowledgeQueries.length &&
+    !value.repositoryQueries.length &&
+    !value.repositoryExpansions.length &&
+    !value.adaptiveRepositorySourceIds.length
+  ) {
     context.addIssue({
       code: "custom",
       message: "At least one knowledge or repository query is required.",
+    });
+  }
+  if (
+    value.adaptiveRepositorySourceIds.length &&
+    (value.repositoryQueries.length || value.repositoryExpansions.length)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Adaptive repository research and direct repository queries are separate strategies within one inspection call.",
     });
   }
 });
@@ -191,7 +236,13 @@ const inspectProjectSchema = z.object({
 const inspectProjectJsonSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
-  required: ["objective", "knowledgeQueries", "repositoryQueries"],
+  required: [
+    "objective",
+    "knowledgeQueries",
+    "repositoryQueries",
+    "repositoryExpansions",
+    "adaptiveRepositorySourceIds",
+  ],
   properties: {
     objective: { type: "string", minLength: 1, maxLength: 1_000 },
     knowledgeQueries: {
@@ -224,6 +275,26 @@ const inspectProjectJsonSchema: JsonSchemaObject = {
           },
         },
       },
+    },
+    repositoryExpansions: {
+      type: "array",
+      maxItems: 2,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sourceId", "evidenceId", "startLine", "maxLines"],
+        properties: {
+          sourceId: { type: "string", minLength: 1, maxLength: 200 },
+          evidenceId: { type: "string", minLength: 16, maxLength: 128 },
+          startLine: { type: "integer", minimum: 1 },
+          maxLines: { type: "integer", minimum: 1, maximum: 120 },
+        },
+      },
+    },
+    adaptiveRepositorySourceIds: {
+      type: "array",
+      maxItems: 3,
+      items: { type: "string", minLength: 1, maxLength: 200 },
     },
   },
 };
@@ -296,6 +367,52 @@ function providerSafeValue(value: unknown) {
   } catch {
     return redacted;
   }
+}
+
+async function loadArchivedRepositoryEvidence(input: {
+  runId: string;
+  evidenceId: string;
+}) {
+  const events = await prisma.agentRunEvent.findMany({
+    where: {
+      agentRunId: input.runId,
+      type: "tool_result",
+      toolName: "inspect_project",
+      isUserVisible: false,
+    },
+    orderBy: { sequence: "desc" },
+    take: 40,
+    select: { payload: true },
+  });
+  for (const event of events) {
+    const payload = record(event.payload);
+    if (
+      payload.mode !== "repository_evidence_archive" ||
+      payload.version !== PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION ||
+      payload.evidenceId !== input.evidenceId ||
+      typeof payload.sourceId !== "string" ||
+      typeof payload.repository !== "string" ||
+      typeof payload.commitSha !== "string" ||
+      typeof payload.redactedOutput !== "string" ||
+      !Array.isArray(payload.args) ||
+      !payload.args.every((argument) => typeof argument === "string")
+    ) continue;
+    const restored = createProjectRepositoryRawEvidence({
+      sourceId: payload.sourceId,
+      repository: payload.repository,
+      commitSha: payload.commitSha,
+      args: payload.args as string[],
+      output: payload.redactedOutput,
+    });
+    if (
+      restored.evidenceId !== input.evidenceId ||
+      restored.outputHash !== payload.outputHash ||
+      restored.totalBytes !== payload.totalBytes ||
+      restored.totalLines !== payload.totalLines
+    ) continue;
+    return restored;
+  }
+  return null;
 }
 
 function directResearchResult(input: {
@@ -471,6 +588,135 @@ function addSyntheticAuthority(input: {
   return { citationIndex, content: safeContent };
 }
 
+function addRepositoryEvidenceSegment(input: {
+  state: ModelToolState;
+  segment: ProjectRepositoryEvidenceSegment;
+  commitUrl: string;
+}) {
+  const segment = input.segment;
+  const label = providerSafeText(
+    `${segment.repository} — ${segment.command} — output lines ${segment.startLine}-${segment.endLine}`,
+  ).slice(0, 1_000);
+  const content = providerSafeText(segment.excerpt);
+  const citationIndex = addCitation(input.state, {
+    kind: "evidence",
+    label,
+    excerpt: content,
+    sourceId: segment.sourceId,
+    repository: segment.repository,
+    commitSha: segment.commitSha,
+    url: input.commitUrl,
+    contentHash: segment.excerptHash,
+    evidenceHandle: segment.evidenceId,
+    sourceOutputHash: segment.outputHash,
+    sourceOutputBytes: segment.totalBytes,
+    sourceCommand: segment.command,
+    sourceStartLine: segment.startLine,
+    sourceEndLine: segment.endLine,
+    sourceTotalLines: segment.totalLines,
+    truncated: segment.truncated,
+  });
+  const entry: ProjectAnswerGroundingEntry = {
+    kind: "tool_authority",
+    authority: "included_evidence",
+    title: label,
+    content,
+    currentRun: true,
+    citationIndexes: [citationIndex],
+    ownershipAuthority: 0,
+    supportingSources: [],
+  };
+  if (!input.state.entries.some((candidate) =>
+    candidate.citationIndexes.length === 1 &&
+    candidate.citationIndexes[0] === citationIndex
+  )) {
+    input.state.entries.push(entry);
+  }
+  return {
+    evidenceId: segment.evidenceId,
+    segmentId: segment.segmentId,
+    citationIndex,
+    command: segment.command,
+    excerpt: content,
+    outputLines: {
+      start: segment.startLine,
+      end: segment.endLine,
+      total: segment.totalLines,
+    },
+    outputHash: segment.outputHash,
+    truncated: segment.truncated,
+    expansion: segment.truncated
+      ? {
+          evidenceId: segment.evidenceId,
+          instruction:
+            "Use repositoryExpansions on this same inspect_project tool only if omitted surrounding output is material to the answer.",
+        }
+      : null,
+  };
+}
+
+function mergeRepositoryResearchWorkerResult(input: {
+  state: ModelToolState;
+  result: Awaited<ReturnType<typeof runProjectChatRepositoryResearchWorker>>;
+}) {
+  const citationRemap = new Map<number, number>();
+  const evidence = input.result.catalog.map((citation, index) => {
+    const citationIndex = addCitation(input.state, citation);
+    citationRemap.set(index + 1, citationIndex);
+    return {
+      citationIndex,
+      label: citation.label,
+      excerpt: citation.excerpt,
+      repository: citation.repository ?? null,
+      commitSha: citation.commitSha ?? null,
+      evidenceId: citation.evidenceHandle ?? null,
+      sourceCommand: citation.sourceCommand ?? null,
+      outputLines: citation.sourceStartLine && citation.sourceEndLine
+        ? {
+            start: citation.sourceStartLine,
+            end: citation.sourceEndLine,
+            total: citation.sourceTotalLines ?? null,
+          }
+        : null,
+      truncated: citation.truncated ?? false,
+    };
+  });
+  for (const entry of input.result.entries) {
+    const remapped: ProjectAnswerGroundingEntry = {
+      ...entry,
+      citationIndexes: entry.citationIndexes.flatMap((index) => {
+        const mapped = citationRemap.get(index);
+        return mapped ? [mapped] : [];
+      }),
+    };
+    if (!remapped.citationIndexes.length) continue;
+    if (!input.state.entries.some((candidate) =>
+      candidate.title === remapped.title &&
+      candidate.citationIndexes.join(",") === remapped.citationIndexes.join(",")
+    )) {
+      input.state.entries.push(remapped);
+    }
+  }
+  const summary = input.result.summary.replace(
+    /\[citation:(\d+)\]/gi,
+    (_marker, ordinal: string) => {
+      const mapped = citationRemap.get(Number(ordinal));
+      return mapped ? `[citation:${mapped}]` : "";
+    },
+  );
+  if (input.result.generationRunId) {
+    input.state.supportingGenerationRunIds.push(input.result.generationRunId);
+  }
+  return {
+    status: input.result.partial ? "partial" : "completed",
+    summary,
+    evidence,
+    instruction: input.result.partial
+      ? "The isolated research worker stopped after retaining partial exact evidence. Use the supported result and state any remaining gap."
+      : "Use the worker's cited evidence handoff to answer; do not repeat its exploration.",
+  };
+}
+
 export function modelLedProjectChatToolNames(input: {
   repositoryAttached: boolean;
   requestAllowsResearch: boolean;
@@ -479,7 +725,11 @@ export function modelLedProjectChatToolNames(input: {
   attempt: ProjectChatModelAttempt;
   researchCapabilities?: ProjectChatResearchCapability[];
 }) {
-  if (input.attempt === "repair_1" || input.attempt === "publication_1") return [];
+  if (
+    input.attempt === "limit_synthesis_1" ||
+    input.attempt === "repair_1" ||
+    input.attempt === "publication_1"
+  ) return [];
   if (input.attempt === "research_1") {
     const capabilities = new Set(input.researchCapabilities ?? []);
     return [
@@ -768,11 +1018,18 @@ function createModelTools(input: {
       : " Repository Git inspection is not authorized in this turn.";
     tools.push(defineBedrockConverseTool({
       name: "inspect_project",
-      description: `Investigate the authorized project without changing it. It may search durable project knowledge (reviewed Highlights, current Project Facts, included Evidence, and Artifacts); knowledge search is efficient for concepts and synthesized context.${repositoryDescription} Supply an investigation objective, zero to four conceptual knowledge searches, and zero to four ordinary Git argument arrays with their attached source IDs. The host authorizes and pins repositories, blocks shell/network/mutation behavior and unsafe Git options, bounds output, and returns citable evidence. Use no shell syntax, pipes, redirects, or host paths.`,
+      description: `Investigate the authorized project without changing it. It may search durable project knowledge (reviewed Highlights, current Project Facts, included Evidence, and Artifacts); knowledge search is efficient for concepts and synthesized context.${repositoryDescription} For a narrow question when the necessary Git command is clear, supply direct repositoryQueries and optionally expand a returned evidence handle. For a broad or multi-step repository objective, supply adaptiveRepositorySourceIds instead; one isolated research worker will choose and sequence bounded Git queries, then return a compact cited handoff. Do not combine those two repository strategies in one call. The host authorizes and pins repositories, blocks shell/network/mutation behavior and unsafe Git options, stores full redacted command output outside the answer context, and returns bounded exact citable excerpts. Use no shell syntax, pipes, redirects, or host paths.`,
       inputSchema: inspectProjectSchema,
       jsonSchema: inspectProjectJsonSchema,
       strict: true,
-      execute: async ({ objective, knowledgeQueries, repositoryQueries }) => {
+      execute: async ({
+        objective,
+        knowledgeQueries,
+        repositoryQueries,
+        repositoryExpansions = [],
+        adaptiveRepositorySourceIds = [],
+      }) => {
+        input.state.usedToolNames.add("inspect_project");
         if (knowledgeQueries.length && !knowledgeAllowed) {
           return {
             status: "rejected",
@@ -780,11 +1037,39 @@ function createModelTools(input: {
             instruction: "Use the evidence capability selected by the semantic verifier.",
           };
         }
-        if (repositoryQueries.length && !repositoryAllowed) {
+        if (
+          (repositoryQueries.length || repositoryExpansions.length ||
+            adaptiveRepositorySourceIds.length) &&
+          !repositoryAllowed
+        ) {
           return {
             status: "rejected",
             code: "repository_inspection_not_authorized_for_continuation",
             instruction: "Use the evidence capability selected by the semantic verifier.",
+          };
+        }
+        if (
+          adaptiveRepositorySourceIds.length &&
+          input.state.repositoryResearchUsed
+        ) {
+          return {
+            status: "rejected",
+            code: "adaptive_repository_research_already_used",
+            instruction:
+              "Use the retained cited evidence or a narrow direct query; one isolated adaptive repository objective is allowed per answer turn.",
+          };
+        }
+        const attachedRepositorySourceIds = new Set(
+          input.context.repositories.map((repository) => repository.sourceId),
+        );
+        if (adaptiveRepositorySourceIds.some((sourceId) =>
+          !attachedRepositorySourceIds.has(sourceId)
+        )) {
+          return {
+            status: "rejected",
+            code: "repository_source_not_authorized",
+            instruction:
+              "Use only the attached repository source IDs supplied in the available context.",
           };
         }
         const knowledgeResults = [];
@@ -840,17 +1125,58 @@ function createModelTools(input: {
           });
         }
 
+        let adaptiveRepositoryResearch = null;
+        if (adaptiveRepositorySourceIds.length) {
+          input.state.repositoryResearchUsed = true;
+          const worker = await runProjectChatRepositoryResearchWorker({
+            runId: input.request.runId,
+            workItemId: input.request.workItemId,
+            phase: input.request.afterFactReview
+              ? "after_fact_review"
+              : input.request.sourceRefreshCompleted
+                ? "after_source_refresh"
+                : "initial",
+            objective,
+            sourceIds: adaptiveRepositorySourceIds,
+            repositoryInspector: input.state.repositoryInspector,
+            onAgentEvent: input.request.onAgentEvent,
+          });
+          adaptiveRepositoryResearch = mergeRepositoryResearchWorkerResult({
+            state: input.state,
+            result: worker,
+          });
+        }
+
         const queriesBySource = new Map<string, Array<{ args: string[] }>>();
         for (const query of repositoryQueries) {
           const queries = queriesBySource.get(query.sourceId) ?? [];
           queries.push({ args: query.args });
           queriesBySource.set(query.sourceId, queries);
         }
+        const expansionsBySource = new Map<
+          string,
+          Array<{ evidenceId: string; startLine: number; maxLines: number }>
+        >();
+        for (const expansion of repositoryExpansions) {
+          const requests = expansionsBySource.get(expansion.sourceId) ?? [];
+          requests.push({
+            evidenceId: expansion.evidenceId,
+            startLine: expansion.startLine,
+            maxLines: expansion.maxLines,
+          });
+          expansionsBySource.set(expansion.sourceId, requests);
+        }
         const repositoryResults = [];
-        for (const [sourceId, queries] of queriesBySource) {
+        const repositorySourceIds = new Set([
+          ...queriesBySource.keys(),
+          ...expansionsBySource.keys(),
+        ]);
+        for (const sourceId of repositorySourceIds) {
           const inspection = await input.state.repositoryInspector.inspect({
             sourceId,
-            queries,
+            objective,
+            queries: queriesBySource.get(sourceId) ?? [],
+            expansions: expansionsBySource.get(sourceId) ?? [],
           });
           if (inspection.status !== "completed") {
             repositoryResults.push(inspection);
@@ -862,35 +1188,44 @@ function createModelTools(input: {
             resolvedAt: new Date().toISOString(),
           });
           const results = inspection.results.map((result) => {
-            if (result.status !== "success" || !result.output.trim()) return result;
-            const content = providerSafeText(result.output);
-            const command = providerSafeText(`git ${result.args.join(" ")}`).slice(0, 500);
-            const citationIndex = addCitation(input.state, {
-              kind: "evidence",
-              label: `${inspection.snapshot.repository} — ${command}`,
-              excerpt: content,
-              sourceId,
-              repository: inspection.snapshot.repository,
-              commitSha: inspection.snapshot.commitSha,
-              url: inspection.snapshot.commitUrl,
-              contentHash: result.outputHash,
-            });
-            input.state.entries.push({
-              kind: "tool_authority",
-              authority: "included_evidence",
-              title: `${inspection.snapshot.repository} — ${command}`,
-              content,
-              currentRun: true,
-              citationIndexes: [citationIndex],
-              ownershipAuthority: 0,
-              supportingSources: [],
-            });
-            return { ...result, output: content, citationIndex };
+            if (result.status !== "success") return result;
+            const evidence = result.segments.map((segment) =>
+              addRepositoryEvidenceSegment({
+                state: input.state,
+                segment,
+                commitUrl: inspection.snapshot.commitUrl,
+              })
+            );
+            return {
+              args: result.args,
+              status: result.status,
+              exitCode: result.exitCode,
+              evidenceId: result.evidenceId,
+              outputHash: result.outputHash,
+              totalBytes: result.totalBytes,
+              totalLines: result.totalLines,
+              truncated: result.truncated,
+              evidence,
+            };
           });
+          const expansions = inspection.expansions.map((expansion) => ({
+            evidenceId: expansion.evidenceId,
+            status: expansion.status,
+            ...(expansion.status === "success"
+              ? {
+                  evidence: addRepositoryEvidenceSegment({
+                    state: input.state,
+                    segment: expansion.segment,
+                    commitUrl: inspection.snapshot.commitUrl,
+                  }),
+                }
+              : { code: expansion.code }),
+          }));
           repositoryResults.push({
             status: inspection.status,
             snapshot: inspection.snapshot,
             results,
+            expansions,
             remainingQueryBudget: inspection.remainingQueryBudget,
           });
         }
@@ -898,8 +1233,11 @@ function createModelTools(input: {
           status: "completed",
           objective,
           knowledgeResults,
+          adaptiveRepositoryResearch,
           repositoryResults,
-          instruction: "Use the cited results that directly support the requested relationships. Continue inspecting only when a material relationship remains unresolved.",
+          instruction: adaptiveRepositoryResearch
+            ? "Use the isolated worker's compact cited handoff. Do not repeat its exploration; state any explicit unresolved gap."
+            : "Use the cited results that directly support the requested relationships. Continue inspecting only when a material relationship remains unresolved.",
         });
       },
     }));
@@ -912,6 +1250,7 @@ function createModelTools(input: {
       jsonSchema: refreshProjectKnowledgeJsonSchema,
       strict: true,
       execute: ({ reason }) => {
+        input.state.usedToolNames.add("refresh_project_knowledge");
         input.state.control.refreshRequested = true;
         input.state.control.refreshReason = reason;
         return {
@@ -928,6 +1267,7 @@ function createModelTools(input: {
     jsonSchema: noInputJsonSchema,
     strict: true,
     execute: async () => {
+      input.state.usedToolNames.add("inspect_prior_turn");
       const priorAssistantMessageId = input.request.history
         ?.filter((message) => message.role === "assistant")
         .at(-1)?.id;
@@ -954,6 +1294,7 @@ function createModelTools(input: {
     jsonSchema: createProjectArtifactJsonSchema,
     strict: true,
     execute: ({ brief }) => {
+      input.state.usedToolNames.add("create_project_artifact");
       input.state.control.artifactBrief = brief;
       return {
         status: "artifact_requested",
@@ -1068,6 +1409,17 @@ export function modelLedProjectChatPublicationSystemPrompt() {
   ].join(" ");
 }
 
+export function modelLedProjectChatLimitSynthesisSystemPrompt() {
+  return [
+    "You are the host-enforced final synthesis phase for one project-chat turn.",
+    "The bounded research phase has ended. No tools are available and you must answer now from the exact frozen evidence supplied in the user message.",
+    "Preserve the user's requested format and answer every supported part directly. If one part remains unresolved, name only that narrow gap after presenting the supported result.",
+    "Do not mention iteration limits, token limits, orchestration, internal evidence handles, or this synthesis phase.",
+    "For project claims, cite the supplied source ordinal using [citation:N]. Never invent a citation index or add a factual project claim absent from the frozen evidence.",
+    "A useful partial grounded answer is preferable to a refusal. Return only the user-facing answer.",
+  ].join(" ");
+}
+
 export function modelLedProjectChatResearchContinuationSystemPrompt(input: {
   afterFactReview: boolean;
 }) {
@@ -1100,6 +1452,27 @@ function repairMessages(input: {
           32_000,
           citationIndexesIn(input.repairInstructions),
         ),
+      })),
+    }],
+  }];
+}
+
+function limitSynthesisMessages(input: {
+  request: ModelLedProjectChatInput;
+  checkpoint: ProjectChatModelCheckpoint;
+}) {
+  const conversation = (input.request.history ?? []).slice(-6).map((message) => ({
+    role: message.role,
+    content: providerSafeText(message.content).slice(0, 2_000),
+  }));
+  return [{
+    role: "user" as const,
+    content: [{
+      text: providerSafeText(JSON.stringify({
+        request: input.request.question,
+        conversation,
+        frozenSources: frozenRepairSourceSet(input.checkpoint, 32_000),
+        sourceCount: input.checkpoint.catalog.length,
       })),
     }],
   }];
@@ -1175,7 +1548,12 @@ async function executePrimaryModel(input: {
   researchCapabilities?: ProjectChatResearchCapability[];
   priorCheckpoint?: ProjectChatModelCheckpoint;
 }) {
-  const messages = (input.attempt === "repair_1" || input.attempt === "publication_1") &&
+  const messages = input.attempt === "limit_synthesis_1" && input.priorCheckpoint
+    ? limitSynthesisMessages({
+        request: input.request,
+        checkpoint: input.priorCheckpoint,
+      })
+    : (input.attempt === "repair_1" || input.attempt === "publication_1") &&
     input.repairInstructions && input.priorCheckpoint
     ? repairMessages({
         request: input.request,
@@ -1224,7 +1602,9 @@ async function executePrimaryModel(input: {
     },
     execute: async () => {
       const result = await agent.run({
-        systemPrompt: input.attempt === "repair_1" || input.attempt === "publication_1"
+        systemPrompt: input.attempt === "limit_synthesis_1"
+          ? modelLedProjectChatLimitSynthesisSystemPrompt()
+          : input.attempt === "repair_1" || input.attempt === "publication_1"
           ? input.attempt === "publication_1"
             ? modelLedProjectChatPublicationSystemPrompt()
             : modelLedProjectChatRepairSystemPrompt()
@@ -1249,6 +1629,9 @@ async function executePrimaryModel(input: {
           catalog: input.state.catalog,
           entries: input.state.entries,
           research: input.state.research,
+          repositoryResearchUsed: input.state.repositoryResearchUsed,
+          supportingGenerationRunIds:
+            Array.from(new Set(input.state.supportingGenerationRunIds)),
           control: input.state.control,
         },
       };
@@ -1266,9 +1649,83 @@ function stateFromCheckpoint(input: {
     entries: [...input.checkpoint.entries],
     research: input.checkpoint.research,
     control: { ...input.checkpoint.control },
+    usedToolNames: new Set(input.checkpoint.toolNames),
+    repositoryResearchUsed: input.checkpoint.repositoryResearchUsed ?? false,
+    supportingGenerationRunIds: [
+      ...(input.checkpoint.supportingGenerationRunIds ?? []),
+    ],
     repositoryInspector: input.repositoryInspector,
     observedRepositoryHeads: input.observedRepositoryHeads,
   };
+}
+
+function checkpointFromState(
+  state: ModelToolState,
+  answer = "",
+): ProjectChatModelCheckpoint {
+  return {
+    version: PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
+    answer,
+    catalog: [...state.catalog],
+    entries: [...state.entries],
+    research: state.research,
+    toolNames: Array.from(state.usedToolNames),
+    repositoryResearchUsed: state.repositoryResearchUsed,
+    supportingGenerationRunIds:
+      Array.from(new Set(state.supportingGenerationRunIds)),
+    control: { ...state.control },
+  };
+}
+
+function exactEvidenceFallbackDraft(state: ModelToolState) {
+  const entries = state.entries
+    .filter((entry) => entry.citationIndexes.length > 0)
+    .slice(0, 6);
+  if (!entries.length) {
+    return "I couldn’t establish a project-specific result from the evidence available to this turn.";
+  }
+  return [
+    "I could establish the following directly from the project evidence:",
+    ...entries.map((entry) => {
+      const excerpt = entry.content.replace(/\s+/g, " ").trim().slice(0, 500);
+      const markers = entry.citationIndexes.map((index) => `[citation:${index}]`).join("");
+      return `- ${entry.title}: ${excerpt} ${markers}`.trim();
+    }),
+  ].join("\n");
+}
+
+export async function runResearchWithReservedSynthesis<T, Checkpoint>(input: {
+  research: () => Promise<T>;
+  snapshot: () => Checkpoint;
+  synthesize: (checkpoint: Checkpoint, limit: BedrockConverseLimitError) => Promise<T>;
+  onResearchLimit?: (
+    limit: BedrockConverseLimitError,
+    checkpoint: Checkpoint,
+  ) => void | Promise<void>;
+}) {
+  try {
+    return {
+      mode: "research_completed" as const,
+      value: await input.research(),
+    };
+  } catch (error) {
+    if (!(error instanceof BedrockConverseLimitError)) throw error;
+    const checkpoint = input.snapshot();
+    await input.onResearchLimit?.(error, checkpoint);
+    try {
+      return {
+        mode: "reserved_synthesis" as const,
+        value: await input.synthesize(checkpoint, error),
+      };
+    } catch (synthesisError) {
+      return {
+        mode: "exact_evidence_fallback" as const,
+        checkpoint,
+        researchLimit: error,
+        synthesisError,
+      };
+    }
+  }
 }
 
 function conversationForVerifier(input: ModelLedProjectChatInput) {
@@ -1430,7 +1887,7 @@ function verificationUnavailablePublicationBoundary(input: {
   warning: string;
 }): ModelLedProjectChatResult {
   let candidateAnswer = [
-    "Semantic verification did not complete. The project details below are limited to the cited current-source inspection and should be retried for claim-level confirmation.",
+    "Here is the portion I could support directly from the current project sources. I left out anything I could not confirm.",
     input.checkpoint.answer,
   ].join("\n\n");
   let requiresProjectCitations = input.checkpoint.catalog.length > 0;
@@ -1474,13 +1931,13 @@ function verificationUnavailablePublicationBoundary(input: {
     const firstSource = input.checkpoint.catalog[0];
     if (firstSource) {
       candidateAnswer = [
-        "I could verify one project-specific evidence boundary before semantic verification stopped:",
-        "The first attached project source was available to this turn. [citation:1]",
+        "Here is the project evidence I could safely retain:",
+        `${firstSource.excerpt.slice(0, 600)} [citation:1]`,
       ].join("\n\n");
       requiresProjectCitations = true;
     } else {
       candidateAnswer =
-        "Semantic verification did not complete, and this turn had no mechanically publishable project citation. The saved project context is unchanged.";
+        "I couldn’t verify a project-specific answer from the sources available in this turn.";
       requiresProjectCitations = false;
     }
     const finalized = finalizeModelLedProjectChatAnswer({
@@ -1529,6 +1986,32 @@ export async function executeModelLedProjectChatAgent(
     userId: input.userId,
     workItemId: input.workItemId,
     sources: context.attachedSources,
+    loadEvidence: (evidenceId) => loadArchivedRepositoryEvidence({
+      runId: input.runId,
+      evidenceId,
+    }),
+    onEvidence: async (evidence) => {
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "tool_result",
+        toolName: "inspect_project",
+        payload: {
+          mode: "repository_evidence_archive",
+          version: PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
+          evidenceId: evidence.evidenceId,
+          sourceId: evidence.sourceId,
+          repository: evidence.repository,
+          commitSha: evidence.commitSha,
+          args: evidence.args,
+          command: evidence.command,
+          redactedOutput: evidence.output,
+          outputHash: evidence.outputHash,
+          totalBytes: evidence.totalBytes,
+          totalLines: evidence.totalLines,
+        },
+        isUserVisible: false,
+      });
+    },
   });
   try {
   const initialState: ModelToolState = {
@@ -1540,16 +2023,70 @@ export async function executeModelLedProjectChatAgent(
       refreshReason: null,
       artifactBrief: null,
     },
+    usedToolNames: new Set(),
+    repositoryResearchUsed: false,
+    supportingGenerationRunIds: [],
     repositoryInspector,
     observedRepositoryHeads: new Map(),
   };
-  const initial = await executePrimaryModel({
-    request: input,
-    context,
-    state: initialState,
-    attempt: "initial",
+  const initialPhase = await runResearchWithReservedSynthesis({
+    research: () => executePrimaryModel({
+      request: input,
+      context,
+      state: initialState,
+      attempt: "initial",
+    }),
+    snapshot: () => checkpointFromState(initialState),
+    onResearchLimit: async (error, frozenCheckpoint) => {
+      await appendAgentRunEvent({
+        runId: input.runId,
+        type: "status_change",
+        toolName: "compose_project_answer",
+        message: "Repository inspection is complete. Writing the answer now.",
+        payload: {
+          mode: "research_budget_transition",
+          code: error.code,
+          researchIterations: error.iterations,
+          researchToolCalls: error.toolCalls,
+          researchUsage: error.usage,
+          sourceCount: frozenCheckpoint.catalog.length,
+        },
+      }).catch(() => null);
+    },
+    synthesize: (frozenCheckpoint) => executePrimaryModel({
+        request: input,
+        context,
+        state: initialState,
+        attempt: "limit_synthesis_1",
+        priorCheckpoint: frozenCheckpoint,
+      }),
   });
-  const generationRunIds = [initial.generationRunId];
+  if (initialPhase.mode === "exact_evidence_fallback") {
+    const fallbackCheckpoint = checkpointFromState(
+      initialState,
+      exactEvidenceFallbackDraft(initialState),
+    );
+    return verificationUnavailablePublicationBoundary({
+      checkpoint: fallbackCheckpoint,
+      generationRunIds: [...initialState.supportingGenerationRunIds],
+      warning:
+        "The reserved answer pass did not complete; exact retained evidence was published instead of failing the turn.",
+      freshness: freshnessAfterToolUse(
+        context,
+        initialState,
+        fallbackCheckpoint.catalog,
+      ),
+    });
+  }
+  const initial = initialPhase.value;
+  initial.checkpoint.toolNames = Array.from(new Set([
+    ...initial.checkpoint.toolNames,
+    ...initialState.usedToolNames,
+  ]));
+  const generationRunIds = Array.from(new Set([
+    initial.generationRunId,
+    ...(initial.checkpoint.supportingGenerationRunIds ?? []),
+  ]));
   const answerGenerationRunIds = [initial.generationRunId];
   const verificationGenerationRunIds: string[] = [];
   const allToolNames = [...initial.checkpoint.toolNames];
@@ -1669,6 +2206,7 @@ export async function executeModelLedProjectChatAgent(
       });
       activeState = continuationState;
       generationRunIds.push(active.generationRunId);
+      generationRunIds.push(...(active.checkpoint.supportingGenerationRunIds ?? []));
       answerGenerationRunIds.push(active.generationRunId);
       allToolNames.push(...active.checkpoint.toolNames);
       const continuationControlResult = controlResult(active.checkpoint);
@@ -1728,6 +2266,7 @@ export async function executeModelLedProjectChatAgent(
       activeState = repairState;
       repaired = true;
       generationRunIds.push(active.generationRunId);
+      generationRunIds.push(...(active.checkpoint.supportingGenerationRunIds ?? []));
       answerGenerationRunIds.push(active.generationRunId);
       allToolNames.push(...active.checkpoint.toolNames);
       verificationAttempt = researchContinuationUsed ? 3 : 2;
@@ -1786,6 +2325,7 @@ export async function executeModelLedProjectChatAgent(
       activeState = publicationState;
       publicationProjectionUsed = true;
       generationRunIds.push(active.generationRunId);
+      generationRunIds.push(...(active.checkpoint.supportingGenerationRunIds ?? []));
       answerGenerationRunIds.push(active.generationRunId);
       allToolNames.push(...active.checkpoint.toolNames);
       verificationAttempt = verificationAttempt === 1

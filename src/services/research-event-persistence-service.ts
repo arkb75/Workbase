@@ -16,8 +16,12 @@ export async function persistResearchAgentEvent(
           toolInput.knowledgeQueries.length
             ? ["knowledge"]
             : []),
-          ...(Array.isArray(toolInput.repositoryQueries) &&
-          toolInput.repositoryQueries.length
+          ...((Array.isArray(toolInput.repositoryQueries) &&
+          toolInput.repositoryQueries.length) ||
+          (Array.isArray(toolInput.repositoryExpansions) &&
+          toolInput.repositoryExpansions.length) ||
+          (Array.isArray(toolInput.adaptiveRepositorySourceIds) &&
+          toolInput.adaptiveRepositorySourceIds.length)
             ? ["repository"]
             : []),
         ]

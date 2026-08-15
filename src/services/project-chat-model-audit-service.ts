@@ -1,5 +1,9 @@
-import type { BedrockConverseAgentRunResult } from "@/src/lib/bedrock-converse-agent";
-import { sanitizeBedrockConverseEventValue } from "@/src/lib/bedrock-converse-agent";
+import {
+  BedrockConverseAgentError,
+  sanitizeBedrockConverseEventValue,
+  type BedrockConverseAgentEvent,
+  type BedrockConverseAgentRunResult,
+} from "@/src/lib/bedrock-converse-agent";
 import { z } from "zod";
 import type {
   ProjectKnowledgeCitation,
@@ -17,7 +21,7 @@ import {
 import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-grounding-service";
 
-export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v10";
+export const PROJECT_CHAT_MODEL_CHECKPOINT_VERSION = "project-chat-model-checkpoint-v11";
 
 export interface ProjectChatModelControl {
   refreshRequested: boolean;
@@ -32,6 +36,8 @@ export interface ProjectChatModelCheckpoint {
   entries: ProjectAnswerGroundingEntry[];
   research: ProjectResearchResult | null;
   toolNames: string[];
+  repositoryResearchUsed?: boolean;
+  supportingGenerationRunIds?: string[];
   control: ProjectChatModelControl;
 }
 
@@ -54,6 +60,9 @@ const replayCheckpointSchema = z.object({
   }).passthrough()).max(100),
   research: z.unknown().nullable(),
   toolNames: z.array(z.string().min(1).max(100)).max(30),
+  repositoryResearchUsed: z.boolean().default(false),
+  supportingGenerationRunIds: z.array(z.string().min(1).max(200)).max(20)
+    .default([]),
   control: z.object({
     refreshRequested: z.boolean(),
     refreshReason: z.string().max(1_000).nullable(),
@@ -87,24 +96,30 @@ function parseCheckpoint(value: unknown): ProjectChatModelCheckpoint {
       ? parsed.research as ProjectResearchResult
       : null,
     toolNames: parsed.toolNames,
+    repositoryResearchUsed: parsed.repositoryResearchUsed,
+    supportingGenerationRunIds: parsed.supportingGenerationRunIds,
     control: parsed.control,
   };
 }
 
-function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
-  const attempts = result.events.flatMap((event) =>
+function modelEventTokenUsage(input: {
+  events: BedrockConverseAgentEvent[];
+  provider?: string | null;
+  modelId?: string | null;
+}): JsonValue {
+  const attempts = input.events.flatMap((event) =>
     event.type === "model_call_completed"
       ? [{
           ...event.usage,
           requestId: event.requestId,
-          provider: event.provider ?? result.provider ?? null,
+          provider: event.provider ?? input.provider ?? null,
           routedProvider: event.routedProvider ?? null,
-          modelId: event.modelId ?? result.modelId ?? null,
+          modelId: event.modelId ?? input.modelId ?? null,
           costUsd: event.costUsd ?? event.usage.costUsd ?? null,
         }]
       : []
   );
-  const failedAttempts = result.events.flatMap((event) =>
+  const failedAttempts = input.events.flatMap((event) =>
     event.type === "model_call_failed"
       ? event.requestIds.map((requestId) => ({
           requestId,
@@ -120,7 +135,21 @@ function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
     attempts,
     failedAttempts,
     providerAttemptCount: attempts.length + failedAttempts.length,
-    unknownUsageAttempts: result.usage.unknownUsageAttempts ?? 0,
+    unknownUsageAttempts: input.events.reduce(
+      (sum, event) => event.type === "model_call_completed" ||
+          event.type === "model_call_failed"
+        ? sum + (event.usage.unknownUsageAttempts ?? 0)
+        : sum,
+      0,
+    ),
+  });
+}
+
+function modelTokenUsage(result: BedrockConverseAgentRunResult): JsonValue {
+  return modelEventTokenUsage({
+    events: result.events,
+    provider: result.provider,
+    modelId: result.modelId,
   });
 }
 
@@ -128,7 +157,13 @@ export async function runAuditedProjectChatModel(input: {
   workItemId: string;
   agentRunId: string;
   phase: "initial" | "after_source_refresh" | "after_fact_review";
-  attempt: "initial" | "research_1" | "repair_1" | "publication_1";
+  attempt:
+    | "initial"
+    | "research_1"
+    | "limit_synthesis_1"
+    | "repository_research_1"
+    | "repair_1"
+    | "publication_1";
   inputSummary: Record<string, unknown>;
   execute: () => Promise<ExecutedProjectChatModel>;
 }) {
@@ -166,6 +201,10 @@ export async function runAuditedProjectChatModel(input: {
       entries: executed.checkpoint.entries,
       research: executed.checkpoint.research,
       toolNames,
+      repositoryResearchUsed:
+        executed.checkpoint.repositoryResearchUsed ?? false,
+      supportingGenerationRunIds:
+        executed.checkpoint.supportingGenerationRunIds ?? [],
       control: executed.checkpoint.control,
     };
     const generationRun = await createGenerationRunIdempotently({
@@ -205,6 +244,14 @@ export async function runAuditedProjectChatModel(input: {
       replayed: false,
     };
   } catch (error) {
+    const agentError = error instanceof BedrockConverseAgentError ? error : null;
+    const failureTokenUsage = agentError?.events.length
+      ? modelEventTokenUsage({
+          events: agentError.events,
+          provider: configured.provider,
+          modelId: configured.modelId,
+        })
+      : generationRunFailureTokenUsage(error);
     await createGenerationRun({
       workItemId: input.workItemId,
       kind: "project_chat_answer",
@@ -226,8 +273,14 @@ export async function runAuditedProjectChatModel(input: {
         agentRunId: input.agentRunId,
         profile: "primary_answer",
         configuredModelId: configured.modelId,
+        requestIds: agentError?.requestIds ?? [],
+        routedProviders: agentError?.routedProviders ?? [],
+        iterations: agentError?.iterations ?? null,
+        toolCallCount: agentError?.toolCalls ?? null,
+        auditEvidenceTruncated: false,
       }),
-      tokenUsage: generationRunFailureTokenUsage(error),
+      tokenUsage: failureTokenUsage,
+      estimatedCostUsd: agentError?.reportedCostUsd ?? null,
     }).catch(() => null);
     throw error;
   }

@@ -1097,6 +1097,29 @@ describe("project-chat application scenario runner", () => {
     }));
   });
 
+  it("keeps the repository-operation gate independent of Workbase-specific identifiers", () => {
+    const scenario = projectChatApplicationScenarios.find(
+      (entry) => entry.id === "targeted_repository_research",
+    )!;
+    const observation = successfulObservation(scenario, 0);
+    const result = evaluateProjectChatApplicationObservation(scenario, {
+      ...observation,
+      answer: [
+        "The invite-code transaction is bounded to six attempts.",
+        "A uniqueness conflict continues only before the sixth attempt; success returns,",
+        "while any other error or the final conflict is thrown. [citation:1]",
+      ].join(" "),
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checks.map((check) => check.name)).not.toEqual(
+      expect.arrayContaining([
+        "targeted answer identifies the concrete iteration guard",
+        "targeted answer identifies a concrete exit path",
+      ]),
+    );
+  });
+
   it("runs a real cited baseline before the exact historical source-scope follow-up", async () => {
     const executed: string[] = [];
     const messageCountByThread = new Map<string, number>();

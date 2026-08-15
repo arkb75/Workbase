@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +9,12 @@ import {
   resolveGitHubCommit,
 } from "@/src/services/github-client";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
+import {
+  compactProjectRepositoryEvidence,
+  createProjectRepositoryRawEvidence,
+  expandProjectRepositoryEvidence,
+  type ProjectRepositoryRawEvidence,
+} from "@/src/services/project-chat-repository-evidence-service";
 
 export const projectChatRepositoryInspectionLimits = Object.freeze({
   maxQueriesPerCall: 4,
@@ -17,8 +22,14 @@ export const projectChatRepositoryInspectionLimits = Object.freeze({
   maxArgumentsPerQuery: 40,
   maxArgumentCharacters: 1_000,
   maxTotalArgumentCharacters: 6_000,
-  maxOutputBytesPerQuery: 32 * 1024,
-  maxVisibleBytesPerTurn: 96 * 1024,
+  maxOutputBytesPerQuery: 128 * 1024,
+  maxEvidenceBytesPerQuery: 8 * 1024,
+  maxEvidenceSegmentsPerQuery: 3,
+  maxExpansionRequestsPerCall: 2,
+  maxExpansionRequestsPerTurn: 4,
+  maxExpansionLines: 120,
+  maxExpandedBytesPerRequest: 8 * 1024,
+  maxVisibleBytesPerTurn: 32 * 1024,
   commandTimeoutMs: 20_000,
   preparationTimeoutMs: 90_000,
 } as const);
@@ -344,14 +355,20 @@ export function validateProjectRepositoryGitArgs(args: string[]) {
 
 export class ProjectChatRepositoryInspector {
   readonly #repositories = new Map<string, Promise<PreparedProjectRepository>>();
+  readonly #evidence = new Map<string, ProjectRepositoryRawEvidence>();
   #queryCount = 0;
   #visibleBytes = 0;
+  #expansionCount = 0;
 
   constructor(
     readonly input: {
       userId: string;
       workItemId: string;
       sources: ProjectChatAttachedSource[];
+      onEvidence?: (evidence: ProjectRepositoryRawEvidence) => void | Promise<void>;
+      loadEvidence?: (
+        evidenceId: string,
+      ) => ProjectRepositoryRawEvidence | null | Promise<ProjectRepositoryRawEvidence | null>;
     },
     readonly prepareRepository: PrepareRepository = prepareGitHubRepository,
   ) {}
@@ -374,12 +391,22 @@ export class ProjectChatRepositoryInspector {
     return prepared;
   }
 
-  async inspect(input: { sourceId: string; queries: Array<{ args: string[] }> }) {
+  async inspect(input: {
+    sourceId: string;
+    objective?: string;
+    queries: Array<{ args: string[] }>;
+    expansions?: Array<{ evidenceId: string; startLine: number; maxLines: number }>;
+  }) {
+    const expansions = input.expansions ?? [];
     if (
-      !input.queries.length ||
+      (!input.queries.length && !expansions.length) ||
       input.queries.length > projectChatRepositoryInspectionLimits.maxQueriesPerCall ||
       this.#queryCount + input.queries.length >
-        projectChatRepositoryInspectionLimits.maxQueriesPerTurn
+        projectChatRepositoryInspectionLimits.maxQueriesPerTurn ||
+      expansions.length >
+        projectChatRepositoryInspectionLimits.maxExpansionRequestsPerCall ||
+      this.#expansionCount + expansions.length >
+        projectChatRepositoryInspectionLimits.maxExpansionRequestsPerTurn
     ) {
       return {
         status: "rejected" as const,
@@ -396,6 +423,7 @@ export class ProjectChatRepositoryInspector {
       };
     }
     const results = [];
+    const expanded = [];
     const env = gitEnvironment({ privateHome: repository.privateHome });
     for (const query of input.queries) {
       this.#queryCount += 1;
@@ -417,28 +445,113 @@ export class ProjectChatRepositoryInspector {
       });
       const combined = [executed.stdout, executed.stderr].filter(Boolean).join("\n");
       const redacted = redactRepositorySecrets(combined).content;
+      const evidence = createProjectRepositoryRawEvidence({
+        sourceId: input.sourceId,
+        repository: repository.snapshot.repository,
+        commitSha: repository.snapshot.commitSha,
+        args: query.args,
+        output: redacted,
+      });
+      this.#evidence.set(evidence.evidenceId, evidence);
+      await this.input.onEvidence?.(evidence);
       const remaining = Math.max(
         0,
         projectChatRepositoryInspectionLimits.maxVisibleBytesPerTurn -
           this.#visibleBytes,
       );
-      const output = Buffer.from(redacted, "utf8").subarray(0, remaining).toString("utf8");
-      this.#visibleBytes += Buffer.byteLength(output, "utf8");
+      const segments = compactProjectRepositoryEvidence({
+        evidence,
+        objective: input.objective ?? "",
+        maximumBytes: Math.min(
+          remaining,
+          projectChatRepositoryInspectionLimits.maxEvidenceBytesPerQuery,
+        ),
+        maximumSegments:
+          projectChatRepositoryInspectionLimits.maxEvidenceSegmentsPerQuery,
+      });
+      const visibleBytes = segments.reduce(
+        (sum, segment) => sum + Buffer.byteLength(segment.excerpt, "utf8"),
+        0,
+      );
+      this.#visibleBytes += visibleBytes;
       results.push({
         args: query.args,
         status: executed.exitCode === 0 ? "success" as const : "command_error" as const,
         exitCode: executed.exitCode,
-        output,
-        outputHash: createHash("sha256").update(output).digest("hex"),
-        truncated: output.length < redacted.length,
+        evidenceId: evidence.evidenceId,
+        outputHash: evidence.outputHash,
+        totalBytes: evidence.totalBytes,
+        totalLines: evidence.totalLines,
+        segments,
+        truncated: segments.some((segment) => segment.truncated) ||
+          visibleBytes < evidence.totalBytes,
       });
+    }
+    for (const request of expansions) {
+      this.#expansionCount += 1;
+      let evidence = this.#evidence.get(request.evidenceId);
+      if (!evidence && this.input.loadEvidence) {
+        const restored = await this.input.loadEvidence(request.evidenceId);
+        if (restored) {
+          this.#evidence.set(restored.evidenceId, restored);
+          evidence = restored;
+        }
+      }
+      if (
+        !evidence ||
+        evidence.sourceId !== input.sourceId ||
+        evidence.repository !== repository.snapshot.repository ||
+        evidence.commitSha !== repository.snapshot.commitSha
+      ) {
+        expanded.push({
+          evidenceId: request.evidenceId,
+          status: "rejected" as const,
+          code: "evidence_not_found",
+        });
+        continue;
+      }
+      const remaining = Math.max(
+        0,
+        projectChatRepositoryInspectionLimits.maxVisibleBytesPerTurn -
+          this.#visibleBytes,
+      );
+      const segment = expandProjectRepositoryEvidence({
+        evidence,
+        startLine: request.startLine,
+        maximumLines: Math.min(
+          request.maxLines,
+          projectChatRepositoryInspectionLimits.maxExpansionLines,
+        ),
+        maximumBytes: Math.min(
+          remaining,
+          projectChatRepositoryInspectionLimits.maxExpandedBytesPerRequest,
+        ),
+      });
+      if (segment) {
+        this.#visibleBytes += Buffer.byteLength(segment.excerpt, "utf8");
+      }
+      if (segment) {
+        expanded.push({
+          evidenceId: request.evidenceId,
+          status: "success" as const,
+          segment,
+        });
+      } else {
+        expanded.push({
+          evidenceId: request.evidenceId,
+          status: "rejected" as const,
+          code: "empty_evidence_range",
+        });
+      }
     }
     return {
       status: "completed" as const,
       snapshot: repository.snapshot,
       results,
+      expansions: expanded,
       usage: {
         queries: this.#queryCount,
+        expansions: this.#expansionCount,
         visibleBytes: this.#visibleBytes,
       },
       remainingQueryBudget:
@@ -453,5 +566,6 @@ export class ProjectChatRepositoryInspector {
       result.status === "fulfilled" ? [result.value.dispose()] : []
     ));
     this.#repositories.clear();
+    this.#evidence.clear();
   }
 }

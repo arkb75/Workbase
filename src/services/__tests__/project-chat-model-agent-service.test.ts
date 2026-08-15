@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BedrockConverseLimitError } from "@/src/lib/bedrock-converse-agent";
 import {
   buildModelLedProjectChatHistory,
   compactRepositoryRefreshState,
@@ -9,6 +10,7 @@ import {
   modelLedProjectChatResearchContinuationSystemPrompt,
   modelLedProjectChatToolNames,
   modelLedProjectChatSystemPrompt,
+  runResearchWithReservedSynthesis,
 } from "@/src/services/project-chat-model-agent-service";
 import {
   PROJECT_CHAT_MODEL_CHECKPOINT_VERSION,
@@ -100,9 +102,9 @@ describe("model-led project-chat agent contract", () => {
 
   it("reserves a final synthesis turn without removing hard tool and token bounds", () => {
     expect(modelLedProjectChatLimits("initial")).toEqual({
-      maxIterations: 8,
+      maxIterations: 7,
       maxToolCalls: 10,
-      maxTotalTokens: 100_000,
+      maxTotalTokens: 70_000,
     });
     expect(modelLedProjectChatLimits("repair_1")).toEqual({
       maxIterations: 1,
@@ -114,6 +116,58 @@ describe("model-led project-chat agent contract", () => {
       maxToolCalls: 5,
       maxTotalTokens: 50_000,
     });
+    expect(modelLedProjectChatLimits("limit_synthesis_1")).toEqual({
+      maxIterations: 1,
+      maxToolCalls: 1,
+      maxTotalTokens: 30_000,
+    });
+  });
+
+  it("turns a reached research bound into one answer pass over the frozen evidence", async () => {
+    const events: string[] = [];
+    const limit = new BedrockConverseLimitError(
+      "research bound reached",
+      "iteration_limit_exceeded",
+      7,
+      8,
+      { iterations: 7, toolCalls: 6 },
+    );
+    const outcome = await runResearchWithReservedSynthesis({
+      research: async () => {
+        events.push("research");
+        throw limit;
+      },
+      snapshot: () => {
+        events.push("snapshot");
+        return { evidence: ["exact current-source excerpt"] };
+      },
+      onResearchLimit: async () => { events.push("transition"); },
+      synthesize: async (checkpoint, observedLimit) => {
+        events.push("synthesis");
+        expect(checkpoint.evidence).toEqual(["exact current-source excerpt"]);
+        expect(observedLimit).toBe(limit);
+        return "A useful cited answer";
+      },
+    });
+    expect(outcome).toEqual({
+      mode: "reserved_synthesis",
+      value: "A useful cited answer",
+    });
+    expect(events).toEqual([
+      "research",
+      "snapshot",
+      "transition",
+      "synthesis",
+    ]);
+  });
+
+  it("does not disguise an ordinary provider failure as a research-budget transition", async () => {
+    const providerError = new Error("provider unavailable");
+    await expect(runResearchWithReservedSynthesis({
+      research: async () => { throw providerError; },
+      snapshot: () => ({ evidence: [] }),
+      synthesize: async () => "should not run",
+    })).rejects.toBe(providerError);
   });
 
   it("keeps user and source content out of the system boundary", () => {
@@ -146,6 +200,11 @@ describe("model-led project-chat agent contract", () => {
       repositoryAttached: true,
       requestAllowsResearch: true,
       attempt: "repair_1",
+    })).toEqual([]);
+    expect(modelLedProjectChatToolNames({
+      repositoryAttached: true,
+      requestAllowsResearch: true,
+      attempt: "limit_synthesis_1",
     })).toEqual([]);
     expect(modelLedProjectChatToolNames({
       repositoryAttached: false,

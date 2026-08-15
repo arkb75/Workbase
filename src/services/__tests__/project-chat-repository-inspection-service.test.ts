@@ -59,7 +59,10 @@ describe("project chat repository inspection", () => {
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  function inspector() {
+  function inspector(input?: {
+    onEvidence?: ConstructorParameters<typeof ProjectChatRepositoryInspector>[0]["onEvidence"];
+    loadEvidence?: ConstructorParameters<typeof ProjectChatRepositoryInspector>[0]["loadEvidence"];
+  }) {
     return new ProjectChatRepositoryInspector({
       userId: "user-1",
       workItemId: "work-1",
@@ -71,6 +74,8 @@ describe("project chat repository inspection", () => {
         updatedAt: new Date("2026-08-13T00:00:00.000Z"),
         resolvedRevision: head,
       }],
+      onEvidence: input?.onEvidence,
+      loadEvidence: input?.loadEvidence,
     }, async (): Promise<PreparedProjectRepository> => ({
       gitDir: bare,
       privateHome: join(root, "private-home"),
@@ -113,12 +118,60 @@ describe("project chat repository inspection", () => {
         repository: "acme/robot-controller",
         commitSha: head,
       },
-      results: [
-        { status: "success", output: expect.stringContaining("merge telemetry capability") },
-        { status: "success", output: expect.stringContaining("stable:${input}") },
-        { status: "success", output: expect.stringContaining("route_latency_ms") },
-        { status: "success", output: expect.stringContaining("telemetry.ts") },
-      ],
+      results: Array.from({ length: 4 }, () => ({ status: "success" })),
+    });
+    if (result.status !== "completed") throw new Error("inspection rejected");
+    const visible = result.results.map((entry) =>
+      entry.status === "success"
+        ? entry.segments.map((segment) => segment.excerpt).join("\n")
+        : ""
+    );
+    expect(visible[0]).toContain("merge telemetry capability");
+    expect(visible[1]).toContain("stable:${input}");
+    expect(visible[2]).toContain("route_latency_ms");
+    expect(visible[3]).toContain("telemetry.ts");
+    expect(result.results.every((entry) => !("output" in entry))).toBe(true);
+  });
+
+  it("keeps raw output outside the model result and restores exact expansions by handle", async () => {
+    const archived = new Map<string, Parameters<NonNullable<ConstructorParameters<
+      typeof ProjectChatRepositoryInspector
+    >[0]["onEvidence"]>>[0]>();
+    const firstInspector = inspector({
+      onEvidence: (evidence) => { archived.set(evidence.evidenceId, evidence); },
+    });
+    const first = await firstInspector.inspect({
+      sourceId: "source-robot",
+      objective: "Who added route telemetry and what changed?",
+      queries: [{ args: ["log", "--stat", "--oneline", "-5"] }],
+    });
+    expect(first.status).toBe("completed");
+    if (first.status !== "completed") throw new Error("inspection rejected");
+    const result = first.results[0];
+    expect(result).toMatchObject({ status: "success" });
+    if (!result || result.status !== "success") throw new Error("query failed");
+    expect(archived.get(result.evidenceId)?.output).toContain("add controller telemetry");
+    expect("output" in result).toBe(false);
+
+    const replayInspector = inspector({
+      loadEvidence: (evidenceId) => archived.get(evidenceId) ?? null,
+    });
+    const expanded = await replayInspector.inspect({
+      sourceId: "source-robot",
+      queries: [],
+      expansions: [{
+        evidenceId: result.evidenceId,
+        startLine: 1,
+        maxLines: 20,
+      }],
+    });
+    expect(expanded).toMatchObject({
+      status: "completed",
+      expansions: [{
+        evidenceId: result.evidenceId,
+        status: "success",
+        segment: { startLine: 1 },
+      }],
     });
   });
 

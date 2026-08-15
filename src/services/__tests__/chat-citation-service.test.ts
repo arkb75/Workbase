@@ -220,4 +220,38 @@ describe("chat citation selection", () => {
     });
     expect(row?.metadata).toMatchObject({ provenance });
   });
+
+  it("persists compact repository evidence handles without raw command output", () => {
+    const [row] = buildChatCitationRows("message-1", [{
+      kind: "evidence",
+      label: "acme/ledger — git log -5 — output lines 40-55",
+      excerpt: "a1b2c3 Ada add reconciliation retry",
+      sourceId: "source-1",
+      repository: "acme/ledger",
+      commitSha: "a".repeat(40),
+      contentHash: "b".repeat(64),
+      evidenceHandle: "evidence-1234567890",
+      sourceOutputHash: "c".repeat(64),
+      sourceOutputBytes: 81_000,
+      sourceCommand: "git log -5",
+      sourceStartLine: 40,
+      sourceEndLine: 55,
+      sourceTotalLines: 900,
+      truncated: true,
+    }]);
+
+    expect(row?.excerpt).toBe("a1b2c3 Ada add reconciliation retry");
+    expect(row?.metadata).toMatchObject({
+      evidenceHandle: "evidence-1234567890",
+      sourceOutputHash: "c".repeat(64),
+      sourceOutputBytes: 81_000,
+      sourceCommand: "git log -5",
+      sourceStartLine: 40,
+      sourceEndLine: 55,
+      sourceTotalLines: 900,
+      truncated: true,
+    });
+    expect(JSON.stringify(row)).not.toContain("rawOutput");
+    expect(JSON.stringify(row)).not.toContain("redactedOutput");
+  });
 });

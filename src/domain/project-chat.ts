@@ -37,6 +37,14 @@ export interface ProjectKnowledgeCitation {
   endLine?: number;
   url?: string;
   contentHash?: string;
+  evidenceHandle?: string;
+  sourceOutputHash?: string;
+  sourceOutputBytes?: number;
+  sourceCommand?: string;
+  sourceStartLine?: number;
+  sourceEndLine?: number;
+  sourceTotalLines?: number;
+  truncated?: boolean;
   redacted?: boolean;
   redactionCategories?: string[];
   provenance?: Array<{

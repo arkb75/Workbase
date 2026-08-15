@@ -20,24 +20,35 @@ describe("project inspection progress events", () => {
     {
       knowledgeQueries: [{ query: "architecture", maxResults: 5 }],
       repositoryQueries: [],
+      adaptiveRepositorySourceIds: [],
       expectedModes: ["knowledge"],
       expectedMessage: "Searching project knowledge.",
     },
     {
       knowledgeQueries: [],
       repositoryQueries: [{ sourceId: "source-1", args: ["show", "HEAD:README.md"] }],
+      adaptiveRepositorySourceIds: [],
       expectedModes: ["repository"],
       expectedMessage: "Inspecting the pinned repository.",
     },
     {
       knowledgeQueries: [{ query: "recent changes", maxResults: 5 }],
       repositoryQueries: [{ sourceId: "source-1", args: ["log", "--oneline", "-10"] }],
+      adaptiveRepositorySourceIds: [],
       expectedModes: ["knowledge", "repository"],
       expectedMessage: "Inspecting project knowledge and the pinned repository.",
+    },
+    {
+      knowledgeQueries: [],
+      repositoryQueries: [],
+      adaptiveRepositorySourceIds: ["source-1"],
+      expectedModes: ["repository"],
+      expectedMessage: "Inspecting the pinned repository.",
     },
   ])("records evidence mode without exposing the tool input", async ({
     knowledgeQueries,
     repositoryQueries,
+    adaptiveRepositorySourceIds,
     expectedModes,
     expectedMessage,
   }) => {
@@ -51,6 +62,7 @@ describe("project inspection progress events", () => {
         objective: "Answer the project question.",
         knowledgeQueries,
         repositoryQueries,
+        adaptiveRepositorySourceIds,
       },
     });
 
