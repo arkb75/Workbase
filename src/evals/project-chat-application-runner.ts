@@ -1716,6 +1716,11 @@ export function evaluateProjectChatApplicationObservation(
       addCheck(checks, "targeted research produced a supported answer or review candidate", ["answered", "awaiting_review"].includes(observation.outcome), observation.outcome, "answered or awaiting_review");
       addCheck(checks, "targeted research inspected an attached repository", observation.tools.includes("inspect_project") && observation.inspectionModes?.includes("repository") === true && hasGitInspectionCitation(observation), observation.tools.join(", "), "inspect_project with pinned Git evidence");
       addCheck(checks, "targeted answer cites pinned repository evidence", observation.citationKinds.includes("evidence") || observation.citationKinds.includes("github_file"), observation.citationKinds.join(", "), "repository inspection citation");
+      addCheck(checks, "targeted answer was composed by the primary model", observation.answerCompositionMode === "model_tool_loop", observation.answerCompositionMode ?? "missing", "model_tool_loop");
+      addCheck(checks, "targeted answer retained a semantically audited claim", (observation.claimLedger?.entryCount ?? 0) > 0 && (observation.claimLedger?.keptCount ?? 0) > 0, `${observation.claimLedger?.keptCount ?? 0}/${observation.claimLedger?.entryCount ?? 0}`, "at least one kept audited claim");
+      addCheck(checks, "targeted answer has an explicit publication outcome", observation.publicationOutcome === "answered" || observation.publicationOutcome === "answered_with_gaps", observation.publicationOutcome ?? "missing", "answered or answered_with_gaps");
+      addCheck(checks, "targeted answer has an audited primary-model call", (observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.primary_answer?.providerAttempts ?? 0, 1);
+      addCheck(checks, "targeted answer has an audited semantic-verification call", (observation.metrics.modelAttribution.profiles.verification?.providerAttempts ?? 0) >= 1, observation.metrics.modelAttribution.profiles.verification?.providerAttempts ?? 0, 1);
       break;
   }
 
