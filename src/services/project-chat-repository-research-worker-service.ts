@@ -13,7 +13,10 @@ import type { ProjectAnswerGroundingEntry } from "@/src/services/project-answer-
 import {
   runAuditedProjectChatModel,
 } from "@/src/services/project-chat-model-audit-service";
-import type { ProjectRepositoryEvidenceSegment } from "@/src/services/project-chat-repository-evidence-service";
+import {
+  repositoryEvidenceTargetUrl,
+  type ProjectRepositoryEvidenceSegment,
+} from "@/src/services/project-chat-repository-evidence-service";
 import {
   ProjectChatRepositoryInspector,
 } from "@/src/services/project-chat-repository-inspection-service";
@@ -113,7 +116,7 @@ function citationKey(citation: ProjectKnowledgeCitation) {
 
 function addSegment(input: {
   segment: ProjectRepositoryEvidenceSegment;
-  commitUrl: string;
+  snapshotUrl: string;
   catalog: ProjectKnowledgeCitation[];
   entries: ProjectAnswerGroundingEntry[];
 }) {
@@ -128,9 +131,12 @@ function addSegment(input: {
     sourceId: segment.sourceId,
     repository: segment.repository,
     commitSha: segment.commitSha,
-    url: input.commitUrl,
+    url: repositoryEvidenceTargetUrl(segment.repository, segment.target) ?? undefined,
     contentHash: segment.excerptHash,
     evidenceHandle: segment.evidenceId,
+    evidenceArchiveVersion: segment.version,
+    evidenceTarget: segment.target,
+    repositorySnapshotUrl: input.snapshotUrl,
     sourceOutputHash: segment.outputHash,
     sourceOutputBytes: segment.totalBytes,
     sourceCommand: segment.command,
@@ -274,7 +280,7 @@ export async function runProjectChatRepositoryResearchWorker(input: {
                   truncated: result.truncated,
                   evidence: result.segments.map((segment) => addSegment({
                     segment,
-                    commitUrl: inspection.snapshot.commitUrl,
+                    snapshotUrl: inspection.snapshot.commitUrl,
                     catalog,
                     entries,
                   })),
@@ -288,7 +294,7 @@ export async function runProjectChatRepositoryResearchWorker(input: {
                   status: expansion.status,
                   evidence: addSegment({
                     segment: expansion.segment,
-                    commitUrl: inspection.snapshot.commitUrl,
+                    snapshotUrl: inspection.snapshot.commitUrl,
                     catalog,
                     entries,
                   }),

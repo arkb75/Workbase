@@ -13,6 +13,7 @@ import {
   compactProjectRepositoryEvidence,
   createProjectRepositoryRawEvidence,
   expandProjectRepositoryEvidence,
+  type ProjectRepositoryEvidenceTarget,
   type ProjectRepositoryRawEvidence,
 } from "@/src/services/project-chat-repository-evidence-service";
 
@@ -353,6 +354,110 @@ export function validateProjectRepositoryGitArgs(args: string[]) {
   return { valid: true } as const;
 }
 
+async function resolveCommitish(input: {
+  gitDir: string;
+  env: NodeJS.ProcessEnv;
+  value: string;
+}) {
+  if (!input.value || input.value.startsWith("-")) return null;
+  const result = await executeGit({
+    args: [
+      `--git-dir=${input.gitDir}`,
+      "rev-parse",
+      "--verify",
+      `${input.value}^{commit}`,
+    ],
+    env: input.env,
+    timeoutMs: projectChatRepositoryInspectionLimits.commandTimeoutMs,
+    maxBuffer: 4 * 1024,
+  });
+  const resolved = result.stdout.trim().split("\n")[0] ?? "";
+  return result.exitCode === 0 && objectIdPattern.test(resolved) ? resolved : null;
+}
+
+function blameLineRange(args: readonly string[]) {
+  const inline = args.find((argument) => /^-L\d+(?:,\d+)?$/.test(argument));
+  const separateIndex = args.findIndex((argument) => argument === "-L");
+  const raw = inline?.slice(2) ?? (separateIndex >= 0 ? args[separateIndex + 1] : null);
+  const match = raw?.match(/^(\d+)(?:,(\d+))?$/);
+  if (!match) return {};
+  const startLine = Number(match[1]);
+  const endLine = Number(match[2] ?? match[1]);
+  return { startLine, endLine };
+}
+
+async function resolveProjectRepositoryEvidenceTarget(input: {
+  args: string[];
+  gitDir: string;
+  env: NodeJS.ProcessEnv;
+  snapshotCommitSha: string;
+}): Promise<ProjectRepositoryEvidenceTarget | null> {
+  const [command, ...rest] = input.args;
+  if (command === "show") {
+    const beforeSeparator = rest.slice(0, rest.indexOf("--") >= 0 ? rest.indexOf("--") : rest.length);
+    for (const candidate of [...beforeSeparator].reverse()) {
+      if (candidate.startsWith("-")) continue;
+      const colon = candidate.indexOf(":");
+      const commitish = colon > 0 ? candidate.slice(0, colon) : candidate;
+      const commitSha = await resolveCommitish({ ...input, value: commitish });
+      if (!commitSha) continue;
+      if (colon > 0) {
+        const path = candidate.slice(colon + 1);
+        return path ? { kind: "blob", commitSha, path } : { kind: "commit", commitSha };
+      }
+      return { kind: "commit", commitSha };
+    }
+    return { kind: "commit", commitSha: input.snapshotCommitSha };
+  }
+
+  if (command === "diff") {
+    const candidates = rest.filter((argument) => !argument.startsWith("-") && argument !== "--");
+    const range = candidates.find((candidate) => candidate.includes(".."));
+    if (range) {
+      const delimiter = range.includes("...") ? "..." : "..";
+      const [base, head] = range.split(delimiter);
+      if (base && head) {
+        const [baseCommitSha, headCommitSha] = await Promise.all([
+          resolveCommitish({ ...input, value: base }),
+          resolveCommitish({ ...input, value: head }),
+        ]);
+        if (baseCommitSha && headCommitSha) {
+          return { kind: "compare", baseCommitSha, headCommitSha };
+        }
+      }
+    }
+    const resolved: string[] = [];
+    for (const candidate of candidates) {
+      const commitSha = await resolveCommitish({ ...input, value: candidate });
+      if (commitSha) resolved.push(commitSha);
+      if (resolved.length === 2) break;
+    }
+    if (resolved.length === 1) resolved.push(input.snapshotCommitSha);
+    return resolved.length === 2
+      ? { kind: "compare", baseCommitSha: resolved[0]!, headCommitSha: resolved[1]! }
+      : null;
+  }
+
+  if (command === "blame") {
+    const separatorIndex = rest.indexOf("--");
+    const path = separatorIndex >= 0 ? rest[separatorIndex + 1] : rest.at(-1);
+    if (!path || path.startsWith("-")) return null;
+    const commitCandidates = rest
+      .slice(0, separatorIndex >= 0 ? separatorIndex : -1)
+      .filter((candidate) => !candidate.startsWith("-") && !/^\d+(?:,\d+)?$/.test(candidate));
+    let commitSha = input.snapshotCommitSha;
+    for (const candidate of [...commitCandidates].reverse()) {
+      const resolved = await resolveCommitish({ ...input, value: candidate });
+      if (resolved) {
+        commitSha = resolved;
+        break;
+      }
+    }
+    return { kind: "blame", commitSha, path, ...blameLineRange(rest) };
+  }
+  return null;
+}
+
 export class ProjectChatRepositoryInspector {
   readonly #repositories = new Map<string, Promise<PreparedProjectRepository>>();
   readonly #evidence = new Map<string, ProjectRepositoryRawEvidence>();
@@ -445,12 +550,21 @@ export class ProjectChatRepositoryInspector {
       });
       const combined = [executed.stdout, executed.stderr].filter(Boolean).join("\n");
       const redacted = redactRepositorySecrets(combined).content;
+      const target = executed.exitCode === 0
+        ? await resolveProjectRepositoryEvidenceTarget({
+            args: query.args,
+            gitDir: repository.gitDir,
+            env,
+            snapshotCommitSha: repository.snapshot.commitSha,
+          })
+        : null;
       const evidence = createProjectRepositoryRawEvidence({
         sourceId: input.sourceId,
         repository: repository.snapshot.repository,
         commitSha: repository.snapshot.commitSha,
         args: query.args,
         output: redacted,
+        target,
       });
       this.#evidence.set(evidence.evidenceId, evidence);
       await this.input.onEvidence?.(evidence);
@@ -482,6 +596,7 @@ export class ProjectChatRepositoryInspector {
         outputHash: evidence.outputHash,
         totalBytes: evidence.totalBytes,
         totalLines: evidence.totalLines,
+        target: evidence.target,
         segments,
         truncated: segments.some((segment) => segment.truncated) ||
           visibleBytes < evidence.totalBytes,

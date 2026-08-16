@@ -4,9 +4,13 @@ const atxHeadingPattern = /^( {0,3})(#{1,6})([ \t]+)/;
 const fencePattern = /^( {0,3})(`{3,}|~{3,})/;
 
 export interface PresentableChatCitation {
+  id?: string | null;
   kind: string;
   label: string;
   url?: string | null;
+  evidenceHandle?: string | null;
+  evidenceArchiveVersion?: string | null;
+  repositorySnapshotUrl?: string | null;
   highlightId?: string | null;
   projectFactId?: string | null;
   evidenceItemId?: string | null;
@@ -28,6 +32,13 @@ export function resolveChatCitationHref(
   citation: PresentableChatCitation,
   workItemId: string,
 ) {
+  if (
+    citation.id &&
+    citation.evidenceHandle &&
+    citation.evidenceArchiveVersion === "project-chat-repository-evidence-v2"
+  ) {
+    return `/work-items/${encodeURIComponent(workItemId)}/repository-evidence/${encodeURIComponent(citation.id)}`;
+  }
   const external = safeHttpUrl(citation.url);
   if (external) return external;
 
@@ -39,6 +50,10 @@ export function resolveChatCitationHref(
     return `${base}?tab=artifacts&artifactId=${encodeURIComponent(citation.artifactId)}`;
   }
   return null;
+}
+
+export function resolveChatCitationExternalHref(citation: PresentableChatCitation) {
+  return safeHttpUrl(citation.url);
 }
 
 export function isExternalChatHref(href: string | null | undefined) {
@@ -120,7 +135,10 @@ export function buildChatClipboardPayload(input: {
   );
   const sources = input.citations.map((citation, index) => {
     const label = escapeMarkdownLabel(citation.label) || `Source ${index + 1}`;
-    const href = resolveChatCitationHref(citation, input.workItemId);
+    const href = citation.evidenceHandle &&
+        citation.evidenceArchiveVersion === "project-chat-repository-evidence-v2"
+      ? resolveChatCitationExternalHref(citation) ?? resolveChatCitationHref(citation, input.workItemId)
+      : resolveChatCitationHref(citation, input.workItemId);
     const source = href ? `[${label}](${markdownDestination(href)})` : label;
     return `${index + 1}. ${source} — ${readableKind(citation.kind)}`;
   });

@@ -26,6 +26,7 @@ describe("project chat repository inspection", () => {
   let repository: string;
   let bare: string;
   let head: string;
+  let initialHead: string;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "project-chat-git-test-"));
@@ -43,6 +44,7 @@ describe("project chat repository inspection", () => {
     writeFileSync(join(repository, "README.md"), "# Robot controller\n");
     git(repository, ["add", "."]);
     git(repository, ["commit", "-m", "build stable routing controller"]);
+    initialHead = git(repository, ["rev-parse", "HEAD"]);
     git(repository, ["tag", "v1.0.0"]);
     git(repository, ["checkout", "-b", "feature/telemetry"]);
     writeFileSync(
@@ -131,6 +133,33 @@ describe("project chat repository inspection", () => {
     expect(visible[2]).toContain("route_latency_ms");
     expect(visible[3]).toContain("telemetry.ts");
     expect(result.results.every((entry) => !("output" in entry))).toBe(true);
+    expect(result.results[0]).toMatchObject({ target: null });
+    expect(result.results[1]).toMatchObject({
+      target: { kind: "blob", commitSha: head, path: "src/controller.ts" },
+    });
+    expect(result.results[3]).toMatchObject({
+      target: { kind: "compare", baseCommitSha: initialHead, headCommitSha: head },
+    });
+  });
+
+  it("resolves a historical show target independently from the inspected HEAD snapshot", async () => {
+    const result = await inspector().inspect({
+      sourceId: "source-robot",
+      queries: [{ args: ["show", "--stat", "--oneline", "--summary", initialHead] }],
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      snapshot: { commitSha: head },
+      results: [{
+        status: "success",
+        target: { kind: "commit", commitSha: initialHead },
+        segments: [{
+          target: { kind: "commit", commitSha: initialHead },
+        }],
+      }],
+    });
+    expect(initialHead).not.toBe(head);
   });
 
   it("keeps raw output outside the model result and restores exact expansions by handle", async () => {

@@ -109,12 +109,17 @@ export function buildChatCitationRows(messageId: string, citations: ProjectKnowl
     contentHash: citation.contentHash ?? null,
     metadata: citation.redacted || citation.redactionCategories?.length ||
         citation.provenance?.length || citation.evidenceHandle ||
+        citation.evidenceArchiveVersion ||
+        citation.evidenceTarget || citation.repositorySnapshotUrl ||
         citation.sourceOutputHash || citation.sourceCommand ||
         citation.truncated !== undefined
       ? toInputJson({
           redacted: citation.redacted ?? false,
           redactionCategories: citation.redactionCategories ?? [],
           evidenceHandle: citation.evidenceHandle ?? null,
+          evidenceArchiveVersion: citation.evidenceArchiveVersion ?? null,
+          evidenceTarget: citation.evidenceTarget ?? null,
+          repositorySnapshotUrl: citation.repositorySnapshotUrl ?? null,
           sourceOutputHash: citation.sourceOutputHash ?? null,
           sourceOutputBytes: citation.sourceOutputBytes ?? null,
           sourceCommand: citation.sourceCommand ?? null,

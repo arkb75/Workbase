@@ -6,6 +6,7 @@ import type {
   VisibilityLevel,
 } from "@/src/lib/options";
 import type { ProjectSubsystemKey } from "@/src/domain/project-subsystems";
+import type { ProjectRepositoryEvidenceTarget } from "@/src/services/project-chat-repository-evidence-service";
 
 export type ProjectKnowledgePurpose =
   | "private_chat"
@@ -38,6 +39,9 @@ export interface ProjectKnowledgeCitation {
   url?: string;
   contentHash?: string;
   evidenceHandle?: string;
+  evidenceArchiveVersion?: string;
+  evidenceTarget?: ProjectRepositoryEvidenceTarget | null;
+  repositorySnapshotUrl?: string;
   sourceOutputHash?: string;
   sourceOutputBytes?: number;
   sourceCommand?: string;

@@ -91,6 +91,7 @@ describe("isolated project repository research worker", () => {
         totalLines: 900,
         truncated: true,
         segments: [{
+          version: "project-chat-repository-evidence-v2",
           evidenceId: "evidence-1234567890",
           segmentId: "segment-1",
           sourceId: "source-1",
@@ -98,6 +99,7 @@ describe("isolated project repository research worker", () => {
           commitSha: "a".repeat(40),
           args: ["log", "--format=%h %an %s", "-5"],
           command: "git log --format=%h %an %s -5",
+          target: null,
           excerpt: "a1b2c3 Ada add reconciliation retry",
           excerptHash: "excerpt-hash",
           outputHash: "output-hash",
@@ -224,6 +226,7 @@ describe("isolated project repository research worker", () => {
         totalLines: 1,
         truncated: false,
         segments: [{
+          version: "project-chat-repository-evidence-v2",
           evidenceId: "evidence-1234567890",
           segmentId: "segment-1",
           sourceId: "source-1",
@@ -231,6 +234,11 @@ describe("isolated project repository research worker", () => {
           commitSha: "a".repeat(40),
           args: ["show", "HEAD:src/retry.ts"],
           command: "git show HEAD:src/retry.ts",
+          target: {
+            kind: "blob",
+            commitSha: "a".repeat(40),
+            path: "src/retry.ts",
+          },
           excerpt: "export const retryLimit = 6;",
           excerptHash: "excerpt-hash",
           outputHash: "output-hash",

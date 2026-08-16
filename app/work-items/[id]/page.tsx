@@ -1202,6 +1202,15 @@ export default async function WorkItemDetailPage({
         label: citation.label,
         excerpt: citation.excerpt ?? "Source excerpt unavailable.",
         url: citation.immutableUrl,
+        evidenceHandle: typeof citationMetadata?.evidenceHandle === "string"
+          ? citationMetadata.evidenceHandle
+          : null,
+        evidenceArchiveVersion: typeof citationMetadata?.evidenceArchiveVersion === "string"
+          ? citationMetadata.evidenceArchiveVersion
+          : null,
+        repositorySnapshotUrl: typeof citationMetadata?.repositorySnapshotUrl === "string"
+          ? citationMetadata.repositorySnapshotUrl
+          : null,
         path: citation.path,
         commitSha: citation.commitSha,
         highlightId: citation.highlightId,

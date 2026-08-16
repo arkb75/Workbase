@@ -231,6 +231,9 @@ describe("chat citation selection", () => {
       commitSha: "a".repeat(40),
       contentHash: "b".repeat(64),
       evidenceHandle: "evidence-1234567890",
+      evidenceArchiveVersion: "project-chat-repository-evidence-v2",
+      evidenceTarget: { kind: "commit", commitSha: "d".repeat(40) },
+      repositorySnapshotUrl: `https://github.com/acme/ledger/commit/${"a".repeat(40)}`,
       sourceOutputHash: "c".repeat(64),
       sourceOutputBytes: 81_000,
       sourceCommand: "git log -5",
@@ -243,6 +246,9 @@ describe("chat citation selection", () => {
     expect(row?.excerpt).toBe("a1b2c3 Ada add reconciliation retry");
     expect(row?.metadata).toMatchObject({
       evidenceHandle: "evidence-1234567890",
+      evidenceArchiveVersion: "project-chat-repository-evidence-v2",
+      evidenceTarget: { kind: "commit", commitSha: "d".repeat(40) },
+      repositorySnapshotUrl: `https://github.com/acme/ledger/commit/${"a".repeat(40)}`,
       sourceOutputHash: "c".repeat(64),
       sourceOutputBytes: 81_000,
       sourceCommand: "git log -5",
