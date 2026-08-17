@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import {
   buildChatClipboardPayload,
   isExternalChatHref,
+  resolveChatCitationExternalHref,
   resolveChatCitationHref,
   safeHttpUrl,
 } from "@/components/chat/chat-citation-presentation";
@@ -56,6 +57,9 @@ export interface ChatWorkspaceCitation {
   label: string;
   excerpt: string;
   url?: string | null;
+  evidenceHandle?: string | null;
+  evidenceArchiveVersion?: string | null;
+  repositorySnapshotUrl?: string | null;
   path?: string | null;
   commitSha?: string | null;
   highlightId?: string | null;
@@ -357,6 +361,10 @@ export function CitationList({
         {citations.map((citation, index) => {
           const href = resolveChatCitationHref(citation, workItemId);
           const external = isExternalChatHref(href);
+          const externalTarget = citation.evidenceHandle &&
+              citation.evidenceArchiveVersion === "project-chat-repository-evidence-v2"
+            ? resolveChatCitationExternalHref(citation)
+            : null;
           const body = (
             <div className="grid gap-1.5 border-l-2 border-[color:var(--accent)]/30 pl-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -387,6 +395,16 @@ export function CitationList({
                   {citation.path}
                   {citation.commitSha ? ` · ${citation.commitSha.slice(0, 8)}` : ""}
                 </p>
+              ) : null}
+              {externalTarget ? (
+                <a
+                  href={externalTarget}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-fit rounded-sm text-[10px] font-medium text-[color:var(--accent)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                >
+                  Open exact GitHub target
+                </a>
               ) : null}
               {(citation.kind === "project_fact" || citation.kind === "highlight") && citation.provenance.length ? (
                 <details className="mt-1 text-xs text-[color:var(--ink-muted)]">

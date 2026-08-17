@@ -150,6 +150,55 @@ describe("project chat citation rendering", () => {
     expect(markup).toContain("src/services/knowledge-refresh-service.ts · 12345678");
   });
 
+  it("opens archived Git evidence internally while exposing its exact historical target separately", () => {
+    const targetUrl = `https://github.com/example/workbase/commit/${"1".repeat(40)}`;
+    const repositoryCitation: ChatWorkspaceCitation = {
+      id: "repository-citation",
+      kind: "evidence",
+      label: "Historical cleanup commit",
+      excerpt: "Removed generated code.",
+      url: targetUrl,
+      evidenceHandle: "evidence-handle-1",
+      evidenceArchiveVersion: "project-chat-repository-evidence-v2",
+      repositorySnapshotUrl: `https://github.com/example/workbase/commit/${"2".repeat(40)}`,
+      provenance: [],
+    };
+    const markup = renderToStaticMarkup(createElement(CitationList, {
+      citations: [repositoryCitation],
+      workItemId: "work-item-1",
+    }));
+    expect(markup).toContain('href="/work-items/work-item-1/repository-evidence/repository-citation"');
+    expect(markup).toContain(`href="${targetUrl}"`);
+    expect(markup).toContain("Open exact GitHub target");
+
+    const payload = buildChatClipboardPayload({
+      content: "The cleanup removed generated code. [citation:1]",
+      citations: [repositoryCitation],
+      workItemId: "work-item-1",
+    });
+    expect(payload.markdown).toContain(`[Historical cleanup commit](<${targetUrl}>)`);
+    expect(payload.markdown).not.toContain("22222222");
+  });
+
+  it("keeps legacy evidence links usable instead of routing them to an unsupported archive viewer", () => {
+    const snapshotUrl = `https://github.com/example/workbase/commit/${"2".repeat(40)}`;
+    const markup = renderToStaticMarkup(createElement(MessageContent, {
+      content: "Legacy grounded claim. [citation:1]",
+      citations: [{
+        id: "legacy-repository-citation",
+        kind: "evidence",
+        label: "Legacy repository evidence",
+        excerpt: "Legacy output slice.",
+        url: snapshotUrl,
+        evidenceHandle: "legacy-evidence-handle",
+        provenance: [],
+      }],
+      workItemId: "work-item-1",
+    }));
+    expect(markup).toContain(`href="${snapshotUrl}"`);
+    expect(markup).not.toContain("/repository-evidence/");
+  });
+
   it("rejects unsafe persisted citation and provenance URLs", () => {
     const markup = renderToStaticMarkup(
       createElement(CitationList, {

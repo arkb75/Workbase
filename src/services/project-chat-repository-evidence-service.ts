@@ -1,15 +1,118 @@
 import { createHash } from "node:crypto";
 
 export const PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION =
+  "project-chat-repository-evidence-v2";
+export const LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION =
   "project-chat-repository-evidence-v1";
+export type ProjectRepositoryEvidenceVersion =
+  | typeof PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION
+  | typeof LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION;
+
+export type ProjectRepositoryEvidenceTarget =
+  | {
+      kind: "commit";
+      commitSha: string;
+    }
+  | {
+      kind: "blob" | "blame";
+      commitSha: string;
+      path: string;
+      startLine?: number;
+      endLine?: number;
+    }
+  | {
+      kind: "compare";
+      baseCommitSha: string;
+      headCommitSha: string;
+    };
+
+const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const objectIdPattern = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
+
+function safeRepositoryPath(value: string) {
+  return value.split("/").map(encodeURIComponent).join("/");
+}
+
+export function repositoryEvidenceTargetUrl(
+  repository: string,
+  target: ProjectRepositoryEvidenceTarget | null,
+) {
+  if (!target || !repositoryPattern.test(repository)) return null;
+  const base = `https://github.com/${repository}`;
+  if (target.kind === "compare") {
+    if (
+      !objectIdPattern.test(target.baseCommitSha) ||
+      !objectIdPattern.test(target.headCommitSha)
+    ) return null;
+    return `${base}/compare/${target.baseCommitSha}...${target.headCommitSha}`;
+  }
+  if (!objectIdPattern.test(target.commitSha)) return null;
+  if (target.kind === "commit") return `${base}/commit/${target.commitSha}`;
+  if (!target.path || target.path.startsWith("/") || target.path.split("/").includes("..")) return null;
+  const lineFragment = target.startLine
+    ? `#L${target.startLine}${target.endLine && target.endLine !== target.startLine ? `-L${target.endLine}` : ""}`
+    : "";
+  return `${base}/${target.kind}/${target.commitSha}/${safeRepositoryPath(target.path)}${lineFragment}`;
+}
+
+export function readProjectRepositoryEvidenceTarget(
+  value: unknown,
+): ProjectRepositoryEvidenceTarget | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const target = value as Record<string, unknown>;
+  if (
+    target.kind === "compare" &&
+    typeof target.baseCommitSha === "string" &&
+    typeof target.headCommitSha === "string" &&
+    objectIdPattern.test(target.baseCommitSha) &&
+    objectIdPattern.test(target.headCommitSha)
+  ) {
+    return {
+      kind: "compare",
+      baseCommitSha: target.baseCommitSha,
+      headCommitSha: target.headCommitSha,
+    };
+  }
+  if (
+    target.kind === "commit" &&
+    typeof target.commitSha === "string" &&
+    objectIdPattern.test(target.commitSha)
+  ) return { kind: "commit", commitSha: target.commitSha };
+  if (
+    (target.kind === "blob" || target.kind === "blame") &&
+    typeof target.commitSha === "string" &&
+    objectIdPattern.test(target.commitSha) &&
+    typeof target.path === "string" &&
+    target.path.length > 0 &&
+    !target.path.startsWith("/") &&
+    !target.path.split("/").includes("..")
+  ) {
+    const startLine = typeof target.startLine === "number" && Number.isInteger(target.startLine) && target.startLine > 0
+      ? target.startLine
+      : undefined;
+    const endLine = typeof target.endLine === "number" && Number.isInteger(target.endLine) && target.endLine >= (startLine ?? 1)
+      ? target.endLine
+      : undefined;
+    return {
+      kind: target.kind,
+      commitSha: target.commitSha,
+      path: target.path,
+      ...(startLine ? { startLine } : {}),
+      ...(endLine ? { endLine } : {}),
+    };
+  }
+  return null;
+}
 
 export interface ProjectRepositoryRawEvidence {
+  version: ProjectRepositoryEvidenceVersion;
   evidenceId: string;
   sourceId: string;
   repository: string;
   commitSha: string;
   args: string[];
   command: string;
+  target: ProjectRepositoryEvidenceTarget | null;
   output: string;
   outputHash: string;
   totalBytes: number;
@@ -17,6 +120,7 @@ export interface ProjectRepositoryRawEvidence {
 }
 
 export interface ProjectRepositoryEvidenceSegment {
+  version: ProjectRepositoryEvidenceVersion;
   evidenceId: string;
   segmentId: string;
   sourceId: string;
@@ -24,6 +128,7 @@ export interface ProjectRepositoryEvidenceSegment {
   commitSha: string;
   args: string[];
   command: string;
+  target: ProjectRepositoryEvidenceTarget | null;
   excerpt: string;
   excerptHash: string;
   outputHash: string;
@@ -124,6 +229,7 @@ function buildSegment(input: {
   const startLine = input.startIndex + 1;
   const endLine = Math.min(input.endIndex + 1, startLine + excerptLineCount - 1);
   return {
+    version: input.evidence.version,
     evidenceId: input.evidence.evidenceId,
     segmentId: segmentId(input.evidence.evidenceId, startLine, endLine, excerpt),
     sourceId: input.evidence.sourceId,
@@ -131,6 +237,7 @@ function buildSegment(input: {
     commitSha: input.evidence.commitSha,
     args: [...input.evidence.args],
     command: input.evidence.command,
+    target: input.evidence.target,
     excerpt,
     excerptHash: createHash("sha256").update(excerpt).digest("hex"),
     outputHash: input.evidence.outputHash,
@@ -151,24 +258,30 @@ export function createProjectRepositoryRawEvidence(input: {
   commitSha: string;
   args: string[];
   output: string;
+  target?: ProjectRepositoryEvidenceTarget | null;
+  version?: ProjectRepositoryEvidenceVersion;
 }): ProjectRepositoryRawEvidence {
+  const version = input.version ?? PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION;
   const output = normalizeOutput(input.output);
   const outputHash = createHash("sha256").update(output).digest("hex");
   const evidenceId = createHash("sha256")
-    .update(PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION)
+    .update(version)
     .update(input.sourceId)
     .update(input.commitSha)
     .update(JSON.stringify(input.args))
+    .update(JSON.stringify(input.target ?? null))
     .update(outputHash)
     .digest("hex")
     .slice(0, 32);
   return {
+    version,
     evidenceId,
     sourceId: input.sourceId,
     repository: input.repository,
     commitSha: input.commitSha,
     args: [...input.args],
     command: `git ${input.args.join(" ")}`,
+    target: input.target ?? null,
     output,
     outputHash,
     totalBytes: Buffer.byteLength(output, "utf8"),

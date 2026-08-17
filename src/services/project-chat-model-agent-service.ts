@@ -47,6 +47,14 @@ import {
 } from "@/src/services/project-chat-model-audit-service";
 import { createTextConverseAgent } from "@/src/services/bedrock-runtime";
 import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
+import {
+  createProjectRepositoryRawEvidence,
+  LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
+  PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
+  readProjectRepositoryEvidenceTarget,
+  repositoryEvidenceTargetUrl,
+  type ProjectRepositoryEvidenceSegment,
+} from "@/src/services/project-chat-repository-evidence-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { projectKnowledgeRetrievalService } from "@/src/services/project-knowledge-retrieval-service";
 import { priorTurnProvenanceService } from "@/src/services/prior-turn-provenance-service";
@@ -58,13 +66,6 @@ import {
 import {
   runProjectChatRepositoryResearchWorker,
 } from "@/src/services/project-chat-repository-research-worker-service";
-import type {
-  ProjectRepositoryEvidenceSegment,
-} from "@/src/services/project-chat-repository-evidence-service";
-import {
-  createProjectRepositoryRawEvidence,
-  PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
-} from "@/src/services/project-chat-repository-evidence-service";
 
 export const MODEL_LED_PROJECT_CHAT_VERSION = "model-led-project-chat-v11";
 const MAX_PROJECT_KNOWLEDGE_HITS_PER_TURN = 20;
@@ -388,7 +389,8 @@ async function loadArchivedRepositoryEvidence(input: {
     const payload = record(event.payload);
     if (
       payload.mode !== "repository_evidence_archive" ||
-      payload.version !== PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION ||
+      (payload.version !== PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION &&
+        payload.version !== LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION) ||
       payload.evidenceId !== input.evidenceId ||
       typeof payload.sourceId !== "string" ||
       typeof payload.repository !== "string" ||
@@ -403,6 +405,9 @@ async function loadArchivedRepositoryEvidence(input: {
       commitSha: payload.commitSha,
       args: payload.args as string[],
       output: payload.redactedOutput,
+      target: readProjectRepositoryEvidenceTarget(payload.target),
+      version: payload.version as typeof PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION |
+        typeof LEGACY_PROJECT_CHAT_REPOSITORY_EVIDENCE_VERSION,
     });
     if (
       restored.evidenceId !== input.evidenceId ||
@@ -591,7 +596,7 @@ function addSyntheticAuthority(input: {
 function addRepositoryEvidenceSegment(input: {
   state: ModelToolState;
   segment: ProjectRepositoryEvidenceSegment;
-  commitUrl: string;
+  snapshotUrl: string;
 }) {
   const segment = input.segment;
   const label = providerSafeText(
@@ -605,9 +610,12 @@ function addRepositoryEvidenceSegment(input: {
     sourceId: segment.sourceId,
     repository: segment.repository,
     commitSha: segment.commitSha,
-    url: input.commitUrl,
+    url: repositoryEvidenceTargetUrl(segment.repository, segment.target) ?? undefined,
     contentHash: segment.excerptHash,
     evidenceHandle: segment.evidenceId,
+    evidenceArchiveVersion: segment.version,
+    evidenceTarget: segment.target,
+    repositorySnapshotUrl: input.snapshotUrl,
     sourceOutputHash: segment.outputHash,
     sourceOutputBytes: segment.totalBytes,
     sourceCommand: segment.command,
@@ -1193,7 +1201,7 @@ function createModelTools(input: {
               addRepositoryEvidenceSegment({
                 state: input.state,
                 segment,
-                commitUrl: inspection.snapshot.commitUrl,
+                snapshotUrl: inspection.snapshot.commitUrl,
               })
             );
             return {
@@ -1216,7 +1224,7 @@ function createModelTools(input: {
                   evidence: addRepositoryEvidenceSegment({
                     state: input.state,
                     segment: expansion.segment,
-                    commitUrl: inspection.snapshot.commitUrl,
+                    snapshotUrl: inspection.snapshot.commitUrl,
                   }),
                 }
               : { code: expansion.code }),
@@ -2004,6 +2012,7 @@ export async function executeModelLedProjectChatAgent(
           commitSha: evidence.commitSha,
           args: evidence.args,
           command: evidence.command,
+          target: evidence.target,
           redactedOutput: evidence.output,
           outputHash: evidence.outputHash,
           totalBytes: evidence.totalBytes,

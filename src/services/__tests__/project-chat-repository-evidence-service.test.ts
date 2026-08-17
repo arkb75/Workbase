@@ -3,6 +3,8 @@ import {
   compactProjectRepositoryEvidence,
   createProjectRepositoryRawEvidence,
   expandProjectRepositoryEvidence,
+  readProjectRepositoryEvidenceTarget,
+  repositoryEvidenceTargetUrl,
 } from "@/src/services/project-chat-repository-evidence-service";
 
 function evidence(output: string, args = ["log", "--stat", "-50"]) {
@@ -80,5 +82,35 @@ describe("project repository evidence boundary", () => {
     expect(segment?.excerpt).toBe(
       Array.from({ length: 12 }, (_, index) => `line ${index + 95}`).join("\n"),
     );
+  });
+
+  it("builds convenience URLs only from validated typed Git targets", () => {
+    const commit = "1".repeat(40);
+    const base = "2".repeat(40);
+    expect(repositoryEvidenceTargetUrl("acme/ledger", {
+      kind: "commit",
+      commitSha: commit,
+    })).toBe(`https://github.com/acme/ledger/commit/${commit}`);
+    expect(repositoryEvidenceTargetUrl("acme/ledger", {
+      kind: "blob",
+      commitSha: commit,
+      path: "src/space name.ts",
+      startLine: 4,
+      endLine: 8,
+    })).toBe(`https://github.com/acme/ledger/blob/${commit}/src/space%20name.ts#L4-L8`);
+    expect(repositoryEvidenceTargetUrl("acme/ledger", {
+      kind: "compare",
+      baseCommitSha: base,
+      headCommitSha: commit,
+    })).toBe(`https://github.com/acme/ledger/compare/${base}...${commit}`);
+    expect(repositoryEvidenceTargetUrl("not a repo", {
+      kind: "commit",
+      commitSha: commit,
+    })).toBeNull();
+    expect(readProjectRepositoryEvidenceTarget({
+      kind: "blob",
+      commitSha: commit,
+      path: "../secret",
+    })).toBeNull();
   });
 });

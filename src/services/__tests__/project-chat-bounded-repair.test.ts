@@ -187,6 +187,7 @@ describe("project-chat bounded repair regression", () => {
         totalBytes: 35,
         totalLines: 2,
         segments: [{
+          version: "project-chat-repository-evidence-v2",
           evidenceId: "evidence-1234567890",
           segmentId: "segment-1",
           sourceId: "source-1",
@@ -194,6 +195,7 @@ describe("project-chat bounded repair regression", () => {
           commitSha: "a".repeat(40),
           args: ["log", "--merges", "--oneline", "-10"],
           command: "git log --merges --oneline -10",
+          target: null,
           excerpt: "aaaa newest merge\nbbbb prior merge",
           excerptHash: "e".repeat(64),
           outputHash: "f".repeat(64),
