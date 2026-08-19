@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
+  getHighlightPrimaryAngle,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
   highlightMatchesFilter,
+  inferHighlightPrimaryAngle,
+  readHighlightPrimaryAngleOverride,
+  setHighlightPrimaryAngleOverride,
   type HighlightWorkspaceItem,
 } from "@/src/lib/highlight-workspace";
 
@@ -28,6 +32,8 @@ function buildItem(
     missingInfo: null,
     rejectionReason: null,
     verificationNotes: null,
+    primaryAngleOverride: null,
+    updatedAt: "2026-08-19T00:00:00.000Z",
     evidence: {
       summary: `Summary ${id}`,
       verificationNotes: null,
@@ -145,27 +151,87 @@ describe("highlight workspace model", () => {
   it("counts every highlight once in Coverage and retains explicit empty cells", () => {
     const items = [
       buildItem("approved", {
+        primaryAngleOverride: "impact",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("review", {
         reviewState: "pending_review",
+        primaryAngleOverride: "implementation",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("lifecycle", {
         lifecycleStatus: "stale",
+        primaryAngleOverride: "ownership",
         tags: [{ dimension: "domain", tag: "delivery", score: 1 }],
       }),
     ];
-    const rows = buildHighlightCoverage(items);
-    const counted = rows.reduce(
+    const coverage = buildHighlightCoverage(items);
+    const counted = coverage.rows.reduce(
       (total, row) =>
         total + Object.values(row.cells).reduce((sum, cell) => sum + cell.length, 0),
       0,
     );
-    const delivery = rows.find((row) => row.label === "Delivery");
+    const delivery = coverage.columns.find((column) => column.label === "Delivery");
+    const impact = coverage.rows.find((row) => row.key === "impact");
+    const ownership = coverage.rows.find((row) => row.key === "ownership");
 
     expect(counted).toBe(items.length);
-    expect(delivery?.cells.approved).toEqual([]);
-    expect(delivery?.cells.lifecycle).toHaveLength(1);
+    expect(delivery).toBeDefined();
+    expect(impact?.cells[delivery?.key ?? ""]).toEqual([]);
+    expect(ownership?.cells[delivery?.key ?? ""]).toHaveLength(1);
+  });
+
+  it("infers a primary angle from grounded language and honors user overrides", () => {
+    const impact = buildItem("impact", {
+      text: "Cut API latency by 42%.",
+      summary: "Reduced response time for API requests.",
+    });
+    const ownership = buildItem("ownership", {
+      text: "Led the cross-team platform roadmap.",
+    });
+    const implementation = buildItem("implementation", {
+      text: "Built a unified ingestion pipeline.",
+    });
+
+    expect(inferHighlightPrimaryAngle(impact).angle).toBe("impact");
+    expect(inferHighlightPrimaryAngle(ownership).angle).toBe("ownership");
+    expect(inferHighlightPrimaryAngle(implementation).angle).toBe("implementation");
+    expect(
+      getHighlightPrimaryAngle({ ...implementation, primaryAngleOverride: "impact" }),
+    ).toBe("impact");
+  });
+
+  it("stores and clears a primary-angle override without discarding other metadata", () => {
+    const stored = setHighlightPrimaryAngleOverride(
+      { legacyCategory: "backend" },
+      "ownership",
+      "2026-08-19T01:00:00.000Z",
+    );
+
+    expect(readHighlightPrimaryAngleOverride(stored)).toBe("ownership");
+    expect(stored.legacyCategory).toBe("backend");
+
+    const cleared = setHighlightPrimaryAngleOverride(
+      stored,
+      null,
+      "2026-08-19T02:00:00.000Z",
+    );
+    expect(readHighlightPrimaryAngleOverride(cleared)).toBeNull();
+    expect(cleared).not.toHaveProperty("coveragePrimaryAngleUpdatedAt");
+  });
+
+  it("resorts a corrected highlight into its user-confirmed Coverage row", () => {
+    const suggested = buildItem("movable", {
+      text: "Built the ingestion pipeline.",
+      tags: [{ dimension: "domain", tag: "backend", score: 1 }],
+    });
+    const before = buildHighlightCoverage([suggested]);
+    const after = buildHighlightCoverage([
+      { ...suggested, primaryAngleOverride: "ownership" },
+    ]);
+
+    expect(before.rows.find((row) => row.key === "implementation")?.items).toHaveLength(1);
+    expect(after.rows.find((row) => row.key === "implementation")?.items).toHaveLength(0);
+    expect(after.rows.find((row) => row.key === "ownership")?.items).toHaveLength(1);
   });
 });

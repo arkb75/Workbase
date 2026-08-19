@@ -5,6 +5,7 @@ import type { HighlightWorkspaceItem } from "@/src/lib/highlight-workspace";
 
 vi.mock("@/app/actions", () => ({
   updateClaimAction: vi.fn(),
+  updateHighlightPrimaryAngleAction: vi.fn(),
 }));
 
 function buildItem(
@@ -27,6 +28,8 @@ function buildItem(
     missingInfo: null,
     rejectionReason: null,
     verificationNotes: null,
+    primaryAngleOverride: null,
+    updatedAt: "2026-08-19T00:00:00.000Z",
     evidence: {
       summary: `Evidence-backed summary ${id}.`,
       verificationNotes: null,
@@ -93,12 +96,13 @@ describe("HighlightWorkspace", () => {
     const html = renderWorkspace("coverage");
 
     expect(html).toContain('aria-label="Highlight Coverage"');
-    expect(html).toContain("Themes form the rows");
+    expect(html).toContain("Coverage system");
+    expect(html).toContain("editable primary angles form the rows");
     expect(html).toContain("Systems Design");
     expect(html).toContain("Delivery");
-    expect(html).toContain("no matching highlights");
-    expect(html).toContain("lg:min-w-0");
-    expect(html).toContain("lg:overflow-x-visible");
+    expect(html).toContain("No classified highlights");
+    expect(html).toContain("Primary angle for Grounded highlight review");
+    expect(html).not.toContain("Weak framing");
   });
 
   it("renders a useful empty state without fake controls", () => {

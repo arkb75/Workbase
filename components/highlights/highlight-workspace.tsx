@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useOptimistic, useState, useTransition } from "react";
 import {
   Archive,
   Check,
@@ -13,7 +13,10 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { updateClaimAction } from "@/app/actions";
+import {
+  updateClaimAction,
+  updateHighlightPrimaryAngleAction,
+} from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -21,12 +24,19 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
+  getHighlightPrimaryAngle,
+  getHighlightTheme,
   getHighlightWorkspaceStatus,
+  groupHighlightsByTheme,
   highlightMatchesFilter,
+  highlightPrimaryAngleLabels,
+  highlightPrimaryAngles,
   highlightWorkspaceStatuses,
+  inferHighlightPrimaryAngle,
   type HighlightAtlasEdge,
   type HighlightAtlasNode,
-  type HighlightCoverageRow,
+  type HighlightCoverageModel,
+  type HighlightPrimaryAngle,
   type HighlightWorkspaceFilter,
   type HighlightWorkspaceItem,
   type HighlightWorkspaceStatus,
@@ -109,6 +119,72 @@ function statusTone(status: HighlightWorkspaceStatus) {
   return "danger" as const;
 }
 
+function PrimaryAngleEditor({
+  item,
+  onChange,
+  pending,
+  compact = false,
+}: {
+  item: HighlightWorkspaceItem;
+  onChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
+  pending: boolean;
+  compact?: boolean;
+}) {
+  const suggestion = inferHighlightPrimaryAngle(item);
+  const resolvedAngle = getHighlightPrimaryAngle(item);
+  const value = item.primaryAngleOverride ?? "suggested";
+
+  return (
+    <label className={cn("grid gap-1.5", compact && "gap-1")}>
+      <span
+        className={cn(
+          "text-[10px] font-semibold uppercase tracking-[0.14em]",
+          compact ? "sr-only" : "text-[color:var(--ink-muted)]",
+        )}
+      >
+        Primary angle
+      </span>
+      <select
+        aria-label={`Primary angle for ${item.text}`}
+        value={value}
+        disabled={pending}
+        onChange={(event) =>
+          onChange(
+            item.id,
+            event.target.value === "suggested"
+              ? null
+              : (event.target.value as HighlightPrimaryAngle),
+          )
+        }
+        className={cn(
+          "h-9 w-full rounded-lg border px-2.5 text-xs font-medium outline-none transition focus:ring-2 disabled:cursor-wait disabled:opacity-60",
+          compact
+            ? "border-white/12 bg-white/[0.045] text-white focus:border-cyan-300/70 focus:ring-cyan-300/20"
+            : "border-black/10 bg-white text-[color:var(--ink-strong)] focus:border-[color:var(--accent)] focus:ring-cyan-100",
+        )}
+      >
+        <option value="suggested">
+          {compact
+            ? "Use suggestion"
+            : `Suggested · ${highlightPrimaryAngleLabels[suggestion.angle]}`}
+        </option>
+        {highlightPrimaryAngles.map((angle) => (
+          <option key={angle} value={angle}>
+            {highlightPrimaryAngleLabels[angle]}
+          </option>
+        ))}
+      </select>
+      {!compact ? (
+        <span className="text-xs leading-5 text-[color:var(--ink-muted)]">
+          {item.primaryAngleOverride
+            ? `${highlightPrimaryAngleLabels[resolvedAngle]} is user-confirmed.`
+            : `${suggestion.reason} This remains editable.`}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
 function HiddenReviewFields({
   item,
   returnTo,
@@ -146,6 +222,8 @@ function HighlightInspector({
   returnTo,
   matchesCurrentView,
   onSelect,
+  onPrimaryAngleChange,
+  primaryAnglePending,
 }: {
   item: HighlightWorkspaceItem | null;
   itemsById: Map<string, HighlightWorkspaceItem>;
@@ -153,6 +231,8 @@ function HighlightInspector({
   returnTo: string;
   matchesCurrentView: boolean;
   onSelect: (id: string) => void;
+  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
+  primaryAnglePending: boolean;
 }) {
   if (!item) {
     return (
@@ -214,6 +294,14 @@ function HighlightInspector({
       </div>
 
       <div className="divide-y divide-black/8">
+        <section className="px-5 py-5 sm:px-6" aria-label="Coverage classification">
+          <PrimaryAngleEditor
+            item={item}
+            onChange={onPrimaryAngleChange}
+            pending={primaryAnglePending}
+          />
+        </section>
+
         <section className="px-5 py-5 sm:px-6" aria-labelledby="highlight-evidence-heading">
           <div className="flex items-center justify-between gap-3">
             <h3
@@ -482,7 +570,7 @@ function HighlightAtlasView({
   onSelect: (id: string) => void;
 }) {
   const atlas = useMemo(() => buildHighlightAtlas(items), [items]);
-  const coverage = useMemo(() => buildHighlightCoverage(items), [items]);
+  const themeGroups = useMemo(() => groupHighlightsByTheme(items), [items]);
   const connectedIds = new Set([selectedId]);
   for (const edge of atlas.edges) {
     if (edge.sourceId === selectedId) connectedIds.add(edge.targetId);
@@ -594,7 +682,7 @@ function HighlightAtlasView({
       </div>
 
       <div className="relative divide-y divide-white/10 md:hidden">
-        {coverage.map((row) => {
+        {themeGroups.map((row) => {
           const matches = row.items.filter((item) => itemMatches(item, filter, query));
           return (
             <section key={row.key} className="p-4">
@@ -647,122 +735,281 @@ function HighlightAtlasView({
   );
 }
 
+function CoverageHighlightCard({
+  item,
+  code,
+  selected,
+  showTheme,
+  anglePending,
+  onSelect,
+  onPrimaryAngleChange,
+}: {
+  item: HighlightWorkspaceItem;
+  code: string;
+  selected: boolean;
+  showTheme: boolean;
+  anglePending: boolean;
+  onSelect: (id: string) => void;
+  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
+}) {
+  const status = getHighlightWorkspaceStatus(item);
+  const theme = getHighlightTheme(item);
+
+  return (
+    <article
+      className={cn(
+        "rounded-[18px] border bg-[#18292e] transition-[border-color,background-color,transform,box-shadow] duration-200",
+        status === "approved" && "border-white/16",
+        status === "needs_review" && "border-amber-300/45",
+        status === "lifecycle" && "border-sky-200/45 [border-style:dashed]",
+        status === "rejected" && "border-rose-300/35 opacity-75",
+        selected &&
+          "border-teal-300 bg-[#193236] shadow-[0_0_0_1px_rgba(94,234,212,0.55)]",
+      )}
+      data-coverage-highlight={item.id}
+    >
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`${item.text}. ${statusCopy[status].label}.`}
+        onClick={() => onSelect(item.id)}
+        className="block min-h-[112px] w-full px-3.5 pb-3 pt-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-200/80"
+      >
+        <span className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.14em] text-white/48">
+          <span>{code}</span>
+          <span className="inline-flex items-center gap-1.5">
+            {item.primaryAngleOverride ? "Confirmed" : "Suggested"}
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                status === "approved" && "bg-teal-300",
+                status === "needs_review" && "bg-amber-300",
+                status === "lifecycle" && "border border-sky-200",
+                status === "rejected" && "bg-rose-300",
+              )}
+              aria-hidden="true"
+            />
+          </span>
+        </span>
+        {showTheme ? (
+          <span className="mt-3 block text-[9px] font-semibold uppercase tracking-[0.14em] text-teal-200/55">
+            {theme.label}
+          </span>
+        ) : null}
+        <span className="mt-3 block max-h-[4.5rem] overflow-hidden text-[13px] font-semibold leading-[1.35] text-white/92">
+          {item.text}
+        </span>
+      </button>
+      <div className="border-t border-white/8 px-2.5 py-2.5">
+        <PrimaryAngleEditor
+          item={item}
+          onChange={onPrimaryAngleChange}
+          pending={anglePending}
+          compact
+        />
+      </div>
+    </article>
+  );
+}
+
 export function HighlightCoverageView({
-  rows,
+  model,
   filter,
   query,
   selectedId,
+  anglePending,
   onSelect,
+  onPrimaryAngleChange,
 }: {
-  rows: HighlightCoverageRow[];
+  model: HighlightCoverageModel;
   filter: HighlightWorkspaceFilter;
   query: string;
   selectedId: string | null;
+  anglePending: boolean;
   onSelect: (id: string) => void;
+  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
 }) {
+  const allItems = model.columns
+    .flatMap((column) => column.items)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const codeById = new Map(
+    allItems.map((item, index) => [item.id, `H${String(index + 1).padStart(2, "0")}`]),
+  );
+
   return (
-    <section className="min-w-0 min-h-[660px] bg-white lg:h-[660px] lg:min-h-0 lg:overflow-y-auto" aria-label="Highlight Coverage">
-      <div className="border-b border-black/8 px-5 py-4">
-        <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-          Themes form the rows; review state forms the columns. Empty cells reveal where a
-          theme has no material in that state without inventing a narrative score.
+    <section
+      className="min-h-[660px] min-w-0 bg-[#112126] text-white lg:h-[660px] lg:min-h-0 lg:overflow-y-auto"
+      aria-label="Highlight Coverage"
+    >
+      <header className="border-b border-white/12 px-5 py-5 sm:px-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
+          Coverage system
         </p>
-      </div>
-      <div className="overflow-x-auto lg:overflow-x-visible">
-        <table
-          data-coverage-table
-          className="w-full min-w-[680px] table-fixed border-collapse text-left lg:min-w-0"
-        >
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="font-display text-2xl font-semibold tracking-[-0.04em]">
+              Highlight matrix
+            </h2>
+            <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
+              Themes form the columns; editable primary angles form the rows.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/62" aria-label="Coverage status legend">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-teal-300" /> Ready
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-300" /> Review
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-300" /> Rejected
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-sky-200" /> Lifecycle
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <div className="hidden md:block">
+        <table data-coverage-table className="w-full table-fixed border-collapse text-left">
+          <colgroup>
+            <col className="w-[72px]" />
+            {model.columns.map((column) => (
+              <col key={column.key} />
+            ))}
+          </colgroup>
           <thead>
-            <tr className="border-b border-black/8 bg-[color:var(--surface)]">
-              <th className="w-[23%] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[color:var(--ink-muted)]">
-                Theme
-              </th>
-              {highlightWorkspaceStatuses.map((status) => (
+            <tr className="border-b border-white/10">
+              <th className="px-2 py-4" aria-label="Coverage layer" />
+              {model.columns.map((column) => (
                 <th
-                  key={status}
-                  className="w-[19.25%] px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.13em] text-[color:var(--ink-muted)]"
+                  key={column.key}
+                  scope="col"
+                  className="px-2 py-4 text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58"
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    {statusIcon(status, "h-3 w-3")}
-                    {statusCopy[status].shortLabel}
-                  </span>
+                  {column.label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={row.key} className="border-b border-black/7 last:border-b-0">
-                <th className="px-4 py-4 align-top font-normal">
-                  <div className="flex items-start gap-2.5">
-                    <span
-                      className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: [
-                          "#0f766e",
-                          "#0284c7",
-                          "#6366f1",
-                          "#16a34a",
-                          "#d97706",
-                          "#c026d3",
-                        ][rowIndex % 6],
-                      }}
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold text-[color:var(--ink-strong)]">
-                        {row.label}
-                      </span>
-                      <span className="mt-1 block text-xs text-[color:var(--ink-muted)]">
-                        {row.items.length} total
-                      </span>
-                    </span>
-                  </div>
+            {model.rows.map((row) => {
+              const rowHasMatches = model.columns.some((column) =>
+                (row.cells[column.key] ?? []).some((item) =>
+                  itemMatches(item, filter, query),
+                ),
+              );
+              const rowHeight = rowHasMatches ? "min-h-[154px]" : "min-h-[92px]";
+              return (
+              <tr key={row.key} className="border-b border-white/8 last:border-b-0">
+                <th scope="row" className="px-2 py-3 text-center align-middle font-normal">
+                  <span
+                    className="inline-block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58"
+                    style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+                  >
+                    {row.label}
+                  </span>
                 </th>
-                {highlightWorkspaceStatuses.map((status) => {
-                  const cellItems = row.cells[status];
+                {model.columns.map((column) => {
+                  const cellItems = row.cells[column.key] ?? [];
                   const matches = cellItems.filter((item) => itemMatches(item, filter, query));
-                  const target =
-                    matches.find((item) => item.id === selectedId) ?? matches[0] ?? null;
                   return (
-                    <td key={status} className="border-l border-black/6 p-2 align-top">
-                      {target ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelect(target.id)}
-                          aria-label={`${row.label}, ${statusCopy[status].label}: ${matches.length} matching highlights`}
-                          className={cn(
-                            "min-h-[84px] w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-[color:var(--panel-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]",
-                            selectedId === target.id && "bg-cyan-50 ring-1 ring-cyan-700/25",
-                          )}
-                        >
-                          <span className="text-xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
-                            {matches.length}
-                          </span>
-                          <span className="mt-1 line-clamp-3 block max-h-[3.75rem] overflow-hidden text-xs leading-5 text-[color:var(--ink-soft)]">
-                            {target.text}
-                          </span>
-                          {matches.length < cellItems.length ? (
-                            <span className="mt-1 block text-[10px] uppercase tracking-[0.12em] text-[color:var(--ink-muted)]">
-                              of {cellItems.length}
-                            </span>
-                          ) : null}
-                        </button>
-                      ) : (
-                        <div
-                          className="flex min-h-[84px] items-center justify-center rounded-xl border border-dashed border-black/8 text-sm text-black/25"
-                          aria-label={`${row.label}, ${statusCopy[status].label}: no matching highlights`}
-                        >
-                          —
-                        </div>
-                      )}
+                    <td key={column.key} className="border-l border-white/8 p-2 align-top">
+                      <div className={cn(rowHeight, "space-y-2")}>
+                        {matches.slice(0, 2).map((item) => (
+                          <CoverageHighlightCard
+                            key={item.id}
+                            item={item}
+                            code={codeById.get(item.id) ?? "H—"}
+                            selected={selectedId === item.id}
+                            showTheme={column.key === "other-themes"}
+                            anglePending={anglePending}
+                            onSelect={onSelect}
+                            onPrimaryAngleChange={onPrimaryAngleChange}
+                          />
+                        ))}
+                        {matches.length > 2 ? (
+                          <details className="group rounded-[16px] border border-white/10 bg-white/[0.025]">
+                            <summary className="cursor-pointer list-none px-3 py-3 text-center text-[11px] font-medium text-white/55 transition hover:text-white/80">
+                              <span className="group-open:hidden">
+                                +{matches.length - 2} more
+                              </span>
+                              <span className="hidden group-open:inline">Show fewer</span>
+                            </summary>
+                            <div className="space-y-2 border-t border-white/8 p-2">
+                              {matches.slice(2).map((item) => (
+                                <CoverageHighlightCard
+                                  key={item.id}
+                                  item={item}
+                                  code={codeById.get(item.id) ?? "H—"}
+                                  selected={selectedId === item.id}
+                                  showTheme={column.key === "other-themes"}
+                                  anglePending={anglePending}
+                                  onSelect={onSelect}
+                                  onPrimaryAngleChange={onPrimaryAngleChange}
+                                />
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
+                        {!matches.length ? (
+                          <div
+                            className={cn(
+                              rowHeight,
+                              "flex items-center justify-center rounded-[18px] border border-dashed border-white/16 px-3 text-center text-xs leading-5 text-white/34",
+                            )}
+                            aria-label={`${row.label}, ${column.label}: no matching highlights`}
+                          >
+                            {cellItems.length ? "No matching highlights" : "No classified highlights"}
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
+      </div>
+
+      <div className="divide-y divide-white/10 md:hidden">
+        {model.rows.map((row) => {
+          const matches = model.columns.flatMap((column) =>
+            (row.cells[column.key] ?? []).filter((item) => itemMatches(item, filter, query)),
+          );
+          return (
+            <section key={row.key} className="px-4 py-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-white/68">
+                  {row.label}
+                </h3>
+                <span className="text-xs text-white/40">{matches.length}</span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {matches.map((item) => (
+                  <CoverageHighlightCard
+                    key={item.id}
+                    item={item}
+                    code={codeById.get(item.id) ?? "H—"}
+                    selected={selectedId === item.id}
+                    showTheme
+                    anglePending={anglePending}
+                    onSelect={onSelect}
+                    onPrimaryAngleChange={onPrimaryAngleChange}
+                  />
+                ))}
+                {!matches.length ? (
+                  <p className="rounded-[18px] border border-dashed border-white/16 px-4 py-8 text-center text-sm text-white/38">
+                    No classified highlights
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </section>
   );
@@ -784,6 +1031,18 @@ export function HighlightWorkspace({
   const [view, setView] = useState<WorkspaceView>(initialView);
   const [filter, setFilter] = useState<HighlightWorkspaceFilter>("all");
   const [query, setQuery] = useState("");
+  const [primaryAngleError, setPrimaryAngleError] = useState<string | null>(null);
+  const [primaryAnglePending, startPrimaryAngleTransition] = useTransition();
+  const [optimisticItems, setOptimisticPrimaryAngle] = useOptimistic<
+    HighlightWorkspaceItem[],
+    { id: string; primaryAngleOverride: HighlightPrimaryAngle | null }
+  >(items, (currentItems, update) =>
+    currentItems.map((item) =>
+      item.id === update.id
+        ? { ...item, primaryAngleOverride: update.primaryAngleOverride }
+        : item,
+    ),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const firstReviewItem = items.find(
       (item) => getHighlightWorkspaceStatus(item) === "needs_review",
@@ -791,19 +1050,25 @@ export function HighlightWorkspace({
     return firstReviewItem?.id ?? items[0]?.id ?? null;
   });
 
-  const atlas = useMemo(() => buildHighlightAtlas(items), [items]);
-  const coverage = useMemo(() => buildHighlightCoverage(items), [items]);
+  const atlas = useMemo(() => buildHighlightAtlas(optimisticItems), [optimisticItems]);
+  const coverage = useMemo(
+    () => buildHighlightCoverage(optimisticItems),
+    [optimisticItems],
+  );
   const itemsById = useMemo(
-    () => new Map(items.map((item) => [item.id, item])),
-    [items],
+    () => new Map(optimisticItems.map((item) => [item.id, item])),
+    [optimisticItems],
   );
   const selected = selectedId ? itemsById.get(selectedId) ?? null : null;
-  const matchingCount = items.filter((item) => itemMatches(item, filter, query)).length;
+  const matchingCount = optimisticItems.filter((item) =>
+    itemMatches(item, filter, query),
+  ).length;
   const hasActiveQuery = filter !== "all" || query.trim().length > 0;
   const statusCounts = Object.fromEntries(
     highlightWorkspaceStatuses.map((status) => [
       status,
-      items.filter((item) => getHighlightWorkspaceStatus(item) === status).length,
+      optimisticItems.filter((item) => getHighlightWorkspaceStatus(item) === status)
+        .length,
     ]),
   ) as Record<HighlightWorkspaceStatus, number>;
 
@@ -816,10 +1081,29 @@ export function HighlightWorkspace({
     setFilter(nextFilter);
     if (nextFilter === "all") return;
 
-    const firstMatch = items.find(
+    const firstMatch = optimisticItems.find(
       (item) => getHighlightWorkspaceStatus(item) === nextFilter,
     );
     if (firstMatch) setSelectedId(firstMatch.id);
+  }
+
+  function changePrimaryAngle(
+    id: string,
+    primaryAngleOverride: HighlightPrimaryAngle | null,
+  ) {
+    setPrimaryAngleError(null);
+    startPrimaryAngleTransition(async () => {
+      setOptimisticPrimaryAngle({ id, primaryAngleOverride });
+      try {
+        const result = await updateHighlightPrimaryAngleAction(
+          id,
+          primaryAngleOverride,
+        );
+        if (!result.ok) setPrimaryAngleError(result.error);
+      } catch {
+        setPrimaryAngleError("The primary angle could not be saved. Try again.");
+      }
+    });
   }
 
   if (!items.length) {
@@ -939,12 +1223,17 @@ export function HighlightWorkspace({
             </button>
           ) : null}
         </div>
+        {primaryAngleError ? (
+          <p className="mt-3 text-xs font-medium text-rose-700" role="alert">
+            {primaryAngleError}
+          </p>
+        ) : null}
       </header>
 
       <div className="grid min-w-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.7fr)] lg:items-start xl:grid-cols-[minmax(0,1fr)_360px]">
         {view === "atlas" ? (
           <HighlightAtlasView
-            items={items}
+            items={optimisticItems}
             filter={filter}
             query={query}
             selectedId={selectedId}
@@ -952,11 +1241,13 @@ export function HighlightWorkspace({
           />
         ) : (
           <HighlightCoverageView
-            rows={coverage}
+            model={coverage}
             filter={filter}
             query={query}
             selectedId={selectedId}
+            anglePending={primaryAnglePending}
             onSelect={setSelectedId}
+            onPrimaryAngleChange={changePrimaryAngle}
           />
         )}
         <HighlightInspector
@@ -966,12 +1257,14 @@ export function HighlightWorkspace({
           returnTo={returnTo}
           matchesCurrentView={selected ? itemMatches(selected, filter, query) : true}
           onSelect={setSelectedId}
+          onPrimaryAngleChange={changePrimaryAngle}
+          primaryAnglePending={primaryAnglePending}
         />
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-black/8 bg-[color:var(--surface)] px-4 py-3 text-xs text-[color:var(--ink-muted)] sm:px-5">
         <span>
-          Layout stays deterministic. Filters dim context without moving it.
+          Atlas stays fixed. Coverage resorts when a primary angle changes.
         </span>
         <span className="inline-flex items-center gap-1.5">
           <Archive className="h-3.5 w-3.5" aria-hidden="true" />

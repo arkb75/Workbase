@@ -12,6 +12,22 @@ export type HighlightWorkspaceStatus =
 
 export type HighlightWorkspaceFilter = HighlightWorkspaceStatus | "all";
 
+export const highlightPrimaryAngles = [
+  "impact",
+  "implementation",
+  "ownership",
+  "unclassified",
+] as const;
+
+export type HighlightPrimaryAngle = (typeof highlightPrimaryAngles)[number];
+
+export const highlightPrimaryAngleLabels: Record<HighlightPrimaryAngle, string> = {
+  impact: "Impact",
+  implementation: "Implementation",
+  ownership: "Ownership",
+  unclassified: "Unclassified",
+};
+
 export type HighlightWorkspaceSourceRef = {
   evidenceItemId: string;
   sourceId: string;
@@ -37,6 +53,8 @@ export type HighlightWorkspaceItem = {
   missingInfo: string | null;
   rejectionReason: string | null;
   verificationNotes: string | null;
+  primaryAngleOverride: HighlightPrimaryAngle | null;
+  updatedAt: string;
   evidence: {
     summary: string;
     verificationNotes: string | null;
@@ -80,7 +98,18 @@ export type HighlightAtlasEdge = {
 };
 
 export type HighlightCoverageRow = HighlightThemeGroup & {
-  cells: Record<HighlightWorkspaceStatus, HighlightWorkspaceItem[]>;
+  key: HighlightPrimaryAngle;
+  label: string;
+  cells: Record<string, HighlightWorkspaceItem[]>;
+};
+
+export type HighlightCoverageColumn = HighlightThemeGroup & {
+  themeKeys: string[];
+};
+
+export type HighlightCoverageModel = {
+  columns: HighlightCoverageColumn[];
+  rows: HighlightCoverageRow[];
 };
 
 const dimensionPriority = [
@@ -197,7 +226,7 @@ function compareItems(left: HighlightWorkspaceItem, right: HighlightWorkspaceIte
   return confidenceDelta || left.id.localeCompare(right.id);
 }
 
-function primaryTheme(item: HighlightWorkspaceItem) {
+export function getHighlightTheme(item: HighlightWorkspaceItem) {
   for (const dimension of dimensionPriority) {
     const candidates = item.tags
       .filter((tag) => tag.dimension === dimension && tag.tag.trim())
@@ -217,6 +246,125 @@ function primaryTheme(item: HighlightWorkspaceItem) {
   }
 
   return { key: "uncategorized", label: "Uncategorized" };
+}
+
+function metadataRecord(metadata: unknown): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
+}
+
+export function readHighlightPrimaryAngleOverride(
+  metadata: unknown,
+): HighlightPrimaryAngle | null {
+  const value = metadataRecord(metadata).coveragePrimaryAngleOverride;
+  return typeof value === "string" &&
+    highlightPrimaryAngles.includes(value as HighlightPrimaryAngle)
+    ? (value as HighlightPrimaryAngle)
+    : null;
+}
+
+export function setHighlightPrimaryAngleOverride(
+  metadata: unknown,
+  angle: HighlightPrimaryAngle | null,
+  updatedAt: string,
+) {
+  const next = metadataRecord(metadata);
+
+  if (angle) {
+    next.coveragePrimaryAngleOverride = angle;
+    next.coveragePrimaryAngleUpdatedAt = updatedAt;
+  } else {
+    delete next.coveragePrimaryAngleOverride;
+    delete next.coveragePrimaryAngleUpdatedAt;
+  }
+
+  return next;
+}
+
+export function inferHighlightPrimaryAngle(
+  item: Pick<
+    HighlightWorkspaceItem,
+    "text" | "summary" | "tags" | "ownershipClarity" | "evidence"
+  >,
+): { angle: HighlightPrimaryAngle; reason: string } {
+  const content = [
+    item.text,
+    item.summary,
+    item.evidence.summary,
+    ...item.tags.map((tag) => `${tag.dimension}:${tag.tag}`),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const hasMetric = /\b(?:\d+(?:\.\d+)?\s?(?:%|x|×|ms|s|sec|seconds?|minutes?|hours?)|zero[- ]downtime)\b/i.test(
+    content,
+  );
+  const hasImpactLanguage =
+    /\b(?:cut|reduced?|increased?|improved?|accelerated|saved|grew|growth|throughput|latency|conversion|adoption|uptime|downtime|impact|outcome|result)\b/i.test(
+      content,
+    );
+  const hasOwnershipTag = item.tags.some(
+    (tag) =>
+      tag.dimension === "competency" &&
+      tag.tag === "leadership",
+  );
+  const hasOwnershipLanguage =
+    /\b(?:led|owned|drove|defined|guided|coordinated|mentored|partnered|cross[- ]team|roadmap|stakeholder)\b/i.test(
+      content,
+    );
+  const hasImplementationTag = item.tags.some(
+    (tag) =>
+      tag.dimension === "emphasis" &&
+      [
+        "implementation",
+        "architecture",
+        "optimization",
+        "reliability",
+        "user_experience",
+        "experimentation",
+      ].includes(tag.tag),
+  );
+  const hasImplementationLanguage =
+    /\b(?:built|implemented|created|designed|developed|integrated|migrated|pipeline|service|system|architecture|api|workflow|runtime|layer|backfill|gate)\b/i.test(
+      content,
+    );
+
+  if (hasMetric && hasImpactLanguage) {
+    return {
+      angle: "impact",
+      reason: "Describes a measured result or operational effect.",
+    };
+  }
+
+  if (hasOwnershipTag || hasOwnershipLanguage) {
+    return {
+      angle: "ownership",
+      reason: "Describes leadership, coordination, or accountable scope.",
+    };
+  }
+
+  if (hasImpactLanguage) {
+    return {
+      angle: "impact",
+      reason: "Describes the effect of the work rather than only its mechanism.",
+    };
+  }
+
+  if (hasImplementationTag || hasImplementationLanguage) {
+    return {
+      angle: "implementation",
+      reason: "Describes what was built, changed, or technically enabled.",
+    };
+  }
+
+  return {
+    angle: "unclassified",
+    reason: "The available text does not support a clear primary angle yet.",
+  };
+}
+
+export function getHighlightPrimaryAngle(item: HighlightWorkspaceItem) {
+  return item.primaryAngleOverride ?? inferHighlightPrimaryAngle(item).angle;
 }
 
 export function getHighlightWorkspaceStatus(
@@ -251,7 +399,7 @@ export function groupHighlightsByTheme(
   const groups = new Map<string, HighlightThemeGroup>();
 
   for (const item of [...items].sort((left, right) => left.id.localeCompare(right.id))) {
-    const theme = primaryTheme(item);
+    const theme = getHighlightTheme(item);
     const group = groups.get(theme.key) ?? { ...theme, items: [] };
     group.items.push(item);
     groups.set(theme.key, group);
@@ -390,19 +538,51 @@ export function buildHighlightAtlas(
 
 export function buildHighlightCoverage(
   items: HighlightWorkspaceItem[],
-): HighlightCoverageRow[] {
-  return groupHighlightsByTheme(items).map((group) => {
-    const cells: Record<HighlightWorkspaceStatus, HighlightWorkspaceItem[]> = {
-      needs_review: [],
-      approved: [],
-      lifecycle: [],
-      rejected: [],
-    };
+): HighlightCoverageModel {
+  const themes = groupHighlightsByTheme(items);
+  const columns: HighlightCoverageColumn[] =
+    themes.length <= 4
+      ? themes.map((theme) => ({ ...theme, themeKeys: [theme.key] }))
+      : [
+          ...themes.slice(0, 3).map((theme) => ({
+            ...theme,
+            themeKeys: [theme.key],
+          })),
+          {
+            key: "other-themes",
+            label: "Other themes",
+            items: themes.slice(3).flatMap((theme) => theme.items),
+            themeKeys: themes.slice(3).map((theme) => theme.key),
+          },
+        ];
+  const themeKeyByItemId = new Map(
+    themes.flatMap((theme) => theme.items.map((item) => [item.id, theme.key] as const)),
+  );
+  const rows = highlightPrimaryAngles.map<HighlightCoverageRow>((angle) => {
+    const cells = Object.fromEntries(
+      columns.map((column) => [column.key, [] as HighlightWorkspaceItem[]]),
+    );
 
-    for (const item of group.items) {
-      cells[getHighlightWorkspaceStatus(item)].push(item);
+    for (const item of items) {
+      if (getHighlightPrimaryAngle(item) !== angle) continue;
+      const themeKey = themeKeyByItemId.get(item.id);
+      const column = columns.find((candidate) =>
+        themeKey ? candidate.themeKeys.includes(themeKey) : false,
+      );
+      if (column) cells[column.key]?.push(item);
     }
 
-    return { ...group, cells };
+    for (const cellItems of Object.values(cells)) {
+      cellItems.sort(compareItems);
+    }
+
+    return {
+      key: angle,
+      label: highlightPrimaryAngleLabels[angle],
+      items: items.filter((item) => getHighlightPrimaryAngle(item) === angle),
+      cells,
+    };
   });
+
+  return { columns, rows };
 }

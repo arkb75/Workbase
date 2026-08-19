@@ -15,11 +15,13 @@ import {
   evidenceInclusionSchema,
   formDataToBoolean,
   githubRepoImportSchema,
+  highlightPrimaryAngleUpdateSchema,
   highlightSuggestionActionSchema,
   manualSourceSchema,
   onboardingSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
+import { setHighlightPrimaryAngleOverride } from "@/src/lib/highlight-workspace";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import {
@@ -1165,6 +1167,50 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   redirect(appendRedirectParams(returnTo, {
     result: approved.count > 0 ? "approved-all" : "no-eligible-highlights",
   }));
+}
+
+export async function updateHighlightPrimaryAngleAction(
+  highlightId: string,
+  primaryAngleOverride: string | null,
+) {
+  const demoUser = await ensureDemoUser();
+  const parsed = highlightPrimaryAngleUpdateSchema.safeParse({
+    highlightId,
+    primaryAngleOverride,
+  });
+
+  if (!parsed.success) {
+    return { ok: false as const, error: "Choose a valid primary angle." };
+  }
+
+  const highlight = await prisma.highlight.findFirstOrThrow({
+    where: {
+      id: parsed.data.highlightId,
+      workItem: { userId: demoUser.id },
+    },
+    select: {
+      id: true,
+      workItemId: true,
+      metadata: true,
+    },
+  });
+  const nextMetadata = setHighlightPrimaryAngleOverride(
+    highlight.metadata,
+    parsed.data.primaryAngleOverride,
+    new Date().toISOString(),
+  );
+
+  await prisma.highlight.update({
+    where: { id: highlight.id },
+    data: { metadata: nextMetadata as Prisma.InputJsonValue },
+  });
+
+  revalidatePath(`/work-items/${highlight.workItemId}`);
+  return {
+    ok: true as const,
+    highlightId: highlight.id,
+    primaryAngleOverride: parsed.data.primaryAngleOverride,
+  };
 }
 
 export async function updateClaimAction(claimId: string, formData: FormData) {
