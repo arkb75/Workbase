@@ -50,9 +50,9 @@ export default async function OnboardingPage() {
             </div>
             <div className="space-y-3">
               <ArrowRight className="h-5 w-5 text-cyan-300" />
-              <p className="text-sm font-medium">Ship a usable loop fast</p>
+              <p className="text-sm font-medium">Keep the workflow moving</p>
               <p className="text-sm leading-6 text-white/65">
-                This prototype starts with manual notes and a demo user, not a heavy integration stack.
+                Manual notes and repository evidence enter the same reviewable knowledge system.
               </p>
             </div>
           </div>
@@ -121,8 +121,8 @@ export default async function OnboardingPage() {
 
           <div className="flex items-center justify-between gap-4 rounded-[28px] border border-black/8 bg-[color:var(--surface)] px-5 py-4">
             <p className="max-w-sm text-sm leading-6 text-[color:var(--ink-soft)]">
-              You can edit this later. The full prototype keeps one demo user and
-              stores everything in the database.
+              You can update this later. These preferences tune language and
+              recommendations across the workspace.
             </p>
             <SubmitButton pendingLabel="Saving profile...">
               Enter Workbase

@@ -1,8 +1,8 @@
 # Workbase
 
-Workbase is an internal MVP for early-career CS students and engineers who want to turn real technical work into verified career content.
+Workbase helps early-career CS students and engineers turn real technical work into verified career content.
 
-The prototype is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
+The product is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
 
 ## Stack
 
@@ -17,7 +17,7 @@ The prototype is built around one hard rule: public Artifacts are generated from
 
 ## Product loop
 
-1. Complete onboarding for the demo user
+1. Complete onboarding and set the workspace goal
 2. Create a Work Item; its description and optional notes are persisted as
    private Sources/Evidence immediately, while provider work is reserved in a
    durable workflow before the action redirects

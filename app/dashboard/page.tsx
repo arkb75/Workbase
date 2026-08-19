@@ -167,7 +167,7 @@ export default async function DashboardPage() {
         <Card className="bg-[color:var(--surface)] shadow-none">
           <CardHeader>
             <CardTitle>Operating loop</CardTitle>
-            <CardDescription>What this prototype is optimized to do well.</CardDescription>
+            <CardDescription>The workflow that keeps evidence and published claims aligned.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5">
             <div className="flex gap-3">
