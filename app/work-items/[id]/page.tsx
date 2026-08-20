@@ -70,7 +70,6 @@ import {
 import {
   isWorkItemDescriptionSourceMetadata,
 } from "@/src/lib/evidence-persistence";
-import { readHighlightCoverageRowLabel } from "@/src/lib/highlight-workspace";
 import { loadWorkItemRouteData } from "@/src/lib/work-item-route";
 import {
   artifactToneOptions,
@@ -462,7 +461,6 @@ function mapHighlightForCard(
     missingInfo: highlight.missingInfo,
     rejectionReason: highlight.rejectionReason,
     verificationNotes: highlight.verificationNotes,
-    coverageRowLabel: readHighlightCoverageRowLabel(highlight.metadata),
     updatedAt: highlight.updatedAt.toISOString(),
     evidence: {
       summary: highlight.summary,

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useMemo,
-  useOptimistic,
-  useState,
-  useTransition,
-  type FormEvent,
-} from "react";
+import { useMemo, useState } from "react";
 import {
   Archive,
   Check,
@@ -14,16 +8,12 @@ import {
   Clock3,
   Grid3X3,
   Network,
-  Pencil,
   RotateCcw,
   Search,
   ShieldAlert,
   X,
 } from "lucide-react";
-import {
-  renameHighlightCoverageRowAction,
-  updateClaimAction,
-} from "@/app/actions";
+import { updateClaimAction } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -31,7 +21,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
-  getHighlightCoverageRowLabel,
   getHighlightTheme,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
@@ -725,87 +714,19 @@ function CoverageHighlightCard({
   );
 }
 
-function CoverageRowLabelEditor({
+function CoverageRowHeading({
   label,
   count,
-  pending,
   vertical = false,
-  onRename,
 }: {
   label: string;
   count: number;
-  pending: boolean;
   vertical?: boolean;
-  onRename: (fromLabel: string, toLabel: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(label);
-
-  function submitRename(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const nextLabel = draft.trim();
-    if (nextLabel.length < 2 || nextLabel === label) {
-      setDraft(label);
-      setEditing(false);
-      return;
-    }
-    onRename(label, nextLabel);
-    setEditing(false);
-  }
-
-  if (editing) {
-    return (
-      <form
-        onSubmit={submitRename}
-        className={cn(
-          "z-30 flex items-center gap-1.5 rounded-xl border border-teal-200/35 bg-[#18292e] p-1.5 shadow-2xl",
-          vertical && "absolute left-2 top-1/2 w-48 -translate-y-1/2",
-        )}
-      >
-        <input
-          autoFocus
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setDraft(label);
-              setEditing(false);
-            }
-          }}
-          aria-label={`Rename ${label} row`}
-          maxLength={40}
-          className="h-8 min-w-0 flex-1 rounded-lg border border-white/12 bg-white/[0.055] px-2.5 text-xs font-medium text-white outline-none focus:border-teal-200/70"
-        />
-        <button
-          type="submit"
-          aria-label="Save row name"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-300 text-[#112126] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          <Check className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label="Cancel row rename"
-          onClick={() => {
-            setDraft(label);
-            setEditing(false);
-          }}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/55 hover:bg-white/8 hover:text-white"
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </form>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      disabled={pending}
-      aria-label={`Edit ${label} row name`}
-      onClick={() => setEditing(true)}
+    <div
       className={cn(
-        "group inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-teal-200/70 disabled:cursor-wait disabled:opacity-45",
+        "inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58",
         vertical && "flex-col",
       )}
     >
@@ -818,11 +739,8 @@ function CoverageRowLabelEditor({
       >
         {label}
       </span>
-      <span className="inline-flex items-center gap-1 text-[9px] tracking-normal text-white/34 group-hover:text-teal-200/75">
-        {count}
-        <Pencil className="h-3 w-3" aria-hidden="true" />
-      </span>
-    </button>
+      <span className="text-[9px] tracking-normal text-white/34">{count}</span>
+    </div>
   );
 }
 
@@ -831,17 +749,13 @@ export function HighlightCoverageView({
   filter,
   query,
   selectedId,
-  rowRenamePending,
   onSelect,
-  onRenameRow,
 }: {
   model: HighlightCoverageModel;
   filter: HighlightWorkspaceFilter;
   query: string;
   selectedId: string | null;
-  rowRenamePending: boolean;
   onSelect: (id: string) => void;
-  onRenameRow: (fromLabel: string, toLabel: string) => void;
 }) {
   const allItems = model.columns
     .flatMap((column) => column.items)
@@ -865,7 +779,8 @@ export function HighlightCoverageView({
               Highlight matrix
             </h2>
             <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
-              Themes form the columns. Edit a populated row name to regroup its highlights.
+              Themes form the columns. Populated inferred groups form the rows,
+              ordered by coverage.
             </p>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/62" aria-label="Coverage status legend">
@@ -921,14 +836,7 @@ export function HighlightCoverageView({
                     scope="row"
                     className="relative px-2 py-3 text-center align-middle font-normal"
                   >
-                    <CoverageRowLabelEditor
-                      key={row.label}
-                      label={row.label}
-                      count={row.items.length}
-                      pending={rowRenamePending}
-                      onRename={onRenameRow}
-                      vertical
-                    />
+                    <CoverageRowHeading label={row.label} count={row.items.length} vertical />
                   </th>
                   {model.columns.map((column) => {
                     const cellItems = row.cells[column.key] ?? [];
@@ -1005,13 +913,7 @@ export function HighlightCoverageView({
           return (
             <section key={row.key} className="px-4 py-5">
               <div className="flex items-center justify-between gap-3">
-                <CoverageRowLabelEditor
-                  key={row.label}
-                  label={row.label}
-                  count={row.items.length}
-                  pending={rowRenamePending}
-                  onRename={onRenameRow}
-                />
+                <CoverageRowHeading label={row.label} count={row.items.length} />
                 <span className="text-xs text-white/40">{matches.length} shown</span>
               </div>
               <div className="mt-3 space-y-2">
@@ -1055,19 +957,6 @@ export function HighlightWorkspace({
   const [view, setView] = useState<WorkspaceView>(initialView);
   const [filter, setFilter] = useState<HighlightWorkspaceFilter>("all");
   const [query, setQuery] = useState("");
-  const [rowRenameError, setRowRenameError] = useState<string | null>(null);
-  const [rowRenamePending, startRowRenameTransition] = useTransition();
-  const [optimisticItems, setOptimisticRowRename] = useOptimistic<
-    HighlightWorkspaceItem[],
-    { fromLabel: string; toLabel: string }
-  >(items, (currentItems, update) =>
-    currentItems.map((item) =>
-      getHighlightCoverageRowLabel(item).toLocaleLowerCase() ===
-      update.fromLabel.toLocaleLowerCase()
-        ? { ...item, coverageRowLabel: update.toLabel }
-        : item,
-    ),
-  );
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const firstReviewItem = items.find(
       (item) => getHighlightWorkspaceStatus(item) === "needs_review",
@@ -1075,25 +964,16 @@ export function HighlightWorkspace({
     return firstReviewItem?.id ?? items[0]?.id ?? null;
   });
 
-  const atlas = useMemo(() => buildHighlightAtlas(optimisticItems), [optimisticItems]);
-  const coverage = useMemo(
-    () => buildHighlightCoverage(optimisticItems),
-    [optimisticItems],
-  );
-  const itemsById = useMemo(
-    () => new Map(optimisticItems.map((item) => [item.id, item])),
-    [optimisticItems],
-  );
+  const atlas = useMemo(() => buildHighlightAtlas(items), [items]);
+  const coverage = useMemo(() => buildHighlightCoverage(items), [items]);
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const selected = selectedId ? itemsById.get(selectedId) ?? null : null;
-  const matchingCount = optimisticItems.filter((item) =>
-    itemMatches(item, filter, query),
-  ).length;
+  const matchingCount = items.filter((item) => itemMatches(item, filter, query)).length;
   const hasActiveQuery = filter !== "all" || query.trim().length > 0;
   const statusCounts = Object.fromEntries(
     highlightWorkspaceStatuses.map((status) => [
       status,
-      optimisticItems.filter((item) => getHighlightWorkspaceStatus(item) === status)
-        .length,
+      items.filter((item) => getHighlightWorkspaceStatus(item) === status).length,
     ]),
   ) as Record<HighlightWorkspaceStatus, number>;
 
@@ -1106,27 +986,10 @@ export function HighlightWorkspace({
     setFilter(nextFilter);
     if (nextFilter === "all") return;
 
-    const firstMatch = optimisticItems.find(
+    const firstMatch = items.find(
       (item) => getHighlightWorkspaceStatus(item) === nextFilter,
     );
     if (firstMatch) setSelectedId(firstMatch.id);
-  }
-
-  function renameCoverageRow(fromLabel: string, toLabel: string) {
-    setRowRenameError(null);
-    startRowRenameTransition(async () => {
-      setOptimisticRowRename({ fromLabel, toLabel });
-      try {
-        const result = await renameHighlightCoverageRowAction(
-          optimisticItems[0]?.workItemId ?? "",
-          fromLabel,
-          toLabel,
-        );
-        if (!result.ok) setRowRenameError(result.error);
-      } catch {
-        setRowRenameError("The row name could not be saved. Try again.");
-      }
-    });
   }
 
   if (!items.length) {
@@ -1246,17 +1109,12 @@ export function HighlightWorkspace({
             </button>
           ) : null}
         </div>
-        {rowRenameError ? (
-          <p className="mt-3 text-xs font-medium text-rose-700" role="alert">
-            {rowRenameError}
-          </p>
-        ) : null}
       </header>
 
       <div className="grid min-w-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.7fr)] lg:items-start xl:grid-cols-[minmax(0,1fr)_360px]">
         {view === "atlas" ? (
           <HighlightAtlasView
-            items={optimisticItems}
+            items={items}
             filter={filter}
             query={query}
             selectedId={selectedId}
@@ -1268,9 +1126,7 @@ export function HighlightWorkspace({
             filter={filter}
             query={query}
             selectedId={selectedId}
-            rowRenamePending={rowRenamePending}
             onSelect={setSelectedId}
-            onRenameRow={renameCoverageRow}
           />
         )}
         <HighlightInspector
@@ -1284,9 +1140,7 @@ export function HighlightWorkspace({
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-black/8 bg-[color:var(--surface)] px-4 py-3 text-xs text-[color:var(--ink-muted)] sm:px-5">
-        <span>
-          Atlas stays fixed. Coverage regroups when a row name changes.
-        </span>
+        <span>Atlas maps themes. Coverage compares inferred groups across the same highlights.</span>
         <span className="inline-flex items-center gap-1.5">
           <Archive className="h-3.5 w-3.5" aria-hidden="true" />
           Older records remain available in the ledger below.

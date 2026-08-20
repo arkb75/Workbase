@@ -15,17 +15,11 @@ import {
   evidenceInclusionSchema,
   formDataToBoolean,
   githubRepoImportSchema,
-  highlightCoverageRowRenameSchema,
   highlightSuggestionActionSchema,
   manualSourceSchema,
   onboardingSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
-import {
-  getHighlightCoverageRowLabel,
-  readHighlightCoverageRowLabel,
-  setHighlightCoverageRowLabel,
-} from "@/src/lib/highlight-workspace";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import {
@@ -1171,70 +1165,6 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   redirect(appendRedirectParams(returnTo, {
     result: approved.count > 0 ? "approved-all" : "no-eligible-highlights",
   }));
-}
-
-export async function renameHighlightCoverageRowAction(
-  workItemId: string,
-  fromLabel: string,
-  toLabel: string,
-) {
-  const demoUser = await ensureDemoUser();
-  const parsed = highlightCoverageRowRenameSchema.safeParse({
-    workItemId,
-    fromLabel,
-    toLabel,
-  });
-
-  if (!parsed.success) {
-    return { ok: false as const, error: "Use a row name between 2 and 40 characters." };
-  }
-
-  await prisma.workItem.findFirstOrThrow({
-    where: { id: parsed.data.workItemId, userId: demoUser.id },
-    select: { id: true },
-  });
-  const highlights = await prisma.highlight.findMany({
-    where: { workItemId: parsed.data.workItemId },
-    select: {
-      id: true,
-      text: true,
-      summary: true,
-      ownershipClarity: true,
-      metadata: true,
-      tags: { select: { dimension: true, tag: true, score: true } },
-    },
-  });
-  const matchingHighlights = highlights.filter(
-    (highlight) =>
-      getHighlightCoverageRowLabel({
-        ...highlight,
-        coverageRowLabel: readHighlightCoverageRowLabel(highlight.metadata),
-      }).toLocaleLowerCase() === parsed.data.fromLabel.toLocaleLowerCase(),
-  );
-
-  const updatedAt = new Date().toISOString();
-  await prisma.$transaction(
-    matchingHighlights.map((highlight) =>
-      prisma.highlight.update({
-        where: { id: highlight.id },
-        data: {
-          metadata: setHighlightCoverageRowLabel(
-            highlight.metadata,
-            parsed.data.toLabel,
-            updatedAt,
-          ) as Prisma.InputJsonValue,
-        },
-      }),
-    ),
-  );
-
-  revalidatePath(`/work-items/${parsed.data.workItemId}`);
-  return {
-    ok: true as const,
-    fromLabel: parsed.data.fromLabel,
-    toLabel: parsed.data.toLabel,
-    updatedCount: matchingHighlights.length,
-  };
 }
 
 export async function updateClaimAction(claimId: string, formData: FormData) {

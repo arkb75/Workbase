@@ -7,8 +7,6 @@ import {
   groupHighlightsByTheme,
   highlightMatchesFilter,
   inferHighlightPrimaryAngle,
-  readHighlightCoverageRowLabel,
-  setHighlightCoverageRowLabel,
   type HighlightWorkspaceItem,
 } from "@/src/lib/highlight-workspace";
 
@@ -32,7 +30,6 @@ function buildItem(
     missingInfo: null,
     rejectionReason: null,
     verificationNotes: null,
-    coverageRowLabel: null,
     updatedAt: "2026-08-19T00:00:00.000Z",
     evidence: {
       summary: `Summary ${id}`,
@@ -151,17 +148,18 @@ describe("highlight workspace model", () => {
   it("counts every highlight once in Coverage and retains explicit empty cells", () => {
     const items = [
       buildItem("approved", {
-        coverageRowLabel: "Impact",
+        text: "Cut API latency by 42%.",
+        summary: "Reduced response time for API requests.",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("review", {
         reviewState: "pending_review",
-        coverageRowLabel: "Implementation",
+        text: "Built a unified ingestion pipeline.",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("lifecycle", {
         lifecycleStatus: "stale",
-        coverageRowLabel: "Ownership",
+        text: "Led the cross-team platform roadmap.",
         tags: [{ dimension: "domain", tag: "delivery", score: 1 }],
       }),
     ];
@@ -181,7 +179,7 @@ describe("highlight workspace model", () => {
     expect(ownership?.cells[delivery?.key ?? ""]).toHaveLength(1);
   });
 
-  it("infers a default row from grounded language and honors an edited row label", () => {
+  it("infers rows from grounded language", () => {
     const impact = buildItem("impact", {
       text: "Cut API latency by 42%.",
       summary: "Reduced response time for API requests.",
@@ -196,52 +194,35 @@ describe("highlight workspace model", () => {
     expect(inferHighlightPrimaryAngle(impact).angle).toBe("impact");
     expect(inferHighlightPrimaryAngle(ownership).angle).toBe("ownership");
     expect(inferHighlightPrimaryAngle(implementation).angle).toBe("implementation");
-    expect(
-      getHighlightCoverageRowLabel({ ...implementation, coverageRowLabel: "System" }),
-    ).toBe("System");
+    expect(getHighlightCoverageRowLabel(implementation)).toBe("Implementation");
   });
 
-  it("stores an edited row label without discarding other metadata", () => {
-    const stored = setHighlightCoverageRowLabel(
-      {
-        legacyCategory: "backend",
-        coveragePrimaryAngleOverride: "ownership",
-        coveragePrimaryAngleUpdatedAt: "2026-08-18T01:00:00.000Z",
-      },
-      "System",
-      "2026-08-19T01:00:00.000Z",
+  it("renders only populated rows and orders them by coverage", () => {
+    const implementationItems = ["one", "two", "three"].map((id) =>
+      buildItem(id, { text: "Built the ingestion pipeline." }),
     );
-
-    expect(readHighlightCoverageRowLabel(stored)).toBe("System");
-    expect(stored.legacyCategory).toBe("backend");
-    expect(stored).not.toHaveProperty("coveragePrimaryAngleOverride");
-    expect(stored).not.toHaveProperty("coveragePrimaryAngleUpdatedAt");
-  });
-
-  it("renders only populated rows and regroups highlights when a row is renamed", () => {
-    const suggested = buildItem("movable", {
-      text: "Built the ingestion pipeline.",
-      tags: [{ dimension: "domain", tag: "backend", score: 1 }],
+    const ownershipItems = ["four", "five"].map((id) =>
+      buildItem(id, { text: "Led the cross-team platform roadmap." }),
+    );
+    const impactItem = buildItem("six", {
+      text: "Cut API latency by 42%.",
+      summary: "Reduced response time for API requests.",
     });
-    const before = buildHighlightCoverage([suggested]);
-    const after = buildHighlightCoverage([
-      { ...suggested, coverageRowLabel: "System" },
+    const items = [...implementationItems, ...ownershipItems, impactItem];
+    const forward = buildHighlightCoverage(items);
+    const reversed = buildHighlightCoverage([...items].reverse());
+
+    expect(forward.rows.map((row) => row.label)).toEqual([
+      "Implementation",
+      "Ownership",
+      "Impact",
     ]);
-
-    expect(before.rows.map((row) => row.label)).toEqual(["Implementation"]);
-    expect(before.rows.some((row) => row.label === "Impact")).toBe(false);
-    expect(after.rows.map((row) => row.label)).toEqual(["System"]);
-    expect(after.rows[0]?.items).toHaveLength(1);
-  });
-
-  it("merges groups when a row is renamed to an existing row label", () => {
-    const coverage = buildHighlightCoverage([
-      buildItem("one", { coverageRowLabel: "System" }),
-      buildItem("two", { coverageRowLabel: "System" }),
+    expect(reversed.rows.map((row) => row.label)).toEqual(
+      forward.rows.map((row) => row.label),
+    );
+    expect(forward.rows.map((row) => row.items.length)).toEqual([3, 2, 1]);
+    expect(buildHighlightCoverage(implementationItems).rows.map((row) => row.label)).toEqual([
+      "Implementation",
     ]);
-
-    expect(coverage.rows).toHaveLength(1);
-    expect(coverage.rows[0]?.label).toBe("System");
-    expect(coverage.rows[0]?.items).toHaveLength(2);
   });
 });

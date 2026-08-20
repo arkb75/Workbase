@@ -5,7 +5,6 @@ import type { HighlightWorkspaceItem } from "@/src/lib/highlight-workspace";
 
 vi.mock("@/app/actions", () => ({
   updateClaimAction: vi.fn(),
-  renameHighlightCoverageRowAction: vi.fn(),
 }));
 
 function buildItem(
@@ -28,7 +27,6 @@ function buildItem(
     missingInfo: null,
     rejectionReason: null,
     verificationNotes: null,
-    coverageRowLabel: null,
     updatedAt: "2026-08-19T00:00:00.000Z",
     evidence: {
       summary: `Evidence-backed summary ${id}.`,
@@ -97,11 +95,12 @@ describe("HighlightWorkspace", () => {
 
     expect(html).toContain('aria-label="Highlight Coverage"');
     expect(html).toContain("Coverage system");
-    expect(html).toContain("Edit a populated row name to regroup its highlights");
+    expect(html).toContain("Populated inferred groups form the rows, ordered by coverage");
     expect(html).toContain("Systems Design");
     expect(html).toContain("Delivery");
-    expect(html).toContain('aria-label="Edit Unclassified row name"');
-    expect(html).not.toContain('aria-label="Edit Impact row name"');
+    expect(html).toContain("Unclassified");
+    expect(html).not.toContain("Edit Unclassified row name");
+    expect(html).not.toContain("Rename Unclassified row");
     expect(html).not.toContain("Use suggestion");
     expect(html).not.toContain("Primary angle for Grounded highlight review");
     expect(html).not.toContain("Weak framing");

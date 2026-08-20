@@ -85,12 +85,6 @@ export const claimUpdateSchema = z.object({
   intent: z.enum(["save", "approve", "reject", "restore"]),
 });
 
-export const highlightCoverageRowRenameSchema = z.object({
-  workItemId: z.string().trim().min(1),
-  fromLabel: z.string().trim().min(2).max(40),
-  toLabel: z.string().trim().min(2).max(40),
-});
-
 export const highlightSuggestionActionSchema = z.object({
   suggestionId: z.string().trim().min(1),
   workItemId: z.string().trim().min(1),
