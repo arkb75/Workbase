@@ -53,7 +53,7 @@ export type HighlightWorkspaceItem = {
   missingInfo: string | null;
   rejectionReason: string | null;
   verificationNotes: string | null;
-  primaryAngleOverride: HighlightPrimaryAngle | null;
+  coverageRowLabel: string | null;
   updatedAt: string;
   evidence: {
     summary: string;
@@ -98,7 +98,7 @@ export type HighlightAtlasEdge = {
 };
 
 export type HighlightCoverageRow = HighlightThemeGroup & {
-  key: HighlightPrimaryAngle;
+  key: string;
   label: string;
   cells: Record<string, HighlightWorkspaceItem[]>;
 };
@@ -254,30 +254,30 @@ function metadataRecord(metadata: unknown): Record<string, unknown> {
     : {};
 }
 
-export function readHighlightPrimaryAngleOverride(
-  metadata: unknown,
-): HighlightPrimaryAngle | null {
-  const value = metadataRecord(metadata).coveragePrimaryAngleOverride;
-  return typeof value === "string" &&
-    highlightPrimaryAngles.includes(value as HighlightPrimaryAngle)
-    ? (value as HighlightPrimaryAngle)
+export function readHighlightCoverageRowLabel(metadata: unknown): string | null {
+  const record = metadataRecord(metadata);
+  const value = record.coverageRowLabel;
+  if (typeof value === "string" && value.trim().length >= 2) {
+    return value.trim();
+  }
+
+  const legacyAngle = record.coveragePrimaryAngleOverride;
+  return typeof legacyAngle === "string" &&
+    highlightPrimaryAngles.includes(legacyAngle as HighlightPrimaryAngle)
+    ? highlightPrimaryAngleLabels[legacyAngle as HighlightPrimaryAngle]
     : null;
 }
 
-export function setHighlightPrimaryAngleOverride(
+export function setHighlightCoverageRowLabel(
   metadata: unknown,
-  angle: HighlightPrimaryAngle | null,
+  label: string,
   updatedAt: string,
 ) {
   const next = metadataRecord(metadata);
-
-  if (angle) {
-    next.coveragePrimaryAngleOverride = angle;
-    next.coveragePrimaryAngleUpdatedAt = updatedAt;
-  } else {
-    delete next.coveragePrimaryAngleOverride;
-    delete next.coveragePrimaryAngleUpdatedAt;
-  }
+  next.coverageRowLabel = label.trim();
+  next.coverageRowUpdatedAt = updatedAt;
+  delete next.coveragePrimaryAngleOverride;
+  delete next.coveragePrimaryAngleUpdatedAt;
 
   return next;
 }
@@ -285,13 +285,12 @@ export function setHighlightPrimaryAngleOverride(
 export function inferHighlightPrimaryAngle(
   item: Pick<
     HighlightWorkspaceItem,
-    "text" | "summary" | "tags" | "ownershipClarity" | "evidence"
+    "text" | "summary" | "tags" | "ownershipClarity"
   >,
 ): { angle: HighlightPrimaryAngle; reason: string } {
   const content = [
     item.text,
     item.summary,
-    item.evidence.summary,
     ...item.tags.map((tag) => `${tag.dimension}:${tag.tag}`),
   ]
     .join(" ")
@@ -363,8 +362,16 @@ export function inferHighlightPrimaryAngle(
   };
 }
 
-export function getHighlightPrimaryAngle(item: HighlightWorkspaceItem) {
-  return item.primaryAngleOverride ?? inferHighlightPrimaryAngle(item).angle;
+export function getHighlightCoverageRowLabel(
+  item: Pick<
+    HighlightWorkspaceItem,
+    "text" | "summary" | "tags" | "ownershipClarity" | "coverageRowLabel"
+  >,
+) {
+  return (
+    item.coverageRowLabel ??
+    highlightPrimaryAngleLabels[inferHighlightPrimaryAngle(item).angle]
+  );
 }
 
 export function getHighlightWorkspaceStatus(
@@ -558,31 +565,51 @@ export function buildHighlightCoverage(
   const themeKeyByItemId = new Map(
     themes.flatMap((theme) => theme.items.map((item) => [item.id, theme.key] as const)),
   );
-  const rows = highlightPrimaryAngles.map<HighlightCoverageRow>((angle) => {
-    const cells = Object.fromEntries(
-      columns.map((column) => [column.key, [] as HighlightWorkspaceItem[]]),
-    );
-
-    for (const item of items) {
-      if (getHighlightPrimaryAngle(item) !== angle) continue;
-      const themeKey = themeKeyByItemId.get(item.id);
-      const column = columns.find((candidate) =>
-        themeKey ? candidate.themeKeys.includes(themeKey) : false,
+  const rowItems = new Map<string, { label: string; items: HighlightWorkspaceItem[] }>();
+  for (const item of items) {
+    const label = getHighlightCoverageRowLabel(item);
+    const key = normalizeKey(label);
+    const row = rowItems.get(key) ?? { label, items: [] };
+    row.items.push(item);
+    rowItems.set(key, row);
+  }
+  const defaultRowOrder = new Map(
+    highlightPrimaryAngles.map((angle, index) => [
+      normalizeKey(highlightPrimaryAngleLabels[angle]),
+      index,
+    ]),
+  );
+  const rows = [...rowItems.entries()]
+    .sort(
+      ([leftKey, left], [rightKey, right]) =>
+        (defaultRowOrder.get(leftKey) ?? Number.MAX_SAFE_INTEGER) -
+          (defaultRowOrder.get(rightKey) ?? Number.MAX_SAFE_INTEGER) ||
+        left.label.localeCompare(right.label),
+    )
+    .map<HighlightCoverageRow>(([rowKey, row]) => {
+      const cells = Object.fromEntries(
+        columns.map((column) => [column.key, [] as HighlightWorkspaceItem[]]),
       );
-      if (column) cells[column.key]?.push(item);
-    }
 
-    for (const cellItems of Object.values(cells)) {
-      cellItems.sort(compareItems);
-    }
+      for (const item of row.items) {
+        const themeKey = themeKeyByItemId.get(item.id);
+        const column = columns.find((candidate) =>
+          themeKey ? candidate.themeKeys.includes(themeKey) : false,
+        );
+        if (column) cells[column.key]?.push(item);
+      }
 
-    return {
-      key: angle,
-      label: highlightPrimaryAngleLabels[angle],
-      items: items.filter((item) => getHighlightPrimaryAngle(item) === angle),
-      cells,
-    };
-  });
+      for (const cellItems of Object.values(cells)) {
+        cellItems.sort(compareItems);
+      }
+
+      return {
+        key: rowKey,
+        label: row.label,
+        items: row.items,
+        cells,
+      };
+    });
 
   return { columns, rows };
 }

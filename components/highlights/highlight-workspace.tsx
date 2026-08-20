@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useOptimistic, useState, useTransition } from "react";
+import {
+  useMemo,
+  useOptimistic,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import {
   Archive,
   Check,
@@ -8,14 +14,15 @@ import {
   Clock3,
   Grid3X3,
   Network,
+  Pencil,
   RotateCcw,
   Search,
   ShieldAlert,
   X,
 } from "lucide-react";
 import {
+  renameHighlightCoverageRowAction,
   updateClaimAction,
-  updateHighlightPrimaryAngleAction,
 } from "@/app/actions";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { Badge } from "@/components/ui/badge";
@@ -24,19 +31,15 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
-  getHighlightPrimaryAngle,
+  getHighlightCoverageRowLabel,
   getHighlightTheme,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
   highlightMatchesFilter,
-  highlightPrimaryAngleLabels,
-  highlightPrimaryAngles,
   highlightWorkspaceStatuses,
-  inferHighlightPrimaryAngle,
   type HighlightAtlasEdge,
   type HighlightAtlasNode,
   type HighlightCoverageModel,
-  type HighlightPrimaryAngle,
   type HighlightWorkspaceFilter,
   type HighlightWorkspaceItem,
   type HighlightWorkspaceStatus,
@@ -119,72 +122,6 @@ function statusTone(status: HighlightWorkspaceStatus) {
   return "danger" as const;
 }
 
-function PrimaryAngleEditor({
-  item,
-  onChange,
-  pending,
-  compact = false,
-}: {
-  item: HighlightWorkspaceItem;
-  onChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
-  pending: boolean;
-  compact?: boolean;
-}) {
-  const suggestion = inferHighlightPrimaryAngle(item);
-  const resolvedAngle = getHighlightPrimaryAngle(item);
-  const value = item.primaryAngleOverride ?? "suggested";
-
-  return (
-    <label className={cn("grid gap-1.5", compact && "gap-1")}>
-      <span
-        className={cn(
-          "text-[10px] font-semibold uppercase tracking-[0.14em]",
-          compact ? "sr-only" : "text-[color:var(--ink-muted)]",
-        )}
-      >
-        Primary angle
-      </span>
-      <select
-        aria-label={`Primary angle for ${item.text}`}
-        value={value}
-        disabled={pending}
-        onChange={(event) =>
-          onChange(
-            item.id,
-            event.target.value === "suggested"
-              ? null
-              : (event.target.value as HighlightPrimaryAngle),
-          )
-        }
-        className={cn(
-          "h-9 w-full rounded-lg border px-2.5 text-xs font-medium outline-none transition focus:ring-2 disabled:cursor-wait disabled:opacity-60",
-          compact
-            ? "border-white/12 bg-white/[0.045] text-white focus:border-cyan-300/70 focus:ring-cyan-300/20"
-            : "border-black/10 bg-white text-[color:var(--ink-strong)] focus:border-[color:var(--accent)] focus:ring-cyan-100",
-        )}
-      >
-        <option value="suggested">
-          {compact
-            ? "Use suggestion"
-            : `Suggested · ${highlightPrimaryAngleLabels[suggestion.angle]}`}
-        </option>
-        {highlightPrimaryAngles.map((angle) => (
-          <option key={angle} value={angle}>
-            {highlightPrimaryAngleLabels[angle]}
-          </option>
-        ))}
-      </select>
-      {!compact ? (
-        <span className="text-xs leading-5 text-[color:var(--ink-muted)]">
-          {item.primaryAngleOverride
-            ? `${highlightPrimaryAngleLabels[resolvedAngle]} is user-confirmed.`
-            : `${suggestion.reason} This remains editable.`}
-        </span>
-      ) : null}
-    </label>
-  );
-}
-
 function HiddenReviewFields({
   item,
   returnTo,
@@ -222,8 +159,6 @@ function HighlightInspector({
   returnTo,
   matchesCurrentView,
   onSelect,
-  onPrimaryAngleChange,
-  primaryAnglePending,
 }: {
   item: HighlightWorkspaceItem | null;
   itemsById: Map<string, HighlightWorkspaceItem>;
@@ -231,8 +166,6 @@ function HighlightInspector({
   returnTo: string;
   matchesCurrentView: boolean;
   onSelect: (id: string) => void;
-  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
-  primaryAnglePending: boolean;
 }) {
   if (!item) {
     return (
@@ -294,14 +227,6 @@ function HighlightInspector({
       </div>
 
       <div className="divide-y divide-black/8">
-        <section className="px-5 py-5 sm:px-6" aria-label="Coverage classification">
-          <PrimaryAngleEditor
-            item={item}
-            onChange={onPrimaryAngleChange}
-            pending={primaryAnglePending}
-          />
-        </section>
-
         <section className="px-5 py-5 sm:px-6" aria-labelledby="highlight-evidence-heading">
           <div className="flex items-center justify-between gap-3">
             <h3
@@ -740,17 +665,13 @@ function CoverageHighlightCard({
   code,
   selected,
   showTheme,
-  anglePending,
   onSelect,
-  onPrimaryAngleChange,
 }: {
   item: HighlightWorkspaceItem;
   code: string;
   selected: boolean;
   showTheme: boolean;
-  anglePending: boolean;
   onSelect: (id: string) => void;
-  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
 }) {
   const status = getHighlightWorkspaceStatus(item);
   const theme = getHighlightTheme(item);
@@ -778,7 +699,7 @@ function CoverageHighlightCard({
         <span className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.14em] text-white/48">
           <span>{code}</span>
           <span className="inline-flex items-center gap-1.5">
-            {item.primaryAngleOverride ? "Confirmed" : "Suggested"}
+            {statusCopy[status].shortLabel}
             <span
               className={cn(
                 "h-2.5 w-2.5 rounded-full",
@@ -800,15 +721,108 @@ function CoverageHighlightCard({
           {item.text}
         </span>
       </button>
-      <div className="border-t border-white/8 px-2.5 py-2.5">
-        <PrimaryAngleEditor
-          item={item}
-          onChange={onPrimaryAngleChange}
-          pending={anglePending}
-          compact
-        />
-      </div>
     </article>
+  );
+}
+
+function CoverageRowLabelEditor({
+  label,
+  count,
+  pending,
+  vertical = false,
+  onRename,
+}: {
+  label: string;
+  count: number;
+  pending: boolean;
+  vertical?: boolean;
+  onRename: (fromLabel: string, toLabel: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+
+  function submitRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextLabel = draft.trim();
+    if (nextLabel.length < 2 || nextLabel === label) {
+      setDraft(label);
+      setEditing(false);
+      return;
+    }
+    onRename(label, nextLabel);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={submitRename}
+        className={cn(
+          "z-30 flex items-center gap-1.5 rounded-xl border border-teal-200/35 bg-[#18292e] p-1.5 shadow-2xl",
+          vertical && "absolute left-2 top-1/2 w-48 -translate-y-1/2",
+        )}
+      >
+        <input
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setDraft(label);
+              setEditing(false);
+            }
+          }}
+          aria-label={`Rename ${label} row`}
+          maxLength={40}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-white/12 bg-white/[0.055] px-2.5 text-xs font-medium text-white outline-none focus:border-teal-200/70"
+        />
+        <button
+          type="submit"
+          aria-label="Save row name"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-300 text-[#112126] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          aria-label="Cancel row rename"
+          onClick={() => {
+            setDraft(label);
+            setEditing(false);
+          }}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/55 hover:bg-white/8 hover:text-white"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      aria-label={`Edit ${label} row name`}
+      onClick={() => setEditing(true)}
+      className={cn(
+        "group inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-teal-200/70 disabled:cursor-wait disabled:opacity-45",
+        vertical && "flex-col",
+      )}
+    >
+      <span
+        style={
+          vertical
+            ? { writingMode: "vertical-rl", transform: "rotate(180deg)" }
+            : undefined
+        }
+      >
+        {label}
+      </span>
+      <span className="inline-flex items-center gap-1 text-[9px] tracking-normal text-white/34 group-hover:text-teal-200/75">
+        {count}
+        <Pencil className="h-3 w-3" aria-hidden="true" />
+      </span>
+    </button>
   );
 }
 
@@ -817,17 +831,17 @@ export function HighlightCoverageView({
   filter,
   query,
   selectedId,
-  anglePending,
+  rowRenamePending,
   onSelect,
-  onPrimaryAngleChange,
+  onRenameRow,
 }: {
   model: HighlightCoverageModel;
   filter: HighlightWorkspaceFilter;
   query: string;
   selectedId: string | null;
-  anglePending: boolean;
+  rowRenamePending: boolean;
   onSelect: (id: string) => void;
-  onPrimaryAngleChange: (id: string, angle: HighlightPrimaryAngle | null) => void;
+  onRenameRow: (fromLabel: string, toLabel: string) => void;
 }) {
   const allItems = model.columns
     .flatMap((column) => column.items)
@@ -851,7 +865,7 @@ export function HighlightCoverageView({
               Highlight matrix
             </h2>
             <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
-              Themes form the columns; editable primary angles form the rows.
+              Themes form the columns. Edit a populated row name to regroup its highlights.
             </p>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/62" aria-label="Coverage status legend">
@@ -902,73 +916,81 @@ export function HighlightCoverageView({
               );
               const rowHeight = rowHasMatches ? "min-h-[154px]" : "min-h-[92px]";
               return (
-              <tr key={row.key} className="border-b border-white/8 last:border-b-0">
-                <th scope="row" className="px-2 py-3 text-center align-middle font-normal">
-                  <span
-                    className="inline-block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58"
-                    style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+                <tr key={row.key} className="border-b border-white/8 last:border-b-0">
+                  <th
+                    scope="row"
+                    className="relative px-2 py-3 text-center align-middle font-normal"
                   >
-                    {row.label}
-                  </span>
-                </th>
-                {model.columns.map((column) => {
-                  const cellItems = row.cells[column.key] ?? [];
-                  const matches = cellItems.filter((item) => itemMatches(item, filter, query));
-                  return (
-                    <td key={column.key} className="border-l border-white/8 p-2 align-top">
-                      <div className={cn(rowHeight, "space-y-2")}>
-                        {matches.slice(0, 2).map((item) => (
-                          <CoverageHighlightCard
-                            key={item.id}
-                            item={item}
-                            code={codeById.get(item.id) ?? "H—"}
-                            selected={selectedId === item.id}
-                            showTheme={column.key === "other-themes"}
-                            anglePending={anglePending}
-                            onSelect={onSelect}
-                            onPrimaryAngleChange={onPrimaryAngleChange}
-                          />
-                        ))}
-                        {matches.length > 2 ? (
-                          <details className="group rounded-[16px] border border-white/10 bg-white/[0.025]">
-                            <summary className="cursor-pointer list-none px-3 py-3 text-center text-[11px] font-medium text-white/55 transition hover:text-white/80">
-                              <span className="group-open:hidden">
-                                +{matches.length - 2} more
-                              </span>
-                              <span className="hidden group-open:inline">Show fewer</span>
-                            </summary>
-                            <div className="space-y-2 border-t border-white/8 p-2">
-                              {matches.slice(2).map((item) => (
-                                <CoverageHighlightCard
-                                  key={item.id}
-                                  item={item}
-                                  code={codeById.get(item.id) ?? "H—"}
-                                  selected={selectedId === item.id}
-                                  showTheme={column.key === "other-themes"}
-                                  anglePending={anglePending}
-                                  onSelect={onSelect}
-                                  onPrimaryAngleChange={onPrimaryAngleChange}
-                                />
-                              ))}
+                    <CoverageRowLabelEditor
+                      key={row.label}
+                      label={row.label}
+                      count={row.items.length}
+                      pending={rowRenamePending}
+                      onRename={onRenameRow}
+                      vertical
+                    />
+                  </th>
+                  {model.columns.map((column) => {
+                    const cellItems = row.cells[column.key] ?? [];
+                    const matches = cellItems.filter((item) =>
+                      itemMatches(item, filter, query),
+                    );
+                    return (
+                      <td
+                        key={column.key}
+                        className="border-l border-white/8 p-2 align-top"
+                      >
+                        <div className={cn(rowHeight, "space-y-2")}>
+                          {matches.slice(0, 2).map((item) => (
+                            <CoverageHighlightCard
+                              key={item.id}
+                              item={item}
+                              code={codeById.get(item.id) ?? "H—"}
+                              selected={selectedId === item.id}
+                              showTheme={column.key === "other-themes"}
+                              onSelect={onSelect}
+                            />
+                          ))}
+                          {matches.length > 2 ? (
+                            <details className="group rounded-[16px] border border-white/10 bg-white/[0.025]">
+                              <summary className="cursor-pointer list-none px-3 py-3 text-center text-[11px] font-medium text-white/55 transition hover:text-white/80">
+                                <span className="group-open:hidden">
+                                  +{matches.length - 2} more
+                                </span>
+                                <span className="hidden group-open:inline">Show fewer</span>
+                              </summary>
+                              <div className="space-y-2 border-t border-white/8 p-2">
+                                {matches.slice(2).map((item) => (
+                                  <CoverageHighlightCard
+                                    key={item.id}
+                                    item={item}
+                                    code={codeById.get(item.id) ?? "H—"}
+                                    selected={selectedId === item.id}
+                                    showTheme={column.key === "other-themes"}
+                                    onSelect={onSelect}
+                                  />
+                                ))}
+                              </div>
+                            </details>
+                          ) : null}
+                          {!matches.length ? (
+                            <div
+                              className={cn(
+                                rowHeight,
+                                "flex items-center justify-center rounded-[18px] border border-dashed border-white/16 px-3 text-center text-xs leading-5 text-white/34",
+                              )}
+                              aria-label={`${row.label}, ${column.label}: no matching highlights`}
+                            >
+                              {cellItems.length
+                                ? "No matching highlights"
+                                : "No classified highlights"}
                             </div>
-                          </details>
-                        ) : null}
-                        {!matches.length ? (
-                          <div
-                            className={cn(
-                              rowHeight,
-                              "flex items-center justify-center rounded-[18px] border border-dashed border-white/16 px-3 text-center text-xs leading-5 text-white/34",
-                            )}
-                            aria-label={`${row.label}, ${column.label}: no matching highlights`}
-                          >
-                            {cellItems.length ? "No matching highlights" : "No classified highlights"}
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
+                          ) : null}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
               );
             })}
           </tbody>
@@ -983,10 +1005,14 @@ export function HighlightCoverageView({
           return (
             <section key={row.key} className="px-4 py-5">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-white/68">
-                  {row.label}
-                </h3>
-                <span className="text-xs text-white/40">{matches.length}</span>
+                <CoverageRowLabelEditor
+                  key={row.label}
+                  label={row.label}
+                  count={row.items.length}
+                  pending={rowRenamePending}
+                  onRename={onRenameRow}
+                />
+                <span className="text-xs text-white/40">{matches.length} shown</span>
               </div>
               <div className="mt-3 space-y-2">
                 {matches.map((item) => (
@@ -996,9 +1022,7 @@ export function HighlightCoverageView({
                     code={codeById.get(item.id) ?? "H—"}
                     selected={selectedId === item.id}
                     showTheme
-                    anglePending={anglePending}
                     onSelect={onSelect}
-                    onPrimaryAngleChange={onPrimaryAngleChange}
                   />
                 ))}
                 {!matches.length ? (
@@ -1031,15 +1055,16 @@ export function HighlightWorkspace({
   const [view, setView] = useState<WorkspaceView>(initialView);
   const [filter, setFilter] = useState<HighlightWorkspaceFilter>("all");
   const [query, setQuery] = useState("");
-  const [primaryAngleError, setPrimaryAngleError] = useState<string | null>(null);
-  const [primaryAnglePending, startPrimaryAngleTransition] = useTransition();
-  const [optimisticItems, setOptimisticPrimaryAngle] = useOptimistic<
+  const [rowRenameError, setRowRenameError] = useState<string | null>(null);
+  const [rowRenamePending, startRowRenameTransition] = useTransition();
+  const [optimisticItems, setOptimisticRowRename] = useOptimistic<
     HighlightWorkspaceItem[],
-    { id: string; primaryAngleOverride: HighlightPrimaryAngle | null }
+    { fromLabel: string; toLabel: string }
   >(items, (currentItems, update) =>
     currentItems.map((item) =>
-      item.id === update.id
-        ? { ...item, primaryAngleOverride: update.primaryAngleOverride }
+      getHighlightCoverageRowLabel(item).toLocaleLowerCase() ===
+      update.fromLabel.toLocaleLowerCase()
+        ? { ...item, coverageRowLabel: update.toLabel }
         : item,
     ),
   );
@@ -1087,21 +1112,19 @@ export function HighlightWorkspace({
     if (firstMatch) setSelectedId(firstMatch.id);
   }
 
-  function changePrimaryAngle(
-    id: string,
-    primaryAngleOverride: HighlightPrimaryAngle | null,
-  ) {
-    setPrimaryAngleError(null);
-    startPrimaryAngleTransition(async () => {
-      setOptimisticPrimaryAngle({ id, primaryAngleOverride });
+  function renameCoverageRow(fromLabel: string, toLabel: string) {
+    setRowRenameError(null);
+    startRowRenameTransition(async () => {
+      setOptimisticRowRename({ fromLabel, toLabel });
       try {
-        const result = await updateHighlightPrimaryAngleAction(
-          id,
-          primaryAngleOverride,
+        const result = await renameHighlightCoverageRowAction(
+          optimisticItems[0]?.workItemId ?? "",
+          fromLabel,
+          toLabel,
         );
-        if (!result.ok) setPrimaryAngleError(result.error);
+        if (!result.ok) setRowRenameError(result.error);
       } catch {
-        setPrimaryAngleError("The primary angle could not be saved. Try again.");
+        setRowRenameError("The row name could not be saved. Try again.");
       }
     });
   }
@@ -1223,9 +1246,9 @@ export function HighlightWorkspace({
             </button>
           ) : null}
         </div>
-        {primaryAngleError ? (
+        {rowRenameError ? (
           <p className="mt-3 text-xs font-medium text-rose-700" role="alert">
-            {primaryAngleError}
+            {rowRenameError}
           </p>
         ) : null}
       </header>
@@ -1245,9 +1268,9 @@ export function HighlightWorkspace({
             filter={filter}
             query={query}
             selectedId={selectedId}
-            anglePending={primaryAnglePending}
+            rowRenamePending={rowRenamePending}
             onSelect={setSelectedId}
-            onPrimaryAngleChange={changePrimaryAngle}
+            onRenameRow={renameCoverageRow}
           />
         )}
         <HighlightInspector
@@ -1257,14 +1280,12 @@ export function HighlightWorkspace({
           returnTo={returnTo}
           matchesCurrentView={selected ? itemMatches(selected, filter, query) : true}
           onSelect={setSelectedId}
-          onPrimaryAngleChange={changePrimaryAngle}
-          primaryAnglePending={primaryAnglePending}
         />
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-black/8 bg-[color:var(--surface)] px-4 py-3 text-xs text-[color:var(--ink-muted)] sm:px-5">
         <span>
-          Atlas stays fixed. Coverage resorts when a primary angle changes.
+          Atlas stays fixed. Coverage regroups when a row name changes.
         </span>
         <span className="inline-flex items-center gap-1.5">
           <Archive className="h-3.5 w-3.5" aria-hidden="true" />

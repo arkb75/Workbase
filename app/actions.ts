@@ -15,13 +15,17 @@ import {
   evidenceInclusionSchema,
   formDataToBoolean,
   githubRepoImportSchema,
-  highlightPrimaryAngleUpdateSchema,
+  highlightCoverageRowRenameSchema,
   highlightSuggestionActionSchema,
   manualSourceSchema,
   onboardingSchema,
   workItemSchema,
 } from "@/src/lib/schemas";
-import { setHighlightPrimaryAngleOverride } from "@/src/lib/highlight-workspace";
+import {
+  getHighlightCoverageRowLabel,
+  readHighlightCoverageRowLabel,
+  setHighlightCoverageRowLabel,
+} from "@/src/lib/highlight-workspace";
 import { transitionClaimStatus } from "@/src/domain/claim-status";
 import { buildClaimGenerationDrafts } from "@/src/domain/workbase-workflows";
 import {
@@ -1169,47 +1173,67 @@ export async function approveAllPendingHighlightsAction(formData: FormData) {
   }));
 }
 
-export async function updateHighlightPrimaryAngleAction(
-  highlightId: string,
-  primaryAngleOverride: string | null,
+export async function renameHighlightCoverageRowAction(
+  workItemId: string,
+  fromLabel: string,
+  toLabel: string,
 ) {
   const demoUser = await ensureDemoUser();
-  const parsed = highlightPrimaryAngleUpdateSchema.safeParse({
-    highlightId,
-    primaryAngleOverride,
+  const parsed = highlightCoverageRowRenameSchema.safeParse({
+    workItemId,
+    fromLabel,
+    toLabel,
   });
 
   if (!parsed.success) {
-    return { ok: false as const, error: "Choose a valid primary angle." };
+    return { ok: false as const, error: "Use a row name between 2 and 40 characters." };
   }
 
-  const highlight = await prisma.highlight.findFirstOrThrow({
-    where: {
-      id: parsed.data.highlightId,
-      workItem: { userId: demoUser.id },
-    },
+  await prisma.workItem.findFirstOrThrow({
+    where: { id: parsed.data.workItemId, userId: demoUser.id },
+    select: { id: true },
+  });
+  const highlights = await prisma.highlight.findMany({
+    where: { workItemId: parsed.data.workItemId },
     select: {
       id: true,
-      workItemId: true,
+      text: true,
+      summary: true,
+      ownershipClarity: true,
       metadata: true,
+      tags: { select: { dimension: true, tag: true, score: true } },
     },
   });
-  const nextMetadata = setHighlightPrimaryAngleOverride(
-    highlight.metadata,
-    parsed.data.primaryAngleOverride,
-    new Date().toISOString(),
+  const matchingHighlights = highlights.filter(
+    (highlight) =>
+      getHighlightCoverageRowLabel({
+        ...highlight,
+        coverageRowLabel: readHighlightCoverageRowLabel(highlight.metadata),
+      }).toLocaleLowerCase() === parsed.data.fromLabel.toLocaleLowerCase(),
   );
 
-  await prisma.highlight.update({
-    where: { id: highlight.id },
-    data: { metadata: nextMetadata as Prisma.InputJsonValue },
-  });
+  const updatedAt = new Date().toISOString();
+  await prisma.$transaction(
+    matchingHighlights.map((highlight) =>
+      prisma.highlight.update({
+        where: { id: highlight.id },
+        data: {
+          metadata: setHighlightCoverageRowLabel(
+            highlight.metadata,
+            parsed.data.toLabel,
+            updatedAt,
+          ) as Prisma.InputJsonValue,
+        },
+      }),
+    ),
+  );
 
-  revalidatePath(`/work-items/${highlight.workItemId}`);
+  revalidatePath(`/work-items/${parsed.data.workItemId}`);
   return {
     ok: true as const,
-    highlightId: highlight.id,
-    primaryAngleOverride: parsed.data.primaryAngleOverride,
+    fromLabel: parsed.data.fromLabel,
+    toLabel: parsed.data.toLabel,
+    updatedCount: matchingHighlights.length,
   };
 }
 

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { highlightPrimaryAngles } from "@/src/lib/highlight-workspace";
 
 const careerStageValues = [
   "student",
@@ -86,9 +85,10 @@ export const claimUpdateSchema = z.object({
   intent: z.enum(["save", "approve", "reject", "restore"]),
 });
 
-export const highlightPrimaryAngleUpdateSchema = z.object({
-  highlightId: z.string().trim().min(1),
-  primaryAngleOverride: z.enum(highlightPrimaryAngles).nullable(),
+export const highlightCoverageRowRenameSchema = z.object({
+  workItemId: z.string().trim().min(1),
+  fromLabel: z.string().trim().min(2).max(40),
+  toLabel: z.string().trim().min(2).max(40),
 });
 
 export const highlightSuggestionActionSchema = z.object({

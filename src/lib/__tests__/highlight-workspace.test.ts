@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
-  getHighlightPrimaryAngle,
+  getHighlightCoverageRowLabel,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
   highlightMatchesFilter,
   inferHighlightPrimaryAngle,
-  readHighlightPrimaryAngleOverride,
-  setHighlightPrimaryAngleOverride,
+  readHighlightCoverageRowLabel,
+  setHighlightCoverageRowLabel,
   type HighlightWorkspaceItem,
 } from "@/src/lib/highlight-workspace";
 
@@ -32,7 +32,7 @@ function buildItem(
     missingInfo: null,
     rejectionReason: null,
     verificationNotes: null,
-    primaryAngleOverride: null,
+    coverageRowLabel: null,
     updatedAt: "2026-08-19T00:00:00.000Z",
     evidence: {
       summary: `Summary ${id}`,
@@ -151,17 +151,17 @@ describe("highlight workspace model", () => {
   it("counts every highlight once in Coverage and retains explicit empty cells", () => {
     const items = [
       buildItem("approved", {
-        primaryAngleOverride: "impact",
+        coverageRowLabel: "Impact",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("review", {
         reviewState: "pending_review",
-        primaryAngleOverride: "implementation",
+        coverageRowLabel: "Implementation",
         tags: [{ dimension: "domain", tag: "reliability", score: 1 }],
       }),
       buildItem("lifecycle", {
         lifecycleStatus: "stale",
-        primaryAngleOverride: "ownership",
+        coverageRowLabel: "Ownership",
         tags: [{ dimension: "domain", tag: "delivery", score: 1 }],
       }),
     ];
@@ -181,7 +181,7 @@ describe("highlight workspace model", () => {
     expect(ownership?.cells[delivery?.key ?? ""]).toHaveLength(1);
   });
 
-  it("infers a primary angle from grounded language and honors user overrides", () => {
+  it("infers a default row from grounded language and honors an edited row label", () => {
     const impact = buildItem("impact", {
       text: "Cut API latency by 42%.",
       summary: "Reduced response time for API requests.",
@@ -197,41 +197,51 @@ describe("highlight workspace model", () => {
     expect(inferHighlightPrimaryAngle(ownership).angle).toBe("ownership");
     expect(inferHighlightPrimaryAngle(implementation).angle).toBe("implementation");
     expect(
-      getHighlightPrimaryAngle({ ...implementation, primaryAngleOverride: "impact" }),
-    ).toBe("impact");
+      getHighlightCoverageRowLabel({ ...implementation, coverageRowLabel: "System" }),
+    ).toBe("System");
   });
 
-  it("stores and clears a primary-angle override without discarding other metadata", () => {
-    const stored = setHighlightPrimaryAngleOverride(
-      { legacyCategory: "backend" },
-      "ownership",
+  it("stores an edited row label without discarding other metadata", () => {
+    const stored = setHighlightCoverageRowLabel(
+      {
+        legacyCategory: "backend",
+        coveragePrimaryAngleOverride: "ownership",
+        coveragePrimaryAngleUpdatedAt: "2026-08-18T01:00:00.000Z",
+      },
+      "System",
       "2026-08-19T01:00:00.000Z",
     );
 
-    expect(readHighlightPrimaryAngleOverride(stored)).toBe("ownership");
+    expect(readHighlightCoverageRowLabel(stored)).toBe("System");
     expect(stored.legacyCategory).toBe("backend");
-
-    const cleared = setHighlightPrimaryAngleOverride(
-      stored,
-      null,
-      "2026-08-19T02:00:00.000Z",
-    );
-    expect(readHighlightPrimaryAngleOverride(cleared)).toBeNull();
-    expect(cleared).not.toHaveProperty("coveragePrimaryAngleUpdatedAt");
+    expect(stored).not.toHaveProperty("coveragePrimaryAngleOverride");
+    expect(stored).not.toHaveProperty("coveragePrimaryAngleUpdatedAt");
   });
 
-  it("resorts a corrected highlight into its user-confirmed Coverage row", () => {
+  it("renders only populated rows and regroups highlights when a row is renamed", () => {
     const suggested = buildItem("movable", {
       text: "Built the ingestion pipeline.",
       tags: [{ dimension: "domain", tag: "backend", score: 1 }],
     });
     const before = buildHighlightCoverage([suggested]);
     const after = buildHighlightCoverage([
-      { ...suggested, primaryAngleOverride: "ownership" },
+      { ...suggested, coverageRowLabel: "System" },
     ]);
 
-    expect(before.rows.find((row) => row.key === "implementation")?.items).toHaveLength(1);
-    expect(after.rows.find((row) => row.key === "implementation")?.items).toHaveLength(0);
-    expect(after.rows.find((row) => row.key === "ownership")?.items).toHaveLength(1);
+    expect(before.rows.map((row) => row.label)).toEqual(["Implementation"]);
+    expect(before.rows.some((row) => row.label === "Impact")).toBe(false);
+    expect(after.rows.map((row) => row.label)).toEqual(["System"]);
+    expect(after.rows[0]?.items).toHaveLength(1);
+  });
+
+  it("merges groups when a row is renamed to an existing row label", () => {
+    const coverage = buildHighlightCoverage([
+      buildItem("one", { coverageRowLabel: "System" }),
+      buildItem("two", { coverageRowLabel: "System" }),
+    ]);
+
+    expect(coverage.rows).toHaveLength(1);
+    expect(coverage.rows[0]?.label).toBe("System");
+    expect(coverage.rows[0]?.items).toHaveLength(2);
   });
 });
