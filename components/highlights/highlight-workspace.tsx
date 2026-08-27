@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Archive,
   Check,
-  ChevronDown,
   CircleDashed,
   Clock3,
   Grid3X3,
   Network,
   RotateCcw,
+  Rows3,
   Search,
   ShieldAlert,
   X,
@@ -749,6 +749,200 @@ function CoverageRowHeading({
   );
 }
 
+function CoverageLensPreview({ model }: { model: HighlightCoverageModel }) {
+  return (
+    <div className="mt-3 grid h-16 gap-1" aria-hidden="true">
+      {model.rows.map((row) => (
+        <div
+          key={row.key}
+          className="grid gap-1"
+          style={{
+            gridTemplateColumns: `repeat(${model.columns.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {model.columns.map((column) => {
+            const count = row.cells[column.key]?.length ?? 0;
+            return (
+              <span
+                key={column.key}
+                className={cn(
+                  "min-h-2 rounded-[3px] bg-white/[0.055]",
+                  count === 1 && "bg-teal-300/35",
+                  count > 1 && "bg-teal-300/70",
+                )}
+              />
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CoverageLensPicker({
+  items,
+  lensSuggestions,
+  recommendedLensId,
+  selectedLensId,
+  placement,
+  onLensChange,
+}: {
+  items: HighlightWorkspaceItem[];
+  lensSuggestions: HighlightCoverageLensSuggestion[];
+  recommendedLensId: HighlightCoverageLensId;
+  selectedLensId: HighlightCoverageLensId;
+  placement: "desktop" | "mobile";
+  onLensChange: (lensId: HighlightCoverageLensId) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuId = useId();
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const activeOptionRef = useRef<HTMLButtonElement>(null);
+  const selectedLens = lensSuggestions.find(
+    (suggestion) => suggestion.lens.id === selectedLensId,
+  );
+  const previewModels = new Map(
+    lensSuggestions.map((suggestion) => [
+      suggestion.lens.id,
+      buildHighlightCoverage(items, suggestion.lens.id),
+    ]),
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    activeOptionRef.current?.focus();
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  function chooseLens(lensId: HighlightCoverageLensId) {
+    onLensChange(lensId);
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  return (
+    <div ref={pickerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={`Choose row lens. ${selectedLens?.lens.label ?? "Current lens"} selected.`}
+        aria-expanded={isOpen}
+        aria-controls={menuId}
+        onClick={() => setIsOpen((open) => !open)}
+        className={cn(
+          "relative inline-flex items-center justify-center rounded-[11px] border border-teal-200/38 bg-teal-200/10 text-teal-50 outline-none transition hover:border-teal-200/60 hover:bg-teal-200/16 focus-visible:ring-2 focus-visible:ring-teal-200/80",
+          placement === "desktop" ? "h-9 w-9" : "h-11 w-11",
+        )}
+      >
+        <Rows3 className="h-4 w-4" aria-hidden="true" />
+        <span
+          className="absolute bottom-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-teal-300"
+          aria-hidden="true"
+        />
+      </button>
+
+      <div
+        id={menuId}
+        hidden={!isOpen}
+        role="dialog"
+        aria-label="Choose how highlights cluster"
+        className={cn(
+          "absolute top-[calc(100%+10px)] z-[70] w-[min(620px,calc(100vw-3rem))] overflow-hidden rounded-[18px] border border-white/18 bg-[#172b2f] text-left shadow-[0_24px_65px_rgba(2,12,14,0.52)]",
+          placement === "desktop" ? "left-0" : "right-0",
+        )}
+      >
+        <div className="flex items-start justify-between gap-4 px-4 py-4 sm:px-5">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/48">
+              Row lens
+            </p>
+            <h3 className="mt-1.5 text-base font-semibold tracking-[-0.02em] text-white">
+              Choose how highlights cluster
+            </h3>
+          </div>
+          <button
+            type="button"
+            aria-label="Close row lens menu"
+            onClick={() => {
+              setIsOpen(false);
+              triggerRef.current?.focus();
+            }}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/52 outline-none transition hover:bg-white/8 hover:text-white focus-visible:ring-2 focus-visible:ring-teal-200/80"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="grid border-t border-white/10 sm:grid-cols-3">
+          {lensSuggestions.map((suggestion) => {
+            const isSelected = suggestion.lens.id === selectedLensId;
+            const preview = previewModels.get(suggestion.lens.id);
+            const populatedRows = suggestion.rowCounts.filter((row) => row.count > 0);
+            return (
+              <button
+                key={suggestion.lens.id}
+                ref={isSelected ? activeOptionRef : undefined}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => chooseLens(suggestion.lens.id)}
+                className={cn(
+                  "min-w-0 border-b border-white/10 px-4 py-4 text-left outline-none transition last:border-b-0 hover:bg-white/[0.055] focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-200/80 sm:border-b-0 sm:border-r sm:last:border-r-0",
+                  isSelected && "bg-teal-200/10",
+                )}
+              >
+                <span className="flex min-h-9 items-start justify-between gap-2">
+                  <span>
+                    <span className="block text-[13px] font-semibold text-white">
+                      {suggestion.lens.label}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-white/48">
+                      {suggestion.classifiedCount}/{items.length} classified
+                    </span>
+                  </span>
+                  {suggestion.lens.id === recommendedLensId ? (
+                    <span className="text-[10px] font-medium text-teal-200">Best fit</span>
+                  ) : isSelected ? (
+                    <Check className="h-3.5 w-3.5 text-teal-200" aria-hidden="true" />
+                  ) : null}
+                </span>
+                {preview ? <CoverageLensPreview model={preview} /> : null}
+                <span className="mt-3 block min-h-8 text-[10px] leading-4 text-white/40">
+                  {populatedRows.map((row) => `${row.label} ${row.count}`).join(" · ")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="border-t border-white/10 px-4 py-3 text-[10px] leading-4 text-white/38 sm:px-5">
+          Previews show row distribution across the current theme columns. Choosing a
+          lens changes only this view.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function HighlightCoverageView({
   model,
   lensSuggestions,
@@ -788,46 +982,13 @@ export function HighlightCoverageView({
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
           Coverage system
         </p>
-        <div className="mt-2 grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] sm:items-end">
-          <div>
-            <h2 className="font-display text-2xl font-semibold tracking-[-0.04em]">
-              Highlight matrix
-            </h2>
-            <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
-              Select a suggested row lens to recluster the same highlights.
-            </p>
-          </div>
-          <label className="grid gap-1.5">
-            <span className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/52">
-              Row lens
-              {model.lens.id === recommendedLensId ? (
-                <span className="normal-case tracking-normal text-teal-200/80">
-                  Recommended
-                </span>
-              ) : null}
-            </span>
-            <span className="relative block">
-              <select
-                aria-label="Row lens"
-                value={model.lens.id}
-                onChange={(event) =>
-                  onLensChange(event.target.value as HighlightCoverageLensId)
-                }
-                className="h-10 w-full appearance-none rounded-xl border border-white/14 bg-white/[0.055] px-3 pr-9 text-sm font-medium text-white outline-none transition focus:border-teal-200/70 focus:ring-2 focus:ring-teal-200/15"
-              >
-                {lensSuggestions.map((suggestion) => (
-                  <option key={suggestion.lens.id} value={suggestion.lens.id}>
-                    {suggestion.lens.label}
-                    {` · ${suggestion.classifiedCount}/${allItems.length}`}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/42"
-                aria-hidden="true"
-              />
-            </span>
-          </label>
+        <div className="mt-2">
+          <h2 className="font-display text-2xl font-semibold tracking-[-0.04em]">
+            Highlight matrix
+          </h2>
+          <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
+            Rows regroup the same highlights; columns remain the existing themes.
+          </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-3 border-t border-white/10 pt-4">
           <div className="min-w-0" aria-live="polite">
@@ -856,7 +1017,17 @@ export function HighlightCoverageView({
         </div>
       </header>
 
-      <div className="hidden md:block">
+      <div className="relative hidden md:block">
+        <div className="absolute left-0 top-0 z-40 flex h-[49px] w-[72px] items-center justify-center border-r border-white/8">
+          <CoverageLensPicker
+            items={allItems}
+            lensSuggestions={lensSuggestions}
+            recommendedLensId={recommendedLensId}
+            selectedLensId={model.lens.id}
+            placement="desktop"
+            onLensChange={onLensChange}
+          />
+        </div>
         <table data-coverage-table className="w-full table-fixed border-collapse text-left">
           <colgroup>
             <col className="w-[72px]" />
@@ -866,7 +1037,7 @@ export function HighlightCoverageView({
           </colgroup>
           <thead>
             <tr className="border-b border-white/10">
-              <th className="px-2 py-4" aria-label="Coverage layer" />
+              <th className="px-2 py-4" aria-label="Coverage row axis" />
               {model.columns.map((column) => (
                 <th
                   key={column.key}
@@ -959,6 +1130,23 @@ export function HighlightCoverageView({
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="relative flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 md:hidden">
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/38">
+            Rows grouped by
+          </p>
+          <p className="mt-1 text-sm font-medium text-white/78">{model.lens.label}</p>
+        </div>
+        <CoverageLensPicker
+          items={allItems}
+          lensSuggestions={lensSuggestions}
+          recommendedLensId={recommendedLensId}
+          selectedLensId={model.lens.id}
+          placement="mobile"
+          onLensChange={onLensChange}
+        />
       </div>
 
       <div className="divide-y divide-white/10 md:hidden">
