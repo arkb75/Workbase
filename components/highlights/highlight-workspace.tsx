@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Archive,
   Check,
+  ChevronDown,
   CircleDashed,
   Clock3,
   Grid3X3,
@@ -21,6 +22,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
+  buildHighlightCoverageLensSuggestions,
+  getRecommendedHighlightCoverageLens,
   getHighlightTheme,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
@@ -29,6 +32,8 @@ import {
   type HighlightAtlasEdge,
   type HighlightAtlasNode,
   type HighlightCoverageModel,
+  type HighlightCoverageLensId,
+  type HighlightCoverageLensSuggestion,
   type HighlightWorkspaceFilter,
   type HighlightWorkspaceItem,
   type HighlightWorkspaceStatus,
@@ -746,15 +751,21 @@ function CoverageRowHeading({
 
 export function HighlightCoverageView({
   model,
+  lensSuggestions,
+  recommendedLensId,
   filter,
   query,
   selectedId,
+  onLensChange,
   onSelect,
 }: {
   model: HighlightCoverageModel;
+  lensSuggestions: HighlightCoverageLensSuggestion[];
+  recommendedLensId: HighlightCoverageLensId;
   filter: HighlightWorkspaceFilter;
   query: string;
   selectedId: string | null;
+  onLensChange: (lensId: HighlightCoverageLensId) => void;
   onSelect: (id: string) => void;
 }) {
   const allItems = model.columns
@@ -763,6 +774,10 @@ export function HighlightCoverageView({
   const codeById = new Map(
     allItems.map((item, index) => [item.id, `H${String(index + 1).padStart(2, "0")}`]),
   );
+  const activeSuggestion =
+    lensSuggestions.find((suggestion) => suggestion.lens.id === model.lens.id) ??
+    lensSuggestions[0];
+  const populatedRows = activeSuggestion?.rowCounts.filter((row) => row.count > 0) ?? [];
 
   return (
     <section
@@ -773,14 +788,55 @@ export function HighlightCoverageView({
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
           Coverage system
         </p>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+        <div className="mt-2 grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] sm:items-end">
           <div>
             <h2 className="font-display text-2xl font-semibold tracking-[-0.04em]">
               Highlight matrix
             </h2>
             <p className="mt-2 max-w-xl text-xs leading-5 text-white/52">
-              Themes form the columns. Populated inferred groups form the rows,
-              ordered by coverage.
+              Select a suggested row lens to recluster the same highlights.
+            </p>
+          </div>
+          <label className="grid gap-1.5">
+            <span className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/52">
+              Row lens
+              {model.lens.id === recommendedLensId ? (
+                <span className="normal-case tracking-normal text-teal-200/80">
+                  Recommended
+                </span>
+              ) : null}
+            </span>
+            <span className="relative block">
+              <select
+                aria-label="Row lens"
+                value={model.lens.id}
+                onChange={(event) =>
+                  onLensChange(event.target.value as HighlightCoverageLensId)
+                }
+                className="h-10 w-full appearance-none rounded-xl border border-white/14 bg-white/[0.055] px-3 pr-9 text-sm font-medium text-white outline-none transition focus:border-teal-200/70 focus:ring-2 focus:ring-teal-200/15"
+              >
+                {lensSuggestions.map((suggestion) => (
+                  <option key={suggestion.lens.id} value={suggestion.lens.id}>
+                    {suggestion.lens.label}
+                    {` · ${suggestion.classifiedCount}/${allItems.length}`}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/42"
+                aria-hidden="true"
+              />
+            </span>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-3 border-t border-white/10 pt-4">
+          <div className="min-w-0" aria-live="polite">
+            <p className="text-[11px] leading-5 text-white/58">
+              {model.lens.description} {model.classifiedCount} of {allItems.length}
+              {" "}classified.
+            </p>
+            <p className="mt-1 truncate text-[10px] uppercase tracking-[0.12em] text-white/34">
+              {populatedRows.map((row) => `${row.label} ${row.count}`).join(" · ")}
             </p>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-white/62" aria-label="Coverage status legend">
@@ -957,6 +1013,9 @@ export function HighlightWorkspace({
   const [view, setView] = useState<WorkspaceView>(initialView);
   const [filter, setFilter] = useState<HighlightWorkspaceFilter>("all");
   const [query, setQuery] = useState("");
+  const [coverageLensId, setCoverageLensId] = useState<HighlightCoverageLensId>(() =>
+    getRecommendedHighlightCoverageLens(items),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const firstReviewItem = items.find(
       (item) => getHighlightWorkspaceStatus(item) === "needs_review",
@@ -965,7 +1024,16 @@ export function HighlightWorkspace({
   });
 
   const atlas = useMemo(() => buildHighlightAtlas(items), [items]);
-  const coverage = useMemo(() => buildHighlightCoverage(items), [items]);
+  const lensSuggestions = useMemo(
+    () => buildHighlightCoverageLensSuggestions(items),
+    [items],
+  );
+  const recommendedLensId =
+    lensSuggestions[0]?.lens.id ?? getRecommendedHighlightCoverageLens(items);
+  const coverage = useMemo(
+    () => buildHighlightCoverage(items, coverageLensId),
+    [coverageLensId, items],
+  );
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const selected = selectedId ? itemsById.get(selectedId) ?? null : null;
   const matchingCount = items.filter((item) => itemMatches(item, filter, query)).length;
@@ -1123,9 +1191,12 @@ export function HighlightWorkspace({
         ) : (
           <HighlightCoverageView
             model={coverage}
+            lensSuggestions={lensSuggestions}
+            recommendedLensId={recommendedLensId}
             filter={filter}
             query={query}
             selectedId={selectedId}
+            onLensChange={setCoverageLensId}
             onSelect={setSelectedId}
           />
         )}
@@ -1140,7 +1211,7 @@ export function HighlightWorkspace({
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-black/8 bg-[color:var(--surface)] px-4 py-3 text-xs text-[color:var(--ink-muted)] sm:px-5">
-        <span>Atlas maps themes. Coverage compares inferred groups across the same highlights.</span>
+        <span>Coverage lenses regroup the view without changing highlight data.</span>
         <span className="inline-flex items-center gap-1.5">
           <Archive className="h-3.5 w-3.5" aria-hidden="true" />
           Older records remain available in the ledger below.

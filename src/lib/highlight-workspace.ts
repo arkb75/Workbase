@@ -12,20 +12,137 @@ export type HighlightWorkspaceStatus =
 
 export type HighlightWorkspaceFilter = HighlightWorkspaceStatus | "all";
 
-export const highlightPrimaryAngles = [
-  "impact",
-  "implementation",
-  "ownership",
-  "unclassified",
+export const highlightCoverageLensIds = [
+  "narrative",
+  "contribution",
+  "value",
 ] as const;
 
-export type HighlightPrimaryAngle = (typeof highlightPrimaryAngles)[number];
+export type HighlightCoverageLensId = (typeof highlightCoverageLensIds)[number];
 
-export const highlightPrimaryAngleLabels: Record<HighlightPrimaryAngle, string> = {
-  impact: "Impact",
-  implementation: "Implementation",
-  ownership: "Ownership",
-  unclassified: "Unclassified",
+export type HighlightCoverageRowDefinition = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+export type HighlightCoverageLensDefinition = {
+  id: HighlightCoverageLensId;
+  label: string;
+  description: string;
+  rows: readonly HighlightCoverageRowDefinition[];
+  fallbackRowKey: string;
+};
+
+export const highlightCoverageLenses: readonly HighlightCoverageLensDefinition[] = [
+  {
+    id: "narrative",
+    label: "Narrative",
+    description: "Organizes highlights by the role they play in a concise work story.",
+    rows: [
+      {
+        key: "challenge",
+        label: "Challenge",
+        description: "The problem, constraint, or risk that made the work necessary.",
+      },
+      {
+        key: "action",
+        label: "Action",
+        description: "The concrete work, decision, or leadership applied.",
+      },
+      {
+        key: "result",
+        label: "Result",
+        description: "The measured or stated effect of the work.",
+      },
+      {
+        key: "other",
+        label: "Other",
+        description: "Highlights without enough narrative signal yet.",
+      },
+    ],
+    fallbackRowKey: "other",
+  },
+  {
+    id: "contribution",
+    label: "Contribution",
+    description: "Groups highlights by how the person contributed to the work.",
+    rows: [
+      {
+        key: "built",
+        label: "Built",
+        description: "Created, implemented, designed, or integrated something tangible.",
+      },
+      {
+        key: "improved",
+        label: "Improved",
+        description: "Made an existing system faster, safer, or more effective.",
+      },
+      {
+        key: "led",
+        label: "Led",
+        description: "Owned direction, coordination, or accountable scope.",
+      },
+      {
+        key: "enabled",
+        label: "Enabled",
+        description: "Unlocked, automated, standardized, or supported other work.",
+      },
+      {
+        key: "other",
+        label: "Other",
+        description: "Highlights without a clear contribution signal yet.",
+      },
+    ],
+    fallbackRowKey: "other",
+  },
+  {
+    id: "value",
+    label: "Value delivered",
+    description: "Groups highlights by the kind of value the work appears to create.",
+    rows: [
+      {
+        key: "speed",
+        label: "Speed",
+        description: "Reduced latency, time, or performance cost.",
+      },
+      {
+        key: "reliability",
+        label: "Reliability",
+        description: "Improved availability, durability, recovery, or resilience.",
+      },
+      {
+        key: "quality",
+        label: "Quality",
+        description: "Improved safety, correctness, validation, or review quality.",
+      },
+      {
+        key: "scale",
+        label: "Scale",
+        description: "Supported more volume, concurrency, or distributed operation.",
+      },
+      {
+        key: "team-leverage",
+        label: "Team leverage",
+        description: "Made other people or teams more effective.",
+      },
+      {
+        key: "other",
+        label: "Other",
+        description: "Highlights without a clear value signal yet.",
+      },
+    ],
+    fallbackRowKey: "other",
+  },
+];
+
+export type HighlightCoverageLensSuggestion = {
+  lens: HighlightCoverageLensDefinition;
+  classifiedCount: number;
+  unclassifiedCount: number;
+  populatedRowCount: number;
+  fitPercent: number;
+  rowCounts: Array<HighlightCoverageRowDefinition & { count: number }>;
 };
 
 export type HighlightWorkspaceSourceRef = {
@@ -107,8 +224,11 @@ export type HighlightCoverageColumn = HighlightThemeGroup & {
 };
 
 export type HighlightCoverageModel = {
+  lens: HighlightCoverageLensDefinition;
   columns: HighlightCoverageColumn[];
   rows: HighlightCoverageRow[];
+  classifiedCount: number;
+  unclassifiedCount: number;
 };
 
 const dimensionPriority = [
@@ -247,93 +367,200 @@ export function getHighlightTheme(item: HighlightWorkspaceItem) {
   return { key: "uncategorized", label: "Uncategorized" };
 }
 
-export function inferHighlightPrimaryAngle(
-  item: Pick<
-    HighlightWorkspaceItem,
-    "text" | "summary" | "tags" | "ownershipClarity"
-  >,
-): { angle: HighlightPrimaryAngle; reason: string } {
-  const content = [
+type CoverageClassifiableHighlight = Pick<
+  HighlightWorkspaceItem,
+  "text" | "summary" | "tags" | "ownershipClarity"
+>;
+
+function coverageSearchText(item: CoverageClassifiableHighlight) {
+  return [
     item.text,
     item.summary,
+    `ownership:${item.ownershipClarity}`,
     ...item.tags.map((tag) => `${tag.dimension}:${tag.tag}`),
   ]
     .join(" ")
     .toLowerCase();
-  const hasMetric = /\b(?:\d+(?:\.\d+)?\s?(?:%|x|×|ms|s|sec|seconds?|minutes?|hours?)|zero[- ]downtime)\b/i.test(
-    content,
-  );
-  const hasImpactLanguage =
-    /\b(?:cut|reduced?|increased?|improved?|accelerated|saved|grew|growth|throughput|latency|conversion|adoption|uptime|downtime|impact|outcome|result)\b/i.test(
-      content,
-    );
-  const hasOwnershipTag = item.tags.some(
-    (tag) =>
-      tag.dimension === "competency" &&
-      tag.tag === "leadership",
-  );
-  const hasOwnershipLanguage =
-    /\b(?:led|owned|drove|defined|guided|coordinated|mentored|partnered|cross[- ]team|roadmap|stakeholder)\b/i.test(
-      content,
-    );
-  const hasImplementationTag = item.tags.some(
-    (tag) =>
-      tag.dimension === "emphasis" &&
-      [
-        "implementation",
-        "architecture",
-        "optimization",
-        "reliability",
-        "user_experience",
-        "experimentation",
-      ].includes(tag.tag),
-  );
-  const hasImplementationLanguage =
-    /\b(?:built|implemented|created|designed|developed|integrated|migrated|pipeline|service|system|architecture|api|workflow|runtime|layer|backfill|gate)\b/i.test(
-      content,
-    );
-
-  if (hasMetric && hasImpactLanguage) {
-    return {
-      angle: "impact",
-      reason: "Describes a measured result or operational effect.",
-    };
-  }
-
-  if (hasOwnershipTag || hasOwnershipLanguage) {
-    return {
-      angle: "ownership",
-      reason: "Describes leadership, coordination, or accountable scope.",
-    };
-  }
-
-  if (hasImpactLanguage) {
-    return {
-      angle: "impact",
-      reason: "Describes the effect of the work rather than only its mechanism.",
-    };
-  }
-
-  if (hasImplementationTag || hasImplementationLanguage) {
-    return {
-      angle: "implementation",
-      reason: "Describes what was built, changed, or technically enabled.",
-    };
-  }
-
-  return {
-    angle: "unclassified",
-    reason: "The available text does not support a clear primary angle yet.",
-  };
 }
 
-export function getHighlightCoverageRowLabel(
+function classifyCoverageRowKey(
+  item: CoverageClassifiableHighlight,
+  lensId: HighlightCoverageLensId,
+) {
+  const content = coverageSearchText(item);
+
+  if (lensId === "narrative") {
+    if (
+      /\b(?:result|outcome|impact|cut|reduced?|increased?|improved?|accelerated|saved|grew|growth|adoption|uptime|throughput|latency)\b/i.test(
+        content,
+      )
+    ) {
+      return "result";
+    }
+    if (
+      /\b(?:built|implemented|created|designed|developed|integrated|migrated|launched|delivered|led|owned|drove|defined|coordinated|automated|standardized)\b/i.test(
+        content,
+      )
+    ) {
+      return "action";
+    }
+    if (
+      /\b(?:challenge|problem|constraint|gap|risk|legacy|bottleneck|failure|unavailable|fragmented|manual)\b/i.test(
+        content,
+      )
+    ) {
+      return "challenge";
+    }
+    return "other";
+  }
+
+  if (lensId === "contribution") {
+    if (
+      /\b(?:led|owned|drove|directed|guided|coordinated|mentored|partnered|roadmap|stakeholder|leadership)\b/i.test(
+        content,
+      )
+    ) {
+      return "led";
+    }
+    if (
+      /\b(?:improved?|optimized|reduced?|increased?|accelerated|hardened|stabilized|streamlined|cut)\b/i.test(
+        content,
+      )
+    ) {
+      return "improved";
+    }
+    if (
+      /\b(?:built|implemented|created|designed|developed|integrated|migrated|launched|shipped|constructed)\b/i.test(
+        content,
+      )
+    ) {
+      return "built";
+    }
+    if (
+      /\b(?:enabled|unlocked|automated|standardized|supported|governed|prevented|provided|combined|combines|routed|routes|validated|validates)\b/i.test(
+        content,
+      )
+    ) {
+      return "enabled";
+    }
+    return "other";
+  }
+
+  if (
+    /\b(?:latency|performance|throughput|faster|speed|response time|execution time|optimization)\b/i.test(
+      content,
+    )
+  ) {
+    return "speed";
+  }
+  if (
+    /\b(?:reliability|availability|uptime|downtime|retry|recovery|resilien\w*|durab\w*|failure|fault|stale|freshness)\b/i.test(
+      content,
+    )
+  ) {
+    return "reliability";
+  }
+  if (
+    /\b(?:quality|safety|validation|validated|accuracy|correctness|test|review|verification|redaction|guard|governance|provenance)\b/i.test(
+      content,
+    )
+  ) {
+    return "quality";
+  }
+  if (
+    /\b(?:scale|scalable|distributed|concurrency|concurrent|contention|volume|traffic|multi[- ]tenant)\b/i.test(
+      content,
+    )
+  ) {
+    return "scale";
+  }
+  if (
+    /\b(?:cross[- ]team|platform|developer experience|workflow|collaboration|enablement|self[- ]service|automation)\b/i.test(
+      content,
+    )
+  ) {
+    return "team-leverage";
+  }
+  return "other";
+}
+
+export function getHighlightCoverageLens(lensId: HighlightCoverageLensId) {
+  return (
+    highlightCoverageLenses.find((lens) => lens.id === lensId) ??
+    highlightCoverageLenses[0]
+  );
+}
+
+export function getHighlightCoverageRow(
   item: Pick<
     HighlightWorkspaceItem,
     "text" | "summary" | "tags" | "ownershipClarity"
   >,
+  lensId: HighlightCoverageLensId,
 ) {
-  return highlightPrimaryAngleLabels[inferHighlightPrimaryAngle(item).angle];
+  const lens = getHighlightCoverageLens(lensId);
+  const rowKey = classifyCoverageRowKey(item, lensId);
+  return (
+    lens.rows.find((row) => row.key === rowKey) ??
+    lens.rows.find((row) => row.key === lens.fallbackRowKey) ??
+    lens.rows[0]
+  );
+}
+
+export function buildHighlightCoverageLensSuggestions(
+  items: HighlightWorkspaceItem[],
+): HighlightCoverageLensSuggestion[] {
+  const rankedSuggestions = highlightCoverageLenses
+    .map((lens, lensIndex) => {
+      const counts = new Map(lens.rows.map((row) => [row.key, 0]));
+      for (const item of items) {
+        const row = getHighlightCoverageRow(item, lens.id);
+        counts.set(row.key, (counts.get(row.key) ?? 0) + 1);
+      }
+
+      const rowCounts = lens.rows.map((row) => ({
+        ...row,
+        count: counts.get(row.key) ?? 0,
+      }));
+      const unclassifiedCount = counts.get(lens.fallbackRowKey) ?? 0;
+      const classifiedCount = Math.max(0, items.length - unclassifiedCount);
+      const populatedRowCount = rowCounts.filter(
+        (row) => row.key !== lens.fallbackRowKey && row.count > 0,
+      ).length;
+
+      return {
+        lens,
+        classifiedCount,
+        unclassifiedCount,
+        populatedRowCount,
+        fitPercent: items.length
+          ? Math.round((classifiedCount / items.length) * 100)
+          : 0,
+        rowCounts,
+        lensIndex,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.classifiedCount - left.classifiedCount ||
+        right.populatedRowCount - left.populatedRowCount ||
+        left.lensIndex - right.lensIndex,
+    );
+
+  return rankedSuggestions.map((ranked) => ({
+    lens: ranked.lens,
+    classifiedCount: ranked.classifiedCount,
+    unclassifiedCount: ranked.unclassifiedCount,
+    populatedRowCount: ranked.populatedRowCount,
+    fitPercent: ranked.fitPercent,
+    rowCounts: ranked.rowCounts,
+  }));
+}
+
+export function getRecommendedHighlightCoverageLens(
+  items: HighlightWorkspaceItem[],
+): HighlightCoverageLensId {
+  return buildHighlightCoverageLensSuggestions(items)[0]?.lens.id ?? "contribution";
 }
 
 export function getHighlightWorkspaceStatus(
@@ -507,7 +734,9 @@ export function buildHighlightAtlas(
 
 export function buildHighlightCoverage(
   items: HighlightWorkspaceItem[],
+  lensId: HighlightCoverageLensId = "contribution",
 ): HighlightCoverageModel {
+  const lens = getHighlightCoverageLens(lensId);
   const themes = groupHighlightsByTheme(items);
   const columns: HighlightCoverageColumn[] =
     themes.length <= 4
@@ -527,45 +756,47 @@ export function buildHighlightCoverage(
   const themeKeyByItemId = new Map(
     themes.flatMap((theme) => theme.items.map((item) => [item.id, theme.key] as const)),
   );
-  const rowItems = new Map<string, { label: string; items: HighlightWorkspaceItem[] }>();
+  const rowItems = new Map<string, HighlightWorkspaceItem[]>();
   for (const item of items) {
-    const label = getHighlightCoverageRowLabel(item);
-    const key = normalizeKey(label);
-    const row = rowItems.get(key) ?? { label, items: [] };
-    row.items.push(item);
-    rowItems.set(key, row);
+    const row = getHighlightCoverageRow(item, lensId);
+    const itemsForRow = rowItems.get(row.key) ?? [];
+    itemsForRow.push(item);
+    rowItems.set(row.key, itemsForRow);
   }
-  const rows = [...rowItems.entries()]
-    .sort(
-      ([leftKey, left], [rightKey, right]) =>
-        right.items.length - left.items.length ||
-        left.label.localeCompare(right.label) ||
-        leftKey.localeCompare(rightKey),
-    )
-    .map<HighlightCoverageRow>(([rowKey, row]) => {
-      const cells = Object.fromEntries(
-        columns.map((column) => [column.key, [] as HighlightWorkspaceItem[]]),
+  const rows = lens.rows.flatMap<HighlightCoverageRow>((rowDefinition) => {
+    const itemsForRow = rowItems.get(rowDefinition.key) ?? [];
+    if (!itemsForRow.length) return [];
+
+    const cells = Object.fromEntries(
+      columns.map((column) => [column.key, [] as HighlightWorkspaceItem[]]),
+    );
+
+    for (const item of itemsForRow) {
+      const themeKey = themeKeyByItemId.get(item.id);
+      const column = columns.find((candidate) =>
+        themeKey ? candidate.themeKeys.includes(themeKey) : false,
       );
+      if (column) cells[column.key]?.push(item);
+    }
 
-      for (const item of row.items) {
-        const themeKey = themeKeyByItemId.get(item.id);
-        const column = columns.find((candidate) =>
-          themeKey ? candidate.themeKeys.includes(themeKey) : false,
-        );
-        if (column) cells[column.key]?.push(item);
-      }
+    for (const cellItems of Object.values(cells)) {
+      cellItems.sort(compareItems);
+    }
 
-      for (const cellItems of Object.values(cells)) {
-        cellItems.sort(compareItems);
-      }
+    return {
+      key: rowDefinition.key,
+      label: rowDefinition.label,
+      items: itemsForRow,
+      cells,
+    };
+  });
+  const unclassifiedCount = rowItems.get(lens.fallbackRowKey)?.length ?? 0;
 
-      return {
-        key: rowKey,
-        label: row.label,
-        items: row.items,
-        cells,
-      };
-    });
-
-  return { columns, rows };
+  return {
+    lens,
+    columns,
+    rows,
+    classifiedCount: Math.max(0, items.length - unclassifiedCount),
+    unclassifiedCount,
+  };
 }

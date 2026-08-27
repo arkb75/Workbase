@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildHighlightAtlas,
   buildHighlightCoverage,
-  getHighlightCoverageRowLabel,
+  buildHighlightCoverageLensSuggestions,
+  getHighlightCoverageRow,
   getHighlightWorkspaceStatus,
   groupHighlightsByTheme,
   highlightMatchesFilter,
-  inferHighlightPrimaryAngle,
   type HighlightWorkspaceItem,
 } from "@/src/lib/highlight-workspace";
 
@@ -163,23 +163,23 @@ describe("highlight workspace model", () => {
         tags: [{ dimension: "domain", tag: "delivery", score: 1 }],
       }),
     ];
-    const coverage = buildHighlightCoverage(items);
+    const coverage = buildHighlightCoverage(items, "narrative");
     const counted = coverage.rows.reduce(
       (total, row) =>
         total + Object.values(row.cells).reduce((sum, cell) => sum + cell.length, 0),
       0,
     );
     const delivery = coverage.columns.find((column) => column.label === "Delivery");
-    const impact = coverage.rows.find((row) => row.key === "impact");
-    const ownership = coverage.rows.find((row) => row.key === "ownership");
+    const result = coverage.rows.find((row) => row.key === "result");
+    const action = coverage.rows.find((row) => row.key === "action");
 
     expect(counted).toBe(items.length);
     expect(delivery).toBeDefined();
-    expect(impact?.cells[delivery?.key ?? ""]).toEqual([]);
-    expect(ownership?.cells[delivery?.key ?? ""]).toHaveLength(1);
+    expect(result?.cells[delivery?.key ?? ""]).toEqual([]);
+    expect(action?.cells[delivery?.key ?? ""]).toHaveLength(1);
   });
 
-  it("infers rows from grounded language", () => {
+  it("classifies the same highlight differently through coherent row lenses", () => {
     const impact = buildItem("impact", {
       text: "Cut API latency by 42%.",
       summary: "Reduced response time for API requests.",
@@ -191,13 +191,15 @@ describe("highlight workspace model", () => {
       text: "Built a unified ingestion pipeline.",
     });
 
-    expect(inferHighlightPrimaryAngle(impact).angle).toBe("impact");
-    expect(inferHighlightPrimaryAngle(ownership).angle).toBe("ownership");
-    expect(inferHighlightPrimaryAngle(implementation).angle).toBe("implementation");
-    expect(getHighlightCoverageRowLabel(implementation)).toBe("Implementation");
+    expect(getHighlightCoverageRow(impact, "narrative").label).toBe("Result");
+    expect(getHighlightCoverageRow(impact, "value").label).toBe("Speed");
+    expect(getHighlightCoverageRow(ownership, "contribution").label).toBe("Led");
+    expect(getHighlightCoverageRow(implementation, "contribution").label).toBe(
+      "Built",
+    );
   });
 
-  it("renders only populated rows and orders them by coverage", () => {
+  it("renders only populated rows in the selected lens sequence", () => {
     const implementationItems = ["one", "two", "three"].map((id) =>
       buildItem(id, { text: "Built the ingestion pipeline." }),
     );
@@ -205,24 +207,49 @@ describe("highlight workspace model", () => {
       buildItem(id, { text: "Led the cross-team platform roadmap." }),
     );
     const impactItem = buildItem("six", {
-      text: "Cut API latency by 42%.",
-      summary: "Reduced response time for API requests.",
+      text: "Improved API latency.",
     });
     const items = [...implementationItems, ...ownershipItems, impactItem];
-    const forward = buildHighlightCoverage(items);
-    const reversed = buildHighlightCoverage([...items].reverse());
+    const forward = buildHighlightCoverage(items, "contribution");
+    const reversed = buildHighlightCoverage([...items].reverse(), "contribution");
 
     expect(forward.rows.map((row) => row.label)).toEqual([
-      "Implementation",
-      "Ownership",
-      "Impact",
+      "Built",
+      "Improved",
+      "Led",
     ]);
     expect(reversed.rows.map((row) => row.label)).toEqual(
       forward.rows.map((row) => row.label),
     );
-    expect(forward.rows.map((row) => row.items.length)).toEqual([3, 2, 1]);
-    expect(buildHighlightCoverage(implementationItems).rows.map((row) => row.label)).toEqual([
-      "Implementation",
+    expect(forward.rows.map((row) => row.items.length)).toEqual([3, 1, 2]);
+    expect(
+      buildHighlightCoverage(implementationItems, "contribution").rows.map(
+        (row) => row.label,
+      ),
+    ).toEqual(["Built"]);
+  });
+
+  it("recommends the lens that classifies the most highlights with useful spread", () => {
+    const items = [
+      buildItem("built", { text: "Built the ingestion pipeline." }),
+      buildItem("improved", { text: "Optimized API latency." }),
+      buildItem("led", { text: "Led the platform roadmap." }),
+      buildItem("enabled", { text: "Automated developer workflow setup." }),
+    ];
+    const suggestions = buildHighlightCoverageLensSuggestions(items);
+
+    expect(suggestions[0]?.lens.id).toBe("contribution");
+    expect(suggestions[0]?.classifiedCount).toBe(items.length);
+    expect(suggestions[0]?.unclassifiedCount).toBe(0);
+    expect(
+      suggestions[0]?.rowCounts
+        .filter((row) => row.count > 0)
+        .map((row) => [row.label, row.count]),
+    ).toEqual([
+      ["Built", 1],
+      ["Improved", 1],
+      ["Led", 1],
+      ["Enabled", 1],
     ]);
   });
 });

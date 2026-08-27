@@ -95,12 +95,19 @@ describe("HighlightWorkspace", () => {
 
     expect(html).toContain('aria-label="Highlight Coverage"');
     expect(html).toContain("Coverage system");
-    expect(html).toContain("Populated inferred groups form the rows, ordered by coverage");
+    expect(html).toContain("Select a suggested row lens to recluster the same highlights");
+    expect(html).toContain('aria-label="Row lens"');
+    expect(html).toContain("Narrative");
+    expect(html).toContain("Contribution");
+    expect(html).toContain("Value delivered");
+    expect(html).toContain("Recommended");
+    expect(html).toContain("1 of 3");
     expect(html).toContain("Systems Design");
     expect(html).toContain("Delivery");
-    expect(html).toContain("Unclassified");
-    expect(html).not.toContain("Edit Unclassified row name");
-    expect(html).not.toContain("Rename Unclassified row");
+    expect(html).toContain("Quality");
+    expect(html).toContain("Other");
+    expect(html).not.toContain("Edit Other row name");
+    expect(html).not.toContain("Rename Other row");
     expect(html).not.toContain("Use suggestion");
     expect(html).not.toContain("Primary angle for Grounded highlight review");
     expect(html).not.toContain("Weak framing");
