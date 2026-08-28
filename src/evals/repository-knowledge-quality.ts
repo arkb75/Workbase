@@ -244,21 +244,12 @@ function itemSearchText(item: RepositoryKnowledgeEvaluationItem) {
 function inferredClaimState(
   item: RepositoryKnowledgeEvaluationItem,
 ): RepositoryKnowledgeClaimState {
-  if (item.claimState) return item.claimState;
-  const text = itemSearchText(item);
-  if (
-    /\b(?:planned|planning|roadmap|future|next|todo|not yet|in progress|wip)\b/iu
-      .test(text)
-  ) {
-    return "planned";
-  }
-  if (
-    /\b(?:built|created|delivered|implemented|integrated|supports?|uses?|records?|validates?|generates?|provides?|routes?|stores?|renders?|loads?|parses?|executes?)\b/iu
-      .test(text)
-  ) {
-    return "implemented";
-  }
-  return "unknown";
+  // Repository observations are assertive current-state knowledge by
+  // contract: planned documentation is filtered before synthesis. State must
+  // be explicit when another evaluator adapter supports planned or unknown
+  // knowledge; guessing from prose makes correctness depend on wording and
+  // misreads names such as Next.js or "planning engine".
+  return item.claimState ?? "implemented";
 }
 
 function normalizedPath(path: string) {
@@ -771,10 +762,12 @@ export function evaluateRepositoryKnowledgeRun(input: {
   // oracle. They are deliberately not a closed-world whitelist for precision:
   // an extractor may discover additional repository-grounded knowledge.
   const claimEvidencePairs = fixture.expectedCapabilities.flatMap((capability) =>
-    (capabilityMatches.get(capability.key) ?? []).map((itemIndex) => ({
-      capability,
-      item: run.items[itemIndex]!,
-    }))
+    (capabilityMatches.get(capability.key) ?? []).flatMap((itemIndex) => {
+      const item = run.items[itemIndex]!;
+      return evidenceSupportsCapability(item, capability)
+        ? [{ capability, item }]
+        : [];
+    })
   );
 
   const stateScores = claimEvidencePairs.map(({ capability, item }) => {
@@ -782,7 +775,12 @@ export function evaluateRepositoryKnowledgeRun(input: {
     if (state === "unknown") return 0.5;
     return state === capability.implementationState ? 1 : 0;
   });
-  const claimStateCorrectness = average(stateScores);
+  // No evidence-backed oracle match means state is not measurable for this
+  // run. Recall already scores the absence; treating the empty denominator as
+  // an additional state failure would penalize the same miss twice.
+  const claimStateCorrectness = stateScores.length
+    ? average(stateScores)
+    : 1;
 
   const highlights = run.items.filter((item) => item.kind === "highlight");
   const duplicateItemPairs: Array<[string, string]> = [];

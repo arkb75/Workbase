@@ -511,6 +511,78 @@ describe("generalized repository knowledge evaluation", () => {
     }
   });
 
+  it("treats current-state repository claims as implemented without requiring achievement verbs", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("backer-marketplace")!,
+    );
+    const run = representativeRun(fixture);
+    const rankedFeed = run.items.find((item) =>
+      item.text.includes("trainable investor feed ranker")
+    )!;
+    delete rankedFeed.claimState;
+    rankedFeed.text =
+      "Investor-personalized Next.js planning workspace with feed-model scoring and deterministic weighting.";
+    rankedFeed.summary = "Trainable investor feed ranking and planning workflow.";
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.claimStateCorrectness).toBe(1);
+  });
+
+  it("requires planned repository knowledge to carry explicit state", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const run = representativeRun(fixture);
+    const planned = run.items.find((item) =>
+      item.text.includes("future extensions")
+    )!;
+    delete planned.claimState;
+    planned.text = "Roadmap work covers the future loan and repayment lifecycle.";
+
+    const unlabeled = evaluateRepositoryKnowledgeRun({ fixture, run });
+    planned.claimState = "planned";
+    const labeled = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(unlabeled.metrics.claimStateCorrectness).toBeLessThan(1);
+    expect(labeled.metrics.claimStateCorrectness).toBe(1);
+  });
+
+  it("does not score implementation state from a text-only capability match", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const baselineRun = representativeRun(fixture);
+    const baseline = evaluateRepositoryKnowledgeRun({ fixture, run: baselineRun });
+    const run = representativeRun(fixture);
+    run.items.push({
+      id: "unrelated-loan-copy",
+      kind: "fact",
+      text: "Implemented loan repayment copy in the signup screen.",
+      claimState: "implemented",
+      evidence: [{ path: "src/app/api/v1/auth/signup/route.ts" }],
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.claimStateCorrectness).toBe(
+      baseline.metrics.claimStateCorrectness,
+    );
+  });
+
+  it("does not double-penalize state when no capability has an evidence-backed match", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("workbase-project-knowledge")!,
+    );
+    const run = representativeRun(fixture);
+    run.items = [];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.capabilityRecall).toBe(0);
+    expect(report.metrics.claimStateCorrectness).toBe(1);
+  });
+
   it("catches generated artifacts, generic-token mappings, and capability explosion", () => {
     const fixture = withRepresentativeContent(
       repositoryKnowledgeFixture("amazon-marketplace-analytics")!,
