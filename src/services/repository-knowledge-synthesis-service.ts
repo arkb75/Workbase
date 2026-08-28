@@ -187,7 +187,7 @@ export interface SynthesizedKnowledge {
 }
 
 export const repositorySynthesisSafetyGuidance =
-  "Avoid absolute qualifiers such as mandatory, always, never, exclusively, every, all, only, guarantees, production-grade, or tamper-evident unless an exact executable notebook entry states that qualifier. Prefer a narrower non-absolute description when the notebook supports the underlying behavior but not the qualifier.";
+  "Avoid absolute qualifiers such as mandatory, always, never, exclusively, every, all, only, guarantees, production-grade, or tamper-evident unless an exact executable notebook entry states that qualifier. Prefer a narrower non-absolute description when the notebook supports the underlying behavior but not the qualifier. Describe access gates as the exact positive condition observed, such as allowing an action when a stated condition holds, rather than claiming global prevention or prohibition.";
 
 export function normalizeRepositoryHighlightText(value: string) {
   const normalized = normalizeWhitespace(value);

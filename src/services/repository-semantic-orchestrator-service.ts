@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v19-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v20-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -1263,6 +1263,9 @@ function semanticPathFamily(path: string) {
   }
   if (/(?:^|[\/_.-])(?:analytics?|forecast|insights?|metrics?|reporting)(?:[\/_.-]|$)/i.test(normalized)) {
     return "boundary:analytics-reporting";
+  }
+  if (/(?:^|[\/_.-])(?:collaborat(?:e|ion|or|ors)?|invites?|invitations?|memberships?|teams?|companies?)(?:[\/_.-]|$)/i.test(normalized)) {
+    return "boundary:collaboration-membership";
   }
   if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) {
     return "interface";

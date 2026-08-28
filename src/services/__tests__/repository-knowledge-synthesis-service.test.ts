@@ -64,6 +64,8 @@ describe("repository synthesis limit fallback", () => {
       expect(repositorySynthesisSafetyGuidance).toContain(qualifier);
     }
     expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
+    expect(repositorySynthesisSafetyGuidance).toContain("exact positive condition");
+    expect(repositorySynthesisSafetyGuidance).toContain("global prevention or prohibition");
   });
 
   it("normalizes provider title overshoot without rejecting the supported synthesis", () => {

@@ -296,6 +296,25 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(plan[0]?.fileSnapshotIds).not.toContain("investor-page");
   });
 
+  it("keeps collaboration membership distinct from generic request handlers", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/team-product",
+      salience: 120,
+      files: [
+        { id: "upload", path: "app/api/upload/route.ts", score: 100 },
+        { id: "invite", path: "app/api/teams/invitations/route.ts", score: 90 },
+        { id: "account", path: "app/api/accounts/route.ts", score: 80 },
+        { id: "dashboard", path: "app/dashboard/page.tsx", score: 70 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(expect.arrayContaining(["upload", "invite"]));
+    expect(plan[0]?.fileSnapshotIds).not.toContain("account");
+  });
+
   it("reserves structural coverage and rejects IDE, raw-data, and repository-wrapper domains", () => {
     const manifest = buildRepositoryDerivedCapabilityManifest({
       scopeKey: "owner/InsightUBC",
