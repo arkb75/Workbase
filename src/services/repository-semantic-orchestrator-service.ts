@@ -22,6 +22,7 @@ import {
 import {
   createStructuredGenerationBudget,
   snapshotStructuredGenerationBudget,
+  type StructuredGenerationBudget,
 } from "@/src/lib/bedrock-structured-llm-client";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
@@ -32,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v25-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v26-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -46,7 +47,8 @@ const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_PACKAGES = 2;
 const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
-const REPAIR_TOKEN_RESERVE = 20_000;
+const REPAIR_TOKEN_RESERVE = 16_000;
+const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const SEMANTIC_PLANNER_REPRESENTATIVES_PER_CAPABILITY = 1;
@@ -282,6 +284,7 @@ export interface SemanticWorkPackage {
   questions: string[];
   expectedOutputs: string[];
   budget: {
+    scope?: "package" | "shared_wave";
     maxWorkers: number;
     maxModelCalls: number;
     maxInputBytes: number;
@@ -673,45 +676,45 @@ export interface CapabilityReport {
   }>;
 }
 
-/**
- * Divide the fixed global semantic budget by planned provider work instead of
- * worker count. Equal worker slices strand capacity whenever one package needs
- * two micro-batches and another needs only one.
- */
-export function allocateSemanticWorkerTokenBudgets(input: {
-  totalTokens: number;
-  modelCallCounts: number[];
-}) {
-  if (!Number.isInteger(input.totalTokens) || input.totalTokens < 0) {
-    throw new Error("totalTokens must be a non-negative integer.");
-  }
-  if (input.modelCallCounts.some((count) => !Number.isInteger(count) || count < 1)) {
-    throw new Error("Every semantic worker must reserve at least one model call.");
-  }
-  const totalCalls = input.modelCallCounts.reduce((total, count) => total + count, 0);
-  if (!totalCalls) return [];
-  const allocations = input.modelCallCounts.map((count) =>
-    Math.floor((input.totalTokens * count) / totalCalls)
-  );
-  let remainder = input.totalTokens - allocations.reduce((total, value) => total + value, 0);
-  for (const index of input.modelCallCounts
-    .map((count, index) => ({ count, index }))
-    .sort((left, right) => right.count - left.count || left.index - right.index)
-    .map((entry) => entry.index)) {
-    if (remainder <= 0) break;
-    allocations[index]! += 1;
-    remainder -= 1;
-  }
-  return allocations;
-}
-
-export function semanticPlannerTokenReserve(usage: {
+export function semanticPlannerTokenCommitment(input: {
   totalTokens: number;
   unknownUsageCalls: number;
+  fallbackUsed: boolean;
+  maxTotalTokens: number;
 }) {
-  return usage.unknownUsageCalls > 0
-    ? SEMANTIC_PLANNER_MAX_TOTAL_TOKENS
-    : Math.min(SEMANTIC_PLANNER_MAX_TOTAL_TOKENS, Math.max(0, usage.totalTokens));
+  const measuredTokens = Math.max(0, input.totalTokens);
+  const committedTokens = input.fallbackUsed || input.unknownUsageCalls > 0
+    ? Math.max(SEMANTIC_PLANNER_MAX_TOTAL_TOKENS, measuredTokens)
+    : measuredTokens;
+  return Math.min(input.maxTotalTokens, committedTokens);
+}
+
+export function semanticRepairTokenPool(input: {
+  maxTotalTokens: number;
+  plannerTokenCommitment: number;
+  initialWorkerTokens: number;
+}) {
+  return Math.max(
+    0,
+    input.maxTotalTokens - input.plannerTokenCommitment - input.initialWorkerTokens,
+  );
+}
+
+export function semanticOrchestrationUsage(input: {
+  inputBytes: number;
+  planner: RepositorySemanticBudgetUsage;
+  initialWorkers: Omit<RepositorySemanticBudgetUsage, "inputBytes">;
+  repairWorkers: Omit<RepositorySemanticBudgetUsage, "inputBytes">;
+}) {
+  return {
+    inputBytes: input.inputBytes,
+    modelCalls: input.planner.modelCalls + input.initialWorkers.modelCalls + input.repairWorkers.modelCalls,
+    repairPasses: input.planner.repairPasses + input.initialWorkers.repairPasses + input.repairWorkers.repairPasses,
+    inputTokens: input.planner.inputTokens + input.initialWorkers.inputTokens + input.repairWorkers.inputTokens,
+    outputTokens: input.planner.outputTokens + input.initialWorkers.outputTokens + input.repairWorkers.outputTokens,
+    totalTokens: input.planner.totalTokens + input.initialWorkers.totalTokens + input.repairWorkers.totalTokens,
+    unknownUsageCalls: input.planner.unknownUsageCalls + input.initialWorkers.unknownUsageCalls + input.repairWorkers.unknownUsageCalls,
+  };
 }
 
 export function packSemanticBundleIndexes(input: {
@@ -878,18 +881,6 @@ export function preserveSettledCapabilityReports(
         usage: { ...emptyUsage(), unknownUsageCalls: 1 },
         partial: true,
       });
-}
-
-function aggregateWorkerUsage(reports: CapabilityReport[]): RepositorySemanticBudgetUsage {
-  return reports.reduce((total, report) => ({
-    inputBytes: total.inputBytes + report.usage.inputBytes,
-    modelCalls: total.modelCalls + report.usage.modelCalls,
-    repairPasses: total.repairPasses + report.usage.repairPasses,
-    inputTokens: total.inputTokens + report.usage.inputTokens,
-    outputTokens: total.outputTokens + report.usage.outputTokens,
-    totalTokens: total.totalTokens + report.usage.totalTokens,
-    unknownUsageCalls: total.unknownUsageCalls + report.usage.unknownUsageCalls,
-  }), emptyUsage());
 }
 
 function inputJson(value: unknown): Prisma.InputJsonValue {
@@ -2162,6 +2153,7 @@ async function runWorkPackage(input: {
   workItemId: string;
   targets: Map<string, RepositoryTargetHead>;
   workPackage: SemanticWorkPackage;
+  sharedModelBudget?: StructuredGenerationBudget;
   forceRetry?: boolean;
 }) {
   const existing = await prisma.agentRun.findUnique({
@@ -2217,6 +2209,10 @@ async function runWorkPackage(input: {
     maxOutputTokens: input.workPackage.budget.maxOutputTokens,
     maxTotalTokens: input.workPackage.budget.maxTotalTokens,
   });
+  if (input.sharedModelBudget) {
+    budget.model = input.sharedModelBudget;
+    budget.usageScope = "shared_wave";
+  }
   const pending = [] as Array<{
     file: (typeof files)[number];
     target: RepositoryTargetHead;
@@ -2457,7 +2453,9 @@ async function runWorkPackage(input: {
     workPackageCapabilityKeys: input.workPackage.capabilityKeys,
     candidates,
   }));
-  const usage = snapshotRepositorySemanticBudget(budget);
+  const usage = input.sharedModelBudget
+    ? { ...emptyUsage(), inputBytes: budget.inputBytes }
+    : snapshotRepositorySemanticBudget(budget);
   const report: CapabilityReport = {
     packageId: input.workPackage.id,
     inspectedFileSnapshotIds: inspected,
@@ -2513,11 +2511,16 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     manifest,
     plannerPackages: planned.packages,
   });
-  // Reserve the planner's full declared capacity before allocating semantic
-  // workers. Metered usage remains separately visible below, but a cheap or
-  // failed routing call must not make its capacity appear to be zero.
+  // A successful, metered planner commits what it actually used. A degraded
+  // planner commits at least its full allowance, and any larger known spend,
+  // so routing failure cannot donate provider spend to semantic workers.
   const plannerTokenReserve = SEMANTIC_PLANNER_MAX_TOTAL_TOKENS;
-  const plannerTokenUsage = semanticPlannerTokenReserve(planned.usage);
+  const plannerTokenUsage = Math.max(0, planned.usage.totalTokens);
+  const plannerTokenCommitment = semanticPlannerTokenCommitment({
+    ...planned.usage,
+    fallbackUsed: planned.fallbackUsed,
+    maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+  });
   const normalizedPlan = guardedPlan.map((entry) => ({
     ...entry,
     capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),
@@ -2528,25 +2531,29 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   );
   const availableWorkerTokens = Math.max(
     0,
-    REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve,
+    REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenCommitment,
   );
-  const repairTokenReserve = Math.min(REPAIR_TOKEN_RESERVE, Math.floor(availableWorkerTokens / 2));
-  const workerTokenAllocations = allocateSemanticWorkerTokenBudgets({
-    totalTokens: Math.max(0, availableWorkerTokens - repairTokenReserve),
-    modelCallCounts,
+  const minimumRepairTokenReserve = Math.min(REPAIR_TOKEN_RESERVE, Math.floor(availableWorkerTokens / 2));
+  const workerTokenPool = Math.max(0, availableWorkerTokens - minimumRepairTokenReserve);
+  const workerModelBudget = createStructuredGenerationBudget({
+    maxModelCalls: modelCallCounts.reduce((total, value) => total + value, 0) + normalizedPlan.length,
+    maxRepairPasses: normalizedPlan.length,
+    maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+    maxTotalTokens: workerTokenPool,
   });
   const packages: SemanticWorkPackage[] = normalizedPlan.map((entry, index) => ({
     ...entry,
     id: stablePackageId(refreshRunId, entry.capabilityKeys, entry.fileSnapshotIds),
     budget: {
+      scope: "shared_wave" as const,
       maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
       // Enforce the micro-batched execution shape in the budget itself. A
       // future regression to one provider call per file should fail closed
       // instead of silently restoring the old cost profile.
       maxModelCalls: modelCallCounts[index]! + 1,
       maxInputBytes: 64 * 1024,
-      maxOutputTokens: 6_000,
-      maxTotalTokens: workerTokenAllocations[index]!,
+      maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+      maxTotalTokens: workerTokenPool,
       maxRepairPasses: 1 as const,
     },
   })).sort((left, right) => left.id.localeCompare(right.id));
@@ -2566,11 +2573,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
         maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
         maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
-        allocatedPlannerTokens: plannerTokenReserve,
+        plannerTokenLimit: plannerTokenReserve,
+        plannerTokenCommitment,
         measuredPlannerTokens: plannerTokenUsage,
-        allocatedWorkerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
-        workerTokenAllocations,
-        repairTokenReserve,
+        initialWorkerTokenCeiling: workerTokenPool,
+        workerBudgetScope: "shared_wave",
+        minimumRepairTokenReserve,
       }),
     },
   });
@@ -2581,6 +2589,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     workItemId: run.workItem.id,
     targets,
     workPackage,
+    sharedModelBudget: workerModelBudget,
   })));
   const initialReports = preserveSettledCapabilityReports(packages, settledReports);
   await Promise.all(settledReports.flatMap((result, index) => result.status === "rejected"
@@ -2602,25 +2611,31 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     reports: initialReports,
     allowRepair: true,
   });
+  const initialWorkerUsage = snapshotStructuredGenerationBudget(workerModelBudget);
+  const repairTokenPool = semanticRepairTokenPool({
+    maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+    plannerTokenCommitment,
+    initialWorkerTokens: initialWorkerUsage.totalTokens,
+  });
   const repairCallCounts = initialCritique.repairPackages.map((entry) =>
     Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE))
   );
-  const repairTokenAllocations = allocateSemanticWorkerTokenBudgets({
-    totalTokens: repairTokenReserve,
-    modelCallCounts: repairCallCounts,
+  const repairModelBudget = createStructuredGenerationBudget({
+    maxModelCalls: repairCallCounts.reduce((total, value) => total + value, 0) + initialCritique.repairPackages.length,
+    maxRepairPasses: initialCritique.repairPackages.length,
+    maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+    maxTotalTokens: repairTokenPool,
   });
   const repairPackages: SemanticWorkPackage[] = initialCritique.repairPackages.map((entry, index) => ({
     ...entry,
     id: stablePackageId(`${refreshRunId}:repair`, entry.capabilityKeys, entry.fileSnapshotIds),
     budget: {
+      scope: "shared_wave" as const,
       maxWorkers: MAX_REPAIR_PACKAGES,
       maxModelCalls: repairCallCounts[index]! + 1,
       maxInputBytes: 64 * 1024,
-      // Three concise file reports normally use roughly 1K output tokens.
-      // A 3K ceiling leaves admission and one schema-repair call inside the
-      // existing 10K-per-package repair allocation.
-      maxOutputTokens: 3_000,
-      maxTotalTokens: repairTokenAllocations[index]!,
+      maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+      maxTotalTokens: repairTokenPool,
       maxRepairPasses: 1 as const,
     },
   }));
@@ -2631,6 +2646,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     workItemId: run.workItem.id,
     targets,
     workPackage,
+    sharedModelBudget: repairModelBudget,
   })));
   const repairReports = preserveSettledCapabilityReports(repairPackages, settledRepairReports);
   const finalReports = [...initialReports, ...repairReports];
@@ -2654,16 +2670,13 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     ...missingScopeGaps,
   ]));
   const packageCompletion = partitionCapabilityReports(finalReports);
-  const workerUsage = aggregateWorkerUsage(finalReports);
-  const actualUsage = {
-    inputBytes: workerUsage.inputBytes,
-    modelCalls: workerUsage.modelCalls + planned.usage.modelCalls,
-    repairPasses: workerUsage.repairPasses + planned.usage.repairPasses,
-    inputTokens: workerUsage.inputTokens + planned.usage.inputTokens,
-    outputTokens: workerUsage.outputTokens + planned.usage.outputTokens,
-    totalTokens: workerUsage.totalTokens + planned.usage.totalTokens,
-    unknownUsageCalls: workerUsage.unknownUsageCalls + planned.usage.unknownUsageCalls,
-  };
+  const repairWorkerUsage = snapshotStructuredGenerationBudget(repairModelBudget);
+  const actualUsage = semanticOrchestrationUsage({
+    inputBytes: finalReports.reduce((total, report) => total + report.usage.inputBytes, 0),
+    planner: planned.usage,
+    initialWorkers: initialWorkerUsage,
+    repairWorkers: repairWorkerUsage,
+  });
   const coverageAudit = await prisma.agentRun.upsert({
     where: { userId_idempotencyKey: { userId: run.workItem.userId, idempotencyKey: `coverage-audit:${refreshRunId}` } },
     create: {
@@ -2731,11 +2744,18 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
           maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
         },
         allocations: {
-          plannerTokens: plannerTokenReserve,
-          workerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
-          workerTokenAllocations,
-          repairTokens: repairTokenAllocations.reduce((total, value) => total + value, 0),
-          repairTokenAllocations,
+          plannerTokenLimit: plannerTokenReserve,
+          plannerTokenCommitment,
+          plannerTokens: plannerTokenUsage,
+          initialWorkerTokenCeiling: workerTokenPool,
+          workerBudgetScope: "shared_wave",
+          minimumRepairTokenReserve,
+          repairTokenCeiling: repairTokenPool,
+          repairBudgetScope: "shared_wave",
+        },
+        waveUsage: {
+          initialWorkers: initialWorkerUsage,
+          repairWorkers: repairWorkerUsage,
         },
         actual: actualUsage,
         actualPlanner: planned.usage,

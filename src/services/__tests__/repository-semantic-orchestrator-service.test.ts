@@ -4,7 +4,6 @@ import {
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
-  allocateSemanticWorkerTokenBudgets,
   buildRepositorySemanticPlannerRequest,
   buildFileSemanticTask,
   capabilityCandidatesFromAnalysis,
@@ -21,7 +20,9 @@ import {
   reusableSemanticAnalysis,
   semanticCoverageAssignmentGaps,
   semanticFileReportSignals,
-  semanticPlannerTokenReserve,
+  semanticOrchestrationUsage,
+  semanticPlannerTokenCommitment,
+  semanticRepairTokenPool,
   semanticSignalKeysForFile,
   type CapabilityManifestArea,
   type CapabilityReport,
@@ -70,37 +71,60 @@ describe("repository semantic orchestration guardrails", () => {
     }));
   }
 
-  it("allocates the fixed global budget by planned calls without stranding worker capacity", () => {
-    const weighted = allocateSemanticWorkerTokenBudgets({
-      totalTokens: 80_000,
-      modelCallCounts: [2, 2, 1, 1],
-    });
-
-    expect(weighted).toEqual([26_667, 26_667, 13_333, 13_333]);
-    expect(weighted.reduce((total, value) => total + value, 0)).toBe(80_000);
-    expect(allocateSemanticWorkerTokenBudgets({
-      totalTokens: 80_000,
-      modelCallCounts: [1, 1, 1, 1],
-    })).toEqual([20_000, 20_000, 20_000, 20_000]);
-    expect(allocateSemanticWorkerTokenBudgets({
-      totalTokens: 20_000,
-      modelCallCounts: [1, 1],
-    })).toEqual([10_000, 10_000]);
-  });
-
-  it("reserves actual planner usage and fails conservatively when provider usage is unknown", () => {
-    expect(semanticPlannerTokenReserve({
+  it("commits metered planner usage and contains known or unknown fallback spend", () => {
+    expect(semanticPlannerTokenCommitment({
       totalTokens: 7_500,
       unknownUsageCalls: 0,
+      fallbackUsed: false,
+      maxTotalTokens: 80_000,
     })).toBe(7_500);
-    expect(semanticPlannerTokenReserve({
+    expect(semanticPlannerTokenCommitment({
       totalTokens: 12_000,
       unknownUsageCalls: 1,
-    })).toBe(10_000);
-    expect(semanticPlannerTokenReserve({
-      totalTokens: 40_000,
+      fallbackUsed: true,
+      maxTotalTokens: 80_000,
+    })).toBe(12_000);
+    expect(semanticPlannerTokenCommitment({
+      totalTokens: 90_000,
       unknownUsageCalls: 0,
-    })).toBe(10_000);
+      fallbackUsed: true,
+      maxTotalTokens: 80_000,
+    })).toBe(80_000);
+  });
+
+  it("carries unused initial-wave capacity into the model repair pool", () => {
+    expect(semanticRepairTokenPool({
+      maxTotalTokens: 80_000,
+      plannerTokenCommitment: 2_901,
+      initialWorkerTokens: 30_000,
+    })).toBe(47_099);
+    expect(semanticRepairTokenPool({
+      maxTotalTokens: 80_000,
+      plannerTokenCommitment: 10_000,
+      initialWorkerTokens: 54_000,
+    })).toBe(16_000);
+  });
+
+  it("counts shared semantic waves once in orchestration usage", () => {
+    const usage = (modelCalls: number, totalTokens: number) => ({
+      modelCalls,
+      repairPasses: 0,
+      inputTokens: Math.floor(totalTokens * 0.75),
+      outputTokens: totalTokens - Math.floor(totalTokens * 0.75),
+      totalTokens,
+      unknownUsageCalls: 0,
+    });
+
+    expect(semanticOrchestrationUsage({
+      inputBytes: 48_000,
+      planner: { inputBytes: 0, ...usage(1, 2_901) },
+      initialWorkers: usage(5, 30_000),
+      repairWorkers: usage(2, 12_000),
+    })).toMatchObject({
+      inputBytes: 48_000,
+      modelCalls: 8,
+      totalTokens: 44_901,
+    });
   });
 
   it("dispatches a realistic large manifest through the compact planner prompt", async () => {

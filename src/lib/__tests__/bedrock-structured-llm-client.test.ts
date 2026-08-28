@@ -1091,6 +1091,55 @@ describe("BedrockStructuredLlmClient", () => {
     expect(budget.usage).toMatchObject({ modelCalls: 2, repairPasses: 1, totalTokens: 228 });
   });
 
+  it("uses shared semantic-pool headroom for repair after a live-sized native response", async () => {
+    const { client, calls } = makeClient([
+      {
+        text: `{"ok":${" malformed-semantic-output".repeat(150)}`,
+        stopReason: "end_turn",
+        tokenUsage: { inputTokens: 6_439, outputTokens: 923, totalTokens: 8_469 },
+      },
+      {
+        text: '{"ok":true}',
+        tokenUsage: { inputTokens: 1_500, outputTokens: 100, totalTokens: 1_600 },
+      },
+    ]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 3_000,
+      maxTotalTokens: 20_000,
+    });
+    const liveSizedSchema = {
+      ...jsonSchema,
+      description: "semantic-field ".repeat(180),
+    };
+
+    const result = await client.generateStructured({
+      systemPrompt: "Extract a bounded semantic file batch.",
+      userPrompt: "export const implementedOperation = true;\n".repeat(400),
+      schema,
+      schemaName: "repository_semantic_observation_batch",
+      schemaDescription: "A bounded repository observation batch.",
+      jsonSchema: liveSizedSchema,
+      exampleOutput: { ok: true },
+      requiredFieldPaths: ["ok"],
+      maxTokens: 3_000,
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+      budget,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.maxTokens).toBe(3_000);
+    expect(calls[1]?.maxTokens).toBeGreaterThan(0);
+    expect(budget.usage).toMatchObject({
+      modelCalls: 2,
+      repairPasses: 1,
+      totalTokens: 10_069,
+    });
+  });
+
   it("rejects an adversarial one-character token stream before it can overspend the budget", async () => {
     const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
     const budget = createStructuredGenerationBudget({

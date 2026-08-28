@@ -15,6 +15,7 @@ import {
   analyzeRepositoryFile,
   analyzeRepositoryFileBatch,
   createRepositorySemanticBudget,
+  REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
 } from "@/src/services/repository-coverage-service";
 
 describe("repository semantic task and budget", () => {
@@ -328,6 +329,79 @@ describe("repository semantic task and budget", () => {
     expect(request.effort).toBe("low");
     expect(request.systemPrompt).toContain("query-parameter plumbing");
     expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
+  });
+
+  it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 3_000,
+      maxTotalTokens: 54_000,
+    });
+    budget.usageScope = "shared_wave";
+    const paths = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        files: Array<{ fileKey: string; lineRange: [number, number] }>;
+      };
+      return {
+        data: {
+          files: Object.fromEntries(prompt.files.map((file) => [
+            file.fileKey,
+            {
+              summary: "The selected window implements a bounded operation.",
+              subsystemKeys: ["project_domain:operations"],
+              findings: [{
+                statement: "The selected window exports an implemented operation.",
+                kind: "behavior",
+                capabilityKeys: ["project_domain:operations"],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: file.lineRange[0],
+                lineEnd: file.lineRange[0],
+              }],
+              unresolvedQuestions: [],
+            },
+          ])),
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: { inputTokens: 4_500, outputTokens: 900, totalTokens: 6_400 },
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const content = Array.from({ length: 240 }, (_, index) =>
+      `export const operation${index} = () => "${"source".repeat(8)}";`
+    ).join("\n");
+
+    const analyses = await analyzeRepositoryFileBatch(paths.map((path) => ({
+      repository: "example/general-project",
+      commitSha: "f".repeat(40),
+      path,
+      content,
+      task: {
+        objective: "Determine the implemented operation.",
+        capabilityKeys: ["project_domain:operations"],
+        questions: [],
+        expectedOutputs: ["An exact-line supported finding"],
+      },
+      budget,
+    })));
+
+    const request = generateStructuredMock.mock.calls[0]?.[0];
+    const prompt = JSON.parse(request.userPrompt) as { files: Array<{ content: string }> };
+    const sourceBytes = prompt.files.map((file) => Buffer.byteLength(file.content, "utf8"));
+    expect(sourceBytes.every((bytes) => bytes <= REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES)).toBe(true);
+    expect(sourceBytes.reduce((total, bytes) => total + bytes, 0)).toBeLessThanOrEqual(
+      4 * REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+    );
+    expect(request.maxTokens).toBe(3_000);
+    expect(analyses.every((analysis) => analysis.semanticSource === "model")).toBe(true);
+    expect(analyses.every((analysis) => analysis.semanticBudgetUsage === undefined)).toBe(true);
   });
 
   it("degrades only missing or invalid file members and retains their exact gaps", async () => {

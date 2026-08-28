@@ -17,6 +17,7 @@ import { runAuditedStructuredGeneration } from "@/src/services/structured-genera
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
 export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v13-hybrid";
+export const REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES = 4 * 1024;
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -338,6 +339,8 @@ export interface RepositorySemanticBudget {
   maxInputBytes: number;
   inputBytes: number;
   model: StructuredGenerationBudget;
+  /** Shared wave budgets are reported once by the orchestrator, not per file. */
+  usageScope?: "local" | "shared_wave";
 }
 
 export interface RepositorySemanticBudgetUsage extends StructuredGenerationBudgetUsage {
@@ -1098,7 +1101,11 @@ export async function analyzeRepositoryFile(input: {
     semanticStatus,
     semanticSource: validFacts.length ? "model" : undefined,
     semanticDiagnostics,
-    semanticBudgetUsage: input.budget ? snapshotRepositorySemanticBudget(input.budget) : undefined,
+    semanticBudgetUsage: input.budget?.usageScope === "shared_wave"
+      ? undefined
+      : input.budget
+        ? snapshotRepositorySemanticBudget(input.budget)
+        : undefined,
   };
   if (validFacts.length || !input.task) return failedOrCompletedAnalysis;
 
@@ -1165,7 +1172,11 @@ function failedBatchFileAnalysis(input: {
         ? input.diagnostics
         : {}),
     }],
-    semanticBudgetUsage: input.file.budget ? snapshotRepositorySemanticBudget(input.file.budget) : undefined,
+    semanticBudgetUsage: input.file.budget?.usageScope === "shared_wave"
+      ? undefined
+      : input.file.budget
+        ? snapshotRepositorySemanticBudget(input.file.budget)
+        : undefined,
   };
 }
 
@@ -1209,10 +1220,11 @@ export async function analyzeRepositoryFileBatch(
   }
 
   const prepared = input.map((file, index) => {
-    // Four full-file windows plus schema/output reserves can exceed a worker's
-    // bounded admission budget. A task-routed 5KB notebook keeps four-file
-    // batching viable without dropping decisive late-file entrypoints.
-    const window = selectSemanticWindows(file.content, 5 * 1024, {
+    // Keep a four-file request below a 16KB source-content envelope. Static
+    // facts and the research task route this notebook to decisive code, while
+    // the smaller prompt leaves room for native structured output and one
+    // provider schema-repair pass on the primary model path.
+    const window = selectSemanticWindows(file.content, REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES, {
       task: file.task,
       staticAnalysis: file.staticAnalysis,
     })[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };
@@ -1531,7 +1543,11 @@ export async function analyzeRepositoryFileBatch(
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],
-      semanticBudgetUsage: sharedBudget ? snapshotRepositorySemanticBudget(sharedBudget) : undefined,
+      semanticBudgetUsage: sharedBudget?.usageScope === "shared_wave"
+        ? undefined
+        : sharedBudget
+          ? snapshotRepositorySemanticBudget(sharedBudget)
+          : undefined,
     };
     return facts.length ? analysis : recoverBatchFileIfPossible(entry.file, analysis);
   }));
