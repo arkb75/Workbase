@@ -928,6 +928,19 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([]);
   });
 
+  it("does not require specialized persistence files to prove application-core behavior", () => {
+    const task = buildFileSemanticTask({
+      path: "prisma/migrations/0001_init/migration.sql",
+      workPackageCapabilityKeys: [
+        "repository_area:application_core",
+        "repository_area:data_model",
+      ],
+      staticSubsystemKeys: ["domain_data", "module:prisma/migrations"],
+    });
+
+    expect(task?.capabilityKeys).toEqual(["repository_area:data_model"]);
+  });
+
   it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {
     expect(semanticSignalKeysForFile({
       path: "app/work-items/[id]/page.tsx",

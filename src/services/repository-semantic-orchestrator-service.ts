@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v27-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v28-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -100,6 +100,11 @@ function repositoryAreaMatchesPath(
   area: (typeof repositoryAreaRules)[number],
   path: string,
 ) {
+  if (area.key === `${REPOSITORY_AREA_PREFIX}application_core`) {
+    return ["core", "service", "interface"].includes(
+      semanticImplementationLayer(path),
+    );
+  }
   if (area.key !== `${REPOSITORY_AREA_PREFIX}product_surface`) {
     return area.pattern.test(path);
   }
