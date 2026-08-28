@@ -54,6 +54,8 @@ describe("complete repository coverage", () => {
     expect(isRepositoryAnalysisNoisePath(".gradle/8.9/fileHashes.bin")).toBe(true);
     expect(isRepositoryAnalysisNoisePath(".venv/lib/python/site-packages/client.py")).toBe(true);
     expect(isRepositoryAnalysisNoisePath("frontend/app.bundle.js")).toBe(true);
+    expect(isRepositoryAnalysisNoisePath("fixture/search/demo.py")).toBe(true);
+    expect(isRepositoryAnalysisNoisePath("__fixture__/search/demo.py")).toBe(true);
     expect(isRepositoryAnalysisNoisePath("src/orders/service.py")).toBe(false);
     expect(isRepositoryContextOnlyPath("ROADMAP.md")).toBe(true);
     expect(isRepositoryContextOnlyPath("poc/search/demo.go")).toBe(false);

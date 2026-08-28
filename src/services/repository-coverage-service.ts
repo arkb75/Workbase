@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v12-hybrid";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v13-hybrid";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -52,8 +52,8 @@ const projectDomainContainerSegments = new Set([
 ]);
 
 const excludedProjectDomainRoots = new Set([
-  ".github", ".next", ".nyc_output", ".playwright-cli", ".workflow-data", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
-  "docs", "examples", "sample", "samples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
+  ".github", ".next", ".nyc_output", ".playwright-cli", ".workflow-data", "__fixture__", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
+  "docs", "examples", "sample", "samples", "fixture", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
   "spec", "specs", "target", "test", "test-results", "tests", "tmp", "vendor",
 ]);
 
@@ -64,8 +64,8 @@ const projectDomainSuppressedRoots = new Set([
 const repositoryAnalysisNoiseSegments = new Set([
   ".cache", ".gradle", ".idea", ".mypy_cache", ".next", ".nuxt", ".nyc_output", ".parcel-cache",
   ".playwright-cli", ".pytest_cache", ".terraform", ".turbo", ".venv", ".vscode", ".workflow-data",
-  "__fixtures__", "__generated__", "__pycache__", "bower_components", "build", "coverage", "dist",
-  "fixtures", "generated", "node_modules", "obj", "out", "playwright-report", "target", "test-results", "tmp",
+  "__fixture__", "__fixtures__", "__generated__", "__pycache__", "bower_components", "build", "coverage", "dist",
+  "fixture", "fixtures", "generated", "node_modules", "obj", "out", "playwright-report", "target", "test-results", "tmp",
   "vendor", "vendors", "venv",
 ]);
 

@@ -13,6 +13,7 @@ import {
   inferProjectDomainCapability,
   isRepositoryAnalysisNoisePath,
   isRepositoryContextOnlyPath,
+  isRepositoryExecutableSourcePath,
   isProjectDomainCapabilityKey,
   PROJECT_DOMAIN_CAPABILITY_PREFIX,
   snapshotRepositorySemanticBudget,
@@ -32,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v17-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v18-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -1410,7 +1411,7 @@ export function isImplementationEvidencePath(path: string) {
   if (isRepositoryContextOnlyPath(normalized)) return false;
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
   if (normalized.split("/").some((segment) => segment.startsWith("."))) return false;
-  return /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i.test(normalized);
+  return isRepositoryExecutableSourcePath(normalized);
 }
 
 /**

@@ -93,6 +93,9 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(isRepositoryCartographyNoisePath(".gradle/8.9/fileHashes.bin")).toBe(true);
     expect(isRepositoryCartographyNoisePath(".venv/lib/python/site-packages/client.py")).toBe(true);
     expect(isRepositoryCartographyNoisePath("frontend/main.min.js")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("fixture/search/demo.py")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("__fixture__/search/demo.py")).toBe(true);
+    expect(inferProjectDomainCapability("fixture/search/demo.py")).toBeNull();
   });
 
   it("starts large domains with two diverse samples and leaves depth to bounded repair", () => {
