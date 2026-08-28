@@ -7,6 +7,7 @@ import {
   isExactSucceededSemanticFallback,
   isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
+  isRetryableKnowledgeRefreshTransactionError,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
   repositoryHighlightOwnershipDecision,
@@ -27,6 +28,18 @@ describe("repository knowledge auto-apply policy", () => {
     expect(allowsCanonicalKnowledgeReplacement("degraded")).toBe(false);
     expect(allowsCanonicalKnowledgeReplacement("failed")).toBe(false);
     expect(allowsCanonicalKnowledgeReplacement(null)).toBe(false);
+  });
+
+  it("retries Prisma and driver-adapter forms of a serializable write conflict", () => {
+    expect(isRetryableKnowledgeRefreshTransactionError(
+      Object.assign(new Error("write conflict"), { code: "P2034" }),
+    )).toBe(true);
+    expect(isRetryableKnowledgeRefreshTransactionError(
+      new Error("TransactionWriteConflict"),
+    )).toBe(true);
+    expect(isRetryableKnowledgeRefreshTransactionError(
+      Object.assign(new Error("unique constraint"), { code: "P2002" }),
+    )).toBe(false);
   });
 
   it("does not quarantine a supported deterministic fallback merely because model synthesis failed", () => {

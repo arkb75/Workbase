@@ -229,7 +229,8 @@ export async function withKnowledgeRefreshGenerationFence<T>(
   operation: (tx: Prisma.TransactionClient) => Promise<T>,
   options: { timeoutMs?: number } = {},
 ) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maximumAttempts = 5;
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
         const generation = await tx.knowledgeRefreshRun.findUniqueOrThrow({
@@ -244,14 +245,30 @@ export async function withKnowledgeRefreshGenerationFence<T>(
         timeout: options.timeoutMs ?? 15_000,
       });
     } catch (error) {
-      const code = error && typeof error === "object" && "code" in error
-        ? (error as { code?: unknown }).code
-        : null;
-      if (code === "P2034" && attempt < 2) continue;
+      if (
+        isRetryableKnowledgeRefreshTransactionError(error) &&
+        attempt < maximumAttempts - 1
+      ) {
+        const baseDelayMs = Math.min(500, 25 * (2 ** attempt));
+        const jitterMs = Math.floor(Math.random() * Math.max(1, baseDelayMs / 2));
+        await new Promise((resolve) => setTimeout(resolve, baseDelayMs + jitterMs));
+        continue;
+      }
       throw error;
     }
   }
   throw new Error("The repository knowledge generation transaction could not be completed.");
+}
+
+export function isRetryableKnowledgeRefreshTransactionError(error: unknown) {
+  const code = error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : null;
+  if (code === "P2034") return true;
+  const message = error instanceof Error
+    ? `${error.name} ${error.message}`
+    : String(error);
+  return message.includes("TransactionWriteConflict");
 }
 
 export function allowsCanonicalKnowledgeReplacement(qualityStatus: unknown) {
