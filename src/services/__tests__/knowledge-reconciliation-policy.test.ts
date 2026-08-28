@@ -4,6 +4,7 @@ import {
   allowsCanonicalKnowledgeReplacement,
   highlightReconciliationCasWhere,
   hasPromotedReconciliationEvidence,
+  isExactSucceededSemanticFallback,
   isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
   knowledgeRefreshStateForEmbeddingTelemetry,
@@ -35,7 +36,16 @@ describe("repository knowledge auto-apply policy", () => {
     })).toBe(false);
   });
 
-  it("quarantines otherwise safe candidates when their synthesis result is not approval eligible", () => {
+  it("admits only exact succeeded semantic fallbacks after synthesis failure", () => {
+    const source = {
+      path: "src/retry.ts",
+      statement: "The service performs a bounded retry.",
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+    };
+
     expect(isSynthesizedCandidateUnsafe({
       approvalEligible: false,
       candidate: {
@@ -43,25 +53,88 @@ describe("repository knowledge auto-apply policy", () => {
         confidence: "high",
         sensitivityFlag: false,
       },
-      sources: [{
-        path: "src/retry.ts",
-        statement: "The service performs a bounded retry.",
-        semanticStatus: "succeeded",
-      }],
-    })).toBe(true);
+      sources: [source],
+    })).toBe(false);
     expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: true,
+      approvalEligible: false,
       candidate: {
-        statement: "The service performs a bounded retry.",
+        statement: "The service performs a bounded retry across every provider.",
         confidence: "high",
         sensitivityFlag: false,
       },
-      sources: [{
-        path: "src/retry.ts",
-        statement: "The service performs a bounded retry.",
-        semanticStatus: "succeeded",
+      sources: [source],
+    })).toBe(true);
+  });
+
+  it("requires every fallback citation to be safe executable semantic evidence", () => {
+    const candidate = {
+      statement: "The service performs a bounded retry.",
+      confidence: "high",
+      sensitivityFlag: false,
+    };
+    const source = {
+      path: "src/retry.ts",
+      statement: candidate.statement,
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      confidence: "medium" as const,
+      sensitivityFlag: false,
+    };
+
+    expect(isExactSucceededSemanticFallback({
+      candidate,
+      sources: [source, {
+        ...source,
+        path: "src/retry-policy.ts",
+        statement: "The retry policy bounds provider attempts.",
       }],
+    })).toBe(true);
+    for (const unsafeSource of [
+      { ...source, semanticStatus: "degraded" as const },
+      { ...source, evidenceMode: "deterministic_anchor" as const },
+      { ...source, sensitivityFlag: true },
+      { ...source, confidence: "low" as const },
+      { ...source, path: "README.md" },
+      { ...source, path: "vendor/generated-client.ts" },
+    ]) {
+      expect(isExactSucceededSemanticFallback({
+        candidate,
+        sources: [source, unsafeSource],
+      })).toBe(false);
+      expect(isSynthesizedCandidateUnsafe({
+        approvalEligible: false,
+        candidate,
+        sources: [source, unsafeSource],
+      })).toBe(true);
+    }
+  });
+
+  it("requires fallback Highlight text and summary to preserve the same exact finding", () => {
+    const source = {
+      path: "src/retry.ts",
+      statement: "The service performs a bounded retry.",
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+    };
+    const exact = {
+      text: source.statement,
+      summary: `  The service performs a bounded retry.  `,
+      confidence: "high",
+      sensitivityFlag: false,
+    };
+
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: false,
+      candidate: exact,
+      sources: [source],
     })).toBe(false);
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: false,
+      candidate: { ...exact, summary: "The service retries providers and guarantees recovery." },
+      sources: [source],
+    })).toBe(true);
   });
 
   it("still quarantines low-confidence or sensitive candidates", () => {

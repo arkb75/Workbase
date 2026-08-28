@@ -23,6 +23,10 @@ import {
 } from "@/src/services/knowledge-embedding-service";
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
 import {
+  isRepositoryAnalysisNoisePath,
+  isRepositoryExecutableSourcePath,
+} from "@/src/services/repository-coverage-service";
+import {
   materializeSynthesisCitations,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
@@ -418,13 +422,24 @@ function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function shouldQuarantineSynthesizedCandidate(candidate: {
+type SynthesizedCandidateSource = Pick<SynthesisNotebookEntry, "path" | "statement"> &
+  Partial<Pick<
+    SynthesisNotebookEntry,
+    "confidence" | "evidenceMode" | "semanticStatus" | "sensitivityFlag"
+  >>;
+
+type SynthesizedCandidate = {
   sensitivityFlag: boolean;
   confidence: string;
   statement?: string;
   text?: string;
   summary?: string;
-}, sources: Array<Pick<SynthesisNotebookEntry, "path" | "statement" | "semanticStatus">> = []) {
+};
+
+export function shouldQuarantineSynthesizedCandidate(
+  candidate: SynthesizedCandidate,
+  sources: SynthesizedCandidateSource[] = [],
+) {
   if (candidate.sensitivityFlag || candidate.confidence === "low") return true;
   if (sources.some((source) => source.semanticStatus === "degraded")) return true;
   const claim = normalizeWhitespace([
@@ -448,18 +463,58 @@ export function shouldQuarantineSynthesizedCandidate(candidate: {
   // At least one executable exact-line observation must itself state every
   // qualifier used by the synthesized claim.
   const hasClauseLevelCorroboration = sources.some((source) =>
-    /\.(?:[cm]?[jt]sx?|prisma|sql|py|go|rs|java)$/i.test(source.path) &&
+    isRepositoryExecutableSourcePath(source.path) &&
     modalTerms.every((term) => normalizeWhitespace(source.statement).toLowerCase().includes(term))
   );
   return !hasClauseLevelCorroboration;
 }
 
+function exactFallbackClaim(candidate: SynthesizedCandidate) {
+  if (candidate.statement !== undefined) {
+    if (candidate.text !== undefined || candidate.summary !== undefined) return null;
+    return normalizeWhitespace(candidate.statement).toLowerCase();
+  }
+  if (candidate.text === undefined || candidate.summary === undefined) return null;
+  const text = normalizeWhitespace(candidate.text).toLowerCase();
+  const summary = normalizeWhitespace(candidate.summary).toLowerCase();
+  return text === summary ? text : null;
+}
+
+/**
+ * A synthesis-provider failure is not evidence that an exact semantic finding
+ * is unsafe. Admit only a verbatim normalized passthrough: every citation must
+ * be successful, executable, non-noise, non-sensitive semantic evidence with
+ * at least medium confidence, and one cited statement must exactly equal the
+ * candidate. Rewritten or composite fallbacks remain quarantined for review.
+ */
+export function isExactSucceededSemanticFallback(input: {
+  candidate: SynthesizedCandidate;
+  sources?: SynthesizedCandidateSource[];
+}) {
+  const claim = exactFallbackClaim(input.candidate);
+  const sources = input.sources ?? [];
+  if (!claim || !sources.length) return false;
+  if (!sources.every((source) =>
+    source.evidenceMode === "semantic" &&
+    source.semanticStatus === "succeeded" &&
+    source.sensitivityFlag === false &&
+    (source.confidence === "medium" || source.confidence === "high") &&
+    !isRepositoryAnalysisNoisePath(source.path) &&
+    isRepositoryExecutableSourcePath(source.path)
+  )) return false;
+  return sources.some((source) =>
+    normalizeWhitespace(source.statement).toLowerCase() === claim
+  );
+}
+
 export function isSynthesizedCandidateUnsafe(input: {
   approvalEligible: boolean;
-  candidate: Parameters<typeof shouldQuarantineSynthesizedCandidate>[0];
-  sources?: Parameters<typeof shouldQuarantineSynthesizedCandidate>[1];
+  candidate: SynthesizedCandidate;
+  sources?: SynthesizedCandidateSource[];
 }) {
-  return !input.approvalEligible ||
+  const exactSemanticFallback = !input.approvalEligible &&
+    isExactSucceededSemanticFallback(input);
+  return (!input.approvalEligible && !exactSemanticFallback) ||
     shouldQuarantineSynthesizedCandidate(input.candidate, input.sources);
 }
 

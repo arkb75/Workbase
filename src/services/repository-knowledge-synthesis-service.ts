@@ -2028,13 +2028,7 @@ export async function synthesizeRepositoryKnowledge(
           ...entry,
           subsystemKey: original.subsystemKey,
           synthesisKey: original.synthesisKey,
-          // Provider availability is not a claim-safety signal. The bounded
-          // deterministic fallback either copies an exact semantic statement
-          // or uses clause-level, citation-checked definitions. Candidate-level
-          // reconciliation still blocks low-confidence, sensitive, absolute,
-          // or degraded-source claims, while partial coverage continues to
-          // block canonical replacement and remains visible in the ledger.
-          approvalEligible: true,
+          approvalEligible: !result.fallbackSubsystemKeys.includes(entry.subsystemKey),
         }] : [];
       }));
       if (result.tokenUsage) tokenUsage.push(result.tokenUsage);
