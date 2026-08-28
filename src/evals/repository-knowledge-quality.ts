@@ -265,11 +265,179 @@ function normalizedPath(path: string) {
   return path.replace(/^\.\//u, "").replace(/\\/gu, "/");
 }
 
-function quoteSupported(file: RepositoryEvaluationFile, quote: string | null | undefined) {
-  if (!quote?.trim() || file.content === undefined) return true;
-  const normalizedContent = file.content.replace(/\s+/gu, " ").trim();
-  const normalizedQuote = quote.replace(/\s+/gu, " ").trim();
-  return normalizedContent.includes(normalizedQuote);
+function referencedContent(
+  file: RepositoryEvaluationFile,
+  reference: RepositoryKnowledgeEvidenceReference,
+) {
+  if (file.content === undefined) return null;
+  if (reference.lineStart == null && reference.lineEnd == null) {
+    return file.content;
+  }
+  const lineStart = reference.lineStart ?? reference.lineEnd!;
+  const lineEnd = reference.lineEnd ?? reference.lineStart!;
+  const lines = file.content.split("\n");
+  if (
+    lineStart < 1 ||
+    lineEnd < lineStart ||
+    lineStart > lines.length ||
+    lineEnd > lines.length
+  ) {
+    return undefined;
+  }
+  return lines.slice(lineStart - 1, lineEnd).join("\n");
+}
+
+function quoteSupported(
+  file: RepositoryEvaluationFile,
+  reference: RepositoryKnowledgeEvidenceReference,
+) {
+  if (file.content === undefined) return true;
+  if (!reference.quote?.trim()) {
+    return referencedContent(file, reference) !== undefined;
+  }
+  // Exact repository excerpts remain authoritative even when a local checkout
+  // has inserted lines before the snapshot range. The immutable observation
+  // still retains its original line numbers for auditability.
+  const normalizeEvidenceText = (value: string) => value
+    .replace(/\s+/gu, " ")
+    .trim();
+  const normalizedContent = normalizeEvidenceText(file.content);
+  const normalizedQuote = normalizeEvidenceText(reference.quote);
+  const redactionPattern = /["']?\[REDACTED(?: [^\]]+)?\]["']?/giu;
+  if (!redactionPattern.test(normalizedQuote)) {
+    return normalizedContent.includes(normalizedQuote);
+  }
+
+  // Repository ingestion intentionally redacts secret-shaped values before
+  // persistence. Verify every literal fragment in order and permit only a
+  // bounded gap at an explicit redaction marker; a placeholder alone is not
+  // evidence.
+  redactionPattern.lastIndex = 0;
+  const fragments = normalizedQuote
+    .split(redactionPattern)
+    .map(normalizeEvidenceText)
+    .filter(Boolean);
+  if (fragments.reduce((length, fragment) => length + fragment.length, 0) < 16) {
+    return false;
+  }
+  let cursor = 0;
+  let hasMatchedFragment = false;
+  for (const fragment of fragments) {
+    const index = normalizedContent.indexOf(fragment, cursor);
+    if (index < 0 || (hasMatchedFragment && index - cursor > 4_096)) return false;
+    cursor = index + fragment.length;
+    hasMatchedFragment = true;
+  }
+  return true;
+}
+
+const genericGroundingTokens = new Set([
+  "add",
+  "added",
+  "application",
+  "built",
+  "capability",
+  "class",
+  "code",
+  "component",
+  "created",
+  "data",
+  "delivered",
+  "feature",
+  "file",
+  "function",
+  "handler",
+  "implemented",
+  "implementation",
+  "integration",
+  "logic",
+  "model",
+  "module",
+  "process",
+  "project",
+  "repository",
+  "route",
+  "runtime",
+  "service",
+  "source",
+  "support",
+  "supported",
+  "system",
+  "uses",
+  "workflow",
+]);
+
+function groundingToken(value: string) {
+  if (value.length > 5 && value.endsWith("ies")) {
+    return `${value.slice(0, -3)}y`;
+  }
+  if (value.length > 6 && value.endsWith("ing")) return value.slice(0, -3);
+  if (value.length > 5 && value.endsWith("ed")) return value.slice(0, -2);
+  if (value.length > 5 && value.endsWith("es")) return value.slice(0, -2);
+  if (value.length > 4 && value.endsWith("s")) return value.slice(0, -1);
+  return value;
+}
+
+function groundingTokens(value: string) {
+  return Array.from(new Set(
+    value
+      .replace(/([\p{Ll}\p{N}])([\p{Lu}])/gu, "$1 $2")
+      .replace(/([\p{Lu}])([\p{Lu}][\p{Ll}])/gu, "$1 $2")
+      .toLocaleLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .split(/\s+/u)
+      .filter((token) => token.length > 2 && !stopWords.has(token))
+      .map(groundingToken),
+  ));
+}
+
+function groundingTokensMatch(left: string, right: string) {
+  if (left === right) return true;
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length > right.length ? left : right;
+  return shorter.length >= 5 && longer.startsWith(shorter);
+}
+
+function isGenericGroundingToken(token: string) {
+  return Array.from(genericGroundingTokens).some((genericToken) =>
+    groundingTokensMatch(token, groundingToken(genericToken))
+  );
+}
+
+/**
+ * Deterministic, language-neutral relevance check for natural-language claims
+ * against paths, identifiers, and exact evidence excerpts. Match coverage is
+ * claim-relative so one genuine term cannot launder an otherwise unrelated
+ * assertion; generic architecture vocabulary requires stronger overlap.
+ */
+function lexicallyRelated(left: string, right: string, minimumCoverage = 0.6) {
+  const leftTokens = groundingTokens(left);
+  const rightTokens = groundingTokens(right);
+  const matches = Array.from(new Set(leftTokens.filter((leftToken) =>
+    rightTokens.some((rightToken) => groundingTokensMatch(leftToken, rightToken))
+  )));
+  const distinctiveLeft = leftTokens.filter((token) =>
+    !isGenericGroundingToken(token)
+  );
+  const distinctiveMatches = matches.filter((token) =>
+    !isGenericGroundingToken(token)
+  );
+  const claimCoverage = ratio(matches.length, leftTokens.length);
+  if (distinctiveMatches.length >= 2) return claimCoverage >= minimumCoverage;
+  if (distinctiveMatches.length === 1) {
+    return ratio(distinctiveMatches.length, distinctiveLeft.length) >= 0.6 &&
+      claimCoverage >= Math.max(0.6, minimumCoverage);
+  }
+  return matches.length >= 2 && claimCoverage >= Math.max(0.7, minimumCoverage);
+}
+
+function claimClauses(value: string) {
+  return value
+    .split(
+      /(?:[.;]\s+|,\s+(?:and|but)\s+|\s+(?:and|but)\s+)(?=(?:added|built|created|delivered|implemented|integrated|trained|uses?|validates?|generates?)\b)/iu,
+    )
+    .map((clause) => clause.trim())
+    .filter((clause) => groundingTokens(clause).length > 0);
 }
 
 function tokenSet(value: string) {
@@ -394,6 +562,93 @@ export function evaluateRepositoryKnowledgeRun(input: {
   const filesByPath = new Map(
     fixture.files.map((file) => [normalizedPath(file.path), file]),
   );
+  const discoveredCapabilities = run.discoveredCapabilities ?? [];
+  const isIgnoredRepositoryPath = (path: string) =>
+    anyPattern(normalizedPath(path), fixture.ignoredPathPatterns);
+  const repositoryFileForPath = (path: string) => {
+    const normalized = normalizedPath(path);
+    return isIgnoredRepositoryPath(normalized)
+      ? undefined
+      : filesByPath.get(normalized);
+  };
+  const validRepositoryReference = (
+    reference: RepositoryKnowledgeEvidenceReference,
+  ) => {
+    const file = repositoryFileForPath(reference.path);
+    return Boolean(file && quoteSupported(file, reference));
+  };
+  const matchesExplicitFalsePositiveTrap = (
+    identity: string,
+    evidencePaths: readonly string[],
+  ) => fixture.falsePositiveTraps.some((trap) => {
+    if (!anyPattern(identity, trap.capabilityPatterns)) return false;
+    const hasAllowedEvidence = evidencePaths.some((path) =>
+      anyPattern(normalizedPath(path), trap.allowedEvidencePathPatterns ?? [])
+    );
+    const hasMisleadingEvidence = evidencePaths.some((path) =>
+      anyPattern(normalizedPath(path), trap.misleadingEvidencePathPatterns)
+    );
+    return hasMisleadingEvidence && !hasAllowedEvidence;
+  });
+
+  function referenceGroundsItem(
+    item: RepositoryKnowledgeEvaluationItem,
+    reference: RepositoryKnowledgeEvidenceReference,
+  ) {
+    const file = repositoryFileForPath(reference.path);
+    if (!file || !quoteSupported(file, reference)) return false;
+    const claim = [item.text, item.summary].filter(Boolean).join(" ");
+    // A serialized quote cannot prove itself when no checkout content was
+    // supplied. Compact manifests can still establish path-level relevance.
+    const excerpt = file.content === undefined
+      ? ""
+      : reference.quote?.trim() ||
+        referencedContent(file, reference)?.slice(0, 20_000) || "";
+    const evidenceSurface = `${normalizedPath(reference.path)} ${excerpt}`;
+    return claimClauses(claim).some((clause) =>
+      lexicallyRelated(clause, evidenceSurface, 0.35)
+    );
+  }
+
+  function evidenceSetGroundsItem(item: RepositoryKnowledgeEvaluationItem) {
+    const claim = [item.text, item.summary].filter(Boolean).join(" ");
+    const evidenceSurface = item.evidence.flatMap((reference) => {
+      const file = repositoryFileForPath(reference.path);
+      if (!file || !quoteSupported(file, reference)) return [];
+      const excerpt = file.content === undefined
+        ? ""
+        : reference.quote?.trim() ||
+          referencedContent(file, reference)?.slice(0, 20_000) || "";
+      return [`${normalizedPath(reference.path)} ${excerpt}`];
+    }).join(" ").slice(0, 120_000);
+    return Boolean(evidenceSurface) && claimClauses(claim).every((clause) =>
+      lexicallyRelated(clause, evidenceSurface, 0.35)
+    );
+  }
+
+  const falsePositiveItems = new Set(run.items.filter((item) =>
+    matchesExplicitFalsePositiveTrap(
+      itemSearchText(item),
+      item.evidence.map((reference) => reference.path),
+    )
+  ).map((item) => item.id));
+  const groundedEvidenceReferences = new Set(
+    run.items.flatMap((item) =>
+      falsePositiveItems.has(item.id)
+        ? []
+        : item.evidence.flatMap((reference) =>
+            referenceGroundsItem(item, reference) ? [reference] : []
+          )
+    ),
+  );
+  const supportedItemIds = new Set(
+    run.items.flatMap((item) =>
+      !falsePositiveItems.has(item.id) &&
+          evidenceSetGroundsItem(item)
+        ? [item.id]
+        : []
+    ),
+  );
   const implementedCapabilities = fixture.expectedCapabilities.filter(
     (capability) => capability.implementationState === "implemented",
   );
@@ -423,7 +678,7 @@ export function evaluateRepositoryKnowledgeRun(input: {
       return Boolean(
         file &&
         anyPattern(path, capability.evidencePathPatterns) &&
-        quoteSupported(file, reference.quote),
+        validRepositoryReference(reference),
       );
     });
   }
@@ -494,36 +749,33 @@ export function evaluateRepositoryKnowledgeRun(input: {
   );
 
   const evidenceReferences = run.items.flatMap((item) => item.evidence);
-  const validEvidenceReferences = evidenceReferences.filter((reference) => {
-    const file = filesByPath.get(normalizedPath(reference.path));
-    return file && quoteSupported(file, reference.quote);
-  });
+  const validEvidenceReferences = evidenceReferences.filter(
+    validRepositoryReference,
+  );
   const citationPathPrecision = ratio(
     validEvidenceReferences.length,
     evidenceReferences.length,
   );
+  const claimEvidencePrecision = ratio(
+    groundedEvidenceReferences.size,
+    evidenceReferences.length,
+  );
+  const evidencePrecision = average([
+    citationPathPrecision,
+    claimEvidencePrecision,
+  ]);
+  const knowledgeItemPrecision = ratio(supportedItemIds.size, run.items.length);
+  const unsupportedItemRate = 1 - knowledgeItemPrecision;
+
+  // Curated capability patterns remain a recall and implementation-state
+  // oracle. They are deliberately not a closed-world whitelist for precision:
+  // an extractor may discover additional repository-grounded knowledge.
   const claimEvidencePairs = fixture.expectedCapabilities.flatMap((capability) =>
     (capabilityMatches.get(capability.key) ?? []).map((itemIndex) => ({
       capability,
       item: run.items[itemIndex]!,
     }))
   );
-  const supportedClaimEvidencePairs = claimEvidencePairs.filter(({ capability, item }) =>
-    evidenceSupportsCapability(item, capability)
-  );
-  const claimEvidencePrecision = ratio(
-    supportedClaimEvidencePairs.length,
-    claimEvidencePairs.length,
-  );
-  const evidencePrecision = average([
-    citationPathPrecision,
-    claimEvidencePrecision,
-  ]);
-  const supportedItemIds = new Set(
-    supportedClaimEvidencePairs.map(({ item }) => item.id),
-  );
-  const knowledgeItemPrecision = ratio(supportedItemIds.size, run.items.length);
-  const unsupportedItemRate = 1 - knowledgeItemPrecision;
 
   const stateScores = claimEvidencePairs.map(({ capability, item }) => {
     const state = inferredClaimState(item);
@@ -566,46 +818,64 @@ export function evaluateRepositoryKnowledgeRun(input: {
     ? 1 - ratio(noisySelectedPaths.length, selectedPaths.length)
     : 0;
 
-  const discoveredCapabilities = run.discoveredCapabilities ?? [];
   const falsePositiveCapabilities = discoveredCapabilities.filter((candidate) => {
     const identity = [candidate.key, candidate.label].filter(Boolean).join(" ");
-    return fixture.falsePositiveTraps.some((trap) => {
-      if (!anyPattern(identity, trap.capabilityPatterns)) return false;
-      const hasAllowedEvidence = candidate.evidencePaths.some((path) =>
-        anyPattern(normalizedPath(path), trap.allowedEvidencePathPatterns ?? [])
-      );
-      const hasMisleadingEvidence = candidate.evidencePaths.some((path) =>
-        anyPattern(normalizedPath(path), trap.misleadingEvidencePathPatterns)
-      );
-      return hasMisleadingEvidence && !hasAllowedEvidence;
-    });
+    return matchesExplicitFalsePositiveTrap(identity, candidate.evidencePaths);
   });
+  const falsePositiveCapabilitySet = new Set(falsePositiveCapabilities);
   const genericTokenFalsePositiveRate = ratio(
     falsePositiveCapabilities.length,
     discoveredCapabilities.length,
   );
-  const relevantDiscoveredCapabilities = discoveredCapabilities.filter((candidate) => {
-    if (falsePositiveCapabilities.includes(candidate)) return false;
+  // Precision applies to mappings the extractor actually asserted. Empty
+  // ledger rows are useful structural placeholders, but they neither prove nor
+  // disprove a repository mapping. They remain visible to the independent
+  // granularity metric below. An entirely unmapped capability map still scores
+  // zero because average([]) is zero.
+  const mappedCapabilities = discoveredCapabilities.filter((candidate) =>
+    candidate.evidencePaths.length > 0
+  );
+  const capabilityMapPrecision = average(mappedCapabilities.map((candidate) => {
+    if (falsePositiveCapabilitySet.has(candidate)) return 0;
     const identity = [candidate.key, candidate.label].filter(Boolean).join(" ");
-    return fixture.expectedCapabilities.some((expected) =>
-      anyPattern(identity, expected.matchPatterns) ||
-      candidate.evidencePaths.some((path) =>
-        anyPattern(normalizedPath(path), expected.evidencePathPatterns)
-      )
-    ) || fixture.expectedDomains.some((expected) =>
-      anyPattern(identity, expected.matchPatterns) ||
-      candidate.evidencePaths.some((path) =>
-        anyPattern(normalizedPath(path), expected.evidencePathPatterns)
+    const evidencePaths = Array.from(new Set(
+      candidate.evidencePaths.map(normalizedPath),
+    ));
+    const validEvidencePaths = evidencePaths.filter((path) =>
+      Boolean(repositoryFileForPath(path))
+    );
+    const evidenceSurface = validEvidencePaths.map((path) => {
+      const file = repositoryFileForPath(path)!;
+      return `${path} ${file.content?.slice(0, 12_000) ?? ""}`;
+    }).join(" ").slice(0, 120_000);
+    const groundedByItem = run.items.some((item) =>
+      supportedItemIds.has(item.id) &&
+      item.evidence.some((reference) =>
+        validEvidencePaths.includes(normalizedPath(reference.path))
+      ) &&
+      lexicallyRelated(
+        identity,
+        [item.domain, item.text, item.summary].filter(Boolean).join(" "),
       )
     );
-  });
-  const capabilityMapPrecision = ratio(
-    relevantDiscoveredCapabilities.length,
-    discoveredCapabilities.length,
-  ) * (run.discoveredCapabilities ? 1 : 0);
+    const pathPrecision = ratio(validEvidencePaths.length, evidencePaths.length);
+    const semanticallyGrounded = lexicallyRelated(identity, evidenceSurface) ||
+      groundedByItem;
+    // Valid repository provenance is necessary but not sufficient. Preserve a
+    // partial provenance score for broad structural labels that a lexical
+    // checker cannot prove, while ensuring a map made entirely of arbitrary
+    // labels remains below the release threshold.
+    return pathPrecision * (semanticallyGrounded ? 1 : 0.6);
+  })) * (run.discoveredCapabilities ? 1 : 0);
+  // A useful taxonomy grows sublinearly with repository size. This neutral
+  // ceiling catches one-capability-per-file explosions without consulting the
+  // fixture's curated recall list or assuming a particular architecture.
+  const repositoryScale = Math.max(1, fixture.files.filter((file) =>
+    !isIgnoredRepositoryPath(file.path)
+  ).length);
   const maximumUsefulCapabilityCount = Math.max(
-    fixture.expectedDomains.length,
-    fixture.expectedCapabilities.length * 2,
+    8,
+    Math.ceil(2 * Math.sqrt(repositoryScale)),
   );
   const capabilityGranularity = discoveredCapabilities.length
     ? clamp(maximumUsefulCapabilityCount / discoveredCapabilities.length)
