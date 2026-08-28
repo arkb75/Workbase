@@ -13,6 +13,10 @@ const QUALITY_METRICS = [
 const OPERATIONAL_METRICS = [
   "modelAttempts", "modelCalls", "totalTokens", "estimatedCostUsd", "durationMs",
 ] as const;
+const OPERATIONAL_METRIC_SEMANTICS = {
+  modelAttempts: "Explicit attempt telemetry when a report supplies it; the current evaluator may omit it.",
+  modelCalls: "Normalized provider-attempt count exposed as performance.modelCalls by the evaluator, not a count of logical GenerationRun records.",
+} as const;
 
 type AggregateMetric = typeof AGGREGATE_METRICS[number];
 type QualityMetric = typeof QUALITY_METRICS[number];
@@ -238,6 +242,14 @@ function compareBaseline(
   tolerances: RepositoryKnowledgeComparisonTolerances,
 ) {
   const baselineFixtures = Array.from(baseline.fixtures.values());
+  const baselineFixtureIds = Array.from(baseline.fixtures.keys()).sort();
+  const candidateFixtureIds = Array.from(candidate.fixtures.keys()).sort();
+  const baselineOnlyFixtureIds = baselineFixtureIds.filter((fixtureId) =>
+    !candidate.fixtures.has(fixtureId)
+  );
+  const candidateOnlyFixtureIds = candidateFixtureIds.filter((fixtureId) =>
+    !baseline.fixtures.has(fixtureId)
+  );
   const candidateFixtures = baselineFixtures.flatMap((fixture) => {
     const match = candidate.fixtures.get(fixture.fixtureId);
     return match ? [match] : [];
@@ -331,6 +343,9 @@ function compareBaseline(
   return {
     baseline: { name: baseline.name, path: baseline.path },
     passed: allRegressions.length === 0,
+    comparedFixtureCount: baselineFixtures.length - baselineOnlyFixtureIds.length,
+    candidateOnlyFixtureIds,
+    baselineOnlyFixtureIds,
     aggregateQuality,
     aggregateOperations,
     fixtures,
@@ -369,6 +384,7 @@ export function compareRepositoryKnowledgeReports(input: {
     passed: comparisons.every(({ passed }) => passed),
     candidate: { name: candidate.name, path: candidate.path, fixtureCount: candidate.fixtures.size },
     tolerances: configured,
+    operationalMetricSemantics: OPERATIONAL_METRIC_SEMANTICS,
     comparisons,
   };
 }

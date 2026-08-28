@@ -79,6 +79,7 @@ describe("repository knowledge report comparison", () => {
         score: 0.71,
         performance: { modelCalls: 11, totalTokens: 1_100, estimatedCostUsd: 0.11, durationMs: 1_100 },
       },
+      { fixtureId: "gamma", score: 0.9 },
     ]);
 
     const result = compareRepositoryKnowledgeReports({
@@ -91,11 +92,19 @@ describe("repository knowledge report comparison", () => {
 
     expect(result).toMatchObject({
       passed: true,
-      candidate: { name: "candidate", fixtureCount: 2 },
+      candidate: { name: "candidate", fixtureCount: 3 },
       tolerances: DEFAULT_REPOSITORY_KNOWLEDGE_COMPARISON_TOLERANCES,
+      operationalMetricSemantics: {
+        modelCalls: expect.stringContaining("provider-attempt"),
+      },
     });
     expect(result.comparisons).toHaveLength(2);
     expect(result.comparisons.every((comparison) => comparison.passed)).toBe(true);
+    expect(result.comparisons[0]).toMatchObject({
+      comparedFixtureCount: 2,
+      candidateOnlyFixtureIds: ["gamma"],
+      baselineOnlyFixtureIds: [],
+    });
     expect(result.comparisons[0]!.aggregateOperations).toEqual(expect.arrayContaining([
       expect.objectContaining({
         metric: "modelCalls",
@@ -128,6 +137,11 @@ describe("repository knowledge report comparison", () => {
     });
 
     expect(result.passed).toBe(false);
+    expect(result.comparisons[0]).toMatchObject({
+      comparedFixtureCount: 1,
+      candidateOnlyFixtureIds: [],
+      baselineOnlyFixtureIds: ["beta"],
+    });
     const regressionKeys = result.comparisons[0]!.regressions.map((regression) =>
       `${regression.fixtureId ?? "suite"}:${regression.metric}`
     );

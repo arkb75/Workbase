@@ -21,6 +21,19 @@ It aligns fixtures by `fixtureId` and compares:
 - summed and per-fixture model attempts/calls, tokens, estimated cost, and
   duration when the evaluator observations report them.
 
+Each baseline comparison states `comparedFixtureCount`,
+`candidateOnlyFixtureIds`, and `baselineOnlyFixtureIds`. Aggregate deltas use
+the baseline fixture set, so a candidate-only fixture is visible but does not
+silently distort a matched comparison. A baseline-only fixture remains a
+candidate regression.
+
+In the current evaluator, `performance.modelCalls` is the normalized count of
+provider attempts, using audited attempt telemetry and budget floors; it is not
+the number of logical `GenerationRun` records. The comparison output preserves
+the existing `modelCalls` key and includes `operationalMetricSemantics` to make
+that meaning explicit. `modelAttempts` is only populated when an input report
+supplies a separate explicit attempt field.
+
 A missing candidate fixture, a pass-to-fail change, lost baseline telemetry, or
 a movement beyond tolerance fails the command with exit code `1`. A fixture
 that was already below the evaluator's absolute release bar is still compared
