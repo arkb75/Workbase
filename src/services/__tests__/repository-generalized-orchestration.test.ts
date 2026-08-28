@@ -4,6 +4,7 @@ import {
   buildRepositoryDerivedSemanticPlan,
   critiqueRepositoryCoverage,
   isRepositoryCartographyNoisePath,
+  semanticAuditTarget,
   semanticSampleTarget,
   type CapabilityCandidate,
   type RepositoryCartographyFile,
@@ -112,6 +113,36 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(plan[0]?.fileSnapshotIds).toHaveLength(2);
     expect(plan[0]?.fileSnapshotIds).toEqual(["feed-0", "feed-1"]);
     expect(plan[0]?.fileSnapshotIds.length).toBeLessThanOrEqual(8);
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: plan[0]!.fileSnapshotIds,
+        candidates: [candidate(area.key, plan[0]!.fileSnapshotIds[0]!)],
+      }],
+      allowRepair: true,
+    });
+    expect(semanticAuditTarget(area)).toBe(4);
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      targetSamples: 4,
+      inspectedSamples: 2,
+      status: "thin",
+    }));
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(2);
+  });
+
+  it("does not let language-specific declaration volume dominate cartography", () => {
+    const twoSymbols = mappedFile("two-symbols", "src/features/catalog/a-entry.py");
+    const manySymbols = mappedFile("many-symbols", "src/features/catalog/z-helper.py");
+    twoSymbols.analysis.symbols = ["Search", "query"];
+    manySymbols.analysis.symbols = Array.from({ length: 12 }, (_, index) => `helper_${index}`);
+
+    const catalog = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/project",
+      files: [manySymbols, twoSymbols],
+    }).find((area) => area.key === "project_domain:catalog");
+
+    expect(catalog?.files.map((file) => file.id)).toEqual(["two-symbols", "many-symbols"]);
   });
 
   it("fits ten independent areas into five single-call worker packages", () => {

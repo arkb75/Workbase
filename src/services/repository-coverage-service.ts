@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v10-hybrid";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v11-hybrid";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -53,7 +53,7 @@ const projectDomainContainerSegments = new Set([
 
 const excludedProjectDomainRoots = new Set([
   ".github", ".next", ".nyc_output", ".playwright-cli", ".workflow-data", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
-  "docs", "examples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
+  "docs", "examples", "sample", "samples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
   "spec", "specs", "target", "test", "test-results", "tests", "tmp", "vendor",
 ]);
 
@@ -82,11 +82,24 @@ export function isRepositoryDocumentationPath(path: string) {
     .test(path.replace(/\\/g, "/"));
 }
 
+export function isRepositoryExecutableSourcePath(path: string) {
+  return /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i
+    .test(path.replace(/\\/g, "/"));
+}
+
 export function isRepositoryContextOnlyPath(path: string) {
   const normalized = path.replace(/\\/g, "/");
-  return isRepositoryDocumentationPath(normalized) ||
-    /(?:^|\/)(?:examples?|samples?|sample[-_]?inputs?|poc)(?:\/|$)/i.test(normalized) ||
-    /\.(?:md|markdown|mdown|rst|adoc|txt)$/i.test(normalized);
+  if (
+    isRepositoryDocumentationPath(normalized) ||
+    /(?:^|\/)sample[-_]?inputs?(?:\/|$)/i.test(normalized) ||
+    /\.(?:md|markdown|mdown|rst|adoc|txt)$/i.test(normalized)
+  ) return true;
+  // Runnable examples and proofs of concept are weaker maturity signals, but
+  // they are still executable evidence. Their suppressed/excluded directory
+  // roots prevent them from inventing product domains; treating their source
+  // as prose here would erase real behavior from small or exploratory repos.
+  return /(?:^|\/)(?:examples?|samples?|poc)(?:\/|$)/i.test(normalized) &&
+    !isRepositoryExecutableSourcePath(normalized);
 }
 
 function isRepositoryProductPath(path: string) {
@@ -1525,7 +1538,7 @@ function sourceDependenciesForLine(input: {
   return unique(dependencies, 8);
 }
 
-/** Extract declared symbols without assuming TypeScript export syntax. */
+/** Extract architectural declarations across the supported language families. */
 function sourceSymbolsForLine(path: string, line: string) {
   const extension = path.split(".").at(-1)?.toLowerCase();
   const symbols: string[] = [];
@@ -1533,7 +1546,10 @@ function sourceSymbolsForLine(path: string, line: string) {
     if (match?.[1]) symbols.push(match[1]);
   };
   if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(extension ?? "")) {
-    add(line.match(/^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/u));
+    // Preserve the established JS/TS ranking signal: public declarations are
+    // architectural surface; every local helper is not. Other language
+    // recognizers remain broader because their public syntax is not uniform.
+    add(line.match(/^\s*export\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/u));
     add(line.match(/^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/u));
   } else if (extension === "py") {
     add(line.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u));
@@ -1573,7 +1589,9 @@ export async function analyzeRepositoryFiles(input: Array<{
     let inGoImportBlock = false;
     const isTest = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(file.path);
     const broadSubsystemCount = fileSubsystemKeys.filter((key) =>
-      !key.startsWith("module:") && !isProjectDomainCapabilityKey(key)
+      !key.startsWith("module:") &&
+      !isProjectDomainCapabilityKey(key) &&
+      key !== "review_ui"
     ).length;
     const baseImportance = isTest ? 1 : broadSubsystemCount >= 2 ? 4 : broadSubsystemCount === 1 ? 3 : 2;
     const addFact = (

@@ -32,7 +32,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v15-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v16-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -307,7 +307,10 @@ function repositoryFileSalience(file: RepositoryCartographyFile) {
   const base = (file.analysis.facts.length ? 8 : 0) +
     Math.min(2, file.analysis.userFacingCapabilities.length) * 8 +
     Math.min(4, file.analysis.architectureSignals.length) * 4 +
-    Math.min(8, file.analysis.symbols.length) * 2 +
+    // Declaration counts differ substantially by language and parser (for
+    // example Python methods versus TypeScript exports). Presence helps find
+    // implementation; raw count must not become a selection authority.
+    Math.min(2, file.analysis.symbols.length) * 2 +
     Math.min(12, file.analysis.dependencies.length) +
     (file.changeType && file.changeType !== "unchanged" ? 16 : 0);
   const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
@@ -488,6 +491,24 @@ export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "key" | 
   // proportional samples created unfundable second micro-batches and stranded
   // the rest of the package after its first call.
   return 2;
+}
+
+/**
+ * The independent critic retains the prior depth curve. This is deliberately
+ * separate from the two-file breadth-first initial plan: broad, high-salience
+ * areas can spend the one bounded repair wave instead of being declared
+ * covered after a single thin pass.
+ */
+export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "files">) {
+  const implementationCount = area.files.filter((file) =>
+    isCoverageEvidencePath(area.key, file.path)
+  ).length;
+  const evidenceCount = implementationCount || area.files.length;
+  if (evidenceCount <= 2) return evidenceCount;
+  if (evidenceCount <= 6) return 2;
+  if (evidenceCount <= 15) return 3;
+  if (evidenceCount <= 30) return 4;
+  return 5;
 }
 
 export interface CapabilityCandidate {
@@ -877,7 +898,7 @@ export function buildFileSemanticTask(input: {
     expectedOutputs: [
       "Evidence-backed findings only for the listed file-relevant capabilities.",
       "Exact supporting line ranges for every finding.",
-      "Treat roadmap, future, planned, TODO, example, fixture, and generated content as context rather than proof of implemented behavior.",
+      "Treat roadmap, future, planned, TODO, prose examples, fixtures, and generated content as context rather than proof of implemented behavior. Runnable example or proof-of-concept source may support a narrowly worded implemented behavior, but not production-maturity claims.",
       "Attach every supplied semantic signal that the cited lines directly establish; omit unsupported signals.",
     ],
   };
@@ -1409,7 +1430,7 @@ export function critiqueRepositoryCoverage(input: {
   ));
   const allCandidates = input.reports.flatMap((report) => report.candidates);
   const domains = input.manifest.map((area) => {
-    const targetSamples = semanticSampleTarget(area);
+    const targetSamples = semanticAuditTarget(area);
     const areaFileIds = new Set(area.files.map((file) => file.id));
     const implementationFiles = area.files.filter((file) =>
       isCoverageEvidencePath(area.key, file.path)

@@ -54,8 +54,25 @@ describe("complete repository coverage", () => {
     expect(isRepositoryAnalysisNoisePath("frontend/app.bundle.js")).toBe(true);
     expect(isRepositoryAnalysisNoisePath("src/orders/service.py")).toBe(false);
     expect(isRepositoryContextOnlyPath("ROADMAP.md")).toBe(true);
-    expect(isRepositoryContextOnlyPath("poc/search/demo.go")).toBe(true);
+    expect(isRepositoryContextOnlyPath("poc/search/demo.go")).toBe(false);
+    expect(isRepositoryContextOnlyPath("examples/search/demo.ts")).toBe(false);
+    expect(isRepositoryContextOnlyPath("examples/search/README.md")).toBe(true);
+    expect(isRepositoryContextOnlyPath("sample-inputs/search/request.json")).toBe(true);
     expect(isRepositoryContextOnlyPath("src/search/index.go")).toBe(false);
+  });
+
+  it("keeps runnable proof-of-concept behavior without inventing a product domain", async () => {
+    const [analysis] = await analyzeRepositoryFiles([{
+      repository: "example/exploratory-service",
+      commitSha: "c".repeat(40),
+      path: "poc/export/index.js",
+      content: "export async function createDocument() { return fetch('/render'); }",
+    }]);
+
+    expect(inferProjectDomainCapability("poc/export/index.js")).toBeNull();
+    expect(analysis?.facts).toContainEqual(expect.objectContaining({
+      statement: expect.stringContaining("external service through a network client"),
+    }));
   });
 
   it("classifies persisted chat-run coordination as workflow orchestration", () => {
@@ -145,7 +162,7 @@ describe("complete repository coverage", () => {
         repository: "example/polyglot",
         commitSha: "f".repeat(40),
         path: "src/web/controller.ts",
-        content: "import { run } from '../core/service';\nexport class ApiController {}",
+        content: "import { run } from '../core/service';\nfunction localHelper() {}\nexport class ApiController {}",
       },
       {
         repository: "example/polyglot",
@@ -171,6 +188,7 @@ describe("complete repository coverage", () => {
       dependencies: expect.arrayContaining(["../core/service"]),
       symbols: expect.arrayContaining(["ApiController"]),
     });
+    expect(typescript?.symbols).not.toContain("localHelper");
     expect(python).toMatchObject({
       dependencies: expect.arrayContaining(["../core", "requests"]),
       symbols: expect.arrayContaining(["ScoringEngine", "predict"]),
