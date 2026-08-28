@@ -1239,7 +1239,12 @@ export function substantialFactHighlightFallback(
 }
 
 type SynthesisSetResult = {
-  data: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> };
+  data: {
+    subsystems: Array<RepositorySubsystemSynthesis & {
+      subsystemKey: string;
+      synthesisFallbackReason?: string;
+    }>;
+  };
   tokenUsage: unknown;
   fallbackUsed: boolean;
   fallbackSubsystemKeys: string[];
@@ -1254,6 +1259,8 @@ function fallbackSynthesisSet(
   reason?: string,
   tokenUsage: unknown = null,
 ): SynthesisSetResult {
+  const fallbackReason = reason ??
+    "High-effort subsystem synthesis did not return a supported result; this domain was finalized from the bounded exact-line notebook.";
   return {
     data: {
       subsystems: subsystems.map((subsystem) => {
@@ -1261,9 +1268,8 @@ function fallbackSynthesisSet(
         return {
           subsystemKey: subsystem.synthesisKey ?? subsystem.subsystemKey,
           ...fallback,
-          unresolvedQuestions: reason
-            ? [reason, ...fallback.unresolvedQuestions]
-            : fallback.unresolvedQuestions,
+          unresolvedQuestions: [fallbackReason, ...fallback.unresolvedQuestions],
+          synthesisFallbackReason: fallbackReason,
         };
       }),
     },
@@ -1636,11 +1642,23 @@ export function finalizeRepositorySubsystemSynthesis(input: {
   subsystemKey: string;
   notebook: SynthesisNotebookEntry[];
   coverageGaps: string[];
-  result: RepositorySubsystemSynthesis & { approvalEligible?: boolean };
+  result: RepositorySubsystemSynthesis & {
+    approvalEligible?: boolean;
+    synthesisFallbackReason?: string;
+  };
   tokenUsage: unknown;
 }): SynthesizedKnowledge {
-  const { subsystemKey, notebook, coverageGaps, result, tokenUsage } = input;
+  const { subsystemKey, notebook, result, tokenUsage } = input;
   const approvalEligible = result.approvalEligible ?? true;
+  const fallbackCoverageGaps = result.synthesisFallbackReason
+    ? Array.from(new Set(notebook.map((entry) => entry.repository))).map((repository) =>
+        `Repository ${repository} used deterministic subsystem synthesis because ${result.synthesisFallbackReason}`
+      )
+    : [];
+  const coverageGaps = Array.from(new Set([
+    ...input.coverageGaps,
+    ...fallbackCoverageGaps,
+  ]));
   const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
   const definition = systemDefinitionForNotebook(subsystemKey, notebook);
   const semanticBaselines = requiredSemanticBaselineFacts(subsystemKey, notebook);
@@ -1944,6 +1962,7 @@ export async function synthesizeRepositoryKnowledge(
     subsystemKey: string;
     synthesisKey: string;
     approvalEligible?: boolean;
+    synthesisFallbackReason?: string;
   }> = [];
   const tokenUsage: unknown[] = [];
   const synthesisMode = process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "deterministic";
@@ -1953,7 +1972,14 @@ export async function synthesizeRepositoryKnowledge(
       synthesisKey: subsystem.synthesisKey,
       ...fallbackSubsystemSynthesis(subsystem.subsystemKey, subsystem.notebook),
       ...(options.fallbackOnly
-        ? { unresolvedQuestions: ["Reconciliation resumed from the persisted bounded notebook after a partial prior attempt."] }
+        ? {
+            approvalEligible: false,
+            synthesisFallbackReason:
+              "reconciliation resumed from the persisted bounded notebook after a partial prior attempt.",
+            unresolvedQuestions: [
+              "Reconciliation resumed from the persisted bounded notebook after a partial prior attempt.",
+            ],
+          }
         : {}),
     })));
   } else {

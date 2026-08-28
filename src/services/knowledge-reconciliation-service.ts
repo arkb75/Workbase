@@ -367,11 +367,14 @@ async function persistSynthesisCoverageGaps(
   runId: string,
   synthesis: SynthesizedKnowledge[],
 ) {
-  const gapsBySubsystem = new Map(
-    synthesis
-      .filter((subsystem) => subsystem.coverageGaps.length)
-      .map((subsystem) => [subsystem.subsystemKey, subsystem.coverageGaps] as const),
-  );
+  const gapsBySubsystem = new Map<string, string[]>();
+  for (const subsystem of synthesis) {
+    if (!subsystem.coverageGaps.length) continue;
+    gapsBySubsystem.set(subsystem.subsystemKey, Array.from(new Set([
+      ...(gapsBySubsystem.get(subsystem.subsystemKey) ?? []),
+      ...subsystem.coverageGaps,
+    ])));
+  }
   if (!gapsBySubsystem.size) return [];
   const allGaps = Array.from(new Set(Array.from(gapsBySubsystem.values()).flat()));
   await withKnowledgeRefreshGenerationFence(runId, async (tx) => {

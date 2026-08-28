@@ -26,7 +26,10 @@ import {
   analyzeRepositoryFiles,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
-import { REPOSITORY_STATIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
+import {
+  REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+  REPOSITORY_STATIC_ANALYZER_VERSION,
+} from "@/src/services/repository-knowledge-sync-service";
 
 function entry(path: string, statement = `${path} defines supported repository behavior.`): SynthesisNotebookEntry {
   return {
@@ -467,6 +470,39 @@ describe("repository synthesis limit fallback", () => {
         visibility: "private",
       }],
     });
+  });
+
+  it("turns synthesis fallback into a repository-scoped coverage gap", () => {
+    const statement =
+      "The application combines signed-session rotation with scoped authorization for protected project data.";
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "project_domain:auth",
+      notebook: [{
+        ...entry("src/auth/session-service.ts", statement),
+        repository: "acme/ledger-platform",
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+      }],
+      coverageGaps: [],
+      result: {
+        ...fallbackSubsystemSynthesis("project_domain:auth", [{
+          ...entry("src/auth/session-service.ts", statement),
+          repository: "acme/ledger-platform",
+          evidenceMode: "semantic",
+          semanticStatus: "succeeded",
+        }]),
+        approvalEligible: false,
+        synthesisFallbackReason:
+          "high-effort synthesis did not return a supported structured result.",
+      },
+      tokenUsage: null,
+    });
+
+    expect(finalized.approvalEligible).toBe(false);
+    expect(finalized.coverageGaps).toEqual([
+      "Repository acme/ledger-platform used deterministic subsystem synthesis because high-effort synthesis did not return a supported structured result.",
+    ]);
+    expect(finalized.unresolvedQuestions).toEqual(expect.arrayContaining(finalized.coverageGaps));
   });
 
   it("does not promote low-value or deterministic-anchor facts", () => {
@@ -1066,6 +1102,86 @@ describe("repository synthesis limit fallback", () => {
     const synthesis = await synthesizeRepositoryKnowledge("refresh-1", { fallbackOnly: true });
 
     expect(synthesis).toEqual([]);
+  });
+
+  it("makes resumed deterministic synthesis review-only and audibly degraded", async () => {
+    const statement =
+      "The charge service records an idempotency key before publishing a payment receipt.";
+    const path = "src/payments/charge-service.ts";
+    const semanticAnalysis: RepositoryFileAnalysis = {
+      path,
+      summary: "Idempotent payment receipt publication.",
+      subsystemKeys: ["project_domain:payments"],
+      responsibilities: [],
+      symbols: [],
+      dependencies: [],
+      architectureSignals: [],
+      userFacingCapabilities: [],
+      unresolvedQuestions: [],
+      chunksAnalyzed: 1,
+      tokenUsage: [],
+      analysisMode: "semantic",
+      facts: [{
+        statement,
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart: 10,
+        lineEnd: 18,
+        productImportance: 5,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        path,
+        subsystemKeys: ["project_domain:payments"],
+        semanticSignals: ["domain.payment_idempotency"],
+        evidenceMode: "semantic",
+      }],
+    };
+    vi.spyOn(prisma.knowledgeRefreshRun, "findUniqueOrThrow").mockResolvedValue({
+      id: "refresh-1",
+      workItemId: "work-item-1",
+      orchestration: {
+        packages: [{ capabilityKeys: ["project_domain:payments"] }],
+      },
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "acme/ledger-platform",
+        branch: "main",
+        commitSha: "a".repeat(40),
+        treeSha: "b".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      workItem: { title: "Ledger Platform" },
+      snapshots: [{
+        sourceId: "source-1",
+        commitSha: "a".repeat(40),
+        files: [{
+          path,
+          blobSha: "blob-charge-service",
+          analyzerVersion: null,
+          analysis: null,
+          semanticRefreshRunId: "refresh-1",
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+          semanticStatus: "succeeded",
+          semanticAnalysis,
+          changeType: "modified",
+        }],
+      }],
+    } as never);
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1", { fallbackOnly: true });
+
+    expect(synthesis).toEqual([
+      expect.objectContaining({
+        subsystemKey: "project_domain:payments",
+        approvalEligible: false,
+        facts: [expect.objectContaining({ statement, citationIndexes: [1] })],
+        coverageGaps: [
+          expect.stringMatching(/^Repository acme\/ledger-platform used deterministic subsystem synthesis/),
+        ],
+      }),
+    ]);
   });
 
   it("never injects Workbase product memory into another repository", () => {
