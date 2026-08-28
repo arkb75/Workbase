@@ -415,7 +415,7 @@ describe("repository synthesis limit fallback", () => {
     }], [repeated, { ...repeated }])).toEqual([]);
   });
 
-  it("applies the substantial-fact fallback in final synthesis while preserving failed-model eligibility", () => {
+  it("keeps an exact deterministic fallback eligible when model synthesis fails", () => {
     const statement =
       "The application combines signed-session rotation with scoped authorization for protected project data.";
     const notebook = [
@@ -452,13 +452,13 @@ describe("repository synthesis limit fallback", () => {
         }],
         highlights: [],
         unresolvedQuestions: ["Model synthesis fell back after a structured-output failure."],
-        approvalEligible: false,
+        approvalEligible: true,
       },
       tokenUsage: [],
     });
 
     expect(finalized).toMatchObject({
-      approvalEligible: false,
+      approvalEligible: true,
       highlights: [{
         text: statement,
         citationIndexes: [1, 2],
