@@ -35,6 +35,31 @@ function isIgnored(fixture: RepositoryKnowledgeFixture, path: string) {
   );
 }
 
+function withRepresentativeContent(
+  fixture: RepositoryKnowledgeFixture,
+): RepositoryKnowledgeFixture {
+  const evidenceByPath = new Map<string, string[]>();
+  for (const capability of fixture.expectedCapabilities) {
+    const path = pathForCapability(fixture, capability);
+    const excerpts = evidenceByPath.get(path) ?? [];
+    excerpts.push(
+      capability.key,
+      capability.label,
+      capability.exampleClaim,
+    );
+    evidenceByPath.set(path, excerpts);
+  }
+  return {
+    ...fixture,
+    files: fixture.files.map((file) => ({
+      ...file,
+      content: [file.content, ...(evidenceByPath.get(file.path) ?? [])]
+        .filter(Boolean)
+        .join("\n") || undefined,
+    })),
+  };
+}
+
 function representativeRun(
   fixture: RepositoryKnowledgeFixture,
 ): RepositoryKnowledgeEvaluationRun {
@@ -55,7 +80,7 @@ function representativeRun(
       id: `${fixture.id}-item-${index + 1}`,
       kind: capability.expectedInHighlights ? "highlight" : "fact",
       text: capability.exampleClaim,
-      summary: `${capability.label} is grounded in repository implementation evidence.`,
+      summary: capability.label,
       claimState: capability.implementationState,
       domain: capability.domainKey,
       evidence: [{ path: pathForCapability(fixture, capability) }],
@@ -109,9 +134,10 @@ describe("generalized repository knowledge evaluation", () => {
   });
 
   it("passes broad, grounded observations without exact-prose assertions", () => {
-    const runs = repositoryKnowledgeFixtures.map(representativeRun);
+    const fixtures = repositoryKnowledgeFixtures.map(withRepresentativeContent);
+    const runs = fixtures.map(representativeRun);
     const report = evaluateRepositoryKnowledgeSuite({
-      fixtures: repositoryKnowledgeFixtures,
+      fixtures,
       runs,
     });
 
@@ -123,10 +149,289 @@ describe("generalized repository knowledge evaluation", () => {
     )).toBe(true);
   });
 
+  it("accepts legitimate extra grounded knowledge without changing curated recall", () => {
+    const profiles = [
+      {
+        fixtureId: "solopilot-agent-documents",
+        extras: [
+          {
+            path: "src/integrations/stripe_billing.py",
+            content: "def create_stripe_checkout(customer_id): return stripe.checkout.Session.create(customer=customer_id)",
+            key: "stripe_billing",
+            label: "Stripe billing and checkout",
+            claim: "Integrated Stripe billing with hosted checkout sessions.",
+          },
+          {
+            path: "frontend/wireframes/revision-comparison.tsx",
+            content: "export function RevisionWireframe() { return <section>Revision comparison wireframe</section>; }",
+            key: "revision_wireframe",
+            label: "Revision comparison wireframe",
+            claim: "Built a revision-comparison wireframe for document review.",
+          },
+        ],
+      },
+      {
+        fixtureId: "workbase-project-knowledge",
+        extras: [
+          {
+            path: "src/services/github-webhook-service.ts",
+            content: "export async function verifyGithubWebhookSignature() { return dispatchRepositoryRefresh(); }",
+            key: "github_webhooks",
+            label: "GitHub webhook refresh",
+            claim: "Verified GitHub webhooks before dispatching repository refreshes.",
+          },
+          {
+            path: "src/services/project-citation-index.ts",
+            content: "export function indexProjectCitations() { return buildClaimLocalCitationIndex(); }",
+            key: "citation_index",
+            label: "Claim-local citation index",
+            claim: "Indexed claim-local citations for grounded project answers.",
+          },
+        ],
+      },
+    ] as const;
+
+    for (const profile of profiles) {
+      const baseFixture = repositoryKnowledgeFixture(profile.fixtureId)!;
+      const fixture = withRepresentativeContent({
+        ...baseFixture,
+        files: [
+          ...baseFixture.files,
+          ...profile.extras.map(({ path, content }) => ({ path, content })),
+        ],
+      });
+      const baseline = evaluateRepositoryKnowledgeRun({
+        fixture,
+        run: representativeRun(fixture),
+      });
+      const run = representativeRun(fixture);
+      run.items.push(...profile.extras.map((extra, index) => ({
+        id: `${profile.fixtureId}-extra-${index}`,
+        kind: "fact" as const,
+        text: extra.claim,
+        claimState: "implemented" as const,
+        domain: extra.key,
+        evidence: [{
+          path: extra.path,
+          lineStart: 1,
+          lineEnd: 1,
+          quote: extra.content,
+        }],
+      })));
+      run.discoveredCapabilities!.push(...profile.extras.map((extra) => ({
+        key: extra.key,
+        label: extra.label,
+        evidencePaths: [extra.path],
+      })));
+
+      const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+      expect(report.recoveredCapabilityKeys).toEqual(
+        baseline.recoveredCapabilityKeys,
+      );
+      expect(report.metrics.knowledgeItemPrecision).toBe(1);
+      expect(report.metrics.capabilityMapPrecision).toBe(1);
+      expect(report.unsupportedItems).toEqual([]);
+    }
+  });
+
+  it("rejects missing, misquoted, and claim-unrelated repository citations", () => {
+    const baseFixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const webhookPath = "src/services/github-webhook-service.ts";
+    const webhookContent = "export function verifyGithubWebhookSignature() { return dispatchRepositoryRefresh(); }";
+    const fixture = withRepresentativeContent({
+      ...baseFixture,
+      files: [...baseFixture.files, { path: webhookPath, content: webhookContent }],
+    });
+    const run = representativeRun(fixture);
+    run.items.push(
+      {
+        id: "missing-path",
+        kind: "fact",
+        text: "Integrated Stripe subscription billing.",
+        claimState: "implemented",
+        domain: "stripe_billing",
+        evidence: [{ path: "src/integrations/stripe-billing.ts" }],
+      },
+      {
+        id: "misquoted-webhook",
+        kind: "fact",
+        text: "Verified GitHub webhook signatures before refresh dispatch.",
+        claimState: "implemented",
+        domain: "github_webhooks",
+        evidence: [{
+          path: webhookPath,
+          lineStart: 1,
+          lineEnd: 1,
+          quote: "export function trustEveryWebhookWithoutVerification() {}",
+        }],
+      },
+      {
+        id: "unrelated-claim",
+        kind: "fact",
+        text: "Verified GitHub webhook signatures and trained a satellite-image vision classifier with GPU inference.",
+        claimState: "implemented",
+        domain: "github_webhooks",
+        evidence: [{
+          path: webhookPath,
+          lineStart: 1,
+          lineEnd: 1,
+          quote: webhookContent,
+        }],
+      },
+    );
+    run.discoveredCapabilities!.push(
+      {
+        key: "stripe_billing",
+        label: "Stripe subscription billing",
+        evidencePaths: ["src/integrations/stripe-billing.ts"],
+      },
+      {
+        key: "github_webhooks",
+        label: "GitHub webhook verification",
+        evidencePaths: [webhookPath],
+      },
+      {
+        key: "satellite_vision",
+        label: "GitHub webhook satellite-image vision classifier",
+        evidencePaths: [webhookPath],
+      },
+    );
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+    const withoutUnrelatedCapability = evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: {
+        ...run,
+        discoveredCapabilities: run.discoveredCapabilities!.filter((candidate) =>
+          candidate.key !== "satellite_vision"
+        ),
+      },
+    });
+
+    expect(report.unsupportedItems).toEqual(expect.arrayContaining([
+      "missing-path",
+      "misquoted-webhook",
+      "unrelated-claim",
+    ]));
+    expect(report.metrics.knowledgeItemPrecision).toBeLessThan(0.75);
+    expect(report.metrics.citationPathPrecision).toBeLessThan(1);
+    expect(report.metrics.capabilityMapPrecision).toBeLessThan(1);
+    expect(report.metrics.capabilityMapPrecision).toBeLessThan(
+      withoutUnrelatedCapability.metrics.capabilityMapPrecision,
+    );
+  });
+
+  it("scores asserted capability mappings without treating empty ledger placeholders as false claims", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const run = representativeRun(fixture);
+    run.discoveredCapabilities!.push({
+      key: "module:future_extension_point",
+      label: "Future extension point",
+      evidencePaths: [],
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.capabilityMapPrecision).toBe(1);
+    expect(report.metrics.capabilityGranularity).toBeGreaterThan(0);
+
+    run.discoveredCapabilities = [{
+      key: "module:unmapped_only",
+      label: "Unmapped placeholder",
+      evidencePaths: [],
+    }];
+    const unmappedReport = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(unmappedReport.metrics.capabilityMapPrecision).toBe(0);
+  });
+
+  it("does not let an unverifiable serialized quote prove its own claim", () => {
+    const fixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const run = representativeRun(fixture);
+    run.items.push({
+      id: "invented-compact-quote",
+      kind: "fact",
+      text: "Trained a satellite-image vision classifier with GPU inference.",
+      claimState: "implemented",
+      domain: "satellite_vision",
+      evidence: [{
+        path: "src/services/github-repo-import-service.ts",
+        quote: "Trained a satellite-image vision classifier with GPU inference.",
+      }],
+    });
+    run.discoveredCapabilities!.push({
+      key: "satellite_vision",
+      label: "Satellite-image vision classifier",
+      evidencePaths: ["src/services/github-repo-import-service.ts"],
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toContain("invented-compact-quote");
+  });
+
+  it("validates repository excerpts with bounded explicit redaction placeholders", () => {
+    const baseFixture = repositoryKnowledgeFixture("backer-marketplace")!;
+    const authPath = "lib/auth.ts";
+    const authContent = `CredentialsProvider({
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const isPasswordValid = await compare(credentials.password, user.passwordHash);
+        if (!isPasswordValid) return null;
+      }
+    })`;
+    const fixture = withRepresentativeContent({
+      ...baseFixture,
+      files: [...baseFixture.files, { path: authPath, content: authContent }],
+    });
+    const run = representativeRun(fixture);
+    run.items.push({
+      id: "credential-validation",
+      kind: "fact",
+      text: "Credential password validation checks email and password inputs.",
+      claimState: "implemented",
+      domain: "security",
+      evidence: [{
+        path: authPath,
+        quote: `CredentialsProvider({
+          credentials: {
+            email: { label: "Email", type: "email" },
+            password: [REDACTED]
+          },
+          async authorize(credentials) {
+            if (!credentials?.email || !credentials?.password) return null;
+            const isPasswordValid = await compare(credentials.password, user.passwordHash);
+            if (!isPasswordValid) return null;
+          }
+        })`,
+      }],
+    });
+    run.discoveredCapabilities!.push({
+      key: "credential_validation",
+      label: "Credential password validation",
+      evidencePaths: [authPath],
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("credential-validation");
+    expect(report.metrics.citationPathPrecision).toBe(1);
+  });
+
   it("does not reward a Workbase-specific answer reused across unrelated repositories", () => {
-    const workbase = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const fixtures = repositoryKnowledgeFixtures.map(withRepresentativeContent);
+    const workbase = fixtures.find((fixture) =>
+      fixture.id === "workbase-project-knowledge"
+    )!;
     const workbaseRun = representativeRun(workbase);
-    const runs = repositoryKnowledgeFixtures.map((fixture) => {
+    const runs = fixtures.map((fixture) => {
       if (fixture.id === workbase.id) return workbaseRun;
       const cleanPaths = fixture.files
         .map((file) => file.path)
@@ -153,7 +458,7 @@ describe("generalized repository knowledge evaluation", () => {
       } satisfies RepositoryKnowledgeEvaluationRun;
     });
     const report = evaluateRepositoryKnowledgeSuite({
-      fixtures: repositoryKnowledgeFixtures,
+      fixtures,
       runs,
     });
 
@@ -166,7 +471,9 @@ describe("generalized repository knowledge evaluation", () => {
 
   it("penalizes presenting planned README features as implemented", () => {
     for (const fixtureId of ["circlefund-fintech", "insightubc-dataset-platform"]) {
-      const fixture = repositoryKnowledgeFixture(fixtureId)!;
+      const fixture = withRepresentativeContent(
+        repositoryKnowledgeFixture(fixtureId)!,
+      );
       const run = representativeRun(fixture);
       const planned = fixture.expectedCapabilities.find((capability) =>
         capability.implementationState === "planned"
@@ -187,7 +494,9 @@ describe("generalized repository knowledge evaluation", () => {
   });
 
   it("catches generated artifacts, generic-token mappings, and capability explosion", () => {
-    const fixture = repositoryKnowledgeFixture("amazon-marketplace-analytics")!;
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("amazon-marketplace-analytics")!,
+    );
     const run = representativeRun(fixture);
     run.inventory.analyzedPaths!.push(
       ".idea/workspace.xml",
@@ -197,11 +506,21 @@ describe("generalized repository knowledge evaluation", () => {
       "lib/junit-jupiter-5.4.2.jar",
       "data/tobs.jpg",
     );
+    run.inventory.scannableFiles = 1_000_000;
+    run.inventory.analyzedFiles = 1_000_000;
     run.discoveredCapabilities = Array.from({ length: 30 }, (_, index) => ({
       key: `ai_runtime_model_${index}`,
       label: `AI runtime model ${index}`,
       evidencePaths: ["src/main/model/ProductDetails.java"],
     }));
+    run.items.push({
+      id: "generic-model-item",
+      kind: "fact",
+      text: "Implemented an AI model-inference runtime.",
+      claimState: "implemented",
+      domain: "ai_runtime",
+      evidence: [{ path: "src/main/model/ProductDetails.java" }],
+    });
 
     const report = evaluateRepositoryKnowledgeRun({ fixture, run });
 
@@ -210,10 +529,13 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.metrics.capabilityGranularity).toBeLessThan(0.75);
     expect(report.metrics.genericTokenFalsePositiveRate).toBe(1);
     expect(report.falsePositiveCapabilities).toHaveLength(30);
+    expect(report.unsupportedItems).toContain("generic-model-item");
   });
 
   it("penalizes irrelevant output volume, duplicate highlights, and inflated coverage", () => {
-    const fixture = repositoryKnowledgeFixture("backer-marketplace")!;
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("backer-marketplace")!,
+    );
     const run = representativeRun(fixture);
     run.items = run.items.slice(0, 2);
     const copied = run.items[0]!;
@@ -221,7 +543,7 @@ describe("generalized repository knowledge evaluation", () => {
       ...Array.from({ length: 8 }, (_, index) => ({
         ...copied,
         id: `duplicate-${index}`,
-        text: `${copied.text} This is the same workflow and product result.`,
+        text: copied.text,
       })),
       ...Array.from({ length: 8 }, (_, index) => ({
         id: `noise-${index}`,

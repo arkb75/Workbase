@@ -165,12 +165,16 @@ function evidenceReference(evidence: {
  */
 export async function repositoryKnowledgeObservationFromDatabase(
   fixture: RepositoryKnowledgeFixture,
+  input: { workItemId?: string } = {},
 ): Promise<RepositoryKnowledgeEvaluationRun> {
   if (!fixture.repository) {
     throw new Error(`Fixture ${fixture.id} is not backed by a real repository.`);
   }
   const sources = await prisma.source.findMany({
-    where: { type: "github_repo" },
+    where: {
+      type: "github_repo",
+      ...(input.workItemId ? { workItemId: input.workItemId } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     take: 500,
     select: {
@@ -185,7 +189,9 @@ export async function repositoryKnowledgeObservationFromDatabase(
   );
   if (!source) {
     throw new Error(
-      `No imported GitHub source matched ${fixture.repository}; import and refresh it before evaluation.`,
+      input.workItemId
+        ? `Work item ${input.workItemId} has no GitHub source matching ${fixture.repository}.`
+        : `No imported GitHub source matched ${fixture.repository}; import and refresh it before evaluation.`,
     );
   }
   const snapshot = await prisma.repositorySnapshot.findFirst({

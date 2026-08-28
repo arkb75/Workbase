@@ -17,6 +17,7 @@ import {
 interface CliOptions {
   observationPaths: string[];
   databaseFixtureIds: string[];
+  databaseWorkItemIds: Map<string, string>;
   repositoryRoots: Map<string, string>;
   pretty: boolean;
 }
@@ -24,8 +25,8 @@ interface CliOptions {
 function usage() {
   return `Usage:
   npm run eval:repository-knowledge -- --observation <runs.json> [--repository-root <fixture-id>=<checkout>]
-  npm run eval:repository-knowledge -- --from-database-all [--repository-root <fixture-id>=<checkout> ...]
-  npm run eval:repository-knowledge -- --from-database <fixture-id> [--from-database <fixture-id> ...]
+  npm run eval:repository-knowledge -- --from-database-all [--work-item <fixture-id>=<work-item-id> ...] [--repository-root <fixture-id>=<checkout> ...]
+  npm run eval:repository-knowledge -- --from-database <fixture-id> [--work-item <fixture-id>=<work-item-id>] [--from-database <fixture-id> ...]
 
 Inputs may be one observation, an array, or an object with a runs/observations array.
 Use --compact for stable single-line JSON. The default is pretty JSON.`;
@@ -46,6 +47,7 @@ function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     observationPaths: [],
     databaseFixtureIds: [],
+    databaseWorkItemIds: new Map(),
     repositoryRoots: new Map(),
     pretty: true,
   };
@@ -79,6 +81,19 @@ function parseArgs(args: string[]): CliOptions {
       index += resolved.consumed;
       continue;
     }
+    if (argument === "--work-item" || argument.startsWith("--work-item=")) {
+      const resolved = optionValue(args, index, "--work-item");
+      const delimiter = resolved.value.indexOf("=");
+      if (delimiter < 1 || delimiter === resolved.value.length - 1) {
+        throw new Error("--work-item must use <fixture-id>=<work-item-id>.");
+      }
+      options.databaseWorkItemIds.set(
+        resolved.value.slice(0, delimiter),
+        resolved.value.slice(delimiter + 1),
+      );
+      index += resolved.consumed;
+      continue;
+    }
     if (argument === "--repository-root" || argument.startsWith("--repository-root=")) {
       const resolved = optionValue(args, index, "--repository-root");
       const delimiter = resolved.value.indexOf("=");
@@ -97,6 +112,15 @@ function parseArgs(args: string[]): CliOptions {
   if (!options.observationPaths.length && !options.databaseFixtureIds.length) {
     throw new Error(`Supply --observation or --from-database.\n\n${usage()}`);
   }
+  const databaseFixtureIds = new Set(options.databaseFixtureIds);
+  const unselectedWorkItemFixtures = Array.from(
+    options.databaseWorkItemIds.keys(),
+  ).filter((fixtureId) => !databaseFixtureIds.has(fixtureId));
+  if (unselectedWorkItemFixtures.length) {
+    throw new Error(
+      `--work-item requires a matching --from-database fixture: ${unselectedWorkItemFixtures.join(", ")}.`,
+    );
+  }
   return options;
 }
 
@@ -110,7 +134,9 @@ async function loadObservations(options: CliOptions) {
     Array.from(new Set(options.databaseFixtureIds)).map(async (fixtureId) => {
       const fixture = repositoryKnowledgeFixture(fixtureId);
       if (!fixture) throw new Error(`Unknown repository fixture: ${fixtureId}.`);
-      return repositoryKnowledgeObservationFromDatabase(fixture);
+      return repositoryKnowledgeObservationFromDatabase(fixture, {
+        workItemId: options.databaseWorkItemIds.get(fixtureId),
+      });
     }),
   );
   const observations = [...serialized.flat(), ...database];
@@ -162,6 +188,7 @@ async function main() {
       sourceKind: fixture.sourceKind,
       fixtureSnapshotCommit: fixture.snapshotCommit,
       evaluatedCommit: observations.find((run) => run.fixtureId === fixture.id)?.commitSha ?? null,
+      databaseWorkItemIdUsed: options.databaseWorkItemIds.get(fixture.id) ?? null,
       localRepositoryRootUsed: options.repositoryRoots.has(fixture.id),
     })),
     observations: observations satisfies RepositoryKnowledgeEvaluationRun[],
