@@ -14,6 +14,8 @@ import {
   inferSubsystemsFromPath,
   isPlannedDocumentationRange,
   isRepositoryAnalysisNoisePath,
+  isRepositoryContextOnlyPath,
+  isRepositoryImplementationPathForCapability,
   isRepositoryProductPath,
   requiredSemanticRepresentativeCount,
   selectRequiredSemanticCoverageAreas,
@@ -67,6 +69,35 @@ describe("adaptive repository coverage", () => {
     expect(inferProjectDomainCapability("src/data/validations/order.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/agents/planner.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/providers/storage/client.ts")).toBeNull();
+    for (const path of [
+      "terraform/modules/network/main.tf",
+      "lambda/handlers/intake.py",
+      "templates/email/base.html",
+      "poc/vector_search/demo.py",
+      "sample_input/api_service_spec.md",
+      "uploads/customer/raw.json",
+    ]) {
+      expect(inferProjectDomainCapability(path)).toBeNull();
+    }
+    expect(inferProjectDomainCapability("src/agents/email_intake/handler.py"))
+      .toBe("project_domain:email-intake");
+    expect(inferProjectDomainCapability("frontend/email-intake/src/handler.ts"))
+      .toBe("project_domain:email-intake");
+  });
+
+  it("treats prose specs and raw sample folders as context rather than executable coverage", () => {
+    for (const path of [
+      "sample_input/api_service_spec.md",
+      "planning/payment-flow.adoc",
+      "poc/example.txt",
+      "uploads/customer-payload.json",
+    ]) {
+      expect(isRepositoryContextOnlyPath(path)).toBe(true);
+      expect(isRepositoryImplementationPathForCapability(path, "interfaces_integrations")).toBe(false);
+      expect(inferSubsystemsFromPath(path).some((key) =>
+        key.startsWith("project_domain:") || key.startsWith("module:")
+      )).toBe(false);
+    }
   });
 
   it("filters generated, tool, fixture, and test-resource paths from product domains and modules", () => {

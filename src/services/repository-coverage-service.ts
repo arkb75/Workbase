@@ -42,10 +42,10 @@ const projectDomainContainerSegments = new Set([
   "adapter", "adapters", "api", "app", "apps", "client", "common", "component", "components", "connector", "connectors", "controller", "controllers",
   "agent", "agents", "application", "backend", "cmd", "com", "core", "data", "feature", "features", "frontend", "handler", "handlers", "hook", "hooks", "infra", "infrastructure", "internal", "io",
   "java", "kotlin", "lib", "libs", "main",
-  "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
+  "lambda", "model", "models", "module", "modules", "package", "packages", "page", "pages", "poc", "repository",
   "repositories", "resources", "rest", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "storage", "store", "stores",
-  "form", "forms", "integration", "integrations", "job", "jobs", "net", "org", "pipeline", "pipelines", "presentation", "provider", "providers", "python", "queue", "queues",
-  "type", "types", "ui", "util", "utils", "view", "views", "worker", "workers", "workflow", "workflows",
+  "form", "forms", "integration", "integrations", "job", "jobs", "net", "org", "pipeline", "pipelines", "presentation", "provider", "providers", "python", "queue", "queues", "sample-input",
+  "template", "templates", "terraform", "type", "types", "ui", "upload", "uploads", "util", "utils", "view", "views", "worker", "workers", "workflow", "workflows",
   "validation", "validations", "web",
 ]);
 
@@ -53,6 +53,10 @@ const excludedProjectDomainRoots = new Set([
   ".github", ".next", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
   "docs", "examples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
   "spec", "specs", "target", "test", "tests", "tmp", "vendor",
+]);
+
+const projectDomainSuppressedRoots = new Set([
+  "lambda", "poc", "sample-input", "sample_input", "template", "templates", "terraform", "upload", "uploads",
 ]);
 
 const repositoryAnalysisNoiseSegments = new Set([
@@ -76,7 +80,10 @@ export function isRepositoryDocumentationPath(path: string) {
 }
 
 export function isRepositoryContextOnlyPath(path: string) {
-  return isRepositoryDocumentationPath(path) || /(?:^|\/)(?:examples?)(?:\/|$)/i.test(path.replace(/\\/g, "/"));
+  const normalized = path.replace(/\\/g, "/");
+  return isRepositoryDocumentationPath(normalized) ||
+    /(?:^|\/)(?:examples?|samples?|sample[-_]?inputs?|poc|uploads?)(?:\/|$)/i.test(normalized) ||
+    /\.(?:md|markdown|mdown|rst|adoc|txt)$/i.test(normalized);
 }
 
 export function isRepositoryImplementationPathForCapability(path: string, capabilityKey: string) {
@@ -111,8 +118,13 @@ export function inferProjectDomainCapability(path: string) {
   const segments = normalized.split("/").filter(Boolean);
   if (segments.length < 2) return null;
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
-  if (!directories.length || !isRepositoryProductPath(path)) return null;
-  const candidates = directories.filter((segment) =>
+  if (
+    !directories.length ||
+    !isRepositoryProductPath(path) ||
+    isRepositoryContextOnlyPath(path) ||
+    directories.some((segment) => projectDomainSuppressedRoots.has(segment))
+  ) return null;
+  const candidates = directories.map((segment) => segment.replace(/_+/g, "-").replace(/-+/g, "-")).filter((segment) =>
     !projectDomainContainerSegments.has(segment) &&
     !/^\[.*\]$/.test(segment) &&
     !/^v\d+$/.test(segment) &&
@@ -445,7 +457,7 @@ export function inferSubsystemsFromPath(path: string) {
   if (isTestPath || /(?:^|[/_.-])(?:config|scripts?|deploy|docker|terraform|ci)(?:[/_.-]|$)/.test(value)) {
     keys.push("tests_operations");
   }
-  const productPath = isRepositoryProductPath(path);
+  const productPath = isRepositoryProductPath(path) && !isRepositoryContextOnlyPath(path);
   const projectDomain = productPath ? inferProjectDomainCapability(path) : null;
   if (projectDomain) keys.push(projectDomain);
   const parts = path.split("/");
