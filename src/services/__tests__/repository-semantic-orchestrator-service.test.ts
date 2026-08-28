@@ -2,928 +2,221 @@ import { describe, expect, it } from "vitest";
 import {
   allocateSemanticWorkerTokenBudgets,
   buildFileSemanticTask,
-  capabilityCandidatesFromAnalysis,
   enforceMandatoryCoverage,
-  immutableSemanticCacheWhere,
-  missingAssignedFileCandidateGaps,
-  missingCapabilityCandidateGaps,
   packSemanticBundleIndexes,
-  partitionCapabilityReports,
-  preserveSettledCapabilityReports,
-  reusableCurrentSnapshotSemanticAnalysis,
-  reusableSemanticAnalysis,
+  repositoryIncomingReferenceCounts,
+  scoreAdaptiveRepresentative,
+  selectDiverseCapabilityRepresentatives,
   semanticCoverageAssignmentGaps,
-  semanticFileReportSignals,
   semanticPlannerTokenReserve,
   semanticSignalKeysForFile,
-  type CapabilityReport,
-  type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
-import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
+import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
-describe("repository semantic orchestration guardrails", () => {
-  const paths: Record<string, string> = {
-    product_surface: "README.md",
-    domain_data: "prisma/schema.prisma",
-    ai_runtime: "src/lib/bedrock-converse-agent.ts",
-    ingestion_integrations: "src/services/github-client.ts",
-    retrieval_provenance: "src/services/project-knowledge-retrieval-service.ts",
-    workflow_orchestration: "workflows/project-chat.ts",
-    repository_knowledge_lifecycle: "src/services/knowledge-refresh-service.ts",
-    project_chat_grounding: "src/services/project-chat-agent-service.ts",
-    artifact_generation: "src/services/artifact-workflow-service.ts",
-    knowledge_review_lifecycle: "src/services/knowledge-review-service.ts",
-    review_ui: "components/chat/project-chat-workspace.tsx",
-    tests_operations: "src/services/__tests__/project-chat-agent-service.test.ts",
-  };
+describe("adaptive semantic coverage planning", () => {
+  const shell = () => ({
+    objective: "Inspect representative implementation evidence.",
+    capabilityKeys: [] as string[],
+    fileSnapshotIds: [] as string[],
+    questions: [] as string[],
+    expectedOutputs: [] as string[],
+  });
 
-  function manifest() {
-    return Object.entries(paths).map(([key, path]) => ({
-      key,
-      label: key,
-      files: [
-        { id: `${key}-specific`, path, score: 10 },
-        ...(key === "workflow_orchestration"
-          ? [
-              { id: "workflow-start-facet", path: "src/services/agent-run-workflow-start-service.ts", score: 9 },
-              { id: "chat-store-facet", path: "src/services/project-chat-store.ts", score: 8 },
-            ]
-          : key === "project_chat_grounding"
-          ? [{ id: "project-chat-harness-facet", path: "src/services/project-agent-harness.ts", score: 9 }]
-          : key === "repository_knowledge_lifecycle"
-            ? [{ id: "semantic-orchestrator-facet", path: "src/services/repository-semantic-orchestrator-service.ts", score: 9 }]
-            : key === "knowledge_review_lifecycle"
-              ? [{ id: "knowledge-staleness-facet", path: "src/services/knowledge-staleness-service.ts", score: 9 }]
-              : key === "review_ui"
-                ? [{ id: "project-workspace-facet", path: "app/work-items/[id]/page.tsx", score: 9 }]
-                : []),
-        { id: `${key}-generic`, path: "src/services/miscellaneous-service.ts", score: 1_000 },
-      ],
-    }));
-  }
-
-  it("allocates the fixed global budget by planned calls without stranding worker capacity", () => {
-    const weighted = allocateSemanticWorkerTokenBudgets({
-      totalTokens: 80_000,
-      modelCallCounts: [2, 2, 1, 1],
-    });
-
-    expect(weighted).toEqual([26_667, 26_667, 13_333, 13_333]);
-    expect(weighted.reduce((total, value) => total + value, 0)).toBe(80_000);
+  it("allocates the fixed worker budget in proportion to structured calls", () => {
     expect(allocateSemanticWorkerTokenBudgets({
       totalTokens: 80_000,
-      modelCallCounts: [1, 1, 1, 1],
-    })).toEqual([20_000, 20_000, 20_000, 20_000]);
+      modelCallCounts: [1, 2, 1],
+    })).toEqual([20_000, 40_000, 20_000]);
+    expect(semanticPlannerTokenReserve({ totalTokens: 9_000, unknownUsageCalls: 1 })).toBe(0);
   });
 
-  it("reserves actual planner usage and fails conservatively when provider usage is unknown", () => {
-    expect(semanticPlannerTokenReserve({
-      totalTokens: 7_500,
-      unknownUsageCalls: 0,
-    })).toBe(7_500);
-    expect(semanticPlannerTokenReserve({
-      totalTokens: 12_000,
-      unknownUsageCalls: 1,
-    })).toBe(32_000);
-    expect(semanticPlannerTokenReserve({
-      totalTokens: 40_000,
-      unknownUsageCalls: 0,
-    })).toBe(32_000);
-  });
-
-  it("finds a feasible bounded packing when greedy placement can strand capacity", () => {
-    const sizes = [7, 7, 4, 4, 3, 3, 2];
+  it("packs bounded bundles deterministically without exceeding file capacity", () => {
     const assignments = packSemanticBundleIndexes({
-      bundles: sizes.map((size, index) => ({
-        size,
-        capabilityKeys: [`capability-${index}`],
-        orderKey: String(index).padStart(2, "0"),
-      })),
-      plannerClaims: [[], [], [], []],
-      maxWorkers: 4,
-      maxFilesPerWorker: 8,
+      bundles: [
+        { size: 3, capabilityKeys: ["domain_data"], orderKey: "a" },
+        { size: 2, capabilityKeys: ["application_logic"], orderKey: "b" },
+        { size: 2, capabilityKeys: ["interfaces_integrations"], orderKey: "c" },
+      ],
+      plannerClaims: [[], []],
+      maxWorkers: 2,
+      maxFilesPerWorker: 4,
       microBatchSize: 4,
     });
-
     expect(assignments).not.toBeNull();
-    const assignedIndexes = assignments!.flat();
-    expect(new Set(assignedIndexes)).toEqual(new Set(sizes.map((_size, index) => index)));
-    const loads = assignments!.map((bundleIndexes) =>
-      bundleIndexes.reduce((total, bundleIndex) => total + sizes[bundleIndex]!, 0)
-    );
-    expect(loads.every((load) => load <= 8)).toBe(true);
-    expect(loads.reduce((total, load) => total + Math.ceil(load / 4), 0)).toBe(8);
+    expect(assignments?.flat().sort()).toEqual([0, 1, 2]);
+    expect(assignments?.every((indexes) =>
+      indexes.reduce((total, index) => total + [3, 2, 2][index]!, 0) <= 4
+    )).toBe(true);
   });
 
-  it("minimizes provider calls among feasible bundle assignments", () => {
-    const sizes = [5, 5, 3, 3];
-    const assignments = packSemanticBundleIndexes({
-      bundles: sizes.map((size, index) => ({
-        size,
-        capabilityKeys: [`capability-${index}`],
-        orderKey: String(index).padStart(2, "0"),
-      })),
-      plannerClaims: [[], [], [], []],
-      maxWorkers: 4,
-      maxFilesPerWorker: 8,
-      microBatchSize: 4,
-    });
-
-    expect(assignments).not.toBeNull();
-    const loads = assignments!.map((bundleIndexes) =>
-      bundleIndexes.reduce((total, bundleIndex) => total + sizes[bundleIndex]!, 0)
-    );
-    expect(loads.reduce((total, load) => total + (load ? Math.ceil(load / 4) : 0), 0)).toBe(4);
+  it("prefers executable evidence over higher-scored planning context", () => {
+    expect(selectDiverseCapabilityRepresentatives({
+      key: "product_surface",
+      label: "Product surface",
+      requiredSemanticPathCount: 1,
+      files: [
+        { id: "readme", path: "README.md", score: 100 },
+        { id: "screen", path: "src/screens/checkout-screen.tsx", score: 82 },
+      ],
+    }).map((file) => file.id)).toEqual(["screen"]);
   });
 
-  it("covers every mandatory capability with a target-specific representative file", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: Array.from({ length: 4 }, (_, index) => ({
-        objective: `Planner package ${index}`,
-        capabilityKeys: ["project_chat_grounding"],
-        fileSnapshotIds: ["generic-project-chat-file"],
-        questions: ["What does this package implement?"],
-        expectedOutputs: ["Supported facts"],
-      })),
-      manifest: manifest(),
-    });
-
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(packages).toHaveLength(5);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(selectedIds.size).toBe(18);
-    expect(packages.reduce(
-      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
-      0,
-    )).toBeLessThanOrEqual(5);
-    for (const [primaryId, supplementId] of [
-      ["project_chat_grounding-specific", "project-chat-harness-facet"],
-      ["repository_knowledge_lifecycle-specific", "semantic-orchestrator-facet"],
-      ["knowledge_review_lifecycle-specific", "knowledge-staleness-facet"],
-      ["review_ui-specific", "project-workspace-facet"],
-      ["workflow_orchestration-specific", "workflow-start-facet"],
-      ["workflow_orchestration-specific", "chat-store-facet"],
-    ]) {
-      expect(packages.some((entry) =>
-        entry.fileSnapshotIds.includes(primaryId) &&
-        entry.fileSnapshotIds.includes(supplementId)
-      )).toBe(true);
-    }
-    expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
-    for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
-    for (const supplementalId of [
-      "project-chat-harness-facet",
-      "semantic-orchestrator-facet",
-      "knowledge-staleness-facet",
-      "project-workspace-facet",
-      "workflow-start-facet",
-      "chat-store-facet",
-    ]) expect(selectedIds.has(supplementalId)).toBe(true);
-  });
-
-  it("treats selected non-Workbase project domains as mandatory manifest obligations", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect the repository's product domains.",
-        capabilityKeys: ["project_domain:payments", "project_domain:search"],
-        fileSnapshotIds: [],
-        questions: ["What do these domains implement?"],
-        expectedOutputs: ["Supported exact-line facts"],
-      }],
-      manifest: [
-        {
-          key: "project_domain:payments",
-          label: "payments project domain",
-          files: [{ id: "payments-file", path: "src/payments/charge-service.ts", score: 12 }],
-        },
-        {
-          key: "project_domain:search",
-          label: "search project domain",
-          files: [{ id: "search-file", path: "src/search/index-service.ts", score: 10 }],
-        },
+  it("uses multiple path families for broad capability areas", () => {
+    const selected = selectDiverseCapabilityRepresentatives({
+      key: "interfaces_integrations",
+      label: "Interfaces",
+      requiredSemanticPathCount: 2,
+      files: [
+        { id: "one", path: "src/api/orders/route.ts", score: 90 },
+        { id: "two", path: "src/api/orders/admin-route.ts", score: 89 },
+        { id: "three", path: "src/connectors/payments/client.ts", score: 78 },
       ],
     });
-
-    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
-      new Set(["payments-file", "search-file"]),
-    );
-    expect(new Set(packages.flatMap((entry) => entry.capabilityKeys))).toEqual(
-      new Set(["project_domain:payments", "project_domain:search"]),
-    );
+    expect(selected.map((file) => file.id)).toEqual(["one", "three"]);
   });
 
-  it("keeps each repository-scoped review workspace supplement with its primary", () => {
-    const scopedManifest = ["owner/repo-a", "owner/repo-b"].map((scopeKey, index) => ({
-      key: "review_ui",
-      label: "Review and UI",
-      scopeKey,
+  it("builds a repository-derived plan for every generic role", () => {
+    const keys = [
+      "product_surface",
+      "domain_data",
+      "application_logic",
+      "interfaces_integrations",
+      "automation_workflows",
+      "intelligence_search",
+      "security_reliability",
+      "tests_operations",
+    ];
+    const manifest = keys.map((key) => ({
+      key,
+      label: key,
+      scopeKey: "example/project",
+      requiredSemanticPathCount: 2,
       files: [
-        {
-          id: `repo-${index + 1}-chat`,
-          path: "components/chat/project-chat-workspace.tsx",
-          score: 10,
-        },
-        {
-          id: `repo-${index + 1}-workspace`,
-          path: "app/work-items/[id]/page.tsx",
-          score: 9,
-        },
+        { id: `${key}-a`, path: `src/${key}/primary.ts`, score: 60 },
+        { id: `${key}-b`, path: `packages/${key}/secondary.ts`, score: 50 },
+        { id: `${key}-low`, path: `src/${key}/helper.ts`, score: 2 },
       ],
     }));
     const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect repository-scoped review workspaces.",
-        capabilityKeys: ["review_ui"],
-        fileSnapshotIds: [],
-        questions: ["What review workspace behavior is implemented?"],
-        expectedOutputs: ["Supported review UI facts"],
-      }],
-      manifest: scopedManifest,
+      packages: Array.from({ length: 5 }, shell),
+      manifest,
     });
-
-    for (const index of [1, 2]) {
-      expect(packages.some((entry) =>
-        entry.fileSnapshotIds.includes(`repo-${index}-chat`) &&
-        entry.fileSnapshotIds.includes(`repo-${index}-workspace`)
-      )).toBe(true);
-    }
-    expect(semanticCoverageAssignmentGaps({
-      manifest: scopedManifest,
-      packages,
-      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
-    })).toEqual([]);
-  });
-
-  it("reserves decisive cross-file facets for every full attached repository", () => {
-    const scopedManifest = ["owner/repo-a", "owner/repo-b"].flatMap((scopeKey, repositoryIndex) =>
-      manifest().map((area) => ({
-        ...area,
-        scopeKey,
-        files: area.files.map((file) => ({
-          ...file,
-          id: `repo-${repositoryIndex + 1}:${file.id}`,
-        })),
-      }))
-    );
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect complete capability coverage in both attached repositories.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: [],
-        questions: ["What decisive cross-file behavior does each repository implement?"],
-        expectedOutputs: ["Supported repository-scoped capability facts"],
-      }],
-      manifest: scopedManifest,
-    });
-
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(selectedIds.size).toBe(32);
+    const selected = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+    expect(selected.size).toBe(16);
     expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(packages.reduce(
-      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
-      0,
-    )).toBe(8);
-    for (const repositoryIndex of [1, 2]) {
-      for (const supplementalId of [
-        "project-chat-harness-facet",
-        "semantic-orchestrator-facet",
-        "knowledge-staleness-facet",
-        "project-workspace-facet",
-      ]) {
-        expect(selectedIds.has(`repo-${repositoryIndex}:${supplementalId}`)).toBe(true);
-      }
-    }
     expect(semanticCoverageAssignmentGaps({
-      manifest: scopedManifest,
-      packages,
-      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
+      manifest,
+      packages: packages.map((entry) => ({
+        capabilityKeys: entry.capabilityKeys,
+        fileSnapshotIds: entry.fileSnapshotIds,
+      })),
+      expectedScopeKeys: ["example/project"],
     })).toEqual([]);
   });
 
-  it("co-locates a review workspace supplement even when it is another capability's primary", () => {
+  it("gives each area one representative before spending capacity on depth", () => {
+    const manifest = Array.from({ length: 40 }, (_, index) => ({
+      key: `project_domain:domain-${index}`,
+      label: `Domain ${index}`,
+      scopeKey: "example/large",
+      requiredSemanticPathCount: 3,
+      files: Array.from({ length: 3 }, (_unused, fileIndex) => ({
+        id: `${index}-${fileIndex}`,
+        path: `src/domain-${index}/part-${fileIndex}.ts`,
+        score: 50 - fileIndex,
+      })),
+    }));
     const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect the product surface and its review workspace.",
-        capabilityKeys: ["product_surface", "review_ui"],
-        fileSnapshotIds: [],
-        questions: ["How does the complete workspace support project review?"],
-        expectedOutputs: ["Supported review UI facts"],
-      }],
-      manifest: [
-        {
-          key: "product_surface",
-          label: "Product surface",
-          files: [{
-            id: "project-workspace",
-            path: "app/work-items/[id]/page.tsx",
-            score: 20,
-          }],
-        },
-        {
-          key: "review_ui",
-          label: "Review and UI",
-          files: [
-            {
-              id: "chat-workspace",
-              path: "components/chat/project-chat-workspace.tsx",
-              score: 20,
-            },
-            {
-              id: "project-workspace",
-              path: "app/work-items/[id]/page.tsx",
-              score: 19,
-            },
-          ],
-        },
-      ],
+      packages: Array.from({ length: 5 }, shell),
+      manifest,
     });
-
-    expect(packages.some((entry) =>
-      entry.capabilityKeys.includes("review_ui") &&
-      entry.fileSnapshotIds.includes("chat-workspace") &&
-      entry.fileSnapshotIds.includes("project-workspace")
-    )).toBe(true);
-    expect(semanticCoverageAssignmentGaps({
-      manifest: [
-        {
-          key: "product_surface",
-          label: "Product surface",
-          files: [{ id: "project-workspace", path: "app/work-items/[id]/page.tsx", score: 20 }],
-        },
-        {
-          key: "review_ui",
-          label: "Review and UI",
-          files: [{ id: "chat-workspace", path: "components/chat/project-chat-workspace.tsx", score: 20 }],
-        },
-      ],
-      packages,
-    })).toEqual([]);
-  });
-
-  it("rebalances mandatory capabilities when the model clusters every key into one package", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "A badly concentrated model plan.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: ["generic-project-chat-file"],
-        questions: ["What does the repository implement?"],
-        expectedOutputs: ["Supported facts"],
-      }],
-      manifest: manifest(),
-    });
-
-    expect(packages).toHaveLength(5);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 3 && entry.fileSnapshotIds.length <= 4)).toBe(true);
-    expect(packages.map((entry) => entry.fileSnapshotIds.length).sort()).toEqual([3, 3, 4, 4, 4]);
-    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
-      new Set([
-        ...Object.keys(paths).map((key) => `${key}-specific`),
-        "project-chat-harness-facet",
-        "semantic-orchestrator-facet",
-        "knowledge-staleness-facet",
-        "project-workspace-facet",
-        "workflow-start-facet",
-        "chat-store-facet",
-      ]),
-    );
-    for (const key of Object.keys(paths)) {
-      expect(packages.some((entry) =>
-        entry.capabilityKeys.includes(key) && entry.fileSnapshotIds.includes(`${key}-specific`)
-      )).toBe(true);
-    }
-  });
-
-  it("routes retrieval, application tests, and the full workspace to decisive files", () => {
-    const routedManifest = manifest().map((area) => {
-      if (area.key === "retrieval_provenance") {
-        return {
-          ...area,
-          files: [
-            ...area.files,
-            { id: "chat-citation-high-score", path: "src/services/chat-citation-service.ts", score: 9_000 },
-          ],
-        };
-      }
-      if (area.key === "tests_operations") {
-        return {
-          ...area,
-          files: [
-            ...area.files,
-            { id: "application-scenarios", path: "src/evals/__tests__/project-chat-application-runner.test.ts", score: 1 },
-          ],
-        };
-      }
-      return area;
-    });
-
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect broad repository accomplishments.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: [],
-        questions: ["What does the project implement?"],
-        expectedOutputs: ["Supported facts"],
-      }],
-      manifest: routedManifest,
-    });
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-
-    expect(selectedIds.has("retrieval_provenance-specific")).toBe(true);
-    expect(selectedIds.has("chat-citation-high-score")).toBe(false);
-    expect(selectedIds.has("application-scenarios")).toBe(true);
-    expect(selectedIds.has("tests_operations-specific")).toBe(false);
-    expect(selectedIds.has("review_ui-specific")).toBe(true);
-    expect(selectedIds.has("project-workspace-facet")).toBe(true);
-    expect(selectedIds.size).toBeLessThanOrEqual(18);
-    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(5);
-  });
-
-  it("adds repository import beside exploration when the bounded plan has capacity", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect repository ingestion and exploration.",
-        capabilityKeys: ["ingestion_integrations"],
-        fileSnapshotIds: [],
-        questions: ["What becomes durable project evidence?"],
-        expectedOutputs: ["Supported ingestion facts"],
-      }],
-      manifest: [{
-        key: "ingestion_integrations",
-        label: "GitHub ingestion",
-        files: [
-          { id: "exploration", path: "src/services/github-repository-exploration-service.ts", score: 20 },
-          { id: "import", path: "src/services/github-repo-import-service.ts", score: 10 },
-        ],
-      }],
-    });
-
-    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
-      new Set(["exploration", "import"]),
-    );
-    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBe(1);
-  });
-
-  it("reports repository-scoped obligations that exceed package capacity", () => {
-    const gaps = semanticCoverageAssignmentGaps({
-      manifest: [
-        { key: "project_chat_grounding", label: "Chat", scopeKey: "owner/repo-a", files: [{ id: "a", path: "a.ts", score: 1 }] },
-        { key: "project_chat_grounding", label: "Chat", scopeKey: "owner/repo-b", files: [{ id: "b", path: "b.ts", score: 1 }] },
-      ],
-      packages: [{ capabilityKeys: ["project_chat_grounding"], fileSnapshotIds: ["a"] }],
-    });
-
-    expect(gaps).toEqual([
-      "Semantic coverage capacity omitted project_chat_grounding for owner/repo-b.",
-    ]);
-  });
-
-  it("reports an attached repository with no classifiable mandatory capability", () => {
-    const gaps = semanticCoverageAssignmentGaps({
-      manifest: [
-        { key: "ai_runtime", label: "AI runtime", scopeKey: "owner/repo-a", files: [{ id: "a", path: "agent.ts", score: 1 }] },
-      ],
-      packages: [{ capabilityKeys: ["ai_runtime"], fileSnapshotIds: ["a"] }],
-      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
-    });
-
-    expect(gaps).toEqual([
-      "No mandatory semantic capability could be classified for attached repository owner/repo-b; coverage cannot be verified.",
-    ]);
-  });
-
-  it("keeps capacity omissions explicit across three capability-rich repositories", () => {
-    const repositories = ["owner/repo-a", "owner/repo-b", "owner/repo-c"];
-    const scopedManifest = repositories.flatMap((scopeKey) => Object.entries(paths).map(([key, path]) => ({
-      key,
-      label: key,
-      scopeKey,
-      files: [{ id: `${scopeKey}:${key}`, path, score: 10 }],
-    })));
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect every mandatory capability across attached repositories.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: [],
-        questions: ["What does each repository implement?"],
-        expectedOutputs: ["Repository-scoped supported facts"],
-      }],
-      manifest: scopedManifest,
-    });
-    const gaps = semanticCoverageAssignmentGaps({
-      manifest: scopedManifest,
-      packages,
-      expectedScopeKeys: repositories,
-    });
-
-    expect(packages).toHaveLength(4);
+    const selected = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+    expect(selected.size).toBe(32);
     expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds)).size).toBe(32);
-    expect(gaps).toHaveLength(4);
-    expect(gaps.every((gap) => gap.startsWith("Semantic coverage capacity omitted"))).toBe(true);
+    expect(Array.from(selected).every((id) => id.endsWith("-0"))).toBe(true);
   });
 
-  it("selects a mandatory capability representative from every attached repository", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect the AI runtime across attached repositories.",
-        capabilityKeys: ["ai_runtime"],
-        fileSnapshotIds: [],
-        questions: ["How is the runtime implemented?"],
-        expectedOutputs: ["Supported facts"],
-      }],
-      manifest: [
-        {
-          key: "ai_runtime",
-          label: "AI runtime",
-          scopeKey: "snapshot-repository-a",
-          files: [{ id: "repo-a-bedrock", path: "src/lib/bedrock-converse-agent.ts", score: 10 }],
-        },
-        {
-          key: "ai_runtime",
-          label: "AI runtime",
-          scopeKey: "snapshot-repository-b",
-          files: [{ id: "repo-b-runtime", path: "src/lib/llm-runtime.ts", score: 10 }],
-        },
-      ],
-    });
-
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(selectedIds).toEqual(new Set(["repo-a-bedrock", "repo-b-runtime"]));
-    for (const fileId of selectedIds) {
-      expect(packages.some((entry) =>
-        entry.fileSnapshotIds.includes(fileId) && entry.capabilityKeys.includes("ai_runtime")
-      )).toBe(true);
-    }
-  });
-
-  it("preserves completed worker reports when another worker fails", () => {
-    const budget: SemanticWorkPackage["budget"] = {
-      maxWorkers: 4,
-      maxModelCalls: 8,
-      maxInputBytes: 64 * 1024,
-      maxOutputTokens: 8_000,
-      maxTotalTokens: 32_000,
-      maxRepairPasses: 1,
-    };
-    const packages: SemanticWorkPackage[] = [
-      { id: "complete", objective: "Inspect the AI runtime implementation.", capabilityKeys: ["ai_runtime"], fileSnapshotIds: ["file-1"], questions: [], expectedOutputs: [], budget },
-      { id: "failed", objective: "Inspect the workflow implementation.", capabilityKeys: ["workflow_orchestration"], fileSnapshotIds: ["file-2"], questions: [], expectedOutputs: [], budget },
-    ];
-    const complete: CapabilityReport = {
-      packageId: "complete",
-      inspectedFileSnapshotIds: ["file-1"],
-      candidates: [],
-      contradictions: [],
-      gaps: [],
-      tokenUsage: [],
-      usage: { inputBytes: 100, modelCalls: 1, repairPasses: 0, inputTokens: 20, outputTokens: 10, totalTokens: 30, unknownUsageCalls: 0 },
-      partial: false,
-    };
-
-    const reports = preserveSettledCapabilityReports(packages, [
-      { status: "fulfilled", value: complete },
-      { status: "rejected", reason: new Error("provider unavailable") },
+  it("derives import centrality from relative references", () => {
+    const counts = repositoryIncomingReferenceCounts([
+      { path: "src/core/ledger.ts", analysis: { dependencies: [] } },
+      { path: "src/api/route.ts", analysis: { dependencies: ["../core/ledger"] } },
+      { path: "src/jobs/settle.ts", analysis: { dependencies: ["../core/ledger"] } },
+      { path: "src/ui/view.ts", analysis: { dependencies: ["../api/route"] } },
     ]);
-
-    expect(reports[0]).toBe(complete);
-    expect(reports[1]).toMatchObject({
-      packageId: "failed",
-      inspectedFileSnapshotIds: [],
-      partial: true,
-      gaps: [expect.stringContaining("provider unavailable")],
-    });
+    expect(counts.get("src/core/ledger.ts")).toBe(2);
+    expect(counts.get("src/api/route.ts")).toBe(1);
   });
 
-  it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {
-    const signals = semanticFileReportSignals({
-      path: "src/services/__tests__/repository-semantic-budget-service.test.ts",
-      semanticStatus: "succeeded",
-      unresolvedQuestions: [
-        "What condition distinguishes a degraded fallback from a failed outcome in omitted lines?",
-      ],
-    });
-
-    expect(signals.gaps).toEqual([]);
-    expect(signals.diagnosticNotes).toEqual([
-      expect.stringContaining("failed outcome"),
-    ]);
-  });
-
-  it("keeps execution failures and missing required capabilities as deterministic gaps", () => {
-    expect(semanticFileReportSignals({
-      path: "src/services/provider.ts",
-      semanticStatus: "failed",
-      unresolvedQuestions: ["The provider request timed out."],
-    })).toMatchObject({
-      gaps: ["src/services/provider.ts: Semantic analysis failed."],
-      diagnosticNotes: [expect.stringContaining("timed out")],
-    });
-
-    expect(missingCapabilityCandidateGaps({
-      capabilityKeys: ["ai_runtime", "domain_data", "ai_runtime"],
-      candidates: [{ key: "ai_runtime" }],
-    })).toEqual([
-      "No supported semantic finding was produced for required capability domain_data.",
-    ]);
-
-    expect(missingAssignedFileCandidateGaps({
-      files: [
-        { id: "repo-a-runtime", path: "repo-a/agent.ts", staticSubsystemKeys: ["ai_runtime"] },
-        { id: "repo-b-runtime", path: "repo-b/agent.ts", staticSubsystemKeys: ["ai_runtime"] },
-      ],
-      workPackageCapabilityKeys: ["ai_runtime"],
-      candidates: [{
-        key: "ai_runtime",
-        evidence: [{ fileSnapshotId: "repo-a-runtime", lineStart: 1, lineEnd: 2 }],
-      }],
-    })).toEqual([
-      "repo-b/agent.ts: No supported semantic finding was produced for assigned capability ai_runtime.",
-    ]);
-  });
-
-  it("classifies structurally partial reports as incomplete even when they inspected files and emitted candidates", () => {
-    expect(partitionCapabilityReports([
-      { packageId: "complete", partial: false },
-      { packageId: "missing-one-capability", partial: true },
-    ])).toEqual({
-      completePackages: ["complete"],
-      incompletePackages: ["missing-one-capability"],
-    });
-  });
-
-  it("reuses immutable-blob semantic analysis only when it supports the assigned capability", () => {
-    const cached = {
-      path: "src/old-path.ts",
-      summary: "Implements durable chat orchestration.",
-      subsystemKeys: ["workflow_orchestration"],
-      responsibilities: ["Defines retry-safe workflow steps."],
-      symbols: ["projectChatWorkflow"],
+  it("scores substantive, central implementation above test and documentation context", () => {
+    const analysis = (path: string, fact: string): RepositoryFileAnalysis => ({
+      path,
+      summary: fact,
+      subsystemKeys: ["application_logic"],
+      responsibilities: [fact],
+      symbols: ["LedgerService"],
       dependencies: [],
-      architectureSignals: ["retry-safe workflow step"],
+      architectureSignals: ["database persistence"],
       userFacingCapabilities: [],
       facts: [{
-        statement: "The workflow defines retry-safe steps.",
-        category: "architecture" as const,
-        confidence: "high" as const,
+        statement: fact,
+        category: "behavior",
+        confidence: "high",
         sensitivityFlag: false,
-        lineStart: 4,
-        lineEnd: 4,
+        lineStart: 1,
+        lineEnd: 5,
         productImportance: 4,
-        implementationBreadth: 5,
-        technicalDifficulty: 4,
-        subsystemKeys: ["workflow_orchestration"],
-        evidenceMode: "semantic" as const,
-        path: "src/old-path.ts",
+        implementationBreadth: 4,
+        technicalDifficulty: 3,
+        subsystemKeys: ["application_logic"],
+        evidenceMode: "static",
+        path,
       }],
       unresolvedQuestions: [],
       chunksAnalyzed: 1,
       tokenUsage: [],
-      analysisMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSource: "model" as const,
-    };
-
-    expect(reusableSemanticAnalysis({
-      value: cached,
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toMatchObject({
-      path: "workflows/project-chat.ts",
-      subsystemKeys: ["workflow_orchestration"],
-      facts: [expect.objectContaining({ path: "workflows/project-chat.ts" })],
     });
-    expect(reusableSemanticAnalysis({
-      value: cached,
-      path: "workflows/project-chat.ts",
+    const implementation = scoreAdaptiveRepresentative({
+      capabilityKey: "application_logic",
+      path: "src/ledger/ledger-service.ts",
+      analysis: analysis("src/ledger/ledger-service.ts", "Persists balanced contributions."),
+      incomingReferences: 3,
+    });
+    const test = scoreAdaptiveRepresentative({
+      capabilityKey: "application_logic",
+      path: "tests/ledger-service.test.ts",
+      analysis: analysis("tests/ledger-service.test.ts", "Tests balanced contributions."),
+      incomingReferences: 0,
+    });
+    expect(implementation).toBeGreaterThan(test);
+  });
+
+  it("produces only repository-neutral semantic signals", () => {
+    expect(semanticSignalKeysForFile({
+      path: "src/api/payments/controller.ts",
+      capabilityKeys: ["interfaces_integrations", "project_domain:payments"],
+    })).toEqual([
+      "interfaces_integrations.request_boundary",
+      "project_domain:payments.implementation",
+    ]);
+    expect(semanticSignalKeysForFile({
+      path: "src/main/java/com/acme/loans/model/Loan.java",
       capabilityKeys: ["domain_data"],
-    })).toBeNull();
-    expect(reusableSemanticAnalysis({
-      value: cached,
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration", "project_chat_grounding"],
-    })).toBeNull();
-    expect(reusableSemanticAnalysis({
-      value: cached,
-      path: "workflows/project-chat.ts",
-      capabilityKeys: [],
-    })).toBeNull();
-    expect(reusableSemanticAnalysis({
-      value: { ...cached, semanticStatus: "degraded" },
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toBeNull();
-
-    const reusedSubset = reusableSemanticAnalysis({
-      value: {
-        ...cached,
-        subsystemKeys: ["workflow_orchestration", "domain_data"],
-        facts: [
-          ...cached.facts,
-          {
-            ...cached.facts[0],
-            statement: "Persists an unrelated domain record.",
-            subsystemKeys: ["domain_data"],
-          },
-        ],
-      },
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    });
-    expect(reusedSubset?.subsystemKeys).toEqual(["workflow_orchestration"]);
-    expect(reusedSubset?.facts.map((fact) => fact.statement)).toEqual([
-      "The workflow defines retry-safe steps.",
-    ]);
-
-    expect(reusableCurrentSnapshotSemanticAnalysis({
-      semanticStatus: "succeeded",
-      semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
-      semanticAnalysis: cached,
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toMatchObject({
-      path: "workflows/project-chat.ts",
-      facts: [expect.objectContaining({ statement: "The workflow defines retry-safe steps." })],
-    });
-    expect(reusableCurrentSnapshotSemanticAnalysis({
-      semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v13",
-      semanticAnalysis: cached,
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toBeNull();
+    })).toEqual(["domain_data.schema_boundary"]);
   });
 
-  it("scopes a highlight embedding file to retrieval instead of unrelated package capabilities", () => {
+  it("builds generic file tasks with an explicit shipped-versus-planned boundary", () => {
     const task = buildFileSemanticTask({
-      path: "src/services/highlight-embedding-service.ts",
-      workPackageCapabilityKeys: ["ingestion_integrations", "retrieval_provenance"],
-      staticSubsystemKeys: ["retrieval_provenance"],
+      path: "src/jobs/recommendations.py",
+      workPackageCapabilityKeys: ["automation_workflows", "intelligence_search"],
+      staticSubsystemKeys: ["automation_workflows", "intelligence_search", "module:src/jobs"],
     });
-
     expect(task).toMatchObject({
-      capabilityKeys: ["retrieval_provenance"],
-      questions: expect.arrayContaining([expect.stringContaining("retrieval_provenance")]),
-    });
-    expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
-
-    const candidates = capabilityCandidatesFromAnalysis({
-      fileSnapshotId: "highlight-embedding-file",
-      relevantCapabilityKeys: task!.capabilityKeys,
-      analysis: {
-        facts: [{
-          statement: "Embeds approved highlights for semantic retrieval.",
-          category: "behavior",
-          confidence: "high",
-          sensitivityFlag: false,
-          lineStart: 10,
-          lineEnd: 20,
-          productImportance: 4,
-          implementationBreadth: 3,
-          technicalDifficulty: 3,
-          subsystemKeys: ["retrieval_provenance", "ingestion_integrations"],
-          path: "src/services/highlight-embedding-service.ts",
-        }],
-      },
-    });
-
-    expect(candidates.map((candidate) => candidate.key)).toEqual(["retrieval_provenance"]);
-  });
-
-  it("does not require a backend review service to prove review UI behavior", () => {
-    const task = buildFileSemanticTask({
-      path: "src/services/knowledge-review-service.ts",
-      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
-      staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
-    });
-
-    expect(task).toMatchObject({
-      capabilityKeys: ["knowledge_review_lifecycle"],
+      capabilityKeys: ["automation_workflows", "intelligence_search"],
       semanticSignalKeys: expect.arrayContaining([
-        "knowledge_review_lifecycle.immutable_successors",
-        "knowledge_review_lifecycle.dependent_invalidation",
-        "knowledge_review_lifecycle.restore_retire_modes",
+        "automation_workflows.execution_boundary",
+        "intelligence_search.query_boundary",
       ]),
     });
-    expect(missingAssignedFileCandidateGaps({
-      files: [{
-        id: "knowledge-review-service",
-        path: "src/services/knowledge-review-service.ts",
-        staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
-      }],
-      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
-      candidates: [{
-        key: "knowledge_review_lifecycle",
-        evidence: [{ fileSnapshotId: "knowledge-review-service", lineStart: 1, lineEnd: 2 }],
-      }],
-    })).toEqual([]);
-  });
-
-  it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {
-    expect(semanticSignalKeysForFile({
-      path: "app/work-items/[id]/page.tsx",
-      capabilityKeys: ["review_ui", "product_surface"],
-    })).toEqual([
-      "review_ui.url_addressable_views",
-      "review_ui.highlight_lifecycle",
-      "review_ui.artifact_highlight_traceability",
-    ]);
-    expect(semanticSignalKeysForFile({
-      path: "components/chat/project-chat-workspace.tsx",
-      capabilityKeys: ["review_ui"],
-    })).toEqual([
-      "review_ui.candidate_metadata",
-      "review_ui.citation_navigation",
-    ]);
-    expect(semanticSignalKeysForFile({
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toEqual([
-      "workflow_orchestration.chat_workflow",
-      "workflow_orchestration.repository_refresh_workflow",
-      "workflow_orchestration.artifact_workflow",
-      "workflow_orchestration.approval_pause_resume",
-      "workflow_orchestration.reconciliation_retry_boundary",
-      "workflow_orchestration.shared_refresh_owner_recovery",
-    ]);
-    expect(semanticSignalKeysForFile({
-      path: "src/services/agent-run-workflow-start-service.ts",
-      capabilityKeys: ["workflow_orchestration", "ai_runtime"],
-    })).toEqual(["workflow_orchestration.workflow_start_reservation"]);
-    expect(semanticSignalKeysForFile({
-      path: "src/services/project-chat-store.ts",
-      capabilityKeys: ["workflow_orchestration", "project_chat_grounding"],
-    })).toEqual([
-      "workflow_orchestration.chat_run_idempotency",
-      "workflow_orchestration.event_sequence_guard",
-      "workflow_orchestration.terminal_write_guard",
-    ]);
-  });
-
-  it("asks workflow files about retry, idempotency, and recovery without unrelated capabilities", () => {
-    const task = buildFileSemanticTask({
-      path: "src/services/project-chat-store.ts",
-      workPackageCapabilityKeys: ["workflow_orchestration", "ingestion_integrations"],
-      staticSubsystemKeys: ["workflow_orchestration", "project_chat_grounding"],
-    });
-
-    expect(task).toMatchObject({
-      capabilityKeys: ["workflow_orchestration"],
-      semanticSignalKeys: [
-        "workflow_orchestration.chat_run_idempotency",
-        "workflow_orchestration.event_sequence_guard",
-        "workflow_orchestration.terminal_write_guard",
-      ],
-      questions: expect.arrayContaining([
-        expect.stringContaining("terminal finalization"),
-        expect.stringContaining("duplicate or replayed writes"),
-      ]),
-    });
-    expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
-  });
-
-  it("emits a deliberate candidate for every relevant capability supported by a multi-key fact", () => {
-    const candidates = capabilityCandidatesFromAnalysis({
-      fileSnapshotId: "multi-purpose-file",
-      relevantCapabilityKeys: ["repository_knowledge_lifecycle", "retrieval_provenance"],
-      analysis: {
-        facts: [{
-          statement: "Reconciles repository facts into searchable project memory.",
-          category: "data_flow",
-          confidence: "high",
-          sensitivityFlag: false,
-          lineStart: 40,
-          lineEnd: 55,
-          productImportance: 4,
-          implementationBreadth: 4,
-          technicalDifficulty: 4,
-          subsystemKeys: ["repository_knowledge_lifecycle", "retrieval_provenance"],
-          path: "src/services/repository-knowledge-synthesis-service.ts",
-        }],
-      },
-    });
-
-    expect(candidates).toHaveLength(2);
-    expect(candidates.map((candidate) => candidate.key)).toEqual([
-      "repository_knowledge_lifecycle",
-      "retrieval_provenance",
-    ]);
-    expect(candidates.every((candidate) => candidate.kind === "data_flow")).toBe(true);
-  });
-
-  it("scopes semantic cache reuse to an immutable blob at the same attached source and path", () => {
-    expect(immutableSemanticCacheWhere({
-      fileSnapshotId: "current-file",
-      sourceId: "attached-source",
-      path: "workflows/project-chat.ts",
-      blobSha: "a".repeat(40),
-    })).toMatchObject({
-      id: { not: "current-file" },
-      path: "workflows/project-chat.ts",
-      blobSha: "a".repeat(40),
-      disposition: "analyzed",
-      semanticStatus: "succeeded",
-      semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
-      snapshot: { sourceId: "attached-source" },
-    });
+    expect(task?.expectedOutputs.join(" ")).toMatch(/planned.*context|planned|generated/i);
   });
 });

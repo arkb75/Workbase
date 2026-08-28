@@ -681,8 +681,7 @@ function closestProjectFact(input: {
       fact,
       score: knowledgeSimilarity(input.candidate.statement, fact.statement),
     }))
-    .sort((left, right) => right.score - left.score)
-    .find((entry) => entry.fact.subsystemKey === input.subsystemKey) ?? null;
+    .sort((left, right) => right.score - left.score)[0] ?? null;
 }
 
 function closestHighlight(input: {
@@ -697,9 +696,10 @@ function closestHighlight(input: {
         !Array.isArray(highlight.metadata)
         ? highlight.metadata as Record<string, unknown>
         : null;
-      return repositoryMayReconcileHighlight(highlight)
-        ? metadata?.subsystemKey === input.subsystemKey
-        : true;
+      // Repository-derived candidates are compared globally. Capability keys
+      // are coverage lenses, not identity namespaces; the same accomplishment
+      // must not become two active Highlights merely because two lenses found it.
+      return repositoryMayReconcileHighlight(highlight) || metadata?.subsystemKey == null;
     })
     .map((highlight) => ({
       highlight,

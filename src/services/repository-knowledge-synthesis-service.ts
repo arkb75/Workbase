@@ -197,206 +197,22 @@ export function modelEligibleSynthesisNotebook(notebook: SynthesisNotebookEntry[
   return notebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
 }
 
-const deterministicSynthesisAnchorRules = [
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Create a Work Item\b/i,
-  },
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Attach (?:manual notes|sources).*GitHub repositor/i,
-  },
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Refresh .*repository knowledge\b/i,
-  },
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Auto-apply .*Project Facts and Highlights.*private project memory\b/i,
-  },
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Surface .*review inbox.*quarantin.*(?:unsafe|insufficiently supported)/i,
-  },
-  {
-    subsystemKey: "product_surface",
-    pathPattern: /^README\.md$/i,
-    pattern: /^README\.md states: (?:\d+\.\s+)?Generate .*approved.*Highlights only\b/i,
-  },
-  {
-    subsystemKey: "repository_knowledge_lifecycle",
-    pathPattern: /^src\/services\/knowledge-refresh-service\.ts$/,
-    pattern: /defines the symbol (?:startKnowledgeRefresh|analyzeKnowledgeRefreshBatch)\b/,
-  },
-  {
-    subsystemKey: "repository_knowledge_lifecycle",
-    pathPattern: /^src\/services\/repository-knowledge-synthesis-service\.ts$/,
-    pattern: /defines the symbol synthesizeRepositoryKnowledge\b/,
-  },
-  {
-    subsystemKey: "repository_knowledge_lifecycle",
-    pathPattern: /^src\/services\/knowledge-reconciliation-service\.ts$/,
-    pattern: /defines the symbol reconcileRepositoryKnowledge\b/,
-  },
-  {
-    subsystemKey: "repository_knowledge_lifecycle",
-    pathPattern: /^src\/services\/knowledge-staleness-service\.ts$/,
-    pattern: /defines the symbol reconcileStaleKnowledge\b/,
-  },
-  {
-    subsystemKey: "workflow_orchestration",
-    pathPattern: /^workflows\/project-chat\.ts$/,
-    pattern: /(?:defines a durable workflow entrypoint|uses a durable approval hook to pause and resume work|defines the symbol (?:projectChatTurnWorkflow|artifactGenerationWorkflow|repositoryKnowledgeRefreshWorkflow)\b)/,
-  },
-  {
-    subsystemKey: "workflow_orchestration",
-    pathPattern: /^workflows\/project-chat\.ts$/,
-    pattern: /(?:disables automatic retries for repository reconciliation|lets a waiting turn claim a released shared refresh)/,
-  },
-  {
-    subsystemKey: "workflow_orchestration",
-    pathPattern: /^src\/services\/agent-run-workflow-start-service\.ts$/,
-    pattern: /conditionally reserves an unstarted queued run/,
-  },
-  {
-    subsystemKey: "workflow_orchestration",
-    pathPattern: /^src\/services\/project-chat-store\.ts$/,
-    pattern: /(?:serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/,
-  },
-] as const;
-
 /**
- * Static inventory remains ineligible for ordinary knowledge promotion. This
- * narrow allowlist admits only exact, path-bound facts for definitions that
- * explicitly opt into deterministic anchors. An unrelated semantic failure
- * therefore cannot erase supported product memory, while generic static
- * inventory remains ineligible for synthesis.
+ * Static inventory guides representative selection but is not promoted into
+ * project memory. A generic extractor cannot safely infer shipped behavior
+ * from symbol presence, README prose, fixtures, or generated artifacts alone.
  */
 export function deterministicSynthesisAnchorSubsystems(
   fact: RepositoryFileAnalysis["facts"][number],
   path = "",
 ) {
-  if (fact.evidenceMode !== "static" || fact.confidence !== "high" || fact.sensitivityFlag) return [];
-  return deterministicSynthesisAnchorRules
-    .filter((rule) => rule.pathPattern.test(path) && rule.pattern.test(fact.statement))
-    .map((rule) => rule.subsystemKey);
+  void fact;
+  void path;
+  return [] as string[];
 }
-
 function importance(entry: SynthesisNotebookEntry) {
   const changeBonus = entry.changeType === "unchanged" ? 0 : entry.changeType === "modified" ? 8 : 6;
   return entry.productImportance * 4 + entry.implementationBreadth * 3 + entry.technicalDifficulty * 3 + changeBonus + (entry.confidence === "high" ? 4 : entry.confidence === "medium" ? 2 : 0);
-}
-
-export function derivedRepositoryKnowledgeLifecycleFact(notebook: SynthesisNotebookEntry[]): RepositorySubsystemSynthesis["facts"][number] | null {
-  const requiredSignals = [
-    { path: "src/services/knowledge-refresh-service.ts", pattern: /defines the symbol startKnowledgeRefresh\b/ },
-    { path: "src/services/knowledge-refresh-service.ts", pattern: /defines the symbol analyzeKnowledgeRefreshBatch\b/ },
-    { path: "src/services/repository-knowledge-synthesis-service.ts", pattern: /defines the symbol synthesizeRepositoryKnowledge\b/ },
-    { path: "src/services/knowledge-reconciliation-service.ts", pattern: /defines the symbol reconcileRepositoryKnowledge\b/ },
-    { path: "src/services/knowledge-staleness-service.ts", pattern: /defines the symbol reconcileStaleKnowledge\b/ },
-  ];
-  const semanticSupports = [
-    {
-      path: "src/services/knowledge-refresh-service.ts",
-      signalKey: "repository_knowledge_lifecycle.refresh_analysis",
-      pattern: /repairKnowledgeCoverageGaps.*(?:orchestration|orchestrator).*(?:fallback|legacy)/i,
-      clause: "its refresh stage uses orchestrated semantic coverage repair with a legacy fallback",
-    },
-    {
-      path: "src/services/repository-knowledge-synthesis-service.ts",
-      signalKey: "repository_knowledge_lifecycle.synthesis",
-      pattern: /SynthesisNotebookEntry tracks full provenance.*changeType.*incremental knowledge updates/i,
-      clause: "its synthesis notebook preserves commit-pinned file and line provenance plus change types for incremental updates",
-    },
-    {
-      path: "src/services/repository-semantic-orchestrator-service.ts",
-      signalKey: "repository_knowledge_lifecycle.coverage_audit",
-      pattern: /semanticCoverageAssignmentGaps.*(?:capabilities lacking assigned file coverage|gap-detection invariant)/i,
-      clause: "its semantic orchestrator detects capability coverage gaps before assigning work",
-    },
-  ];
-  const citationIndexes = requiredSignals.flatMap((signal) => {
-    const index = notebook.findIndex((entry) =>
-      isWorkbaseRepositoryEntry(entry) &&
-      entry.path === signal.path &&
-      signal.pattern.test(entry.statement)
-    );
-    return index >= 0 ? [index + 1] : [];
-  });
-  const semanticSupport = semanticSupports.flatMap((support) => {
-    const index = notebook.findIndex((entry) =>
-      isWorkbaseRepositoryEntry(entry) &&
-      entry.path === support.path &&
-      entry.evidenceMode !== "deterministic_anchor" &&
-      entry.semanticStatus !== "degraded" &&
-      entry.confidence !== "low" &&
-      !entry.sensitivityFlag &&
-      (
-        entry.semanticSignals?.includes(support.signalKey) ||
-        support.pattern.test(entry.statement)
-      )
-    );
-    return index >= 0 ? [{ ...support, citationIndex: index + 1 }] : [];
-  })[0];
-  // The statement names all five lifecycle stages, so every stage needs its
-  // own exact exported-entrypoint observation. It also needs at least one
-  // semantic behavior observation so symbol inventory alone cannot become an
-  // auto-approved architecture claim.
-  if (citationIndexes.length !== requiredSignals.length || !semanticSupport) return null;
-  return {
-    statement: `The repository separates knowledge refresh, batch analysis, synthesis, reconciliation, and stale-knowledge reconciliation into distinct entrypoints, and ${semanticSupport.clause}.`,
-    category: "architecture",
-    confidence: "high",
-    sensitivityFlag: false,
-    citationIndexes: Array.from(new Set([...citationIndexes, semanticSupport.citationIndex])).slice(0, 6),
-    reviewNotes: "Deterministically assembled from path-bound exported lifecycle entrypoints plus a semantic behavior observation from the current immutable repository snapshot.",
-    productImportance: 5,
-    implementationBreadth: 5,
-    technicalDifficulty: 4,
-    distinctiveness: 5,
-  };
-}
-
-const repositoryLifecycleStagePatterns = [
-  /\b(?:knowledge|repository) refresh\b/i,
-  /\b(?:batch analys|semantic analys|coverage repair)\w*/i,
-  /\bsynthesi[sz]\w*/i,
-  /\breconcil\w*/i,
-  /\b(?:stale|revalidat|invalidat)\w*/i,
-];
-
-export function isBroadSemanticRepositoryLifecycleFact(
-  fact: RepositorySubsystemSynthesis["facts"][number],
-  notebook: SynthesisNotebookEntry[],
-) {
-  const citedEntries = fact.citationIndexes.map((index) => notebook[index - 1]);
-  if (
-    !citedEntries.length ||
-    citedEntries.some((entry) =>
-      !entry ||
-      !isWorkbaseRepositoryEntry(entry) ||
-      entry.evidenceMode === "deterministic_anchor"
-    )
-  ) {
-    return false;
-  }
-  const citedEvidence = citedEntries
-    .map((entry) => `${entry!.path} ${entry!.statement}`)
-    .join(" ");
-  const structuredStages = new Set(citedEntries.flatMap((entry) =>
-    (entry?.semanticSignals ?? []).filter((signal) =>
-      signal.startsWith("repository_knowledge_lifecycle.")
-    )
-  ));
-  if (structuredStages.size >= 3) return true;
-  return repositoryLifecycleStagePatterns.filter((pattern) =>
-    pattern.test(fact.statement) && pattern.test(citedEvidence)
-  ).length >= 3;
 }
 
 function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemSynthesis {
@@ -419,12 +235,6 @@ function mockSynthesis(notebook: SynthesisNotebookEntry[]): RepositorySubsystemS
   };
 }
 
-/**
- * A one-file structural domain cannot justify an invented cross-file umbrella
- * claim. Retain its strongest exact semantic statement verbatim and preserve
- * that statement's single citation instead of asking a synthesis model to
- * generalize beyond the supplied file.
- */
 export function exactSinglePathProjectDomainSynthesis(
   subsystemKey: string,
   notebook: SynthesisNotebookEntry[],
@@ -483,19 +293,7 @@ export function isWorkbaseRepositoryIdentity(repository: string) {
     .toLowerCase() === "arkb75/workbase";
 }
 
-function isWorkbaseRepositoryEntry(entry: SynthesisNotebookEntry) {
-  return isWorkbaseRepositoryIdentity(entry.repository);
-}
-
-function systemDefinitionForNotebook(
-  subsystemKey: string,
-  notebook: SynthesisNotebookEntry[],
-) {
-  return notebook.some(isWorkbaseRepositoryEntry)
-    ? SYSTEM_SUBSYSTEM_DEFINITIONS[subsystemKey]
-    : undefined;
-}
-
+/** @deprecated Legacy remediation fingerprints; not an extraction ontology. */
 const SYSTEM_SUBSYSTEM_DEFINITIONS: Record<string, DeterministicSubsystemDefinition> = {
     product_surface: {
       statement: "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.",
@@ -963,136 +761,19 @@ export function matchesWorkbaseDeterministicDefinitionIdentity(input:
   );
 }
 
-function deterministicFactFromDefinition(
-  definition: DeterministicFactDefinition,
-  notebook: SynthesisNotebookEntry[],
-) {
-  const matched: number[] = [];
-  const structuredSignalKeys = definition.signalKeys ?? [];
-  let structuredSignalMatches = 0;
-  const selectorCount = Math.max(structuredSignalKeys.length, definition.patterns.length);
-  for (let selectorIndex = 0; selectorIndex < selectorCount; selectorIndex += 1) {
-    const signalKey = structuredSignalKeys[selectorIndex];
-    const pattern = definition.patterns[selectorIndex];
-    let index = signalKey
-      ? notebook.findIndex((entry) =>
-          isWorkbaseRepositoryEntry(entry) &&
-          (definition.allowDeterministicAnchors || entry.evidenceMode !== "deterministic_anchor") &&
-          entry.semanticSignals?.includes(signalKey)
-        )
-      : -1;
-    if (index >= 0) {
-      structuredSignalMatches += 1;
-    } else if (pattern) {
-      index = notebook.findIndex((entry) =>
-        isWorkbaseRepositoryEntry(entry) &&
-        (definition.allowDeterministicAnchors || entry.evidenceMode !== "deterministic_anchor") &&
-        pattern.test(`${entry.path} ${entry.statement}`)
-      );
-    }
-    if (index >= 0) matched.push(index + 1);
-  }
-  const minimumMatches = definition.minimumMatches ?? 1;
-  const meetsStructuredSignalThreshold = definition.minimumSignalMatches !== undefined &&
-    structuredSignalMatches >= definition.minimumSignalMatches;
-  const meetsOverallEvidenceThreshold = matched.length >= minimumMatches;
-  if (!meetsStructuredSignalThreshold && !meetsOverallEvidenceThreshold) return null;
-  const selected = Array.from(new Set(matched)).slice(0, 6);
-  return {
-    statement: definition.statement,
-    category: definition.category,
-    confidence: selected.length >= 2 ? "high" as const : "medium" as const,
-    sensitivityFlag: false,
-    citationIndexes: selected,
-    reviewNotes: "Deterministically synthesized from the complete exact-line subsystem notebook.",
-    productImportance: definition.productImportance ?? Math.max(2, ...selected.map((index) => notebook[index - 1]?.productImportance ?? 0)),
-    implementationBreadth: definition.implementationBreadth ?? Math.max(2, Math.min(5, selected.length)),
-    technicalDifficulty: definition.technicalDifficulty ?? Math.max(2, ...selected.map((index) => notebook[index - 1]?.technicalDifficulty ?? 0)),
-    distinctiveness: definition.distinctiveness ?? 3,
-  };
-}
-
-/**
- * Preserve every supported subsystem baseline in model mode. The generative
- * synthesis may add useful facts, but it cannot silently omit a required
- * implementation facet that semantic extraction already established.
- */
-export function requiredSemanticBaselineFacts(
-  subsystemKey: string,
-  notebook: SynthesisNotebookEntry[],
-) {
-  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
-  if (!definition) return [];
-  const semanticNotebook = modelEligibleSynthesisNotebook(notebook);
-  return [definition, ...(definition.facets ?? [])]
-    .map((candidate) => deterministicFactFromDefinition(
-      candidate,
-      candidate.allowDeterministicAnchors ? notebook : semanticNotebook,
-    ))
-    .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
-}
-
 export function fallbackSubsystemSynthesis(
   subsystemKey: string,
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis {
   const semanticNotebook = modelEligibleSynthesisNotebook(notebook);
   const exactProjectDomain = exactSinglePathProjectDomainSynthesis(subsystemKey, semanticNotebook);
-  if (exactProjectDomain) return exactProjectDomain;
-  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
-  if (!definition) return mockSynthesis(semanticNotebook);
-  const primary = deterministicFactFromDefinition(definition, notebook);
-  const facets = (definition.facets ?? [])
-    .map((facet) => deterministicFactFromDefinition(facet, notebook))
-    .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
-  const facts = [primary, ...facets]
-    .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact))
-    .slice(0, 3);
-  if (!facts.length) {
-    const exactFallback = mockSynthesis(semanticNotebook);
-    return {
-      ...exactFallback,
-      unresolvedQuestions: [
-        "The exact-line notebook did not contain enough clause-level evidence for a cross-file subsystem summary.",
-      ],
-    };
-  }
-  const highlightSource = [...facts].sort((left, right) =>
-    right.productImportance - left.productImportance ||
-    right.implementationBreadth - left.implementationBreadth ||
-    right.technicalDifficulty - left.technicalDifficulty,
-  )[0];
-  const highlights = highlightSource && highlightSource.productImportance >= 4 &&
-    highlightSource.citationIndexes.every((index) => notebook[index - 1]?.evidenceMode !== "deterministic_anchor")
-    ? [{
-        text: definition.highlightText ?? (highlightSource.statement.length <= 240
-          ? highlightSource.statement
-          : highlightSource.statement.slice(0, 240).trimEnd()),
-        summary: highlightSource.statement,
-        confidence: highlightSource.confidence,
-        sensitivityFlag: false,
-        visibility: "private" as const,
-        citationIndexes: highlightSource.citationIndexes,
-        productImportance: highlightSource.productImportance,
-        implementationBreadth: highlightSource.implementationBreadth,
-        technicalDifficulty: highlightSource.technicalDifficulty,
-        distinctiveness: highlightSource.distinctiveness,
-      }]
-    : [];
-  return {
-    facts,
-    highlights,
-    unresolvedQuestions: primary && primary.citationIndexes.length >= 2
-      ? []
-      : ["This subsystem needs broader exact-line evidence before producing a cross-file summary."],
-  };
+  return exactProjectDomain ?? mockSynthesis(semanticNotebook);
 }
-
 /**
  * A model may correctly synthesize an important, fully cited Project Fact yet
- * conservatively return no Highlight. For a substantive repository that leaves
- * the primary Workbase ingestion journey looking broken even though the exact
- * evidence is already strong enough to support private, reviewable memory.
+ * conservatively return no Highlight. For a substantive repository that can
+ * hide useful project knowledge even though the exact evidence is already
+ * strong enough to support private, reviewable memory.
  *
  * Promote at most one high-confidence fact verbatim only when every citation
  * is successful, non-sensitive semantic evidence from the current notebook.
@@ -1381,13 +1062,9 @@ async function synthesizeSubsystemSet(input: {
   }
 }
 
-const PRODUCT_SYSTEM_SUBSYSTEMS = new Set([
-  "repository_knowledge_lifecycle",
-  "project_chat_grounding",
-  "artifact_generation",
-  "knowledge_review_lifecycle",
-  "workflow_orchestration",
-]);
+const PRODUCT_SYSTEM_SUBSYSTEMS = new Set<string>(
+  BASE_COVERAGE_TARGETS.map((target) => target.key),
+);
 
 function synthesisNotebookIdentity(entry: SynthesisNotebookEntry) {
   return JSON.stringify([
@@ -1461,7 +1138,8 @@ export function selectSubsystemSynthesisNotebook(
   subsystemKey: string,
   rawNotebook: SynthesisNotebookEntry[],
 ) {
-  const rankedNotebook = rawNotebook
+  const notebookLimit = PRODUCT_SYSTEM_SUBSYSTEMS.has(subsystemKey) ? 16 : 12;
+  const ranked = rawNotebook
     .filter((entry, index, all) =>
       all.findIndex((other) => synthesisNotebookIdentity(other) === synthesisNotebookIdentity(entry)) === index
     )
@@ -1471,125 +1149,22 @@ export function selectSubsystemSynthesisNotebook(
       left.sourceId.localeCompare(right.sourceId) ||
       left.path.localeCompare(right.path) ||
       left.lineStart - right.lineStart ||
-      left.lineEnd - right.lineEnd ||
-      normalizeWhitespace(left.statement).localeCompare(normalizeWhitespace(right.statement)) ||
-      left.blobSha.localeCompare(right.blobSha)
+      normalizeWhitespace(left.statement).localeCompare(normalizeWhitespace(right.statement))
     );
-  const semanticEntries = rankedNotebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
-  const deterministicAnchors = rankedNotebook.filter((entry) => entry.evidenceMode === "deterministic_anchor");
-  const definition = systemDefinitionForNotebook(subsystemKey, rawNotebook);
-  const requiredDefinitions = definition ? [definition, ...(definition.facets ?? [])] : [];
-  const requiredSemanticEntries = requiredDefinitions.flatMap((candidate) => {
-    const signalKeys = candidate.signalKeys ?? [];
-    const selectorCount = Math.max(signalKeys.length, candidate.patterns.length);
-    return Array.from({ length: selectorCount }, (_, selectorIndex) => {
-      const signalKey = signalKeys[selectorIndex];
-      const signalMatch = signalKey
-        ? semanticEntries.find((entry) =>
-            isWorkbaseRepositoryEntry(entry) &&
-            entry.semanticSignals?.includes(signalKey)
-          )
-        : null;
-      if (signalMatch) return signalMatch;
-      const pattern = candidate.patterns[selectorIndex];
-      return pattern
-        ? semanticEntries.find((entry) =>
-            isWorkbaseRepositoryEntry(entry) &&
-            pattern.test(`${entry.path} ${entry.statement}`)
-          ) ?? null
-        : null;
-    }).filter((entry): entry is SynthesisNotebookEntry => Boolean(entry));
-  });
-  const requiredDeterministicEntries = requiredDefinitions
-    .filter((candidate) => candidate.allowDeterministicAnchors)
-    .flatMap((candidate) => {
-      const signalKeys = candidate.signalKeys ?? [];
-      const selectorCount = Math.max(signalKeys.length, candidate.patterns.length);
-      return Array.from({ length: selectorCount }, (_, selectorIndex) => {
-        const signalKey = signalKeys[selectorIndex];
-        const pattern = candidate.patterns[selectorIndex];
-        const semanticMatch = (
-          signalKey
-            ? semanticEntries.find((entry) =>
-                isWorkbaseRepositoryEntry(entry) &&
-                entry.semanticSignals?.includes(signalKey)
-              )
-            : null
-        ) ?? (
-          pattern
-            ? semanticEntries.find((entry) =>
-                isWorkbaseRepositoryEntry(entry) &&
-                pattern.test(`${entry.path} ${entry.statement}`)
-              )
-            : null
-        );
-        if (semanticMatch || !pattern) return null;
-        return deterministicAnchors.find((entry) =>
-          isWorkbaseRepositoryEntry(entry) &&
-          pattern.test(`${entry.path} ${entry.statement}`)
-        ) ?? null;
-      });
-    })
-    .filter((entry): entry is SynthesisNotebookEntry => Boolean(entry));
-  const prioritizedDeterministicAnchors = [
-    ...requiredDeterministicEntries,
-    ...deterministicAnchors,
-  ].filter((entry, index, all) =>
-    all.findIndex((other) => synthesisNotebookIdentity(other) === synthesisNotebookIdentity(entry)) === index
-  );
-  const sourceSemanticRepresentatives = semanticEntries.filter((entry, index, all) =>
+  const semantic = ranked.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
+  const sourceRepresentatives = semantic.filter((entry, index, all) =>
     all.findIndex((candidate) => candidate.sourceId === entry.sourceId) === index
   );
-  const ordinarySemanticEntries = PRODUCT_SYSTEM_SUBSYSTEMS.has(subsystemKey)
-    ? [...semanticEntries.filter((entry) => /defines the symbol\b/.test(entry.statement)), ...semanticEntries]
-    : semanticEntries;
-  const notebookLimit = PRODUCT_SYSTEM_SUBSYSTEMS.has(subsystemKey) || subsystemKey === "review_ui"
-    ? 20
-    : 12;
-  const minimumSemanticQuota = semanticEntries.length
-    ? Math.min(
-        semanticEntries.length,
-        Math.max(
-          PRODUCT_SYSTEM_SUBSYSTEMS.has(subsystemKey) ? 8 : 4,
-          Math.min(sourceSemanticRepresentatives.length, notebookLimit),
-        ),
-      )
-    : 0;
-  const semanticLimit = Math.min(
-    Math.max(0, notebookLimit - requiredDeterministicEntries.length),
-    Math.max(minimumSemanticQuota, notebookLimit - prioritizedDeterministicAnchors.length),
-  );
-  const requiredSourceIds = new Set(requiredSemanticEntries.map((entry) => entry.sourceId));
-  const selectedSemanticEntries = [
-    ...requiredSemanticEntries,
-    ...sourceSemanticRepresentatives.filter((entry) => !requiredSourceIds.has(entry.sourceId)),
-    ...ordinarySemanticEntries,
-  ]
-    .filter((entry, index, all) =>
-      all.findIndex((other) => synthesisNotebookIdentity(other) === synthesisNotebookIdentity(entry)) === index
-    )
-    .slice(0, semanticLimit);
-  const selectedSourceIds = new Set(selectedSemanticEntries.map((entry) => entry.sourceId));
-  const requiredDeterministicIdentities = new Set(
-    requiredDeterministicEntries.map(synthesisNotebookIdentity),
-  );
-  const sourceAnchorRepresentatives = deterministicAnchors.filter((entry, index, all) =>
-    !requiredDeterministicIdentities.has(synthesisNotebookIdentity(entry)) &&
-    !selectedSourceIds.has(entry.sourceId) &&
-    all.findIndex((candidate) => candidate.sourceId === entry.sourceId) === index
-  );
+  const representativeIdentities = new Set(sourceRepresentatives.map(synthesisNotebookIdentity));
   return [
-    ...selectedSemanticEntries,
-    ...requiredDeterministicEntries,
-    ...sourceAnchorRepresentatives,
-    ...prioritizedDeterministicAnchors,
+    ...sourceRepresentatives,
+    ...semantic.filter((entry) => !representativeIdentities.has(synthesisNotebookIdentity(entry))),
   ]
     .filter((entry, index, all) =>
       all.findIndex((other) => synthesisNotebookIdentity(other) === synthesisNotebookIdentity(entry)) === index
     )
     .slice(0, notebookLimit);
 }
-
 export function synthesisNotebookSourceCoverageGaps(
   rawNotebook: SynthesisNotebookEntry[],
   selectedNotebook: SynthesisNotebookEntry[],
@@ -1616,32 +1191,7 @@ export function finalizeRepositorySubsystemSynthesis(input: {
   const { subsystemKey, notebook, coverageGaps, result, tokenUsage } = input;
   const approvalEligible = result.approvalEligible ?? true;
   const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
-  const definition = systemDefinitionForNotebook(subsystemKey, notebook);
-  const semanticBaselines = requiredSemanticBaselineFacts(subsystemKey, notebook);
-  const semanticBaseline = definition
-    ? semanticBaselines.find((fact) =>
-        normalizeWhitespace(fact.statement).toLowerCase() ===
-        normalizeWhitespace(definition.statement).toLowerCase()
-      ) ?? null
-    : null;
-  const semanticFacetBaselines = semanticBaselines.filter((fact) =>
-    fact !== semanticBaseline
-  );
-  const substantiveSemanticResult = subsystemKey ===
-      "repository_knowledge_lifecycle"
-    ? result.facts.find((fact) =>
-        isBroadSemanticRepositoryLifecycleFact(fact, notebook)
-      ) ?? null
-    : null;
-  const derivedFact = subsystemKey === "repository_knowledge_lifecycle" &&
-      !semanticBaseline && !substantiveSemanticResult
-    ? derivedRepositoryKnowledgeLifecycleFact(notebook)
-    : null;
-  const deterministicBaselines = [
-    semanticBaseline ?? derivedFact,
-    ...semanticFacetBaselines,
-  ].filter((fact): fact is NonNullable<typeof fact> => Boolean(fact));
-  const facts = [...deterministicBaselines, ...result.facts]
+  const facts = result.facts
     .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] =>
       Boolean(fact)
     )
@@ -1680,6 +1230,102 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     // deterministic synthesis to auto-apply.
     approvalEligible,
   };
+}
+
+const synthesisSimilarityStopWords = new Set([
+  "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on", "or", "the", "to", "with",
+  "built", "created", "implemented", "provides", "uses", "using",
+]);
+
+function synthesisCandidateTokens(value: string) {
+  return new Set(value.toLowerCase().match(/[a-z0-9]+/g)?.map((token) =>
+    token.length > 5 ? token.replace(/(?:ing|ed|es|s)$/u, "") : token
+  ).filter((token) => token.length > 1 && !synthesisSimilarityStopWords.has(token)) ?? []);
+}
+
+export function synthesisCandidateSimilarity(left: string, right: string) {
+  const leftTokens = synthesisCandidateTokens(left);
+  const rightTokens = synthesisCandidateTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  const intersection = Array.from(leftTokens).filter((token) => rightTokens.has(token)).length;
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return Math.max(
+    intersection / union,
+    (intersection / Math.min(leftTokens.size, rightTokens.size)) * 0.9,
+  );
+}
+
+/**
+ * Deduplicate candidates across capability boundaries, then allocate scarce
+ * Highlight slots across distinct areas before allowing a second item from
+ * any one area. Evidence remains attached to its original subsystem notebook.
+ */
+export function applyGlobalSynthesisDiversity(
+  synthesis: SynthesizedKnowledge[],
+  maxHighlights = 12,
+) {
+  const score = (candidate: {
+    productImportance: number;
+    implementationBreadth: number;
+    technicalDifficulty: number;
+    distinctiveness: number;
+  }) => candidate.productImportance * 4 + candidate.implementationBreadth * 3 +
+    candidate.technicalDifficulty * 2 + candidate.distinctiveness * 3;
+  const factEntries = synthesis.flatMap((subsystem) => subsystem.facts.map((candidate, index) => ({
+    subsystem,
+    candidate,
+    index,
+    score: score(candidate),
+  }))).sort((left, right) => right.score - left.score ||
+    left.subsystem.subsystemKey.localeCompare(right.subsystem.subsystemKey) || left.index - right.index);
+  const acceptedFacts: typeof factEntries = [];
+  for (const entry of factEntries) {
+    if (acceptedFacts.some((accepted) =>
+      synthesisCandidateSimilarity(accepted.candidate.statement, entry.candidate.statement) >= 0.76
+    )) continue;
+    acceptedFacts.push(entry);
+  }
+
+  const highlightEntries = synthesis.flatMap((subsystem) => subsystem.highlights.map((candidate, index) => ({
+    subsystem,
+    candidate,
+    index,
+    score: score(candidate),
+    paths: new Set(candidate.citationIndexes.flatMap((citationIndex) =>
+      subsystem.notebook[citationIndex - 1]?.path ? [subsystem.notebook[citationIndex - 1]!.path] : []
+    )),
+  })));
+  const groups = new Map<string, typeof highlightEntries>();
+  for (const entry of highlightEntries) {
+    const group = groups.get(entry.subsystem.subsystemKey) ?? [];
+    group.push(entry);
+    groups.set(entry.subsystem.subsystemKey, group);
+  }
+  for (const group of groups.values()) group.sort((left, right) => right.score - left.score || left.index - right.index);
+  const orderedHighlights = Array.from({ length: Math.max(0, ...Array.from(groups.values()).map((group) => group.length)) }, (_unused, depth) =>
+    Array.from(groups.values()).flatMap((group) => group[depth] ? [group[depth]!] : [])
+      .sort((left, right) => right.score - left.score || left.subsystem.subsystemKey.localeCompare(right.subsystem.subsystemKey))
+  ).flat();
+  const acceptedHighlights: typeof highlightEntries = [];
+  for (const entry of orderedHighlights) {
+    if (acceptedHighlights.length >= maxHighlights) break;
+    const duplicate = acceptedHighlights.some((accepted) => {
+      const similarity = synthesisCandidateSimilarity(
+        `${accepted.candidate.text} ${accepted.candidate.summary}`,
+        `${entry.candidate.text} ${entry.candidate.summary}`,
+      );
+      const sharedEvidence = Array.from(entry.paths).some((path) => accepted.paths.has(path));
+      return similarity >= 0.66 || (sharedEvidence && similarity >= 0.48);
+    });
+    if (!duplicate) acceptedHighlights.push(entry);
+  }
+  const acceptedFactKeys = new Set(acceptedFacts.map((entry) => `${entry.subsystem.subsystemKey}:${entry.index}`));
+  const acceptedHighlightKeys = new Set(acceptedHighlights.map((entry) => `${entry.subsystem.subsystemKey}:${entry.index}`));
+  return synthesis.map((subsystem) => ({
+    ...subsystem,
+    facts: subsystem.facts.filter((_candidate, index) => acceptedFactKeys.has(`${subsystem.subsystemKey}:${index}`)),
+    highlights: subsystem.highlights.filter((_candidate, index) => acceptedHighlightKeys.has(`${subsystem.subsystemKey}:${index}`)),
+  }));
 }
 
 export async function synthesizeRepositoryKnowledge(
@@ -1862,7 +1508,7 @@ export async function synthesizeRepositoryKnowledge(
     tokenUsage.push({ synthesisBudget: snapshotStructuredGenerationBudget(synthesisBudget) });
   }
   const byKey = new Map(synthesizedSubsystems.map((subsystem) => [subsystem.subsystemKey, subsystem]));
-  return synthesisInputs.map(({ subsystemKey, notebook, coverageGaps }) =>
+  return applyGlobalSynthesisDiversity(synthesisInputs.map(({ subsystemKey, notebook, coverageGaps }) =>
     finalizeRepositorySubsystemSynthesis({
       subsystemKey,
       notebook,
@@ -1870,7 +1516,7 @@ export async function synthesizeRepositoryKnowledge(
       result: byKey.get(subsystemKey)!,
       tokenUsage,
     })
-  );
+  ));
 }
 
 export async function materializeSynthesisCitations(input: {

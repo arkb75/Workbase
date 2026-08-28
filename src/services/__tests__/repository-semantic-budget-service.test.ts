@@ -619,7 +619,7 @@ describe("repository semantic task and budget", () => {
         content: "export default function RootLayout({ children }) { return children; }",
         task: {
           objective: "Determine the implemented review and UI surface.",
-          capabilityKeys: ["review_ui"],
+          capabilityKeys: ["product_surface"],
           questions: [],
           expectedOutputs: [],
         },
@@ -641,11 +641,11 @@ describe("repository semantic task and budget", () => {
       }),
     ]));
     expect(layoutResult).toMatchObject({ semanticStatus: "succeeded", semanticSource: "model" });
-    expect(layoutResult?.facts[0]?.subsystemKeys).toEqual(["review_ui"]);
+    expect(layoutResult?.facts[0]?.subsystemKeys).toEqual(["product_surface"]);
     expect(layoutResult?.semanticDiagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({
         missingCapabilityKeys: [],
-        structurallyInferredCapabilityKeys: ["review_ui"],
+        structurallyInferredCapabilityKeys: ["product_surface"],
         strippedUnsupportedCapabilityKeys: ["ui_shell"],
       }),
     ]));
@@ -832,8 +832,8 @@ describe("repository semantic task and budget", () => {
         '"use workflow";',
       ].join("\n"),
       task: {
-        objective: "Determine how project chat is durably orchestrated.",
-        capabilityKeys: ["workflow_orchestration"],
+        objective: "Determine how this operation is durably orchestrated.",
+        capabilityKeys: ["automation_workflows"],
         questions: ["Where are retry-safe boundaries defined?"],
         expectedOutputs: ["A supported workflow observation"],
       },
@@ -849,7 +849,7 @@ describe("repository semantic task and budget", () => {
     expect(analysis.facts).toEqual(expect.arrayContaining([
       expect.objectContaining({
         evidenceMode: "deterministic_fallback",
-        subsystemKeys: ["workflow_orchestration"],
+        subsystemKeys: ["automation_workflows"],
       }),
     ]));
     expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
@@ -858,62 +858,48 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("recovers review lifecycle semantics from decisions, restoration, invalidation, and revalidation patterns", async () => {
+  it("recovers generic transaction and validation semantics after structured extraction fails", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
     const analysis = await analyzeRepositoryFile({
       repository: "workbase/demo",
       commitSha: "e".repeat(40),
-      path: "src/services/knowledge-review-service.ts",
+      path: "src/orders/order-service.ts",
       content: [
-        "await repositoryKnowledgeRefreshApplicationService.start({",
-        '  trigger: "backfill",',
-        "  idempotencyKey: `knowledge-edit:${successor.id}`",
-        "});",
-        'if (input.decision === "keep") await keep(change);',
-        'if (input.decision === "edit_and_keep") await edit(change);',
-        'if (input.decision === "revert") await revert(change);',
-        "await retireEntity(change);",
-        'if (action === "retired") return "restore_retired";',
-        'if (action === "updated") return "restore_in_place";',
-        'return "retire_applied_revision";',
-        'if (mode === "restore_in_place") {',
-        "  const validationHeads = before.validationHeads;",
-        "  await tx.projectFactEvidence.deleteMany({ where: { projectFactId } });",
-        "  await tx.projectFactEvidence.createMany({ data: evidence });",
+        "export async function createOrder(input) {",
+        "  await beginTransaction();",
+        "  validatePermission(input.token);",
+        "  verifyCredential(input.token);",
+        "  await commit();",
         "}",
-        "await invalidateHighlightDependents({ highlightId });",
       ].join("\n"),
       task: {
-        objective: "Determine how reviewed knowledge can be edited, restored, and revalidated.",
-        capabilityKeys: ["knowledge_review_lifecycle"],
+        objective: "Determine how order creation preserves consistency and authorization.",
+        capabilityKeys: ["application_logic", "security_reliability"],
         questions: [],
-        expectedOutputs: ["Supported review lifecycle observations"],
+        expectedOutputs: ["Supported transaction and validation observations"],
       },
     });
 
     expect(analysis.semanticStatus).toBe("degraded");
     expect(analysis.semanticSource).toBe("deterministic_fallback");
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/dispatches keep, edit-and-keep, revert, and retire/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/repository revalidation pass/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/restores validation state and exact Project Fact evidence relations/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/invalidates downstream dependents/);
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/explicit transaction boundary/);
+    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/validates an identity, credential, permission/);
   });
 
-  it("does not mark lifecycle coverage complete from generic Prisma and symbol observations alone", async () => {
+  it("does not recover semantic coverage from a filename and exported symbol alone", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
     const analysis = await analyzeRepositoryFile({
-      repository: "workbase/demo",
+      repository: "example/orders",
       commitSha: "f".repeat(40),
-      path: "src/services/knowledge-review-service.ts",
+      path: "src/orders/order-service.ts",
       content: [
-        "export async function resolveKnowledgeChange() {",
-        "  return prisma.knowledgeChange.findMany();",
+        "export async function createOrder() {",
+        "  return true;",
         "}",
-        "export const knowledgeReviewService = { resolve: resolveKnowledgeChange };",
       ].join("\n"),
       task: {
-        objective: "Determine the complete knowledge review lifecycle.",
-        capabilityKeys: ["knowledge_review_lifecycle"],
+        objective: "Determine how orders are created.",
+        capabilityKeys: ["application_logic"],
         questions: [],
         expectedOutputs: [],
       },
