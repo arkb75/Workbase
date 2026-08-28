@@ -12,6 +12,7 @@ import {
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   normalizeRepositoryHighlightText,
+  repositoryHighlightSelectionGuidance,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
   repositorySynthesisSafetyGuidance,
@@ -66,6 +67,12 @@ describe("repository synthesis limit fallback", () => {
     expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
     expect(repositorySynthesisSafetyGuidance).toContain("exact positive condition");
     expect(repositorySynthesisSafetyGuidance).toContain("global prevention or prohibition");
+  });
+
+  it("prioritizes broad implemented workflows over low-level highlight candidates", () => {
+    expect(repositoryHighlightSelectionGuidance).toContain("end-to-end state-changing workflows");
+    expect(repositoryHighlightSelectionGuidance).toContain("single-page parameter wiring");
+    expect(repositoryHighlightSelectionGuidance).toContain("two broadest distinct supported capabilities");
   });
 
   it("normalizes provider title overshoot without rejecting the supported synthesis", () => {
@@ -330,7 +337,7 @@ describe("repository synthesis limit fallback", () => {
     }
   });
 
-  it("promotes a corroborated product workflow across semantic importance-label drift", () => {
+  it("promotes a corroborated workflow without requiring product-specific signal names", () => {
     const statement =
       "The repository manages resume variants through long-lived branches and selects the closest variant before making minimal edits.";
     const notebook = [
@@ -341,7 +348,6 @@ describe("repository synthesis limit fallback", () => {
         ),
         evidenceMode: "semantic" as const,
         semanticStatus: "succeeded" as const,
-        semanticSignals: ["product_surface.product_loop"],
         productImportance: 3,
         implementationBreadth: 2,
         technicalDifficulty: 3,
@@ -355,7 +361,6 @@ describe("repository synthesis limit fallback", () => {
         ),
         evidenceMode: "semantic" as const,
         semanticStatus: "succeeded" as const,
-        semanticSignals: ["product_surface.product_loop"],
         productImportance: 3,
         implementationBreadth: 2,
         technicalDifficulty: 3,

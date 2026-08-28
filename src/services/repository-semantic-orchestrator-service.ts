@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v20-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v21-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -509,7 +509,11 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   if (evidenceCount <= 6) return 2;
   if (evidenceCount <= 15) return 3;
   if (evidenceCount <= 30) return 4;
-  return 5;
+  // Very broad surfaces get one full four-file repair micro-batch after the
+  // two-file breadth pass. This remains bounded while giving large APIs or
+  // monorepos enough depth to expose more than their two highest-scoring
+  // entrypoints.
+  return 6;
 }
 
 export interface CapabilityCandidate {
@@ -1267,8 +1271,15 @@ function semanticPathFamily(path: string) {
   if (/(?:^|[\/_.-])(?:collaborat(?:e|ion|or|ors)?|invites?|invitations?|memberships?|teams?|companies?)(?:[\/_.-]|$)/i.test(normalized)) {
     return "boundary:collaboration-membership";
   }
+  const interfaceMatch = /(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)\/([^/]+)/i.exec(normalized);
+  if (interfaceMatch) {
+    const boundary = interfaceMatch[1]!
+      .replace(/^\[+|\]+$/g, "")
+      .replace(/[^a-z0-9_-]+/g, "-") || "dynamic";
+    return `interface:${boundary}`;
+  }
   if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) {
-    return "interface";
+    return "interface:root";
   }
   if (/(?:^|\/)(?:models?|schemas?)(?:\/|$)|\.prisma$/i.test(normalized)) {
     return "data:model";
@@ -1458,8 +1469,22 @@ export function critiqueRepositoryCoverage(input: {
         return path ? isCoverageEvidencePath(area.key, path) : false;
       })
     ).map((candidate) => candidate.statement.trim().toLowerCase().replace(/\s+/g, " ")));
+    const supportedFileIds = new Set(allCandidates
+      .filter((candidate) => candidate.key === area.key)
+      .flatMap((candidate) => candidate.evidence)
+      .filter((evidence) => {
+        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
+        const path = pathByFileId.get(evidence.fileSnapshotId);
+        return path ? isCoverageEvidencePath(area.key, path) : false;
+      })
+      .map((evidence) => evidence.fileSnapshotId));
     const supportedCandidates = supportedCandidateStatements.size;
-    const requiredSupportedCandidates = targetSamples >= 4 ? 2 : 1;
+    // A very broad area is not semantically covered merely because two of its
+    // many files produced findings. Match its six-sample audit depth with six
+    // distinct supported observations; the bounded four-file repair wave is
+    // exactly the remaining capacity after the two-file first pass.
+    const requiredSupportedCandidates = targetSamples >= 5 ? targetSamples : targetSamples >= 4 ? 2 : 1;
+    const requiredSupportedFiles = targetSamples >= 5 ? targetSamples : 1;
     return {
       key: area.key,
       label: area.label,
@@ -1469,9 +1494,13 @@ export function critiqueRepositoryCoverage(input: {
       inspectedSamples,
       supportedCandidates,
       requiredSupportedCandidates,
+      supportedFileCount: supportedFileIds.size,
+      requiredSupportedFiles,
       status: supportedCandidates === 0
         ? "missing" as const
-        : supportedCandidates < requiredSupportedCandidates || inspectedSamples < targetSamples
+        : supportedCandidates < requiredSupportedCandidates ||
+            supportedFileIds.size < requiredSupportedFiles ||
+            inspectedSamples < targetSamples
           ? "thin" as const
           : "covered" as const,
     };
@@ -1483,6 +1512,9 @@ export function critiqueRepositoryCoverage(input: {
     }
     if (domain.supportedCandidates < domain.requiredSupportedCandidates) {
       return [`${domain.label}${scope} has only ${domain.supportedCandidates} of ${domain.requiredSupportedCandidates} required distinct supported findings.`];
+    }
+    if (domain.supportedFileCount < domain.requiredSupportedFiles) {
+      return [`${domain.label}${scope} has supported findings in only ${domain.supportedFileCount} of ${domain.requiredSupportedFiles} required semantic samples.`];
     }
     if (domain.inspectedSamples < domain.targetSamples) {
       return [`${domain.label}${scope} has only ${domain.inspectedSamples} of ${domain.targetSamples} required semantic samples.`];
@@ -1511,6 +1543,7 @@ export function critiqueRepositoryCoverage(input: {
       1,
       domain.targetSamples - domain.inspectedSamples,
       domain.requiredSupportedCandidates - domain.supportedCandidates,
+      domain.requiredSupportedFiles - domain.supportedFileCount,
     );
     const uninspected = area.files.filter((file) => !inspected.has(file.id));
     const areaImplementationFiles = area.files.filter((file) =>

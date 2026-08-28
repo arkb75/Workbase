@@ -15,6 +15,7 @@ import {
   isRepositoryAnalysisNoisePath,
   isRepositoryContextOnlyPath,
   recoverRepositorySemanticAnalysisFromStatic,
+  repositorySemanticFindingGuidance,
   REPOSITORY_FILE_CHUNK_BYTES,
   selectRequiredSemanticCoverageAreas,
   selectSemanticWindows,
@@ -38,6 +39,7 @@ describe("complete repository coverage", () => {
   it("derives product domains from source structure without treating tests or flat helpers as domains", () => {
     expect(inferProjectDomainCapability("src/payments/charge-service.ts")).toBe("project_domain:payments");
     expect(inferProjectDomainCapability("app/api/search/route.ts")).toBe("project_domain:search");
+    expect(inferProjectDomainCapability("app/api/investments/commit/route.ts")).toBe("project_domain:investments");
     expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
     expect(inferProjectDomainCapability("src/services/miscellaneous-service.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/payments/__tests__/charge.test.ts")).toBeNull();
@@ -48,6 +50,12 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("example/payments/demo.py")).toBeNull();
     expect(inferProjectDomainCapability("packages/sdk/examples/payments/demo.ts")).toBeNull();
     expect(inferProjectDomainCapability("uploads/payments/handler.ts")).toBe("project_domain:payments");
+  });
+
+  it("keeps low-level UI and helper wiring out of user-capability ranking", () => {
+    expect(repositorySemanticFindingGuidance).toContain("end-user goal");
+    expect(repositorySemanticFindingGuidance).toContain("query-parameter plumbing");
+    expect(repositorySemanticFindingGuidance).toContain("helper behavior");
   });
 
   it("quarantines generated, cached, minified, and documentation-only paths", () => {

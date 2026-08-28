@@ -182,7 +182,7 @@ describe("repository-derived cartographer and coverage critic", () => {
   it("keeps the established audit-depth curve while the first pass stays bounded", () => {
     const cases = [
       [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
-      [7, 3], [15, 3], [16, 4], [30, 4], [31, 5],
+      [7, 3], [15, 3], [16, 4], [30, 4], [31, 6],
     ] as const;
 
     for (const [fileCount, auditTarget] of cases) {
@@ -213,7 +213,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     };
     const critique = critiqueRepositoryCoverage({ manifest: [area], reports: [], allowRepair: true });
 
-    expect(critique.domains[0]).toMatchObject({ targetSamples: 5, status: "missing" });
+    expect(critique.domains[0]).toMatchObject({ targetSamples: 6, status: "missing" });
     expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(4);
     expect(critique.gaps).toEqual([expect.stringContaining("no supported semantic finding")]);
   });
@@ -313,6 +313,53 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toEqual(expect.arrayContaining(["upload", "invite"]));
     expect(plan[0]?.fileSnapshotIds).not.toContain("account");
+  });
+
+  it("uses a broad-area repair wave across distinct API subdomains", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/marketplace",
+      salience: 1_000,
+      files: [
+        { id: "upload", path: "app/api/upload/route.ts", score: 100 },
+        { id: "profile", path: "app/api/profile/route.ts", score: 99 },
+        { id: "feed", path: "app/api/feed/events/route.ts", score: 98 },
+        { id: "interest", path: "app/api/interest/like/route.ts", score: 97 },
+        { id: "investment", path: "app/api/investments/commit/route.ts", score: 96 },
+        { id: "messages", path: "app/api/messages/send/route.ts", score: 95 },
+        ...Array.from({ length: 25 }, (_, index) => ({
+          id: `upload-helper-${index}`,
+          path: `app/api/upload/helpers/${index}.ts`,
+          score: 70 - index,
+        })),
+      ],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: ["upload", "profile"],
+        candidates: [
+          candidate(area.key, "upload"),
+          candidate(area.key, "profile"),
+        ],
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 6,
+      requiredSupportedCandidates: 6,
+      supportedFileCount: 2,
+      requiredSupportedFiles: 6,
+      status: "thin",
+    });
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual([
+      "feed",
+      "interest",
+      "investment",
+      "messages",
+    ]);
   });
 
   it("reserves structural coverage and rejects IDE, raw-data, and repository-wrapper domains", () => {

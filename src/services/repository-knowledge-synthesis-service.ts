@@ -201,6 +201,9 @@ export interface SynthesizedKnowledge {
 export const repositorySynthesisSafetyGuidance =
   "Avoid absolute qualifiers such as mandatory, always, never, exclusively, every, all, only, guarantees, production-grade, or tamper-evident unless an exact executable notebook entry states that qualifier. Prefer a narrower non-absolute description when the notebook supports the underlying behavior but not the qualifier. Describe access gates as the exact positive condition observed, such as allowing an action when a stated condition holds, rather than claiming global prevention or prohibition.";
 
+export const repositoryHighlightSelectionGuidance =
+  "Within a broad subsystem, rank candidates before emitting Highlights: prefer end-to-end state-changing workflows and cross-file systems over single-page parameter wiring, telemetry helpers, enums, or diagnostics. A high-confidence implemented user-facing workflow supported across at least two implementation paths should normally produce one private Highlight; use the two Highlight slots for the two broadest distinct supported capabilities when available.";
+
 export function normalizeRepositoryHighlightText(value: string) {
   const normalized = normalizeWhitespace(value);
   if (normalized.length <= 240) return normalized;
@@ -1137,8 +1140,8 @@ export function fallbackSubsystemSynthesis(
 
 /**
  * A model may correctly synthesize an important, fully cited Project Fact yet
- * conservatively return no Highlight. For a substantive repository that leaves
- * the primary Workbase ingestion journey looking broken even though the exact
+ * conservatively return no Highlight. For a substantive repository that can
+ * leave an implemented project capability absent even though the exact
  * evidence is already strong enough to support private, reviewable memory.
  *
  * Promote at most one high-confidence fact verbatim only when every citation
@@ -1156,7 +1159,7 @@ export function substantialFactHighlightFallback(
   facts: RepositorySubsystemSynthesis["facts"],
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis["highlights"] {
-  const repositoryProductCapabilityEvidence = Array.from(new Map(
+  const repositorySubstantialEvidence = Array.from(new Map(
     notebook
       .filter((citation) =>
         citation.evidenceMode === "semantic" &&
@@ -1165,10 +1168,7 @@ export function substantialFactHighlightFallback(
         !citation.sensitivityFlag &&
         citation.productImportance >= 3 &&
         citation.implementationBreadth >= 2 &&
-        citation.technicalDifficulty >= 3 &&
-        citation.semanticSignals?.some((signal) =>
-          signal.startsWith("product_surface.")
-        )
+        citation.technicalDifficulty >= 3
       )
       .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
   ).values());
@@ -1199,21 +1199,18 @@ export function substantialFactHighlightFallback(
       citation.implementationBreadth >= 2 &&
       citation.technicalDifficulty >= 3
     );
-    const corroboratedProductCapabilityEvidence = Array.from(new Map(
+    const corroboratedCapabilityEvidence = Array.from(new Map(
       exactCitations
         .filter((citation) =>
           citation.productImportance >= 3 &&
           citation.implementationBreadth >= 2 &&
-          citation.technicalDifficulty >= 3 &&
-          citation.semanticSignals?.some((signal) =>
-            signal.startsWith("product_surface.")
-          )
+          citation.technicalDifficulty >= 3
         )
         .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
     ).values());
-    const repositoryCorroboratedEvidence = corroboratedProductCapabilityEvidence.filter(
+    const repositoryCorroboratedEvidence = corroboratedCapabilityEvidence.filter(
       (citation) =>
-        repositoryProductCapabilityEvidence.filter((candidate) =>
+        repositorySubstantialEvidence.filter((candidate) =>
           repositoryKey(candidate) === repositoryKey(citation)
         ).length >= 2,
     );
@@ -1221,7 +1218,7 @@ export function substantialFactHighlightFallback(
     // and 3 to a behavior finding. The same exact product workflow can
     // legitimately be phrased as either across model runs, so do not let that
     // classifier choice make automatic Highlight creation nondeterministic.
-    // Two independent exact product-capability observations are a stricter
+    // Two independent exact capability observations are a stricter
     // substitute for one importance-4 observation. They need not both be
     // attached to the same synthesized Fact: models legitimately distribute a
     // repository workflow across several individually grounded Facts. The
@@ -1361,6 +1358,7 @@ async function synthesizeSubsystemSet(input: {
           "Every claim must be fully entailed by its cited notebook entries from the same subsystem.",
           "Treat README and documentation entries as context: future, planned, roadmap, TODO, or not-yet-built behavior is not implemented and cannot become a Highlight without direct implementation evidence.",
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
+          repositoryHighlightSelectionGuidance,
           "Return up to three nonredundant Project Facts when the subsystem supports multiple important behaviors, and up to two Highlights only for substantial career-relevant systems.",
           "Keep each Highlight text to one concise title-like sentence of at most 220 characters; put supporting detail in summary.",
           "All productImportance, implementationBreadth, technicalDifficulty, and distinctiveness scores must be integers from 0 through 5.",

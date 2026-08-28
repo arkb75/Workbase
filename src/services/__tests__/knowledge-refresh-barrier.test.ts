@@ -138,10 +138,10 @@ describe("latest-commit freshness barrier", () => {
     };
     const currentWarnings = {
       analyzerVersion: "repository-coverage-v21-hybrid",
-      semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+      semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
       coveragePolicyVersion: "repository-coverage-v13-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v20-hybrid",
-      synthesisPolicyVersion: "repository-synthesis-v41-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v21-hybrid",
+      synthesisPolicyVersion: "repository-synthesis-v42-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -370,10 +370,10 @@ describe("latest-commit freshness barrier", () => {
     };
     const warnings = {
       analyzerVersion: "repository-coverage-v21-hybrid",
-      semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+      semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
       coveragePolicyVersion: "repository-coverage-v13-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v20-hybrid",
-      synthesisPolicyVersion: "repository-synthesis-v41-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v21-hybrid",
+      synthesisPolicyVersion: "repository-synthesis-v42-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -472,7 +472,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v21-hybrid",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+          semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -546,7 +546,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v21-hybrid",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+          semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -592,10 +592,10 @@ describe("latest-commit freshness barrier", () => {
         qualityStatus: "verified",
         warnings: expect.objectContaining({
           analyzerVersion: "repository-coverage-v21-hybrid",
-          semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+          semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
           coveragePolicyVersion: "repository-coverage-v13-hybrid",
-          orchestrationPolicyVersion: "repository-orchestration-v20-hybrid",
-          synthesisPolicyVersion: "repository-synthesis-v41-hybrid",
+          orchestrationPolicyVersion: "repository-orchestration-v21-hybrid",
+          synthesisPolicyVersion: "repository-synthesis-v42-hybrid",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
@@ -650,7 +650,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v21-hybrid",
           analysis: staticAnalysis,
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+          semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
           semanticRefreshRunId: "refresh-auth",
           semanticAnalysis,
         }],
@@ -741,7 +741,7 @@ describe("latest-commit freshness barrier", () => {
             analyzerVersion: "repository-coverage-v21-hybrid",
             analysis: domainAnalysis("static"),
             semanticStatus: "succeeded",
-            semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+            semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
             semanticRefreshRunId: "refresh-payments",
             semanticAnalysis: domainAnalysis("semantic"),
           },
@@ -798,7 +798,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v21-hybrid",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v21-hybrid",
+      semanticAnalyzerVersion: "repository-coverage-v22-hybrid",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });
