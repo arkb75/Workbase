@@ -215,7 +215,7 @@ describe("repository-derived cartographer and coverage critic", () => {
 
     expect(critique.domains[0]).toMatchObject({ targetSamples: 8, status: "missing" });
     expect(critique.repairPackages).toHaveLength(2);
-    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toHaveLength(8);
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toHaveLength(6);
     expect(critique.gaps).toEqual([expect.stringContaining("no supported semantic finding")]);
   });
 
@@ -572,7 +572,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     const critique = critiqueRepositoryCoverage({ manifest, reports: [], allowRepair: true });
     const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
 
-    expect(selected).toHaveLength(8);
+    expect(selected).toHaveLength(6);
     for (let areaIndex = 0; areaIndex < 3; areaIndex += 1) {
       expect(selected.some((fileId) => fileId.startsWith(`area-${areaIndex}-`))).toBe(true);
     }

@@ -33,11 +33,12 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v22-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v23-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
+const REPAIR_MICRO_BATCH_SIZE = 3;
 // Retained only by the exported legacy-plan helper used for safe fallback and
 // historical policy tests. The generalized runtime path below does not call
 // that helper or use these Workbase-era selection limits.
@@ -45,7 +46,7 @@ const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_PACKAGES = 2;
-const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * SEMANTIC_MICRO_BATCH_SIZE;
+const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
 const REPAIR_TOKEN_RESERVE = 20_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 
@@ -1607,10 +1608,10 @@ export function critiqueRepositoryCoverage(input: {
   }
   const selectedRepairs = Array.from(repairSelections.values());
   const repairPackages = Array.from(
-    { length: Math.ceil(selectedRepairs.length / SEMANTIC_MICRO_BATCH_SIZE) },
+    { length: Math.ceil(selectedRepairs.length / REPAIR_MICRO_BATCH_SIZE) },
     (_unused, index) => selectedRepairs.slice(
-      index * SEMANTIC_MICRO_BATCH_SIZE,
-      (index + 1) * SEMANTIC_MICRO_BATCH_SIZE,
+      index * REPAIR_MICRO_BATCH_SIZE,
+      (index + 1) * REPAIR_MICRO_BATCH_SIZE,
     ),
   ).slice(0, MAX_REPAIR_PACKAGES).map((entries) => packageTemplate({
     capabilityKeys: Array.from(new Set(entries.flatMap((entry) =>
@@ -2164,7 +2165,10 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       maxWorkers: MAX_REPAIR_PACKAGES,
       maxModelCalls: repairCallCounts[index]! + 1,
       maxInputBytes: 64 * 1024,
-      maxOutputTokens: 6_000,
+      // Three concise file reports normally use roughly 1K output tokens.
+      // A 3K ceiling leaves admission and one schema-repair call inside the
+      // existing 10K-per-package repair allocation.
+      maxOutputTokens: 3_000,
       maxTotalTokens: repairTokenAllocations[index]!,
       maxRepairPasses: 1 as const,
     },
