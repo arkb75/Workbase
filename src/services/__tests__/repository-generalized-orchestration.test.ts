@@ -5,6 +5,7 @@ import {
   critiqueRepositoryCoverage,
   isImplementationEvidencePath,
   isRepositoryCartographyNoisePath,
+  semanticEvidenceUniverseFromManifest,
   semanticAuditTarget,
   semanticSampleTarget,
   type CapabilityCandidate,
@@ -135,6 +136,108 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(2);
   });
 
+  it("persists a deduplicated pre-selection semantic evidence universe", () => {
+    const sharedClient = { id: "client", path: "src/service/ForecastClient.java", score: 20 };
+    const universe = semanticEvidenceUniverseFromManifest([
+      {
+        key: "repository_area:intelligence",
+        label: "Intelligence",
+        files: [
+          sharedClient,
+          { id: "python-model", path: "ml_service/forecast_service.py", score: 18 },
+          { id: "readme", path: "README.md", score: 16 },
+        ],
+      },
+      {
+        key: "repository_area:integrations",
+        label: "Integrations",
+        files: [sharedClient],
+      },
+      {
+        key: "repository_area:quality",
+        label: "Quality",
+        files: [{ id: "test", path: "src/test/ForecastClientTest.java", score: 14 }],
+      },
+    ]);
+
+    expect(universe).toEqual({
+      fileSnapshotIds: ["client", "python-model", "test"],
+      fileCount: 3,
+    });
+  });
+
+  it("keeps every supported executable language in the semantic universe", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/polyglot-core",
+      files: [
+        mappedFile("swift", "main.swift"),
+        mappedFile("scala", "service.scala"),
+        mappedFile("proto", "events.proto"),
+        mappedFile("graphql", "schema.graphql"),
+        mappedFile("shell", "scripts/bootstrap.sh"),
+        mappedFile("eval", "src/evals/quality-harness.ts"),
+      ],
+    });
+
+    expect(manifest.find((area) =>
+      area.key === "repository_area:application_core"
+    )?.files.map((file) => file.id)).toEqual(expect.arrayContaining([
+      "swift",
+      "scala",
+      "proto",
+    ]));
+    expect(semanticEvidenceUniverseFromManifest(manifest).fileSnapshotIds)
+      .toEqual(expect.arrayContaining(["swift", "scala", "proto", "graphql", "shell"]));
+    expect(semanticEvidenceUniverseFromManifest(manifest).fileSnapshotIds).not.toContain("eval");
+  });
+
+  it("credits an inspected file to every legitimate overlapping area", () => {
+    const shared = { id: "shared", path: "app/payments/checkout.ts", score: 20 };
+    const manifest = [
+      {
+        key: "project_domain:payments",
+        label: "Payments",
+        scopeKey: "example/payments",
+        salience: 200,
+        files: [shared],
+      },
+      {
+        key: "repository_area:product_surface",
+        label: "Product surface",
+        scopeKey: "example/payments",
+        salience: 100,
+        files: [
+          { id: "surface-a", path: "app/dashboard/page.tsx", score: 100 },
+          { id: "surface-b", path: "app/settings/page.tsx", score: 90 },
+          shared,
+        ],
+      },
+    ];
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest, maxWorkers: 2 });
+    const sharedPackage = plan.find((workPackage) =>
+      workPackage.fileSnapshotIds.includes("shared")
+    );
+
+    expect(sharedPackage?.capabilityKeys).toEqual(expect.arrayContaining([
+      "project_domain:payments",
+      "repository_area:product_surface",
+    ]));
+    const critique = critiqueRepositoryCoverage({
+      manifest,
+      reports: [{
+        inspectedFileSnapshotIds: plan.flatMap((workPackage) => workPackage.fileSnapshotIds),
+        candidates: [
+          candidate("project_domain:payments", "shared"),
+          candidate("repository_area:product_surface", "shared"),
+        ],
+      }],
+      allowRepair: false,
+    });
+    expect(critique.domains).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "repository_area:product_surface", status: "covered" }),
+    ]));
+  });
+
   it("spends repair capacity on uninspected product boundaries before near-neighbor files", () => {
     const area = {
       key: "repository_area:application_core",
@@ -174,8 +277,8 @@ describe("repository-derived cartographer and coverage critic", () => {
       status: "thin",
     });
     expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual([
-      "session",
-      "analytics",
+      "repository",
+      "onboarding",
     ]);
   });
 
@@ -275,6 +378,288 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toContain("model-a");
     expect(plan[0]?.fileSnapshotIds).toContain("loader");
+  });
+
+  it("keeps account entrypoints distinct from neighboring authentication handlers", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/account-product",
+      salience: 120,
+      files: [
+        { id: "session", path: "app/api/auth/session/route.ts", score: 100 },
+        { id: "login", path: "app/api/login/route.ts", score: 99 },
+        { id: "register", path: "app/api/register/route.ts", score: 60 },
+        { id: "onboarding", path: "app/api/onboarding/profile/route.ts", score: 50 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["register", "session"]);
+    expect(plan[0]?.fileSnapshotIds).not.toContain("login");
+  });
+
+  it("repairs a new product workflow before a second onboarding variant", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/role-marketplace",
+      salience: 120,
+      files: [
+        { id: "session", path: "app/api/auth/session/route.ts", score: 100 },
+        { id: "founder", path: "app/api/onboarding/founder/route.ts", score: 99 },
+        { id: "investor", path: "app/api/onboarding/investor/route.ts", score: 98 },
+        { id: "messages", path: "app/api/messages/send/route.ts", score: 80 },
+        { id: "products", path: "app/api/products/route.ts", score: 70 },
+        { id: "feed", path: "app/api/feed/events/route.ts", score: 60 },
+        { id: "profile", path: "app/profile/page.tsx", score: 50 },
+      ],
+    };
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["founder", "session"]);
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: plan[0]!.fileSnapshotIds,
+        candidates: plan[0]!.fileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toContain("messages");
+    expect(critique.repairPackages[0]?.fileSnapshotIds).not.toContain("investor");
+  });
+
+  it("retains role-specific onboarding variants after broader boundaries are covered", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/role-marketplace",
+      salience: 120,
+      files: [
+        { id: "session", path: "app/api/auth/session/route.ts", score: 100 },
+        { id: "founder", path: "app/api/onboarding/founder/route.ts", score: 99 },
+        { id: "investor", path: "app/api/onboarding/investor/route.ts", score: 98 },
+        { id: "profile", path: "app/api/onboarding/profile/route.ts", score: 80 },
+        { id: "login", path: "app/api/login/route.ts", score: 70 },
+        { id: "signin", path: "app/api/signin/route.ts", score: 60 },
+        { id: "auth", path: "app/api/auth/callback/route.ts", score: 50 },
+      ],
+    };
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: plan[0]!.fileSnapshotIds,
+        candidates: plan[0]!.fileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+
+    expect(plan[0]?.fileSnapshotIds).toEqual(["founder", "session"]);
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toContain("investor");
+  });
+
+  it("samples a concrete branch when overlap covered only a generic entry path", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/overlapping-product",
+      salience: 120,
+      files: [
+        { id: "generic", path: "app/onboarding/page.tsx", score: 101 },
+        { id: "session", path: "app/api/auth/session/route.ts", score: 100 },
+        { id: "founder", path: "app/api/onboarding/founder/route.ts", score: 99 },
+        { id: "investor", path: "app/api/onboarding/investor/route.ts", score: 98 },
+        { id: "messages", path: "app/api/messages/send/route.ts", score: 80 },
+        { id: "products", path: "app/api/products/route.ts", score: 70 },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `page-${index}`,
+          path: `app/dashboard/section-${index}/page.tsx`,
+          score: 60 - index,
+        })),
+      ],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        // These may arrive through packages owned by neighboring manifest
+        // areas. Counts are sufficient, but onboarding is represented only by
+        // the generic page while two concrete sibling routes remain unseen.
+        inspectedFileSnapshotIds: ["generic", "session", "messages", "products"],
+        candidates: ["generic", "session", "messages", "products"].map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} implements a distinct supported behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      inspectedSamples: 4,
+      status: "thin",
+      missingBranchVariants: 1,
+    }));
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(["founder"]);
+  });
+
+  it("does not let onboarding wizard steps consume a broad repair wave", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/onboarding-product",
+      salience: 200,
+      files: [
+        { id: "session", path: "app/api/auth/session/route.ts", score: 120 },
+        { id: "founder", path: "app/api/onboarding/founder/route.ts", score: 119 },
+        ...["profile", "preferences", "verify", "complete", "team", "billing"].map((step, index) => ({
+          id: `step-${step}`,
+          path: `app/api/onboarding/${step}/route.ts`,
+          score: 118 - index,
+        })),
+        { id: "messages", path: "app/api/messages/send/route.ts", score: 100 },
+        { id: "catalog", path: "app/api/catalog/items/route.ts", score: 90 },
+        ...Array.from({ length: 6 }, (_, index) => ({
+          id: `page-${index}`,
+          path: `app/dashboard/section-${index}/page.tsx`,
+          score: 60 - index,
+        })),
+      ],
+    };
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: plan[0]!.fileSnapshotIds,
+        candidates: plan[0]!.fileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(repairedIds).toEqual(expect.arrayContaining(["messages", "catalog"]));
+    expect(repairedIds.some((id) => id.startsWith("step-"))).toBe(false);
+  });
+
+  it("classifies and selects a repository implementation ahead of database wiring", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/persisted-service",
+      files: [
+        mappedFile("db-client", "lib/db/client.ts"),
+        mappedFile("db-config", "lib/db/config.ts"),
+        mappedFile("repository", "lib/db/repository.ts"),
+        mappedFile("schema", "prisma/schema.prisma"),
+      ],
+    });
+    const dataModel = manifest.find((area) => area.key === "repository_area:data_model");
+    expect(dataModel?.files.map((file) => file.id)).toEqual(expect.arrayContaining([
+      "db-client",
+      "db-config",
+      "repository",
+      "schema",
+    ]));
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [dataModel!] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["repository", "schema"]);
+  });
+
+  it("prefers a cross-language implementation service over a second client or UI neighbor", () => {
+    const area = {
+      key: "repository_area:intelligence",
+      label: "Search, retrieval, and model intelligence",
+      scopeKey: "example/mixed-runtime",
+      salience: 120,
+      files: [
+        { id: "panel", path: "src/main/ui/ForecastPanel.java", score: 110 },
+        { id: "client", path: "src/main/service/ForecastClient.java", score: 100 },
+        { id: "adapter", path: "src/main/service/ForecastAdapter.java", score: 90 },
+        { id: "implementation", path: "ml_service/forecast_service.py", score: 50 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["client", "implementation"]);
+    expect(plan[0]?.fileSnapshotIds).not.toEqual(expect.arrayContaining(["panel", "adapter"]));
+  });
+
+  it("uses model entity stems to spend repair depth on distinct persisted concepts", () => {
+    const area = {
+      key: "repository_area:data_model",
+      label: "Data model and persistence",
+      scopeKey: "example/catalog",
+      salience: 120,
+      files: [
+        { id: "loader", path: "src/main/persistence/DataLoader.java", score: 100 },
+        { id: "details-list", path: "src/main/model/ProductDetailsList.java", score: 99 },
+        { id: "details", path: "src/main/model/ProductDetails.java", score: 98 },
+        { id: "performance", path: "src/main/model/ProductPerformanceList.java", score: 70 },
+        { id: "orders", path: "src/main/model/PurchaseOrdersList.java", score: 60 },
+        { id: "performance-entity", path: "src/main/model/ProductPerformance.java", score: 65 },
+        { id: "orders-entity", path: "src/main/model/PurchaseOrders.java", score: 55 },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `details-helper-${index}`,
+          path: `src/main/model/ProductDetailsModel${index}.java`,
+          score: 50 - index,
+        })),
+      ],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: ["loader", "details-list"],
+        candidates: [
+          candidate(area.key, "loader"),
+          candidate(area.key, "details-list"),
+        ],
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "performance-entity",
+      "orders-entity",
+    ]);
+  });
+
+  it("keeps product tests in the quality area and does not spend a repair slot on a third test", () => {
+    const dataModel = {
+      key: "repository_area:data_model",
+      label: "Data model and persistence",
+      scopeKey: "example/catalog",
+      salience: 100,
+      files: [
+        { id: "test-loader", path: "src/test/persistence/DataLoaderTest.java", score: 120 },
+        { id: "test-model", path: "src/test/model/ProductDetailsTest.java", score: 110 },
+        { id: "loader", path: "src/main/persistence/DataLoader.java", score: 90 },
+        { id: "model", path: "src/main/model/ProductDetails.java", score: 80 },
+      ],
+    };
+    const quality = {
+      key: "repository_area:quality",
+      label: "Quality and operations",
+      scopeKey: "example/catalog",
+      salience: 50,
+      files: [
+        ...dataModel.files.slice(0, 2),
+        { id: "test-orders", path: "src/test/model/PurchaseOrdersTest.java", score: 100 },
+      ],
+    };
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [dataModel, quality] });
+    const dataPackage = plan.find((entry) => entry.capabilityKeys.includes(dataModel.key));
+    const qualityPackage = plan.find((entry) => entry.capabilityKeys.includes(quality.key));
+
+    expect(dataPackage?.fileSnapshotIds).toEqual(["loader", "model"]);
+    expect(qualityPackage?.fileSnapshotIds).toHaveLength(2);
+    expect(qualityPackage?.fileSnapshotIds.every((id) => id.startsWith("test-"))).toBe(true);
+    expect(semanticAuditTarget(quality)).toBe(2);
+    expect(critiqueRepositoryCoverage({
+      manifest: [quality],
+      reports: [{
+        inspectedFileSnapshotIds: qualityPackage!.fileSnapshotIds,
+        candidates: [candidate(quality.key, qualityPackage!.fileSnapshotIds[0]!)],
+      }],
+      allowRepair: true,
+    }).repairPackages).toEqual([]);
   });
 
   it("samples an interface and presentation instead of two parallel page wrappers", () => {
@@ -554,6 +939,53 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual(
       expect.arrayContaining(Array.from({ length: 6 }, (_, index) => `domain-${index}-a`)),
     );
+  });
+
+  it("reuses an overlapping repair file before spending a second global slot", () => {
+    const shared = { id: "shared", path: "src/shared/workflow.ts", score: 10 };
+    const overlapArea = {
+      key: "project_domain:overlap",
+      label: "Overlap",
+      scopeKey: "example/repair-overlap",
+      salience: 90,
+      files: [
+        { id: "overlap-inspected", path: "src/overlap/current.ts", score: 12 },
+        { id: "overlap-alternative", path: "src/overlap/alternative.ts", score: 11 },
+        shared,
+      ],
+    };
+    const manifest = [
+      {
+        key: "project_domain:primary",
+        label: "Primary",
+        scopeKey: "example/repair-overlap",
+        salience: 100,
+        files: [shared],
+      },
+      overlapArea,
+      ...Array.from({ length: 5 }, (_, index) => ({
+        key: `project_domain:tail-${index}`,
+        label: `Tail ${index}`,
+        scopeKey: "example/repair-overlap",
+        salience: 80 - index,
+        files: [{ id: `tail-${index}`, path: `src/tail-${index}/workflow.ts`, score: 10 }],
+      })),
+    ];
+    const critique = critiqueRepositoryCoverage({
+      manifest,
+      reports: [{
+        inspectedFileSnapshotIds: ["overlap-inspected"],
+        candidates: [candidate(overlapArea.key, "overlap-inspected")],
+      }],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+    const repairedKeys = new Set(critique.repairPackages.flatMap((entry) => entry.capabilityKeys));
+
+    expect(repairedIds).toHaveLength(6);
+    expect(repairedIds).toContain("shared");
+    expect(repairedIds).not.toContain("overlap-alternative");
+    expect(repairedKeys).toEqual(new Set(manifest.map((area) => area.key)));
   });
 
   it("does not starve later broad areas when repair depth exceeds the global cap", () => {

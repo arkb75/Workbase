@@ -151,6 +151,33 @@ describe("generalized repository knowledge evaluation", () => {
     )).toBe(true);
   });
 
+  it("requires implementation evidence and keeps independently missable capabilities separate", () => {
+    const implemented = repositoryKnowledgeFixtures
+      .filter((fixture) => fixture.sourceKind === "curated_real_repository")
+      .flatMap((fixture) => fixture.expectedCapabilities)
+      .filter((capability) => capability.implementationState === "implemented");
+    expect(implemented.every((capability) =>
+      capability.evidencePathPatterns.some((pattern) => !/readme/iu.test(pattern))
+    )).toBe(true);
+
+    const amazon = repositoryKnowledgeFixture("amazon-marketplace-analytics")!;
+    const amazonKeys = amazon.expectedCapabilities.map((capability) => capability.key);
+    expect(amazonKeys).toEqual(expect.arrayContaining([
+      "product_catalog",
+      "purchase_orders",
+      "unit_economics_tracking",
+    ]));
+    expect(amazonKeys).not.toEqual(expect.arrayContaining([
+      "catalog_orders",
+      "sales_analytics",
+    ]));
+
+    const soloPilotPlanned = repositoryKnowledgeFixture("solopilot-agent-documents")!
+      .expectedCapabilities.find((capability) => capability.key === "prd_export")!;
+    expect(soloPilotPlanned.evidencePathPatterns).toEqual(["(?:^|/)README\\.md$"]);
+    expect(soloPilotPlanned.matchPatterns.join(" ")).toMatch(/in progress.*roadmap.*phase 2/iu);
+  });
+
   it("passes broad, grounded observations without exact-prose assertions", () => {
     const fixtures = repositoryKnowledgeFixtures.map(withRepresentativeContent);
     const runs = fixtures.map(representativeRun);
@@ -165,6 +192,127 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.results.every((result) =>
       result.rawItems.length > 0 && result.metrics.evidencePrecision >= 0.9
     )).toBe(true);
+  });
+
+  it("requires curated observations to identify the exact pinned source", () => {
+    const fixture = repositoryKnowledgeFixture("backer-marketplace")!;
+    const run = representativeRun(fixture);
+
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: { ...run, repository: null },
+    })).toThrow(/requires its repository identity/iu);
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: { ...run, repository: "arkb75/Another-Repository" },
+    })).toThrow(/does not match arkb75\/Backer/iu);
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: { ...run, commitSha: null },
+    })).toThrow(/commit <missing> does not match pinned commit/iu);
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: { ...run, commitSha: fixture.snapshotCommit!.slice(0, 12) },
+    })).toThrow(/does not match pinned commit/iu);
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture,
+      run: { ...run, commitSha: fixture.snapshotCommit!.toUpperCase() },
+    })).not.toThrow();
+
+    const syntheticFixture = repositoryKnowledgeFixture("cloudsync-cli-library")!;
+    const syntheticRun = representativeRun(syntheticFixture);
+    expect(() => evaluateRepositoryKnowledgeRun({
+      fixture: syntheticFixture,
+      run: { ...syntheticRun, repository: null, commitSha: null },
+    })).not.toThrow();
+  });
+
+  it("does not recover a capability from an unsupported matching claim", () => {
+    const fixture = repositoryKnowledgeFixture("backer-marketplace")!;
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "feed-with-unrelated-claim",
+      kind: "highlight",
+      text: "Built a trainable investor feed ranker. Trained a satellite-image weather classifier.",
+      claimState: "implemented",
+      domain: "discovery",
+      evidence: [{ path: "lib/feed/ranking.ts" }],
+    }];
+    run.domains = [{ key: "discovery", label: "Marketplace discovery" }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toContain("feed-with-unrelated-claim");
+    expect(report.recoveredCapabilityKeys).not.toContain("ranked_feed");
+    expect(report.metrics.capabilityRecall).toBe(0);
+    expect(report.metrics.highlightCapabilityRecall).toBe(0);
+  });
+
+  it("does not let an unrelated expected-path citation buy capability recall", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("solopilot-agent-documents")!,
+    );
+    fixture.files = fixture.files.map((file) => {
+      if (file.path === "src/providers/base.py") {
+        return { ...file, content: "Added a human approval workflow." };
+      }
+      if (file.path.endsWith("ReplyEditor.tsx")) {
+        return { ...file, content: "export function ReplyEditor() { return null; }" };
+      }
+      return file;
+    });
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "laundered-human-review",
+      kind: "highlight",
+      text: "Added a human approval workflow.",
+      claimState: "implemented",
+      domain: "quality",
+      evidence: [
+        { path: "src/providers/base.py", quote: "Added a human approval workflow." },
+        {
+          path: "frontend/email-intake/src/components/ReplyEditor.tsx",
+          quote: "export function ReplyEditor() { return null; }",
+        },
+      ],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("laundered-human-review");
+    expect(report.recoveredCapabilityKeys).not.toContain("human_review");
+    expect(report.metrics.capabilityRecall).toBe(0);
+  });
+
+  it("requires grounded domain evidence instead of generated labels and unrelated citations", () => {
+    const fixture = repositoryKnowledgeFixture("backer-marketplace")!;
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "unrelated-onboarding-citation",
+      kind: "fact",
+      text: "Trained a satellite-image weather classifier.",
+      claimState: "implemented",
+      domain: "vision",
+      evidence: [{ path: "app/api/onboarding/founder/route.ts" }],
+    }];
+    run.domains = [{ key: "identity", label: "Identity and onboarding" }];
+
+    const unrelated = evaluateRepositoryKnowledgeRun({ fixture, run });
+    expect(unrelated.unsupportedItems).toContain("unrelated-onboarding-citation");
+    expect(unrelated.recoveredDomainKeys).not.toContain("identity");
+
+    run.items = [{
+      id: "grounded-identity-item",
+      kind: "fact",
+      text: "Uses the founder route.",
+      claimState: "implemented",
+      domain: "identity",
+      evidence: [{ path: "app/api/onboarding/founder/route.ts" }],
+    }];
+    const grounded = evaluateRepositoryKnowledgeRun({ fixture, run });
+    expect(grounded.recoveredCapabilityKeys).toEqual([]);
+    expect(grounded.unsupportedItems).not.toContain("grounded-identity-item");
+    expect(grounded.recoveredDomainKeys).toContain("identity");
   });
 
   it("accepts legitimate extra grounded knowledge without changing curated recall", () => {
@@ -338,6 +486,112 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.metrics.capabilityMapPrecision).toBeLessThan(
       withoutUnrelatedCapability.metrics.capabilityMapPrecision,
     );
+  });
+
+  it("grounds each citation against the claim sentence it supports", () => {
+    const baseFixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const files = [
+      {
+        path: "src/services/webhook-verification.ts",
+        content: "export function verifyGithubWebhookSignatures() { return true; }",
+      },
+      {
+        path: "src/services/refresh-dispatch.ts",
+        content: "export function dispatchRepositoryRefreshJobs() { return true; }",
+      },
+      {
+        path: "src/services/refresh-audit.ts",
+        content: "export function persistRefreshAuditRecords() { return true; }",
+      },
+      {
+        path: "src/services/weather-map.ts",
+        content: "export function renderSatelliteWeatherMap() { return true; }",
+      },
+    ];
+    const fixture = withRepresentativeContent({
+      ...baseFixture,
+      files: [...baseFixture.files, ...files],
+    });
+    const run = representativeRun(fixture);
+    const item = {
+      id: "multi-reference-claim",
+      kind: "fact" as const,
+      text: "Verified GitHub webhook signatures. Dispatched repository refresh jobs. Persisted refresh audit records.",
+      claimState: "implemented" as const,
+      domain: "repository_refresh",
+      evidence: files.slice(0, 3).map((file) => ({
+        path: file.path,
+        lineStart: 1,
+        lineEnd: 1,
+        quote: file.content,
+      })),
+    };
+    run.items.push(item);
+
+    const grounded = evaluateRepositoryKnowledgeRun({ fixture, run });
+    expect(grounded.metrics.evidencePrecision).toBe(1);
+    expect(grounded.unsupportedItems).not.toContain(item.id);
+
+    item.evidence.push({
+      path: files[3]!.path,
+      lineStart: 1,
+      lineEnd: 1,
+      quote: files[3]!.content,
+    });
+    const withUnrelatedCitation = evaluateRepositoryKnowledgeRun({ fixture, run });
+    expect(withUnrelatedCitation.metrics.citationPathPrecision).toBe(1);
+    expect(withUnrelatedCitation.metrics.evidencePrecision).toBeLessThan(1);
+    expect(withUnrelatedCitation.unsupportedItems).not.toContain(item.id);
+  });
+
+  it("uses only the declared line range beyond a truncated audit quote", () => {
+    const baseFixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const path = "src/services/conversation-store.ts";
+    const serializedPrefix = `export const serializedRepositorySnapshot = "${"x".repeat(2_100)}";`;
+    const content = [
+      serializedPrefix,
+      "export const unrelatedConversationState = true;",
+      "export function deduplicateConversationsByParticipantIds() { return true; }",
+    ].join("\n");
+    const fixture = withRepresentativeContent({
+      ...baseFixture,
+      files: [...baseFixture.files, { path, content }],
+    });
+    const run = representativeRun(fixture);
+    const truncatedQuote = serializedPrefix.slice(0, 2_000);
+    run.items.push(
+      {
+        id: "support-later-in-range",
+        kind: "fact",
+        text: "Deduplicated conversations by participant identifiers.",
+        claimState: "implemented",
+        domain: "conversations",
+        evidence: [{
+          path,
+          lineStart: 1,
+          lineEnd: 3,
+          quote: truncatedQuote,
+        }],
+      },
+      {
+        id: "support-outside-range",
+        kind: "fact",
+        text: "Deduplicated conversations by participant identifiers.",
+        claimState: "implemented",
+        domain: "conversations",
+        evidence: [{
+          path,
+          lineStart: 1,
+          lineEnd: 2,
+          quote: truncatedQuote,
+        }],
+      },
+    );
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("support-later-in-range");
+    expect(report.unsupportedItems).toContain("support-outside-range");
   });
 
   it("scores asserted capability mappings without treating empty ledger placeholders as false claims", () => {
@@ -548,6 +802,34 @@ describe("generalized repository knowledge evaluation", () => {
     expect(labeled.metrics.claimStateCorrectness).toBe(1);
   });
 
+  it("does not confuse implemented preparatory configuration with a planned lifecycle", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const baselineRun = representativeRun(fixture);
+    const baseline = evaluateRepositoryKnowledgeRun({ fixture, run: baselineRun });
+    const run = representativeRun(fixture);
+    run.items.push({
+      id: "implemented-loan-storage-config",
+      kind: "fact",
+      text: "Configured preparatory database fields for future loan and repayment models.",
+      claimState: "implemented",
+      evidence: [{ path: "prisma/schema.prisma" }],
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.claimStateCorrectness).toBe(
+      baseline.metrics.claimStateCorrectness,
+    );
+
+    run.items.at(-1)!.evidence = [{ path: "README.md" }];
+    const maturityBackedReport = evaluateRepositoryKnowledgeRun({ fixture, run });
+    expect(maturityBackedReport.metrics.claimStateCorrectness).toBeLessThan(
+      baseline.metrics.claimStateCorrectness,
+    );
+  });
+
   it("does not score implementation state from a text-only capability match", () => {
     const fixture = withRepresentativeContent(
       repositoryKnowledgeFixture("circlefund-fintech")!,
@@ -620,6 +902,27 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.metrics.genericTokenFalsePositiveRate).toBe(1);
     expect(report.falsePositiveCapabilities).toHaveLength(30);
     expect(report.unsupportedItems).toContain("generic-model-item");
+  });
+
+  it("counts paths analyzed by both inventory phases once for hygiene", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const run = representativeRun(fixture);
+    const ignoredPath = ".codex/skills/database/SKILL.md";
+    run.inventory.analyzedPaths!.push(ignoredPath);
+    run.inventory.semanticAnalyzedPaths!.push(ignoredPath);
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+    const uniqueSelectedPaths = new Set([
+      ...run.inventory.analyzedPaths!,
+      ...run.inventory.semanticAnalyzedPaths!,
+    ]);
+
+    expect(report.metrics.inventoryHygiene).toBeCloseTo(
+      1 - (1 / uniqueSelectedPaths.size),
+      6,
+    );
   });
 
   it("penalizes irrelevant output volume, duplicate highlights, and inflated coverage", () => {

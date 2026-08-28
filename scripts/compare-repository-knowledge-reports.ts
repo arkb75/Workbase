@@ -7,8 +7,9 @@ const AGGREGATE_METRICS = [
   "score", "macroAverageScore", "minimumProjectScore", "passingFixtureRate",
 ] as const;
 const QUALITY_METRICS = [
-  "score", "capabilityRecall", "knowledgeItemPrecision", "evidencePrecision",
-  "claimStateCorrectness", "inventoryHygiene",
+  "score", "capabilityRecall", "majorCapabilityRecall", "highlightCapabilityRecall",
+  "domainRecall", "knowledgeItemPrecision", "evidencePrecision",
+  "claimStateCorrectness", "inventoryHygiene", "duplicateRate", "coverageCalibration",
 ] as const;
 const OPERATIONAL_METRICS = [
   "modelAttempts", "modelCalls", "totalTokens", "estimatedCostUsd", "durationMs",
@@ -47,11 +48,19 @@ interface NamedReport {
   path?: string;
 }
 
+interface ExecutionIntegrity {
+  passed: boolean;
+  issues: string[];
+  modelIdentities: string[];
+  policyVersions: string[];
+}
+
 interface Fixture {
   fixtureId: string;
   passed: boolean;
   quality: Record<QualityMetric, number | null>;
   operations: Record<OperationalMetric, number | null>;
+  executionIntegrity: ExecutionIntegrity | null;
 }
 
 interface Report {
@@ -59,6 +68,7 @@ interface Report {
   path: string | null;
   passed: boolean;
   fixtures: Map<string, Fixture>;
+  executionIntegrityPassed: boolean;
 }
 
 interface Delta {
@@ -98,6 +108,44 @@ function requiredBoolean(value: unknown, description: string) {
   return value;
 }
 
+function stringArray(value: unknown, description: string) {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new Error(`${description} must be an array of non-empty strings.`);
+  }
+  return Array.from(new Set(value.map((entry) => (entry as string).trim()))).sort();
+}
+
+function executionIntegrity(value: unknown, description: string): ExecutionIntegrity | null {
+  if (value == null) return null;
+  const data = object(value);
+  if (!data) throw new Error(`${description} must be an object.`);
+  return {
+    passed: requiredBoolean(data.passed, `${description}.passed`),
+    issues: stringArray(data.issues, `${description}.issues`),
+    modelIdentities: stringArray(data.modelIdentities, `${description}.modelIdentities`),
+    policyVersions: stringArray(data.policyVersions, `${description}.policyVersions`),
+  };
+}
+
+function isCompletePassedExecutionIntegrity(value: ExecutionIntegrity | null) {
+  return value?.passed === true &&
+    value.issues.length === 0 &&
+    value.modelIdentities.length > 0 &&
+    value.policyVersions.length > 0;
+}
+
+function executionIntegrityFailure(value: ExecutionIntegrity) {
+  if (!value.passed) {
+    return value.issues.join("; ") || "unspecified integrity failure";
+  }
+  const problems = [
+    ...(value.issues.length ? ["a passed attestation contains issues"] : []),
+    ...(!value.modelIdentities.length ? ["model identities are missing"] : []),
+    ...(!value.policyVersions.length ? ["policy versions are missing"] : []),
+  ];
+  return problems.join("; ") || "incomplete integrity attestation";
+}
+
 function round(value: number) {
   return Number(value.toFixed(6));
 }
@@ -111,15 +159,15 @@ function normalize(input: NamedReport): Report {
     : Array.isArray(aggregate.results) ? aggregate.results : [];
   if (!rawFixtures.length) throw new Error(`${input.name}: report has no fixture reports.`);
 
-  const performance = new Map<string, JsonRecord>();
+  const observations = new Map<string, JsonRecord>();
   for (const raw of Array.isArray(root.observations) ? root.observations : []) {
     const observation = object(raw);
     const fixtureId = observation?.fixtureId;
     if (typeof fixtureId !== "string" || !fixtureId) continue;
-    if (performance.has(fixtureId)) {
+    if (observations.has(fixtureId)) {
       throw new Error(`${input.name}: duplicate observation for ${fixtureId}.`);
     }
-    performance.set(fixtureId, object(observation.performance) ?? {});
+    observations.set(fixtureId, observation);
   }
 
   const fixtures = new Map<string, Fixture>();
@@ -137,17 +185,23 @@ function normalize(input: NamedReport): Report {
     if (!metrics || score === null) {
       throw new Error(`${input.name}/${fixtureId}: score or metrics are missing.`);
     }
-    const usage = performance.get(fixtureId) ?? object(fixture.performance);
+    const observation = observations.get(fixtureId) ?? null;
+    const usage = object(observation?.performance) ?? object(fixture.performance);
     fixtures.set(fixtureId, {
       fixtureId,
       passed: requiredBoolean(fixture.passed, `${input.name}/${fixtureId}.passed`),
       quality: {
         score,
         capabilityRecall: number(metrics, "capabilityRecall"),
+        majorCapabilityRecall: number(metrics, "majorCapabilityRecall"),
+        highlightCapabilityRecall: number(metrics, "highlightCapabilityRecall"),
+        domainRecall: number(metrics, "domainRecall"),
         knowledgeItemPrecision: number(metrics, "knowledgeItemPrecision", "itemPrecision"),
         evidencePrecision: number(metrics, "evidencePrecision"),
         claimStateCorrectness: number(metrics, "claimStateCorrectness", "stateCorrectness"),
         inventoryHygiene: number(metrics, "inventoryHygiene"),
+        duplicateRate: number(metrics, "duplicateRate"),
+        coverageCalibration: number(metrics, "coverageCalibration"),
       },
       operations: {
         modelAttempts: number(usage, "modelAttempts", "attempts"),
@@ -156,6 +210,10 @@ function normalize(input: NamedReport): Report {
         estimatedCostUsd: number(usage, "estimatedCostUsd", "costUsd"),
         durationMs: number(usage, "durationMs"),
       },
+      executionIntegrity: executionIntegrity(
+        observation?.executionIntegrity ?? fixture.executionIntegrity,
+        `${input.name}/${fixtureId}.executionIntegrity`,
+      ),
     });
   }
   return {
@@ -163,6 +221,9 @@ function normalize(input: NamedReport): Report {
     path: input.path ?? null,
     passed: requiredBoolean(aggregate.passed, `${input.name}.aggregate.passed`),
     fixtures,
+    executionIntegrityPassed: Array.from(fixtures.values()).every((fixture) =>
+      isCompletePassedExecutionIntegrity(fixture.executionIntegrity)
+    ),
   };
 }
 
@@ -194,8 +255,16 @@ function compareMetric(input: {
   candidate: number | null;
   tolerance: number;
   lowerIsBetter?: boolean;
+  relativeTolerance?: boolean;
 }): Delta {
-  const { metric, baseline, candidate, tolerance, lowerIsBetter = false } = input;
+  const {
+    metric,
+    baseline,
+    candidate,
+    tolerance,
+    lowerIsBetter = false,
+    relativeTolerance = false,
+  } = input;
   if (baseline === null) {
     return {
       metric, baseline, candidate, delta: null, relativeDelta: null, tolerance,
@@ -215,7 +284,9 @@ function compareMetric(input: {
     ? candidate === 0 ? 0 : null
     : round(delta / Math.abs(baseline));
   const regressed = lowerIsBetter
-    ? baseline === 0 ? candidate > 0 : candidate > baseline * (1 + tolerance)
+    ? relativeTolerance
+      ? baseline === 0 ? candidate > 0 : candidate > baseline * (1 + tolerance)
+      : delta > tolerance
     : delta < -tolerance;
   return {
     metric, baseline, candidate, delta, relativeDelta, tolerance,
@@ -234,6 +305,83 @@ function regressions(deltas: readonly Delta[], scope: Regression["scope"], fixtu
     metric: delta.metric,
     reason: delta.reason ?? `${delta.metric} moved beyond its configured tolerance.`,
   }] : []);
+}
+
+function compareExecutionIntegrity(
+  baseline: ExecutionIntegrity | null,
+  candidate: ExecutionIntegrity | null,
+  fixtureId: string,
+) {
+  const found: Regression[] = [];
+  if (!baseline) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "executionIntegrity",
+      reason: "Baseline has no main-path execution attestation.",
+    });
+  } else if (!isCompletePassedExecutionIntegrity(baseline)) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "executionIntegrity",
+      reason: `Baseline main-path execution failed: ${executionIntegrityFailure(baseline)}.`,
+    });
+  }
+  if (!candidate) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "executionIntegrity",
+      reason: "Candidate has no main-path execution attestation.",
+    });
+  } else if (!isCompletePassedExecutionIntegrity(candidate)) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "executionIntegrity",
+      reason: `Candidate main-path execution failed: ${executionIntegrityFailure(candidate)}.`,
+    });
+  }
+  const baselineModels = baseline?.modelIdentities ?? [];
+  const candidateModels = candidate?.modelIdentities ?? [];
+  const modelIdentityMatch = baselineModels.length > 0 &&
+    candidateModels.length > 0 &&
+    JSON.stringify(baselineModels) === JSON.stringify(candidateModels);
+  if (baseline && candidate && !modelIdentityMatch) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "modelIdentity",
+      reason: "Candidate and baseline did not use the same provider/model identities.",
+    });
+  }
+  if (baseline && !baseline.policyVersions.length) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "policyIdentity",
+      reason: "Baseline has no policy-version attestation.",
+    });
+  }
+  if (candidate && !candidate.policyVersions.length) {
+    found.push({
+      scope: "fixture",
+      fixtureId,
+      metric: "policyIdentity",
+      reason: "Candidate has no policy-version attestation.",
+    });
+  }
+  return {
+    baseline,
+    candidate,
+    modelIdentityMatch,
+    policyChanged: Boolean(
+      baseline && candidate &&
+      JSON.stringify(baseline.policyVersions) !== JSON.stringify(candidate.policyVersions)
+    ),
+    regressions: found,
+  };
 }
 
 function compareBaseline(
@@ -271,6 +419,7 @@ function compareBaseline(
     candidate: candidateOperations?.[metric] ?? null,
     tolerance: tolerances.operationalIncreaseRatio,
     lowerIsBetter: true,
+    relativeTolerance: true,
   }));
   const suiteRegressions = regressions(
     [...aggregateQuality, ...aggregateOperations], "suite",
@@ -279,6 +428,18 @@ function compareBaseline(
     suiteRegressions.push({
       scope: "suite", metric: "passed",
       reason: "Candidate changed the suite from passing to failing.",
+    });
+  }
+  const invalidCandidateOnlyFixtures = candidateOnlyFixtureIds.filter((fixtureId) =>
+    !isCompletePassedExecutionIntegrity(
+      candidate.fixtures.get(fixtureId)?.executionIntegrity ?? null,
+    )
+  );
+  if (invalidCandidateOnlyFixtures.length) {
+    suiteRegressions.push({
+      scope: "suite",
+      metric: "executionIntegrity",
+      reason: `Candidate-only fixtures lack complete passed main-path attestations: ${invalidCandidateOnlyFixtures.join(", ")}.`,
     });
   }
 
@@ -294,6 +455,7 @@ function compareBaseline(
           candidatePassed: null,
           quality: [] as Delta[],
           operations: [] as Delta[],
+          integrity: null,
           regressions: [{
             scope: "fixture" as const,
             fixtureId: baselineFixture.fixtureId,
@@ -307,6 +469,7 @@ function compareBaseline(
         baseline: baselineFixture.quality[metric],
         candidate: candidateFixture.quality[metric],
         tolerance: metric === "score" ? tolerances.fixtureScoreDrop : tolerances.fixtureMetricDrop,
+        lowerIsBetter: metric === "duplicateRate",
       }));
       const operations = OPERATIONAL_METRICS.map((metric) => compareMetric({
         metric,
@@ -314,10 +477,17 @@ function compareBaseline(
         candidate: candidateFixture.operations[metric],
         tolerance: tolerances.operationalIncreaseRatio,
         lowerIsBetter: true,
+        relativeTolerance: true,
       }));
       const fixtureRegressions = regressions(
         [...quality, ...operations], "fixture", baselineFixture.fixtureId,
       );
+      const integrity = compareExecutionIntegrity(
+        baselineFixture.executionIntegrity,
+        candidateFixture.executionIntegrity,
+        baselineFixture.fixtureId,
+      );
+      fixtureRegressions.push(...integrity.regressions);
       if (baselineFixture.passed && !candidateFixture.passed) {
         fixtureRegressions.push({
           scope: "fixture",
@@ -333,6 +503,7 @@ function compareBaseline(
         candidatePassed: candidateFixture.passed,
         quality,
         operations,
+        integrity,
         regressions: fixtureRegressions,
       };
     });
@@ -382,7 +553,12 @@ export function compareRepositoryKnowledgeReports(input: {
   return {
     schemaVersion: SCHEMA_VERSION,
     passed: comparisons.every(({ passed }) => passed),
-    candidate: { name: candidate.name, path: candidate.path, fixtureCount: candidate.fixtures.size },
+    candidate: {
+      name: candidate.name,
+      path: candidate.path,
+      fixtureCount: candidate.fixtures.size,
+      executionIntegrityPassed: candidate.executionIntegrityPassed,
+    },
     tolerances: configured,
     operationalMetricSemantics: OPERATIONAL_METRIC_SEMANTICS,
     comparisons,

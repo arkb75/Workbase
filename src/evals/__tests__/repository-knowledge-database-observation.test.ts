@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   modelCallsFromGenerationTelemetry,
   repositoryGenerationModelCalls,
+  semanticCoverageFromOrchestration,
 } from "@/src/evals/repository-knowledge-database-observation";
 
 const attempt = (requestId: string) => ({
@@ -65,5 +66,75 @@ describe("repository knowledge database performance telemetry", () => {
       unknownUsageAttempts: 2,
     })).toBe(2);
     expect(modelCallsFromGenerationTelemetry(null)).toBe(0);
+  });
+
+  it("measures semantic coverage against the persisted pre-selection universe", () => {
+    const coverage = semanticCoverageFromOrchestration({
+      orchestration: {
+        semanticEvidenceUniverse: {
+          fileSnapshotIds: ["catalog", "forecast-python", "client", "quality"],
+          fileCount: 4,
+        },
+      },
+      files: [
+        { id: "catalog", path: "src/model/Catalog.java", disposition: "analyzed", semanticStatus: "succeeded" },
+        { id: "forecast-python", path: "ml_service/forecast_service.py", disposition: "analyzed", semanticStatus: "not_selected" },
+        { id: "client", path: "src/service/ForecastClient.java", disposition: "analyzed", semanticStatus: "succeeded" },
+        { id: "quality", path: "src/test/CatalogTest.java", disposition: "analyzed", semanticStatus: "not_selected" },
+      ],
+    });
+
+    expect(coverage).toEqual({
+      semanticEligibleFiles: 4,
+      semanticAnalyzedFiles: 2,
+      semanticAnalyzedPaths: ["src/model/Catalog.java", "src/service/ForecastClient.java"],
+      semanticCoverage: 0.5,
+    });
+  });
+
+  it("rejects missing, duplicate, or snapshot-external semantic universe metadata", () => {
+    const files = [{ id: "known", path: "src/core.ts", disposition: "analyzed", semanticStatus: "succeeded" }];
+    expect(() => semanticCoverageFromOrchestration({ orchestration: {}, files }))
+      .toThrow(/missing its persisted semantic evidence universe/iu);
+    expect(() => semanticCoverageFromOrchestration({
+      orchestration: {
+        semanticEvidenceUniverse: { fileSnapshotIds: ["known", "known"], fileCount: 2 },
+      },
+      files,
+    })).toThrow(/inconsistent persisted semantic evidence universe/iu);
+    expect(() => semanticCoverageFromOrchestration({
+      orchestration: {
+        semanticEvidenceUniverse: { fileSnapshotIds: ["unknown"], fileCount: 1 },
+      },
+      files,
+    })).toThrow(/outside its immutable snapshot/iu);
+  });
+
+  it("rejects a self-reported universe that omits an eligible analyzed file", () => {
+    expect(() => semanticCoverageFromOrchestration({
+      orchestration: {
+        semanticEvidenceUniverse: { fileSnapshotIds: ["selected"], fileCount: 1 },
+      },
+      files: [
+        { id: "selected", path: "src/core.ts", disposition: "analyzed", semanticStatus: "succeeded" },
+        { id: "omitted", path: "src/worker.py", disposition: "analyzed", semanticStatus: "not_selected" },
+        { id: "readme", path: "README.md", disposition: "analyzed", semanticStatus: "not_selected" },
+      ],
+    })).toThrow(/does not match the independently eligible snapshot files/iu);
+  });
+
+  it("uses the same cartography exclusions when independently checking the universe", () => {
+    expect(semanticCoverageFromOrchestration({
+      orchestration: {
+        semanticEvidenceUniverse: { fileSnapshotIds: ["core"], fileCount: 1 },
+      },
+      files: [
+        { id: "core", path: "src/core.ts", disposition: "analyzed", semanticStatus: "succeeded" },
+        { id: "eval", path: "src/evals/harness.ts", disposition: "analyzed", semanticStatus: "not_selected" },
+      ],
+    })).toEqual(expect.objectContaining({
+      semanticEligibleFiles: 1,
+      semanticCoverage: 1,
+    }));
   });
 });

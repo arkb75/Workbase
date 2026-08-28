@@ -87,6 +87,21 @@ export function isRepositoryExecutableSourcePath(path: string) {
     .test(path.replace(/\\/g, "/"));
 }
 
+/**
+ * Repository-wide denominator for files that can provide semantic code
+ * evidence. Tests remain eligible; documentation, generated/noise paths, and
+ * hidden tool configuration do not.
+ */
+export function isRepositorySemanticEvidencePath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  if (
+    isRepositoryAnalysisNoisePath(normalized) ||
+    isRepositoryContextOnlyPath(normalized) ||
+    normalized.split("/").some((segment) => segment.startsWith("."))
+  ) return false;
+  return isRepositoryExecutableSourcePath(normalized);
+}
+
 export function isRepositoryContextOnlyPath(path: string) {
   const normalized = path.replace(/\\/g, "/");
   if (

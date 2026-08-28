@@ -12,6 +12,7 @@ import {
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   normalizeRepositoryHighlightText,
+  repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
@@ -110,7 +111,19 @@ describe("repository synthesis limit fallback", () => {
   it("prioritizes broad implemented workflows over low-level highlight candidates", () => {
     expect(repositoryHighlightSelectionGuidance).toContain("end-to-end state-changing workflows");
     expect(repositoryHighlightSelectionGuidance).toContain("single-page parameter wiring");
+    expect(repositoryHighlightSelectionGuidance).toContain("one cross-layer Highlight");
+    expect(repositoryHighlightSelectionGuidance).toContain("every claimed stage has implementation evidence");
+    expect(repositoryHighlightSelectionGuidance).toContain("do not emit duplicate layer-specific Highlights");
     expect(repositoryHighlightSelectionGuidance).toContain("two broadest distinct supported capabilities");
+  });
+
+  it("keeps exact implementation details inside their cited evidence boundary", () => {
+    for (const detail of ["endpoint", "route", "state name", "numeric value", "unit", "threshold", "persistence action", "lifecycle transition"]) {
+      expect(repositoryEvidenceBoundaryGuidance).toContain(detail);
+    }
+    expect(repositoryEvidenceBoundaryGuidance).toContain("cite every entry needed to support a compound claim");
+    expect(repositoryEvidenceBoundaryGuidance).toContain("A client or interface entry proves that layer only");
+    expect(repositoryEvidenceBoundaryGuidance).toContain("server, service, storage, or model behavior");
   });
 
   it("normalizes provider title overshoot without rejecting the supported synthesis", () => {

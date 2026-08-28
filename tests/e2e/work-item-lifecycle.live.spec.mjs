@@ -35,7 +35,9 @@ const testedGitCommit = (
   process.env.WORKBASE_TESTED_GIT_COMMIT ?? ""
 ).toLowerCase();
 const repositorySynthesisMode =
-  process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "deterministic";
+  process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "model";
+const semanticPlannerMode =
+  process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "model";
 const expectedDeepSynthesisModelId = provider === "openrouter"
   ? process.env.WORKBASE_OPENROUTER_MODEL_DEEP_SYNTHESIS ??
     process.env.WORKBASE_OPENROUTER_MODEL_ID ??
@@ -50,6 +52,16 @@ const expectedVerificationModelId = provider === "openrouter"
   ? process.env.WORKBASE_OPENROUTER_MODEL_VERIFICATION ??
     process.env.WORKBASE_OPENROUTER_MODEL_ID ??
     "openai/gpt-5.4-nano"
+  : process.env.WORKBASE_BEDROCK_MODEL_ID ?? "";
+const expectedRoutingModelId = provider === "openrouter"
+  ? process.env.WORKBASE_OPENROUTER_MODEL_ROUTING ??
+    process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+    "openai/gpt-5.6-luna"
+  : process.env.WORKBASE_BEDROCK_MODEL_ID ?? "";
+const expectedSemanticModelId = provider === "openrouter"
+  ? process.env.WORKBASE_OPENROUTER_MODEL_CODE_EXTRACTION ??
+    process.env.WORKBASE_OPENROUTER_MODEL_ID ??
+    "openai/gpt-5.4-mini"
   : process.env.WORKBASE_BEDROCK_MODEL_ID ?? "";
 const databaseUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "";
 const outputPath = process.env.WORKBASE_LIFECYCLE_OBSERVATIONS_OUTPUT ??
@@ -262,6 +274,44 @@ function objectRecord(value) {
     : {};
 }
 
+function sumNestedNumericProperty(value, property) {
+  let total = 0;
+  const visit = (current, depth) => {
+    if (depth > 8) return;
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = objectRecord(current);
+    if (!Object.keys(record).length) return;
+    if (typeof record[property] === "number" && Number.isFinite(record[property])) {
+      total += Math.max(0, Math.floor(record[property]));
+    }
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
+function nestedStrings(value) {
+  const values = [];
+  const visit = (current, depth) => {
+    if (depth > 8) return;
+    if (typeof current === "string") {
+      values.push(current);
+      return;
+    }
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const record = objectRecord(current);
+    Object.values(record).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return values;
+}
+
 function optionalString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -317,7 +367,7 @@ async function loadLifecycleStateOnce(workItemId) {
         [workItemId],
       ),
       pool.query(
-        `SELECT "id", "status", "qualityStatus", "targetHeads", "completedHeads", "error", (EXTRACT(EPOCH FROM ("finishedAt" AT TIME ZONE 'UTC')) * 1000)::double precision AS "finishedAtEpochMs" FROM "KnowledgeRefreshRun" WHERE "workItemId" = $1 ORDER BY "createdAt" DESC LIMIT 1`,
+        `SELECT "id", "status", "qualityStatus", "targetHeads", "completedHeads", "coverage", "warnings", "orchestration", "error", (EXTRACT(EPOCH FROM ("finishedAt" AT TIME ZONE 'UTC')) * 1000)::double precision AS "finishedAtEpochMs" FROM "KnowledgeRefreshRun" WHERE "workItemId" = $1 ORDER BY "createdAt" DESC LIMIT 1`,
         [workItemId],
       ),
       pool.query(
@@ -341,7 +391,10 @@ async function loadLifecycleStateOnce(workItemId) {
       "highlight_generation",
       "highlight_verification",
       "capability_synthesis",
+      "execution_routing",
       "semantic_extraction",
+      "semantic_repair",
+      "coverage_audit",
     ].includes(run.kind) || !refreshRunId) {
       return false;
     }
@@ -356,6 +409,9 @@ async function loadLifecycleStateOnce(workItemId) {
   });
   const semanticExtractionRows = automationRows.filter((run) =>
     run.kind === "semantic_extraction"
+  );
+  const semanticPlanningRows = automationRows.filter((run) =>
+    run.kind === "execution_routing"
   );
   const capabilitySynthesisRows = automationRows.filter((run) =>
     run.kind === "capability_synthesis"
@@ -392,6 +448,7 @@ async function loadLifecycleStateOnce(workItemId) {
     automationRows,
     failedGenerationRows,
     semanticExtractionRows,
+    semanticPlanningRows,
     failedSemanticExtractionRows,
     capabilitySynthesisRows,
     automationSettled:
@@ -882,6 +939,9 @@ async function buildObservation(input) {
       id: current.refresh?.id ?? "missing-refresh",
       status: current.refresh?.status ?? "missing",
       qualityStatus: current.refresh?.qualityStatus ?? "missing",
+      coverage: current.refresh?.coverage ?? null,
+      warnings: current.refresh?.warnings ?? null,
+      orchestration: current.refresh?.orchestration ?? null,
       error: current.refresh?.error == null ? null : "present",
     },
     snapshots: current.snapshots.map((snapshot) => ({
@@ -903,12 +963,19 @@ async function buildObservation(input) {
     automation: {
       status: current.automationStatus,
       repositorySynthesisMode,
+      semanticPlannerMode,
       expectedDeepSynthesisModelId:
         expectedDeepSynthesisModelId || "missing-deep-synthesis-model",
+      expectedRoutingModelId:
+        expectedRoutingModelId || "missing-routing-model",
+      expectedSemanticModelId:
+        expectedSemanticModelId || "missing-semantic-model",
       generationRunIds: current.automationRows.map((run) => run.id),
       failedGenerationRunIds: current.failedGenerationRows.map((run) => run.id),
       semanticExtractionRunIds:
         current.semanticExtractionRows.map((run) => run.id),
+      semanticPlanningRunIds:
+        current.semanticPlanningRows.map((run) => run.id),
       failedSemanticExtractionRunIds:
         current.failedSemanticExtractionRows.map((run) => run.id),
       capabilitySynthesisRuns:
@@ -1350,8 +1417,27 @@ function assertCoreObservation(observation) {
     .toBeGreaterThan(0);
   expect(observation.automation.failedSemanticExtractionRunIds).toEqual([]);
   expect(observation.automation.repositorySynthesisMode).toBe("model");
+  expect(observation.automation.semanticPlannerMode).toBe("model");
   expect(observation.automation.expectedDeepSynthesisModelId)
     .toBe(expectedDeepSynthesisModelId);
+  expect(observation.automation.expectedRoutingModelId)
+    .toBe(expectedRoutingModelId);
+  expect(observation.automation.expectedSemanticModelId)
+    .toBe(expectedSemanticModelId);
+  const orchestration = objectRecord(observation.refresh.orchestration);
+  expect(orchestration.fallbackUsed).toBe(false);
+  expect(typeof orchestration.generationRunId).toBe("string");
+  expect(sumNestedNumericProperty(
+    observation.refresh.coverage,
+    "deterministicFallbackPathCount",
+  )).toBe(0);
+  const warningText = nestedStrings(observation.refresh.warnings).join("\n");
+  expect(warningText).not.toMatch(
+    /used deterministic subsystem synthesis|finalized deterministically/iu,
+  );
+  expect(warningText).not.toMatch(
+    /(?:model-call|token|synthesis) budget (?:was )?exhausted|budget_exhausted/iu,
+  );
   const capabilitySynthesisRuns = observation.automation.capabilitySynthesisRuns;
   expect(capabilitySynthesisRuns.length).toBeGreaterThan(0);
   expect(capabilitySynthesisRuns.filter((run) => run.status !== "success"))
@@ -1402,6 +1488,41 @@ function assertCoreObservation(observation) {
     expect(run.unknownUsageAttempts).toBe(0);
     expect(run.auditEvidenceTruncated).toBe(false);
   }
+  const repositoryGenerationRunIds = new Set(
+    observation.automation.generationRunIds,
+  );
+  const repositoryModelRuns = lineageGenerationRuns.filter((run) =>
+    repositoryGenerationRunIds.has(run.id) && [
+      "execution_routing",
+      "semantic_extraction",
+      "semantic_repair",
+      "capability_synthesis",
+      "coverage_audit",
+    ].includes(run.kind)
+  );
+  const expectedRepositoryModels = {
+    execution_routing: expectedRoutingModelId,
+    semantic_extraction: expectedSemanticModelId,
+    semantic_repair: expectedSemanticModelId,
+    capability_synthesis: expectedDeepSynthesisModelId,
+    coverage_audit: expectedVerificationModelId,
+  };
+  for (const run of repositoryModelRuns) {
+    expect(run.modelId).toBe(expectedRepositoryModels[run.kind]);
+  }
+  const semanticPlanningRuns = repositoryModelRuns.filter((run) =>
+    run.kind === "execution_routing"
+  );
+  expect(semanticPlanningRuns.length).toBeGreaterThan(0);
+  expect(sorted(semanticPlanningRuns.map((run) => run.id))).toEqual(
+    sorted(observation.automation.semanticPlanningRunIds),
+  );
+  expect(semanticPlanningRuns.map((run) => run.id)).toContain(
+    orchestration.generationRunId,
+  );
+  expect(repositoryModelRuns.some((run) =>
+    run.kind === "semantic_extraction"
+  )).toBe(true);
   expect(sorted(lineageGenerationRuns.filter((run) =>
     run.kind === "semantic_extraction"
   ).map((run) => run.id))).toEqual(
@@ -1506,6 +1627,11 @@ test.describe("live Work Item lifecycle release gate", () => {
         "Representative lifecycle runs require WORKBASE_REPOSITORY_SYNTHESIS_MODE=model.",
       );
     }
+    if (semanticPlannerMode !== "model") {
+      throw new Error(
+        "Representative lifecycle runs require WORKBASE_SEMANTIC_PLANNER_MODE=model.",
+      );
+    }
     if (!expectedDeepSynthesisModelId) {
       throw new Error(
         "Representative lifecycle runs require an explicit deep-synthesis model ID.",
@@ -1514,6 +1640,11 @@ test.describe("live Work Item lifecycle release gate", () => {
     if (!expectedDraftingModelId || !expectedVerificationModelId) {
       throw new Error(
         "Representative manual lifecycle runs require explicit drafting and verification model IDs.",
+      );
+    }
+    if (!expectedRoutingModelId || !expectedSemanticModelId) {
+      throw new Error(
+        "Representative repository lifecycle runs require explicit routing and semantic-extraction model IDs.",
       );
     }
     pool = new pg.Pool({ connectionString: databaseUrl, max: 3 });

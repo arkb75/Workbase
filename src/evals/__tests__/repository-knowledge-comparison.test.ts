@@ -9,10 +9,15 @@ interface FixtureInput {
   passed?: boolean;
   score: number;
   capabilityRecall?: number;
+  majorCapabilityRecall?: number;
+  highlightCapabilityRecall?: number;
+  domainRecall?: number;
   knowledgeItemPrecision?: number;
   evidencePrecision?: number;
   claimStateCorrectness?: number;
   inventoryHygiene?: number;
+  duplicateRate?: number;
+  coverageCalibration?: number;
   performance?: {
     modelCalls?: number;
     totalTokens?: number;
@@ -32,14 +37,29 @@ function evaluatorReport(fixtures: FixtureInput[], passed = true) {
       score: fixture.score,
       metrics: {
         capabilityRecall: fixture.capabilityRecall ?? fixture.score,
+        majorCapabilityRecall: fixture.majorCapabilityRecall ?? fixture.score,
+        highlightCapabilityRecall: fixture.highlightCapabilityRecall ?? fixture.score,
+        domainRecall: fixture.domainRecall ?? fixture.score,
         knowledgeItemPrecision: fixture.knowledgeItemPrecision ?? fixture.score,
         evidencePrecision: fixture.evidencePrecision ?? fixture.score,
         claimStateCorrectness: fixture.claimStateCorrectness ?? fixture.score,
         inventoryHygiene: fixture.inventoryHygiene ?? fixture.score,
+        duplicateRate: fixture.duplicateRate ?? 0,
+        coverageCalibration: fixture.coverageCalibration ?? fixture.score,
       },
     })),
     observations: fixtures.map((fixture) => ({
       fixtureId: fixture.fixtureId,
+      executionIntegrity: {
+        passed: true,
+        issues: [] as string[],
+        modelIdentities: [
+          "capability_synthesis:bedrock:synthesis-model",
+          "execution_routing:bedrock:routing-model",
+          "semantic_extraction:bedrock:semantic-model",
+        ],
+        policyVersions: ["orchestration.policyVersion=repository-orchestration-test"],
+      },
       performance: {
         modelCalls: fixture.performance?.modelCalls ?? 10,
         totalTokens: fixture.performance?.totalTokens ?? 1_000,
@@ -92,7 +112,11 @@ describe("repository knowledge report comparison", () => {
 
     expect(result).toMatchObject({
       passed: true,
-      candidate: { name: "candidate", fixtureCount: 3 },
+      candidate: {
+        name: "candidate",
+        fixtureCount: 3,
+        executionIntegrityPassed: true,
+      },
       tolerances: DEFAULT_REPOSITORY_KNOWLEDGE_COMPARISON_TOLERANCES,
       operationalMetricSemantics: {
         modelCalls: expect.stringContaining("provider-attempt"),
@@ -127,6 +151,11 @@ describe("repository knowledge report comparison", () => {
         passed: false,
         score: 0.61,
         capabilityRecall: 0.55,
+        majorCapabilityRecall: 0.4,
+        highlightCapabilityRecall: 0.45,
+        domainRecall: 0.5,
+        duplicateRate: 0.2,
+        coverageCalibration: 0.5,
         performance: { modelCalls: 14, totalTokens: 1_400, estimatedCostUsd: 0.14, durationMs: 1_400 },
       },
     ], false);
@@ -150,6 +179,11 @@ describe("repository knowledge report comparison", () => {
       "suite:passed",
       "alpha:score",
       "alpha:capabilityRecall",
+      "alpha:majorCapabilityRecall",
+      "alpha:highlightCapabilityRecall",
+      "alpha:domainRecall",
+      "alpha:duplicateRate",
+      "alpha:coverageCalibration",
       "alpha:modelCalls",
       "alpha:passed",
       "beta:presence",
@@ -178,6 +212,95 @@ describe("repository knowledge report comparison", () => {
       expect.objectContaining({ scope: "suite", metric: "score" }),
       expect.objectContaining({ scope: "fixture", fixtureId: "alpha", metric: "score" }),
       expect.objectContaining({ scope: "fixture", fixtureId: "alpha", metric: "modelCalls" }),
+    ]));
+  });
+
+  it("applies the documented absolute quality tolerance to duplicate rate", () => {
+    const baseline = evaluatorReport([{
+      fixtureId: "alpha",
+      score: 0.8,
+      duplicateRate: 0,
+    }]);
+    const candidate = evaluatorReport([{
+      fixtureId: "alpha",
+      score: 0.8,
+      duplicateRate: 0.04,
+    }]);
+
+    const result = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(result.comparisons[0]!.fixtures[0]!.quality).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: "duplicateRate",
+        delta: 0.04,
+        status: "within_tolerance",
+      }),
+    ]));
+  });
+
+  it("rejects fallback, missing, or provider-mismatched comparison evidence", () => {
+    const baseline = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    const candidate = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    candidate.observations[0]!.executionIntegrity = {
+      passed: false,
+      issues: ["Repository semantic planning used its deterministic fallback."],
+      modelIdentities: ["execution_routing:bedrock:routing-model"],
+      policyVersions: ["orchestration.policyVersion=repository-orchestration-test"],
+    };
+
+    const fallbackResult = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+    expect(fallbackResult.passed).toBe(false);
+    expect(fallbackResult.comparisons[0]!.regressions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "executionIntegrity" }),
+      expect.objectContaining({ metric: "modelIdentity" }),
+    ]));
+
+    delete (baseline.observations[0] as { executionIntegrity?: unknown }).executionIntegrity;
+    const unattestedResult = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]) },
+      baselines: [{ name: "control", report: baseline }],
+    });
+    expect(unattestedResult.passed).toBe(false);
+    expect(unattestedResult.comparisons[0]!.regressions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: "executionIntegrity",
+        reason: "Baseline has no main-path execution attestation.",
+      }),
+    ]));
+  });
+
+  it("rejects incomplete attestations on candidate-only fixtures", () => {
+    const baseline = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    const candidate = evaluatorReport([
+      { fixtureId: "alpha", score: 0.8 },
+      { fixtureId: "new-project", score: 0.8 },
+    ]);
+    candidate.observations[1]!.executionIntegrity = {
+      passed: true,
+      issues: [],
+      modelIdentities: [],
+      policyVersions: ["orchestration.policyVersion=repository-orchestration-test"],
+    };
+
+    const result = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.candidate.executionIntegrityPassed).toBe(false);
+    expect(result.comparisons[0]!.regressions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: "suite",
+        metric: "executionIntegrity",
+        reason: expect.stringContaining("new-project"),
+      }),
     ]));
   });
 });

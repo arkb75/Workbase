@@ -132,6 +132,39 @@ describe("githubRepositoryExplorationService", () => {
     expect(classifyRepositoryPathForKnowledgeSync("src/main/java/app/Main.java", 512).exclusionReason).toBeNull();
   });
 
+  it("excludes hidden agent skill packages without hiding product skill modules", () => {
+    for (const root of [".agents", ".codex", ".claude"]) {
+      expect(
+        classifyRepositoryPathForKnowledgeSync(`${root}/skills/database/SKILL.md`, 512)
+          .exclusionReason,
+      ).toBe("generated");
+    }
+
+    expect(
+      classifyRepositoryPathForKnowledgeSync("skills/database/SKILL.md", 512)
+        .exclusionReason,
+    ).toBeNull();
+    expect(
+      classifyRepositoryPathForKnowledgeSync(".agents/project-rules.md", 512)
+        .exclusionReason,
+    ).toBeNull();
+  });
+
+  it("excludes SVG assets while retaining source components that render SVG", () => {
+    expect(
+      classifyRepositoryPathForKnowledgeSync("public/brand-mark.svg", 512)
+        .exclusionReason,
+    ).toBe("binary");
+    expect(
+      classifyRepositoryPathForKnowledgeSync("src/icons/BrandMarkSvg.tsx", 512)
+        .exclusionReason,
+    ).toBeNull();
+    expect(
+      classifyRepositoryPathForKnowledgeSync("src/icons/brand-mark.svg.tsx", 512)
+        .exclusionReason,
+    ).toBeNull();
+  });
+
   it("authorizes through the user, Work Item, and attached GitHub source", async () => {
     prismaMock.source.findFirst.mockResolvedValue(null);
 

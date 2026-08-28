@@ -248,6 +248,7 @@ const binaryExtensions = new Set([
   "so",
   "sqlite",
   "sqlite3",
+  "svg",
   "tar",
   "tiff",
   "ttf",
@@ -490,8 +491,15 @@ function extensionForPath(path: string) {
 function classifyExcludedPath(path: string, size: number | null): ExclusionReason | null {
   const parts = path.toLowerCase().split("/");
   const fileName = parts.at(-1) ?? "";
+  const hiddenAgentSkillPackage = parts.some((part, index) =>
+    (part === ".agents" || part === ".codex" || part === ".claude") &&
+    parts[index + 1] === "skills"
+  );
 
-  if (parts.slice(0, -1).some((part) => ignoredDirectoryNames.has(part))) {
+  if (
+    hiddenAgentSkillPackage ||
+    parts.slice(0, -1).some((part) => ignoredDirectoryNames.has(part))
+  ) {
     return "generated";
   }
 

@@ -34,7 +34,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v43-hybrid";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v44-hybrid";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -1132,13 +1132,24 @@ export async function finalizeKnowledgeCoverage(runId: string) {
               : []
           );
           const paths = Array.from(new Set(mappedFiles.map((file) => file.path))).sort();
-          const semanticPathCount = snapshot.files.filter((file) =>
-            paths.includes(file.path) &&
-            file.semanticRefreshRunId === runId &&
-            file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION &&
+          const mappedSemanticFiles = snapshot.files.flatMap((file) => {
+            if (
+              !paths.includes(file.path) ||
+              file.semanticRefreshRunId !== runId ||
+              file.semanticAnalyzerVersion !== REPOSITORY_SEMANTIC_ANALYZER_VERSION ||
+              !semanticAnalysisSupportsCapability(file.semanticAnalysis, file.path, area.key as string)
+            ) return [];
+            const analysis = rebaseCachedAnalysis(file.semanticAnalysis, file.path);
+            return analysis ? [{ file, analysis }] : [];
+          });
+          const modelSemanticPathCount = mappedSemanticFiles.filter(({ file, analysis }) =>
             file.semanticStatus === "succeeded" &&
-            semanticAnalysisSupportsCapability(file.semanticAnalysis, file.path, area.key as string)
+            analysis.semanticSource !== "deterministic_fallback"
           ).length;
+          const deterministicFallbackPathCount = mappedSemanticFiles.filter(({ analysis }) =>
+            analysis.semanticSource === "deterministic_fallback"
+          ).length;
+          const semanticPathCount = modelSemanticPathCount;
           const critique = persistedCritique.find((domain) =>
             domain.key === area.key && domain.scopeKey === repository
           );
@@ -1153,8 +1164,8 @@ export async function finalizeKnowledgeCoverage(runId: string) {
             observationCount: typeof area.salience === "number" ? area.salience : paths.length,
             staticPathCount: paths.length,
             semanticPathCount,
-            modelSemanticPathCount: semanticPathCount,
-            deterministicFallbackPathCount: 0,
+            modelSemanticPathCount,
+            deterministicFallbackPathCount,
             unresolvedQuestions: [] as string[],
             criticStatus,
           }];

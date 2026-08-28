@@ -5,6 +5,7 @@ import {
 } from "@/src/evals/repository-knowledge-main-path";
 
 const expectedIdentities = {
+  execution_routing: { provider: "bedrock", modelId: "routing-model" },
   semantic_extraction: { provider: "bedrock", modelId: "semantic-model" },
   semantic_repair: { provider: "bedrock", modelId: "semantic-model" },
   capability_synthesis: { provider: "bedrock", modelId: "synthesis-model" },
@@ -17,6 +18,7 @@ function generation(
   overrides: Partial<RepositoryKnowledgeGenerationAuditRecord> = {},
 ): RepositoryKnowledgeGenerationAuditRecord {
   return {
+    id: `generation-${kind}`,
     kind,
     status: "success",
     provider: "bedrock",
@@ -43,6 +45,7 @@ describe("repository knowledge main-path integrity", () => {
   it("accepts successful attributed model extraction and synthesis", () => {
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
+        generation("execution_routing", "routing-model"),
         generation("semantic_extraction", "semantic-model"),
         generation("capability_synthesis", "synthesis-model"),
       ],
@@ -50,6 +53,10 @@ describe("repository knowledge main-path integrity", () => {
       coverage: [{
         targets: [{ deterministicFallbackPathCount: 0 }],
       }],
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
       warnings: { semanticOrchestrationGaps: ["One domain is thin."] },
     });
 
@@ -57,13 +64,16 @@ describe("repository knowledge main-path integrity", () => {
       passed: true,
       issues: [],
       metrics: {
+        semanticPlanning: 1,
         semanticExtraction: 1,
         capabilitySynthesis: 1,
-        successfulGenerations: 2,
-        totalGenerations: 2,
-        providerAttemptCount: 2,
+        successfulGenerations: 3,
+        totalGenerations: 3,
+        providerAttemptCount: 3,
         schemaRepairRunCount: 0,
         deterministicSemanticPathCount: 0,
+        plannerFallbackAttested: true,
+        plannerFallbackUsed: false,
         deterministicSynthesis: false,
         budgetExhausted: false,
       },
@@ -83,17 +93,22 @@ describe("repository knowledge main-path integrity", () => {
     });
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
+        generation("execution_routing", "routing-model"),
         repairedExtraction,
         generation("capability_synthesis", "synthesis-model"),
       ],
       expectedIdentities,
       coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
       warnings: null,
     });
 
     expect(result.passed).toBe(true);
     expect(result.metrics).toMatchObject({
-      providerAttemptCount: 3,
+      providerAttemptCount: 4,
       schemaRepairRunCount: 1,
       deterministicSynthesis: false,
     });
@@ -119,6 +134,10 @@ describe("repository knowledge main-path integrity", () => {
       coverage: [{
         targets: [{ deterministicFallbackPathCount: 2 }],
       }],
+      orchestration: {
+        fallbackUsed: true,
+        generationRunId: null,
+      },
       warnings: {
         synthesisCoverageGaps: [
           "Repository acme/project used deterministic subsystem synthesis because the shared repository-synthesis budget was exhausted.",
@@ -129,6 +148,7 @@ describe("repository knowledge main-path integrity", () => {
     expect(result.passed).toBe(false);
     expect(result.issues).toEqual(expect.arrayContaining([
       "No audited capability synthesis generation ran.",
+      "No audited semantic planning generation ran.",
       expect.stringContaining("ended with status provider_error"),
       expect.stringContaining("used provider openrouter"),
       expect.stringContaining("used model fallback-model"),
@@ -137,8 +157,34 @@ describe("repository knowledge main-path integrity", () => {
       expect.stringContaining("records failed provider attempts"),
       expect.stringContaining("stopped before a provider dispatch"),
       "2 semantic path(s) used deterministic fallback analysis.",
+      "Repository semantic planning used its deterministic fallback.",
+      "Repository semantic planning has no audited generation reference.",
       "At least one subsystem used deterministic synthesis.",
       "Repository generation exhausted a model budget.",
     ]));
+  });
+
+  it("fails closed when planner fallback attestation is missing or malformed", () => {
+    for (const orchestration of [
+      { generationRunId: "generation-execution_routing" },
+      { generationRunId: "generation-execution_routing", fallbackUsed: "false" },
+    ]) {
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          generation("capability_synthesis", "synthesis-model"),
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration,
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.issues).toContain(
+        "Repository semantic planning has no valid fallback attestation.",
+      );
+    }
   });
 });

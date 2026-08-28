@@ -12,8 +12,7 @@ import {
   createRepositorySemanticBudget,
   inferProjectDomainCapability,
   isRepositoryAnalysisNoisePath,
-  isRepositoryContextOnlyPath,
-  isRepositoryExecutableSourcePath,
+  isRepositorySemanticEvidencePath,
   isProjectDomainCapabilityKey,
   PROJECT_DOMAIN_CAPABILITY_PREFIX,
   snapshotRepositorySemanticBudget,
@@ -33,7 +32,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v23-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v24-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -61,7 +60,7 @@ const repositoryAreaRules = [
   {
     key: `${REPOSITORY_AREA_PREFIX}data_model`,
     label: "Data model and persistence",
-    pattern: /(?:schema|migrations?|models?|entities|repositories|database|storage|persistence)/i,
+    pattern: /(?:^|[\/_.-])(?:schema|migrations?|models?|entities|repositories?|database|storage|persistence|db|dao)(?:[\/_.-]|$)/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}integrations`,
@@ -84,7 +83,7 @@ const repositoryAreaRules = [
   {
     key: `${REPOSITORY_AREA_PREFIX}application_core`,
     label: "Application core",
-    pattern: /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|rb|php|cs)$/i,
+    pattern: /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}quality`,
@@ -107,6 +106,11 @@ export function isRepositoryCartographyNoisePath(path: string) {
   return segments.some((segment, index) =>
     /^(?:tests?|specs?)$/.test(segment) && segments[index + 1] === "resources"
   );
+}
+
+export function isRepositorySemanticCartographyEvidencePath(path: string) {
+  return !isRepositoryCartographyNoisePath(path) &&
+    isRepositorySemanticEvidencePath(path);
 }
 
 const SEMANTIC_FACET_SUPPLEMENTS = [
@@ -478,8 +482,31 @@ function isQualityEvidencePath(path: string) {
 
 function isCoverageEvidencePath(areaKey: string, path: string) {
   return isImplementationEvidencePath(path) || (
-    areaKey === `${REPOSITORY_AREA_PREFIX}quality` && isQualityEvidencePath(path)
+    areaKey === `${REPOSITORY_AREA_PREFIX}quality` &&
+    isQualityEvidencePath(path) &&
+    isRepositorySemanticCartographyEvidencePath(path)
   );
+}
+
+/**
+ * Capture the complete semantic evidence denominator before the bounded plan
+ * selects representatives. RepositoryFileSnapshot IDs are immutable within a
+ * snapshot; deduplicating them prevents a file mapped to several areas from
+ * inflating coverage. Context-only files never enter this universe, while
+ * executable quality tests remain valid evidence for the quality area.
+ */
+export function semanticEvidenceUniverseFromManifest(
+  manifest: CapabilityManifestArea[],
+) {
+  const fileSnapshotIds = Array.from(new Set(manifest.flatMap((area) =>
+    area.files
+      .filter((file) => isCoverageEvidencePath(area.key, file.path))
+      .map((file) => file.id)
+  ))).sort();
+  return {
+    fileSnapshotIds,
+    fileCount: fileSnapshotIds.length,
+  };
 }
 
 export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "key" | "files">) {
@@ -508,8 +535,20 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   ).length;
   const evidenceCount = implementationCount || area.files.length;
   if (evidenceCount <= 2) return evidenceCount;
-  if (evidenceCount <= 6) return 2;
-  if (evidenceCount <= 15) return 3;
+  // Two representative tests establish the repository's quality surface.
+  // Additional repair capacity is more useful on production behavior than on
+  // a third neighboring test file.
+  if (area.key === `${REPOSITORY_AREA_PREFIX}quality`) return 2;
+  const entityDiversityFloor = area.key === `${REPOSITORY_AREA_PREFIX}data_model` &&
+      new Set(area.files
+        .filter((file) => isCoverageEvidencePath(area.key, file.path))
+        .map((file) => semanticPathProfile(file.path))
+        .filter((profile) => profile.entity)
+        .map((profile) => profile.entity)).size >= 4
+    ? 4
+    : 0;
+  if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor);
+  if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor);
   if (evidenceCount <= 30) return 4;
   // Very broad surfaces may use both bounded repair micro-batches after the
   // two-file breadth pass. Eight total samples remains far below adaptive
@@ -1259,7 +1298,7 @@ const semanticInterfaceActionSegments = new Set([
   "post", "put", "patch", "respond", "route", "send", "update",
 ]);
 
-function semanticPathFamily(path: string) {
+function semanticBehaviorFamily(path: string) {
   const normalized = path.replace(/\\/g, "/").toLowerCase();
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) {
     return "quality";
@@ -1268,7 +1307,10 @@ function semanticPathFamily(path: string) {
   // `lib` or `services` directories. Keep them distinct so a bounded repair
   // does not spend every sample on a second implementation from the same
   // service family while missing authentication or analytical behavior.
-  if (/(?:^|[\/_.-])(?:auth(?:entication|orization)?|identity|login|logout|permissions?|sessions?|signin|signup)(?:[\/_.-]|$)/i.test(normalized)) {
+  if (/(?:^|[\/_.-])(?:onboard(?:ing)?|register|registration|signup|sign-up|enroll(?:ment)?|account-activation)(?:[\/_.-]|$)/i.test(normalized)) {
+    return "boundary:account-entry";
+  }
+  if (/(?:^|[\/_.-])(?:auth(?:entication|orization)?|identity|login|logout|permissions?|sessions?|signin)(?:[\/_.-]|$)/i.test(normalized)) {
     return "boundary:identity-access";
   }
   if (/(?:^|[\/_.-])(?:analytics?|forecast|insights?|metrics?|reporting)(?:[\/_.-]|$)/i.test(normalized)) {
@@ -1300,57 +1342,179 @@ function semanticPathFamily(path: string) {
       .join("/");
     return `interface:${boundary || "root"}`;
   }
-  if (/(?:^|\/)(?:models?|schemas?)(?:\/|$)|\.prisma$/i.test(normalized)) {
-    return "data:model";
-  }
-  if (/(?:^|\/)(?:persistence|repositories?|data)(?:\/|$)/i.test(normalized)) {
-    return "data:persistence";
-  }
-  if (/(?:^|\/)migrations?(?:\/|$)|\.sql$/i.test(normalized)) {
-    return "data:migration";
-  }
-  if (/(?:^|\/)(?:workflows?|jobs?|queues?|workers?)(?:\/|$)/i.test(normalized)) {
-    return "orchestration";
-  }
-  if (/(?:^|\/)(?:services?|integrations?|clients?|providers?|connectors?)(?:\/|$)/i.test(normalized)) {
-    return "service";
-  }
-  if (/(?:^|\/)(?:components?|frontend|ui|views?|pages?)(?:\/|$)|(?:^|\/)app\/(?!api(?:\/|$))/i.test(normalized)) {
-    return "presentation";
-  }
+  const layer = semanticImplementationLayer(normalized);
+  if (layer === "persistence") return "data:persistence";
+  if (layer === "model") return "data:model";
+  if (layer === "migration") return "data:migration";
+  if (layer === "orchestration") return "orchestration";
+  if (layer === "integration") return "integration";
+  if (layer === "service") return "service";
+  if (layer === "presentation") return "presentation";
   const segments = normalized.split("/").filter(Boolean);
   if (segments.length <= 1) return "root";
   return segments.slice(0, Math.min(3, segments.length - 1)).join("/");
+}
+
+function semanticImplementationLayer(path: string) {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const basename = normalized.split("/").at(-1)?.replace(/\.[^.]+$/, "") ?? "";
+  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return "quality";
+  if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) return "interface";
+  if (
+    /(?:^|[\/_.-])(?:repositories?|persistence|storage|stores?|dao)(?:[\/_.-]|$)/i.test(normalized) ||
+    /(?:repository|store|dao)$/i.test(basename)
+  ) return "persistence";
+  if (/(?:^|[\/_.-])(?:models?|schemas?|entities)(?:[\/_.-]|$)|\.prisma$/i.test(normalized)) return "model";
+  if (/(?:^|[\/_.-])migrations?(?:[\/_.-]|$)|\.sql$/i.test(normalized)) return "migration";
+  if (/(?:^|[\/_.-])(?:clients?|adapters?|integrations?|providers?|connectors?)(?:[\/_.-]|$)/i.test(normalized)) return "integration";
+  if (/(?:^|[\/_.-])(?:workflows?|jobs?|queues?|workers?|schedulers?)(?:[\/_.-]|$)/i.test(normalized)) return "orchestration";
+  if (/(?:^|[\/_.-])services?(?:[\/_.-]|$)/i.test(normalized)) return "service";
+  if (/(?:^|\/)(?:components?|frontend|ui|views?|pages?)(?:\/|$)|(?:^|\/)app\/(?!api(?:\/|$))/i.test(normalized)) return "presentation";
+  if (/(?:^|[\/_.-])(?:config|types?|constants?)(?:[\/_.-]|$)/i.test(normalized)) return "support";
+  return "core";
+}
+
+function semanticLanguageFamily(path: string) {
+  const extension = path.toLowerCase().split(".").at(-1) ?? "";
+  if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(extension)) return "javascript";
+  if (["java", "kt", "kts", "scala"].includes(extension)) return "jvm";
+  if (extension === "py") return "python";
+  if (extension === "go") return "go";
+  if (extension === "rs") return "rust";
+  if (["cs", "fs", "vb"].includes(extension)) return "dotnet";
+  if (["sql", "prisma"].includes(extension)) return "schema";
+  return extension || "unknown";
+}
+
+function semanticEntityFamily(path: string, layer: string) {
+  if (layer !== "model" && layer !== "persistence") return "";
+  const basename = path.replace(/\\/g, "/").split("/").at(-1)?.replace(/\.[^.]+$/, "") ?? "";
+  const normalized = basename
+    .replace(/([a-z\d])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/(?:[-_.](?:list|model|entity|record|schema|repository|store|loader|writer|dao))+$/g, "")
+    .replace(/[^a-z\d]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || basename.toLowerCase();
+}
+
+function semanticPathProfile(path: string) {
+  const layer = semanticImplementationLayer(path);
+  const behavior = semanticBehaviorFamily(path);
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const segments = normalized.split("/").filter(Boolean);
+  const accountEntryIndex = behavior === "boundary:account-entry"
+    ? segments.findIndex((segment) =>
+        /^(?:onboard(?:ing)?|register|registration|signup|sign-up|enroll(?:ment)?|account-activation)$/i.test(segment)
+      )
+    : -1;
+  const variant = accountEntryIndex >= 0 && accountEntryIndex + 1 < segments.length - 1
+    ? segments[accountEntryIndex + 1]!
+      .replace(/\.[a-z0-9]+$/i, "")
+      .replace(/[^a-z0-9_-]+/g, "")
+    : "";
+  return {
+    behavior,
+    variant: variant ? `${behavior}:${variant}` : "",
+    layer,
+    language: semanticLanguageFamily(path),
+    entity: semanticEntityFamily(path, layer),
+  };
+}
+
+function semanticConcreteEntityPriority(path: string, entity: string) {
+  if (!entity) return 0;
+  const basename = path.replace(/\\/g, "/").split("/").at(-1)?.replace(/\.[^.]+$/, "") ?? "";
+  return /(?:list|collection)$/i.test(basename) ? 0 : 1;
+}
+
+function semanticBehaviorImportance(behavior: string) {
+  if (behavior.startsWith("boundary:")) return 2;
+  if (behavior === "data:persistence") return 2;
+  if (behavior === "data:model") return 1;
+  if (behavior.startsWith("interface:")) return 1;
+  return 0;
+}
+
+function semanticProductionCandidates(
+  files: CapabilityManifestArea["files"],
+  areaKey: string,
+  target: number,
+) {
+  if (
+    !areaKey.startsWith(REPOSITORY_AREA_PREFIX) ||
+    areaKey === `${REPOSITORY_AREA_PREFIX}product_surface` ||
+    areaKey === `${REPOSITORY_AREA_PREFIX}quality`
+  ) return files;
+  const nonPresentation = files.filter((file) =>
+    semanticImplementationLayer(file.path) !== "presentation"
+  );
+  return nonPresentation.length >= target ? nonPresentation : files;
 }
 
 function diverseSemanticFiles(
   files: CapabilityManifestArea["files"],
   target: number,
   seedPaths: string[] = [],
+  areaKey = "",
 ) {
   const substantive = files.filter((file) => {
     const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
     return !/^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename);
   });
-  const candidates = substantive.length >= target ? substantive : files;
+  const viable = substantive.length >= target ? substantive : files;
+  const candidates = semanticProductionCandidates(viable, areaKey, target);
   const ranked = [...candidates].sort((left, right) =>
     right.score - left.score || left.path.localeCompare(right.path)
   );
   const selected: typeof ranked = [];
   const selectedIds = new Set<string>();
-  const families = new Set(seedPaths.map(semanticPathFamily));
-  for (const file of ranked) {
-    const family = semanticPathFamily(file.path);
-    if (families.has(family)) continue;
-    selected.push(file);
-    selectedIds.add(file.id);
-    families.add(family);
-    if (selected.length >= target) return selected;
-  }
-  for (const file of ranked) {
-    if (selectedIds.has(file.id)) continue;
-    selected.push(file);
-    if (selected.length >= target) break;
+  const profiles = seedPaths.map(semanticPathProfile);
+  const covered = {
+    behaviors: new Set(profiles.map((profile) => profile.behavior)),
+    layers: new Set(profiles.map((profile) => profile.layer)),
+    languages: new Set(profiles.map((profile) => profile.language)),
+    entities: new Set(profiles.map((profile) => profile.entity).filter(Boolean)),
+    variants: new Set(profiles.map((profile) => profile.variant).filter(Boolean)),
+  };
+  while (selected.length < target) {
+    const next = ranked
+      .filter((file) => !selectedIds.has(file.id))
+      .map((file) => {
+        const profile = semanticPathProfile(file.path);
+        const newBehavior = !covered.behaviors.has(profile.behavior);
+        return {
+          file,
+          profile,
+          concreteEntityPriority: semanticConcreteEntityPriority(file.path, profile.entity),
+          novelty: (
+            Number(newBehavior) * 16 +
+            Number(newBehavior) * semanticBehaviorImportance(profile.behavior) * 4 +
+            Number(!covered.layers.has(profile.layer)) * 4 +
+            Number(!covered.languages.has(profile.language)) * 2 +
+            Number(
+              !newBehavior &&
+              Boolean(profile.variant) &&
+              !covered.variants.has(profile.variant)
+            ) * 2 +
+            Number(Boolean(profile.entity) && !covered.entities.has(profile.entity))
+          ),
+        };
+      })
+      .sort((left, right) =>
+        right.novelty - left.novelty ||
+        right.concreteEntityPriority - left.concreteEntityPriority ||
+        right.file.score - left.file.score ||
+        left.file.path.localeCompare(right.file.path)
+      )[0];
+    if (!next) break;
+    selected.push(next.file);
+    selectedIds.add(next.file.id);
+    covered.behaviors.add(next.profile.behavior);
+    covered.layers.add(next.profile.layer);
+    covered.languages.add(next.profile.language);
+    if (next.profile.variant) covered.variants.add(next.profile.variant);
+    if (next.profile.entity) covered.entities.add(next.profile.entity);
   }
   return selected;
 }
@@ -1392,8 +1556,8 @@ export function buildRepositoryDerivedSemanticPlan(input: {
     // Context can explain implementation, but it must not displace executable
     // or schema evidence from the bounded quota.
     const selectedFiles = implementationFiles.length
-      ? diverseSemanticFiles(implementationFiles, target)
-      : diverseSemanticFiles(contextualFiles, target);
+      ? diverseSemanticFiles(implementationFiles, target, [], area.key)
+      : diverseSemanticFiles(contextualFiles, target, [], area.key);
     const selectedIds = selectedFiles.map((file) => file.id);
     if (!selectedIds.length) continue;
     const preferredOwner = plannerOwner.get(area.key);
@@ -1423,6 +1587,18 @@ export function buildRepositoryDerivedSemanticPlan(input: {
     workPackage.fileSnapshotIds.push(...selectedIds);
     workPackage.fileSnapshotIds = Array.from(new Set(workPackage.fileSnapshotIds));
   }
+  // A file can legitimately belong to a product domain and one or more
+  // structural areas. Let the same semantic read satisfy every mapped
+  // obligation instead of spending repair capacity to reread it under a
+  // second label.
+  for (const workPackage of packages) {
+    const selectedIds = new Set(workPackage.fileSnapshotIds);
+    for (const area of input.manifest) {
+      if (area.files.some((file) => selectedIds.has(file.id))) {
+        workPackage.capabilityKeys.push(area.key);
+      }
+    }
+  }
   return packages
     .filter((workPackage) => workPackage.fileSnapshotIds.length)
     .map((workPackage) => packageTemplate({
@@ -1442,6 +1618,7 @@ export interface RepositoryCoverageCritique {
     inspectedSamples: number;
     supportedCandidates: number;
     requiredSupportedCandidates: number;
+    missingBranchVariants: number;
     status: "covered" | "thin" | "missing";
   }>;
   gaps: string[];
@@ -1450,12 +1627,9 @@ export interface RepositoryCoverageCritique {
 
 export function isImplementationEvidencePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
-  if (isRepositoryAnalysisNoisePath(normalized)) return false;
-  if (/^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized)) return false;
-  if (isRepositoryContextOnlyPath(normalized)) return false;
+  if (!isRepositorySemanticCartographyEvidencePath(normalized)) return false;
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
-  if (normalized.split("/").some((segment) => segment.startsWith("."))) return false;
-  return isRepositoryExecutableSourcePath(normalized);
+  return true;
 }
 
 /**
@@ -1481,6 +1655,36 @@ export function critiqueRepositoryCoverage(input: {
     );
     const evidenceFiles = implementationFiles.length ? implementationFiles : area.files;
     const inspectedSamples = evidenceFiles.filter((file) => inspected.has(file.id)).length;
+    const inspectedProfiles = evidenceFiles
+      .filter((file) => inspected.has(file.id))
+      .map((file) => semanticPathProfile(file.path));
+    const inspectedBehaviors = new Set(inspectedProfiles.map((profile) => profile.behavior));
+    const missingBranchVariantFileIds: string[] = [];
+    if (targetSamples >= 4) {
+      const variantsByBehavior = new Map<string, Map<string, CapabilityManifestArea["files"][number]>>();
+      for (const file of [...evidenceFiles].sort((left, right) =>
+        right.score - left.score || left.path.localeCompare(right.path)
+      )) {
+        const profile = semanticPathProfile(file.path);
+        if (!profile.variant) continue;
+        const variants = variantsByBehavior.get(profile.behavior) ?? new Map();
+        if (!variants.has(profile.variant)) variants.set(profile.variant, file);
+        variantsByBehavior.set(profile.behavior, variants);
+      }
+      for (const [behavior, variants] of variantsByBehavior) {
+        // A small sibling set usually represents a branched workflow (for
+        // example two role-specific entry paths). Large sets are more likely
+        // wizard steps, where sampling every variant would crowd out breadth.
+        if (
+          variants.size < 2 ||
+          variants.size > 3 ||
+          !inspectedBehaviors.has(behavior) ||
+          inspectedProfiles.some((profile) => profile.behavior === behavior && profile.variant)
+        ) continue;
+        const representative = Array.from(variants.values()).find((file) => !inspected.has(file.id));
+        if (representative) missingBranchVariantFileIds.push(representative.id);
+      }
+    }
     const supportedCandidateStatements = new Set(allCandidates.filter((candidate) =>
       candidate.key === area.key && candidate.evidence.some((evidence) => {
         if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
@@ -1513,13 +1717,16 @@ export function critiqueRepositoryCoverage(input: {
       inspectedSamples,
       supportedCandidates,
       requiredSupportedCandidates,
+      missingBranchVariants: missingBranchVariantFileIds.length,
+      priorityAuditFileIds: missingBranchVariantFileIds,
       supportedFileCount: supportedFileIds.size,
       requiredSupportedFiles,
       status: supportedCandidates === 0
         ? "missing" as const
         : supportedCandidates < requiredSupportedCandidates ||
             supportedFileIds.size < requiredSupportedFiles ||
-            inspectedSamples < targetSamples
+            inspectedSamples < targetSamples ||
+            missingBranchVariantFileIds.length > 0
           ? "thin" as const
           : "covered" as const,
     };
@@ -1537,6 +1744,9 @@ export function critiqueRepositoryCoverage(input: {
     }
     if (domain.inspectedSamples < domain.targetSamples) {
       return [`${domain.label}${scope} has only ${domain.inspectedSamples} of ${domain.targetSamples} required semantic samples.`];
+    }
+    if (domain.missingBranchVariants > 0) {
+      return [`${domain.label}${scope} has a branched workflow represented only by a generic entry path.`];
     }
     return [];
   });
@@ -1562,6 +1772,7 @@ export function critiqueRepositoryCoverage(input: {
       domain.targetSamples - domain.inspectedSamples,
       domain.requiredSupportedCandidates - domain.supportedCandidates,
       domain.requiredSupportedFiles - domain.supportedFileCount,
+      domain.priorityAuditFileIds.length,
     );
     const uninspected = area.files.filter((file) => !inspected.has(file.id));
     const areaImplementationFiles = area.files.filter((file) =>
@@ -1570,29 +1781,45 @@ export function critiqueRepositoryCoverage(input: {
     const areaEvidenceFiles = areaImplementationFiles.length
       ? areaImplementationFiles
       : area.files;
-    const implementationFiles = uninspected.filter((file) =>
+    const evidenceFiles = uninspected.filter((file) =>
       isCoverageEvidencePath(area.key, file.path)
     );
-    // Reuse the initial planner's diversity rule, seeded with families that
-    // this area already inspected. This is the useful part of adaptive fair
-    // sampling: the one funded repair wave seeks a genuinely new boundary
-    // before reading another near-neighbor, without adding files or calls.
-    const repairFiles = diverseSemanticFiles(
-      implementationFiles.length ? implementationFiles : uninspected,
-      Math.min(desired, MAX_REPAIR_FILES),
-      areaEvidenceFiles.filter((file) => inspected.has(file.id)).map((file) => file.path),
+    const repairPool = evidenceFiles.length ? evidenceFiles : uninspected;
+    const repairLimit = Math.min(desired, MAX_REPAIR_FILES);
+    const fileById = new Map(area.files.map((file) => [file.id, file] as const));
+    const priorityAuditFiles = domain.priorityAuditFileIds
+      .map((id) => fileById.get(id))
+      .filter((file): file is CapabilityManifestArea["files"][number] =>
+        file !== undefined && !inspected.has(file.id)
+      )
+      .slice(0, repairLimit);
+    const priorityAuditFileIds = new Set(priorityAuditFiles.map((file) => file.id));
+    // First inspect one concrete branch of an otherwise generic workflow. Any
+    // remaining slot keeps the normal diversity ranking. This is a main-path
+    // sampling obligation.
+    const additionalFiles = diverseSemanticFiles(
+      repairPool.filter((file) => !priorityAuditFileIds.has(file.id)),
+      repairLimit - priorityAuditFiles.length,
+      [
+        ...areaEvidenceFiles.filter((file) => inspected.has(file.id)).map((file) => file.path),
+        ...priorityAuditFiles.map((file) => file.path),
+      ],
+      area.key,
     );
-    return { area, repairFiles };
+    const repairFiles = [...priorityAuditFiles, ...additionalFiles];
+    return { area, desired, repairFiles };
   });
-  // Keep the existing two-call repair ceiling, but share its eight file slots
+  // Keep the existing two-call repair ceiling, but share its bounded file slots
   // round-robin across unresolved areas. This prevents a large repository's
   // first two areas from deterministically starving every later area.
   const repairSelections = new Map<string, {
     file: CapabilityManifestArea["files"][number];
     capabilityKeys: Set<string>;
   }>();
+  const remainingNeed = repairRequests.map((request) => request.desired);
   for (let depth = 0; depth < MAX_REPAIR_FILES; depth += 1) {
-    for (const request of repairRequests) {
+    for (const [requestIndex, request] of repairRequests.entries()) {
+      if (remainingNeed[requestIndex] === 0) continue;
       const file = request.repairFiles[depth];
       if (!file) continue;
       const existing = repairSelections.get(file.id);
@@ -1603,6 +1830,18 @@ export function critiqueRepositoryCoverage(input: {
           file,
           capabilityKeys: new Set([request.area.key]),
         });
+      } else {
+        continue;
+      }
+      const selected = repairSelections.get(file.id)!;
+      for (const [overlapIndex, overlap] of repairRequests.entries()) {
+        if (
+          remainingNeed[overlapIndex] > 0 &&
+          overlap.area.files.some((candidate) => candidate.id === file.id)
+        ) {
+          selected.capabilityKeys.add(overlap.area.key);
+          remainingNeed[overlapIndex] = Math.max(0, remainingNeed[overlapIndex]! - 1);
+        }
       }
     }
   }
@@ -1654,7 +1893,7 @@ async function planWorkPackages(input: {
   manifest: CapabilityManifestArea[];
 }) {
   const fallback = defaultPackages({ refreshRunId: input.refreshRunId, manifest: input.manifest });
-  const plannerMode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "deterministic";
+  const plannerMode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "model";
   if (resolveWorkbaseLlmProvider() === "mock" || plannerMode !== "model") {
     return { packages: fallback, generationRunId: null, fallbackUsed: true, usage: emptyUsage() };
   }
@@ -1669,7 +1908,7 @@ async function planWorkPackages(input: {
   try {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
-      kind: "capability_synthesis",
+      kind: "execution_routing",
       profile: "routing",
       idempotencyKey: `semantic-plan:${input.refreshRunId}:${REPOSITORY_ORCHESTRATION_POLICY_VERSION}`,
       inputSummary: { refreshRunId: input.refreshRunId, capabilityCount: input.manifest.length, fileCount: allowedIds.size },
@@ -2070,6 +2309,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       files,
     });
   });
+  const semanticEvidenceUniverse = semanticEvidenceUniverseFromManifest(manifest);
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = buildRepositoryDerivedSemanticPlan({
     manifest,
@@ -2112,7 +2352,14 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     where: { id: refreshRunId },
     data: {
       status: "semantic_analysis",
-      orchestration: inputJson({ policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION, rootAgentRunId: root.id, fallbackUsed: planned.fallbackUsed, generationRunId: planned.generationRunId, packages }),
+      orchestration: inputJson({
+        policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+        rootAgentRunId: root.id,
+        fallbackUsed: planned.fallbackUsed,
+        generationRunId: planned.generationRunId,
+        semanticEvidenceUniverse,
+        packages,
+      }),
       budgetUsage: inputJson({
         maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
         maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
@@ -2263,6 +2510,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         coverageAuditRunId: coverageAudit.id,
         fallbackUsed: planned.fallbackUsed,
         generationRunId: planned.generationRunId,
+        semanticEvidenceUniverse,
         cartography: manifest,
         packages,
         repairPackages,

@@ -146,6 +146,7 @@ async function cleanup(workItemIds: string[], userId: string) {
 async function runRepository(input: {
   fixtureId: string;
   repositoryFullName: string;
+  snapshotCommit: string;
   userId: string;
   variant: string;
   expectedIdentities: Partial<Record<
@@ -181,6 +182,7 @@ async function runRepository(input: {
               description: repository.description,
               url: repository.url,
               defaultBranch: repository.defaultBranch,
+              targetRef: input.snapshotCommit,
               private: repository.private,
               updatedAt: repository.updatedAt,
             },
@@ -199,6 +201,14 @@ async function runRepository(input: {
       idempotencyKey: `repository-knowledge-live:${input.variant}:${input.fixtureId}:${randomUUID()}`,
     });
     refreshRunId = refresh.runId;
+    if (
+      refresh.targets.length !== 1 ||
+      refresh.targets[0]?.commitSha.toLocaleLowerCase() !== input.snapshotCommit.toLocaleLowerCase()
+    ) {
+      throw new Error(
+        `Live fixture ${input.fixtureId} resolved ${refresh.targets[0]?.commitSha ?? "no commit"}; expected pinned commit ${input.snapshotCommit}.`,
+      );
+    }
     if (refresh.status !== "completed") {
       progress(`${input.variant}/${input.fixtureId}: inventorying (${refreshRunId})`);
       await knowledgeRefreshService.inventory(refreshRunId);
@@ -241,6 +251,7 @@ async function runRepository(input: {
         status: true,
         qualityStatus: true,
         coverage: true,
+        orchestration: true,
         budgetUsage: true,
         warnings: true,
         startedAt: true,
@@ -275,6 +286,7 @@ async function runRepository(input: {
         },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
+          id: true,
           kind: true,
           status: true,
           provider: true,
@@ -288,6 +300,7 @@ async function runRepository(input: {
       generationRuns,
       expectedIdentities: input.expectedIdentities,
       coverage: completed.coverage,
+      orchestration: completed.orchestration,
       warnings: completed.warnings,
     });
     return {
@@ -351,10 +364,17 @@ async function main() {
       "Live repository-knowledge evaluation requires WORKBASE_REPOSITORY_SYNTHESIS_MODE=model.",
     );
   }
+  const plannerMode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE?.trim() || "model";
+  if (plannerMode !== "model") {
+    throw new Error(
+      "Live repository-knowledge evaluation requires WORKBASE_SEMANTIC_PLANNER_MODE=model.",
+    );
+  }
   if (resolveWorkbaseLlmProvider() === "mock") {
     throw new Error("Live repository-knowledge evaluation requires a real model provider.");
   }
   const expectedIdentities = {
+    execution_routing: resolveActiveTextModelIdentity("routing"),
     semantic_extraction: resolveActiveTextModelIdentity("code_extraction"),
     semantic_repair: resolveActiveTextModelIdentity("code_extraction"),
     capability_synthesis: resolveActiveTextModelIdentity("deep_synthesis"),
@@ -387,6 +407,7 @@ async function main() {
     results.push(await runRepository({
       fixtureId: fixture.id,
       repositoryFullName: fixture.repository!,
+      snapshotCommit: fixture.snapshotCommit!,
       userId: user.id,
       variant: options.variant,
       expectedIdentities,

@@ -1,6 +1,7 @@
 import { collectUnknownModelUsageAttempts } from "@/src/services/model-usage-service";
 
 export const repositoryKnowledgeModelGenerationKinds = [
+  "execution_routing",
   "semantic_extraction",
   "semantic_repair",
   "capability_synthesis",
@@ -11,6 +12,7 @@ type RepositoryKnowledgeModelGenerationKind =
   (typeof repositoryKnowledgeModelGenerationKinds)[number];
 
 export interface RepositoryKnowledgeGenerationAuditRecord {
+  id: string;
   kind: string;
   status: string;
   provider: string;
@@ -99,10 +101,14 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   generationRuns: readonly RepositoryKnowledgeGenerationAuditRecord[];
   expectedIdentities: Partial<Record<RepositoryKnowledgeModelGenerationKind, RepositoryKnowledgeExpectedModelIdentity>>;
   coverage: unknown;
+  orchestration: unknown;
   warnings: unknown;
 }) {
   const issues: string[] = [];
   const requiredCounts = {
+    semanticPlanning: input.generationRuns.filter((run) =>
+      run.kind === "execution_routing"
+    ).length,
     semanticExtraction: input.generationRuns.filter((run) =>
       run.kind === "semantic_extraction"
     ).length,
@@ -110,6 +116,9 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       run.kind === "capability_synthesis"
     ).length,
   };
+  if (!requiredCounts.semanticPlanning) {
+    issues.push("No audited semantic planning generation ran.");
+  }
   if (!requiredCounts.semanticExtraction) {
     issues.push("No audited semantic extraction generation ran.");
   }
@@ -166,6 +175,26 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       `${deterministicSemanticPathCount} semantic path(s) used deterministic fallback analysis.`,
     );
   }
+  const orchestration = record(input.orchestration);
+  const plannerFallbackAttested = typeof orchestration?.fallbackUsed === "boolean";
+  const plannerFallbackUsed = orchestration?.fallbackUsed === true;
+  const plannerGenerationRunId = typeof orchestration?.generationRunId === "string" &&
+      orchestration.generationRunId.trim()
+    ? orchestration.generationRunId.trim()
+    : null;
+  if (plannerFallbackUsed) {
+    issues.push("Repository semantic planning used its deterministic fallback.");
+  }
+  if (!plannerFallbackAttested) {
+    issues.push("Repository semantic planning has no valid fallback attestation.");
+  }
+  if (!plannerGenerationRunId) {
+    issues.push("Repository semantic planning has no audited generation reference.");
+  } else if (!input.generationRuns.some((run) =>
+    run.id === plannerGenerationRunId && run.kind === "execution_routing"
+  )) {
+    issues.push("Repository semantic planning does not reference its audited routing generation.");
+  }
   const warningText = strings(input.warnings).join("\n");
   const deterministicSynthesis = /used deterministic subsystem synthesis|finalized deterministically/iu
     .test(warningText);
@@ -188,6 +217,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       providerAttemptCount,
       schemaRepairRunCount,
       deterministicSemanticPathCount,
+      plannerFallbackAttested,
+      plannerFallbackUsed,
       deterministicSynthesis,
       budgetExhausted,
     },

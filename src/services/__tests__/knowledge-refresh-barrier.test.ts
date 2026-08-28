@@ -37,6 +37,7 @@ import {
   repositoryCapabilityPriority,
   repositoryOrchestrationCoverageGaps,
 } from "@/src/services/knowledge-refresh-service";
+import { REPOSITORY_ORCHESTRATION_POLICY_VERSION } from "@/src/services/repository-semantic-orchestrator-service";
 
 function analysis(input: {
   mode: "static" | "semantic";
@@ -140,8 +141,8 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v21-hybrid",
       semanticAnalyzerVersion: "repository-coverage-v24-hybrid",
       coveragePolicyVersion: "repository-coverage-v13-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v23-hybrid",
-      synthesisPolicyVersion: "repository-synthesis-v43-hybrid",
+      orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+      synthesisPolicyVersion: "repository-synthesis-v44-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -372,8 +373,8 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v21-hybrid",
       semanticAnalyzerVersion: "repository-coverage-v24-hybrid",
       coveragePolicyVersion: "repository-coverage-v13-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v23-hybrid",
-      synthesisPolicyVersion: "repository-synthesis-v43-hybrid",
+      orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+      synthesisPolicyVersion: "repository-synthesis-v44-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -474,7 +475,14 @@ describe("latest-commit freshness barrier", () => {
           semanticStatus: "degraded",
           semanticAnalyzerVersion: "repository-coverage-v24-hybrid",
           semanticRefreshRunId: "refresh-1",
-          semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
+          semanticAnalysis: {
+            ...analysis({ mode: "semantic", status: "degraded" }),
+            semanticSource: "deterministic_fallback",
+            facts: [{
+              ...analysis({ mode: "semantic", status: "degraded" }).facts[0]!,
+              evidenceMode: "deterministic_fallback",
+            }],
+          },
         }],
       }],
     });
@@ -490,6 +498,14 @@ describe("latest-commit freshness barrier", () => {
         coverageGaps: expect.arrayContaining([
           "Search, retrieval, and model intelligence does not meet its repository-derived semantic sample and implementation-evidence target.",
           "Semantic analysis degraded for src/agent.ts.",
+        ]),
+        targets: expect.arrayContaining([
+          expect.objectContaining({
+            key: "repository_area:intelligence",
+            semanticPathCount: 0,
+            modelSemanticPathCount: 0,
+            deterministicFallbackPathCount: 1,
+          }),
         ]),
       }),
     ]);
@@ -594,8 +610,8 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v21-hybrid",
           semanticAnalyzerVersion: "repository-coverage-v24-hybrid",
           coveragePolicyVersion: "repository-coverage-v13-hybrid",
-          orchestrationPolicyVersion: "repository-orchestration-v23-hybrid",
-          synthesisPolicyVersion: "repository-synthesis-v43-hybrid",
+          orchestrationPolicyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+          synthesisPolicyVersion: "repository-synthesis-v44-hybrid",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),

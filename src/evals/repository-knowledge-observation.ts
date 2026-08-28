@@ -54,6 +54,12 @@ const repositoryKnowledgeEvaluationRunSchema = z.object({
     totalTokens: nullableNonnegativeNumber,
     estimatedCostUsd: nullableNonnegativeNumber,
   }).strict(),
+  executionIntegrity: z.object({
+    passed: z.boolean(),
+    issues: z.array(z.string().trim().min(1).max(2_000)).max(100),
+    modelIdentities: z.array(z.string().trim().min(1).max(500)).max(100),
+    policyVersions: z.array(z.string().trim().min(1).max(500)).max(100),
+  }).strict().optional(),
 }).strict();
 
 export function parseRepositoryKnowledgeEvaluationRun(

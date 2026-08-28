@@ -112,6 +112,12 @@ export interface RepositoryKnowledgeEvaluationRun {
     totalTokens: number | null;
     estimatedCostUsd: number | null;
   };
+  executionIntegrity?: {
+    passed: boolean;
+    issues: string[];
+    modelIdentities: string[];
+    policyVersions: string[];
+  };
 }
 
 export interface RepositoryKnowledgeMetricCheck {
@@ -322,6 +328,19 @@ function quoteSupported(
   return true;
 }
 
+function groundingEvidenceExcerpt(
+  file: RepositoryEvaluationFile,
+  reference: RepositoryKnowledgeEvidenceReference,
+) {
+  if (file.content === undefined) return "";
+  const quote = reference.quote?.trim();
+  const hasDeclaredRange = reference.lineStart != null || reference.lineEnd != null;
+  const content = hasDeclaredRange || !quote
+    ? referencedContent(file, reference)?.slice(0, 20_000)
+    : null;
+  return [quote, content].filter(Boolean).join(" ");
+}
+
 const genericGroundingTokens = new Set([
   "add",
   "added",
@@ -426,6 +445,15 @@ function claimClauses(value: string) {
   return value
     .split(
       /(?:[.;]\s+|,\s+(?:and|but)\s+|\s+(?:and|but)\s+)(?=(?:added|built|created|delivered|implemented|integrated|trained|uses?|validates?|generates?)\b)/iu,
+    )
+    .map((clause) => clause.trim())
+    .filter((clause) => groundingTokens(clause).length > 0);
+}
+
+function citationClaimClauses(value: string) {
+  return value
+    .split(
+      /(?:[.;]\s+|(?:,\s+|\s+)(?:and|but)\s+(?=(?:added|built|created|delivered|implemented|integrated|trained|uses?|validates?|generates?)\b))/iu,
     )
     .map((clause) => clause.trim())
     .filter((clause) => groundingTokens(clause).length > 0);
@@ -541,6 +569,29 @@ export function evaluateRepositoryKnowledgeRun(input: {
       `Evaluation run fixture ${run.fixtureId} does not match ${fixture.id}.`,
     );
   }
+  if (fixture.sourceKind === "curated_real_repository") {
+    if (!fixture.repository || !run.repository) {
+      throw new Error(
+        `Curated fixture ${fixture.id} requires its repository identity in the evaluation run.`,
+      );
+    }
+    if (
+      fixture.repository.toLocaleLowerCase() !==
+        run.repository.toLocaleLowerCase()
+    ) {
+      throw new Error(
+        `Evaluation run repository ${run.repository} does not match ${fixture.repository}.`,
+      );
+    }
+    if (
+      !fixture.snapshotCommit ||
+      run.commitSha?.toLocaleLowerCase() !== fixture.snapshotCommit.toLocaleLowerCase()
+    ) {
+      throw new Error(
+        `Evaluation run commit ${run.commitSha ?? "<missing>"} does not match pinned commit ${fixture.snapshotCommit ?? "<missing>"} for ${fixture.id}.`,
+      );
+    }
+  }
   if (
     fixture.repository && run.repository &&
     fixture.repository.toLocaleLowerCase() !== run.repository.toLocaleLowerCase()
@@ -591,12 +642,9 @@ export function evaluateRepositoryKnowledgeRun(input: {
     const claim = [item.text, item.summary].filter(Boolean).join(" ");
     // A serialized quote cannot prove itself when no checkout content was
     // supplied. Compact manifests can still establish path-level relevance.
-    const excerpt = file.content === undefined
-      ? ""
-      : reference.quote?.trim() ||
-        referencedContent(file, reference)?.slice(0, 20_000) || "";
+    const excerpt = groundingEvidenceExcerpt(file, reference);
     const evidenceSurface = `${normalizedPath(reference.path)} ${excerpt}`;
-    return claimClauses(claim).some((clause) =>
+    return citationClaimClauses(claim).some((clause) =>
       lexicallyRelated(clause, evidenceSurface, 0.35)
     );
   }
@@ -606,10 +654,7 @@ export function evaluateRepositoryKnowledgeRun(input: {
     const evidenceSurface = item.evidence.flatMap((reference) => {
       const file = repositoryFileForPath(reference.path);
       if (!file || !quoteSupported(file, reference)) return [];
-      const excerpt = file.content === undefined
-        ? ""
-        : reference.quote?.trim() ||
-          referencedContent(file, reference)?.slice(0, 20_000) || "";
+      const excerpt = groundingEvidenceExcerpt(file, reference);
       return [`${normalizedPath(reference.path)} ${excerpt}`];
     }).join(" ").slice(0, 120_000);
     return Boolean(evidenceSurface) && claimClauses(claim).every((clause) =>
@@ -668,6 +713,7 @@ export function evaluateRepositoryKnowledgeRun(input: {
       const file = filesByPath.get(path);
       return Boolean(
         file &&
+        groundedEvidenceReferences.has(reference) &&
         anyPattern(path, capability.evidencePathPatterns) &&
         validRepositoryReference(reference),
       );
@@ -677,7 +723,8 @@ export function evaluateRepositoryKnowledgeRun(input: {
   const recoveredCapabilities = implementedCapabilities.filter((capability) =>
     (capabilityMatches.get(capability.key) ?? []).some((itemIndex) => {
       const item = run.items[itemIndex]!;
-      return inferredClaimState(item) !== "planned" &&
+      return supportedItemIds.has(item.id) &&
+        inferredClaimState(item) !== "planned" &&
         evidenceSupportsCapability(item, capability);
     })
   );
@@ -710,6 +757,7 @@ export function evaluateRepositoryKnowledgeRun(input: {
       (capabilityMatches.get(capability.key) ?? []).some((itemIndex) => {
         const item = run.items[itemIndex]!;
         return item.kind === "highlight" &&
+          supportedItemIds.has(item.id) &&
           inferredClaimState(item) !== "planned" &&
           evidenceSupportsCapability(item, capability);
       })
@@ -717,22 +765,24 @@ export function evaluateRepositoryKnowledgeRun(input: {
     expectedHighlightCapabilities.length,
   );
 
-  const outputDomainText = [
-    ...(run.domains ?? []).flatMap((domain) => [domain.key, domain.label]),
-    ...run.items.flatMap((item) => [item.domain, itemSearchText(item)]),
-  ].filter((value): value is string => Boolean(value));
   const recoveredDomains = fixture.expectedDomains.filter((domain) => {
-    const named = outputDomainText.some((value) =>
-      anyPattern(value, domain.matchPatterns)
+    const hasRecoveredCapability = recoveredCapabilities.some(
+      (capability) => capability.domainKey === domain.key,
     );
-    const cited = run.items.some((item) =>
-      item.evidence.some((reference) => {
-        const path = normalizedPath(reference.path);
-        return filesByPath.has(path) &&
-          anyPattern(path, domain.evidencePathPatterns);
-      })
-    );
-    return named && cited;
+    const hasGroundedDomainItem = run.items.some((item) => {
+      const itemMatchesDomain = item.domain === domain.key || anyPattern(
+        itemSearchText(item),
+        domain.matchPatterns,
+      );
+      return supportedItemIds.has(item.id) && itemMatchesDomain &&
+        item.evidence.some((reference) => {
+          const path = normalizedPath(reference.path);
+          return groundedEvidenceReferences.has(reference) &&
+            validRepositoryReference(reference) &&
+            anyPattern(path, domain.evidencePathPatterns);
+        });
+    });
+    return hasRecoveredCapability || hasGroundedDomainItem;
   });
   const domainRecall = ratio(
     recoveredDomains.length,
@@ -803,9 +853,11 @@ export function evaluateRepositoryKnowledgeRun(input: {
 
   const analyzedPaths = run.inventory.analyzedPaths ?? [];
   const semanticAnalyzedPaths = run.inventory.semanticAnalyzedPaths ?? [];
-  const selectedPaths = [...analyzedPaths, ...semanticAnalyzedPaths];
+  const selectedPaths = Array.from(new Set(
+    [...analyzedPaths, ...semanticAnalyzedPaths].map(normalizedPath),
+  ));
   const noisySelectedPaths = selectedPaths.filter((path) =>
-    anyPattern(normalizedPath(path), fixture.ignoredPathPatterns)
+    anyPattern(path, fixture.ignoredPathPatterns)
   );
   const structuralReportingCompleteness = average([
     run.inventory.analyzedPaths ? 1 : 0,

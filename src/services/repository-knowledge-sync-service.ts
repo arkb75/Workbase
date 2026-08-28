@@ -29,6 +29,7 @@ const metadataSchema = z.object({
     owner: z.string().min(1).max(100),
     name: z.string().min(1).max(100),
     defaultBranch: z.string().min(1).max(200),
+    targetRef: z.string().min(1).max(200).optional(),
     private: z.boolean(),
   }),
 });
@@ -120,7 +121,7 @@ export async function resolveRepositoryTargetHeads(input: {
       token: attached.token,
       owner: attached.repository.owner,
       repo: attached.repository.name,
-      ref: attached.repository.defaultBranch,
+      ref: attached.repository.targetRef ?? attached.repository.defaultBranch,
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
     const resolvedAt = new Date().toISOString();

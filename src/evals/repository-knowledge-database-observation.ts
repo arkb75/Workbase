@@ -8,6 +8,12 @@ import {
 import {
   collectUnknownModelUsageAttempts,
 } from "@/src/services/model-usage-service";
+import {
+  evaluateRepositoryKnowledgeMainPath,
+  repositoryKnowledgeModelGenerationKinds,
+} from "@/src/evals/repository-knowledge-main-path";
+import { isRepositorySemanticCartographyEvidencePath } from "@/src/services/repository-semantic-orchestrator-service";
+import { resolveActiveTextModelIdentity } from "@/src/lib/llm-config";
 
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -140,6 +146,76 @@ function jsonStringArray(value: unknown) {
     : [];
 }
 
+type SemanticFileState = {
+  id: string;
+  path: string;
+  disposition: string;
+  semanticStatus: string | null;
+};
+
+/**
+ * Read the immutable, pre-selection semantic denominator recorded by the
+ * orchestrator. A missing or inconsistent universe is an evaluation error:
+ * substituting the selected package files would report planned sampling as if
+ * it were repository coverage.
+ */
+export function semanticCoverageFromOrchestration(input: {
+  orchestration: unknown;
+  files: SemanticFileState[];
+}) {
+  const universe = record(record(input.orchestration)?.semanticEvidenceUniverse);
+  const rawIds = universe?.fileSnapshotIds;
+  const fileCount = numberValue(universe?.fileCount);
+  if (
+    !Array.isArray(rawIds) ||
+    !Number.isInteger(fileCount) ||
+    fileCount! < 0 ||
+    rawIds.some((id) => typeof id !== "string" || !id.trim())
+  ) {
+    throw new Error(
+      "Repository refresh is missing its persisted semantic evidence universe; rerun the repository refresh before evaluation.",
+    );
+  }
+  const fileSnapshotIds = rawIds as string[];
+  const uniqueIds = new Set(fileSnapshotIds);
+  if (uniqueIds.size !== fileSnapshotIds.length || uniqueIds.size !== fileCount) {
+    throw new Error(
+      "Repository refresh has an inconsistent persisted semantic evidence universe; rerun the repository refresh before evaluation.",
+    );
+  }
+  const fileById = new Map(input.files.map((file) => [file.id, file]));
+  const unknownIds = fileSnapshotIds.filter((id) => !fileById.has(id));
+  if (unknownIds.length) {
+    throw new Error(
+      "Repository refresh semantic evidence universe references files outside its immutable snapshot; rerun the repository refresh before evaluation.",
+    );
+  }
+  const independentlyEligibleIds = new Set(input.files.flatMap((file) =>
+    file.disposition === "analyzed" && isRepositorySemanticCartographyEvidencePath(file.path)
+      ? [file.id]
+      : []
+  ));
+  const omittedIds = Array.from(independentlyEligibleIds).filter((id) => !uniqueIds.has(id));
+  const ineligibleIds = fileSnapshotIds.filter((id) => !independentlyEligibleIds.has(id));
+  if (omittedIds.length || ineligibleIds.length) {
+    throw new Error(
+      "Repository refresh semantic evidence universe does not match the independently eligible snapshot files; rerun the repository refresh before evaluation.",
+    );
+  }
+  const succeededFiles = fileSnapshotIds.flatMap((id) => {
+    const file = fileById.get(id)!;
+    return file.semanticStatus === "succeeded" ? [file] : [];
+  });
+  return {
+    semanticEligibleFiles: fileSnapshotIds.length,
+    semanticAnalyzedFiles: succeededFiles.length,
+    semanticAnalyzedPaths: succeededFiles.map((file) => file.path),
+    semanticCoverage: fileSnapshotIds.length
+      ? succeededFiles.length / fileSnapshotIds.length
+      : null,
+  };
+}
+
 function evidenceReference(evidence: {
   title: string;
   content: string;
@@ -181,21 +257,40 @@ export async function repositoryKnowledgeObservationFromDatabase(
       id: true,
       workItemId: true,
       metadata: true,
+      repositorySnapshots: {
+        where: {
+          analysisComplete: true,
+          ...(fixture.snapshotCommit ? { commitSha: fixture.snapshotCommit } : {}),
+        },
+        orderBy: { resolvedAt: "desc" },
+        take: 1,
+        select: { id: true },
+      },
     },
   });
-  const source = sources.find((candidate) =>
+  const matchingSources = sources.filter((candidate) =>
     repositoryFromMetadata(candidate.metadata)?.toLocaleLowerCase() ===
       fixture.repository!.toLocaleLowerCase()
   );
-  if (!source) {
+  if (!matchingSources.length) {
     throw new Error(
       input.workItemId
         ? `Work item ${input.workItemId} has no GitHub source matching ${fixture.repository}.`
         : `No imported GitHub source matched ${fixture.repository}; import and refresh it before evaluation.`,
     );
   }
+  const source = matchingSources.find((candidate) =>
+    candidate.repositorySnapshots.length > 0
+  );
+  if (!source) {
+    throw new Error(
+      `No completed repository snapshot matched ${fixture.repository} at ${fixture.snapshotCommit ?? "the latest analyzed commit"}.`,
+    );
+  }
   const snapshot = await prisma.repositorySnapshot.findFirst({
-    where: { sourceId: source.id, analysisComplete: true },
+    where: {
+      id: source.repositorySnapshots[0]!.id,
+    },
     orderBy: { resolvedAt: "desc" },
     select: {
       id: true,
@@ -223,6 +318,9 @@ export async function repositoryKnowledgeObservationFromDatabase(
           startedAt: true,
           finishedAt: true,
           budgetUsage: true,
+          coverage: true,
+          orchestration: true,
+          warnings: true,
         },
       },
     },
@@ -283,12 +381,7 @@ export async function repositoryKnowledgeObservationFromDatabase(
           where: {
             workItemId: source.workItemId,
             kind: {
-              in: [
-                "semantic_extraction",
-                "semantic_repair",
-                "capability_synthesis",
-                "coverage_audit",
-              ],
+              in: [...repositoryKnowledgeModelGenerationKinds],
             },
             createdAt: {
               gte: snapshot.refreshRun.startedAt,
@@ -297,7 +390,16 @@ export async function repositoryKnowledgeObservationFromDatabase(
                 : {}),
             },
           },
-          select: { tokenUsage: true, estimatedCostUsd: true },
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            provider: true,
+            modelId: true,
+            resultRefs: true,
+            tokenUsage: true,
+            estimatedCostUsd: true,
+          },
         })
       : Promise.resolve([]),
   ]);
@@ -314,12 +416,10 @@ export async function repositoryKnowledgeObservationFromDatabase(
   const analyzedPaths = snapshot.files
     .filter((file) => file.disposition === "analyzed")
     .map((file) => file.path);
-  const semanticSelectedPaths = snapshot.files
-    .filter((file) => file.semanticStatus !== "not_selected")
-    .map((file) => file.path);
-  const semanticAnalyzedPaths = snapshot.files
-    .filter((file) => file.semanticStatus === "succeeded")
-    .map((file) => file.path);
+  const semanticCoverage = semanticCoverageFromOrchestration({
+    orchestration: snapshot.refreshRun?.orchestration,
+    files: snapshot.files,
+  });
   const applicableCapabilities = snapshot.capabilityLedger.filter((entry) =>
     entry.status !== "not_applicable"
   );
@@ -328,6 +428,34 @@ export async function repositoryKnowledgeObservationFromDatabase(
   );
   const startedAt = snapshot.refreshRun?.startedAt;
   const finishedAt = snapshot.refreshRun?.finishedAt;
+  const mainPathIntegrity = evaluateRepositoryKnowledgeMainPath({
+    generationRuns,
+    expectedIdentities: {
+      execution_routing: resolveActiveTextModelIdentity("routing"),
+      semantic_extraction: resolveActiveTextModelIdentity("code_extraction"),
+      semantic_repair: resolveActiveTextModelIdentity("code_extraction"),
+      capability_synthesis: resolveActiveTextModelIdentity("deep_synthesis"),
+      coverage_audit: resolveActiveTextModelIdentity("verification"),
+    },
+    coverage: snapshot.refreshRun?.coverage,
+    orchestration: snapshot.refreshRun?.orchestration,
+    warnings: snapshot.refreshRun?.warnings,
+  });
+  const warningRecord = record(snapshot.refreshRun?.warnings);
+  const orchestrationRecord = record(snapshot.refreshRun?.orchestration);
+  const policyVersions = Array.from(new Set([
+    ...Object.entries(warningRecord ?? {}).flatMap(([key, value]) =>
+      /version$/iu.test(key) && typeof value === "string" && value.trim()
+        ? [`${key}=${value.trim()}`]
+        : []
+    ),
+    ...(typeof orchestrationRecord?.policyVersion === "string" && orchestrationRecord.policyVersion.trim()
+      ? [`orchestration.policyVersion=${orchestrationRecord.policyVersion.trim()}`]
+      : []),
+  ])).sort();
+  const modelIdentities = Array.from(new Set(generationRuns.map((generation) =>
+    `${generation.kind}:${generation.provider}:${generation.modelId}`
+  ))).sort();
 
   return {
     schemaVersion: REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
@@ -369,18 +497,16 @@ export async function repositoryKnowledgeObservationFromDatabase(
     inventory: {
       scannableFiles: scannablePaths.length,
       analyzedFiles: analyzedPaths.length,
-      semanticEligibleFiles: semanticSelectedPaths.length,
-      semanticAnalyzedFiles: semanticAnalyzedPaths.length,
+      semanticEligibleFiles: semanticCoverage.semanticEligibleFiles,
+      semanticAnalyzedFiles: semanticCoverage.semanticAnalyzedFiles,
       analyzedPaths,
-      semanticAnalyzedPaths,
+      semanticAnalyzedPaths: semanticCoverage.semanticAnalyzedPaths,
     },
     coverage: {
       static: scannablePaths.length
         ? analyzedPaths.length / scannablePaths.length
         : null,
-      semantic: semanticSelectedPaths.length
-        ? semanticAnalyzedPaths.length / semanticSelectedPaths.length
-        : null,
+      semantic: semanticCoverage.semanticCoverage,
       knowledge: applicableCapabilities.length
         ? verifiedCapabilities.length / applicableCapabilities.length
         : null,
@@ -401,6 +527,12 @@ export async function repositoryKnowledgeObservationFromDatabase(
         (sum, generation) => sum + (generation.estimatedCostUsd ?? 0),
         0,
       ),
+    },
+    executionIntegrity: {
+      passed: mainPathIntegrity.passed,
+      issues: mainPathIntegrity.issues,
+      modelIdentities,
+      policyVersions,
     },
   };
 }
