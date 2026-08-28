@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v18-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v19-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -1254,6 +1254,16 @@ function semanticPathFamily(path: string) {
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) {
     return "quality";
   }
+  // Cross-cutting product boundaries often live inside otherwise generic
+  // `lib` or `services` directories. Keep them distinct so a bounded repair
+  // does not spend every sample on a second implementation from the same
+  // service family while missing authentication or analytical behavior.
+  if (/(?:^|[\/_.-])(?:auth(?:entication|orization)?|identity|login|logout|permissions?|sessions?|signin|signup)(?:[\/_.-]|$)/i.test(normalized)) {
+    return "boundary:identity-access";
+  }
+  if (/(?:^|[\/_.-])(?:analytics?|forecast|insights?|metrics?|reporting)(?:[\/_.-]|$)/i.test(normalized)) {
+    return "boundary:analytics-reporting";
+  }
   if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) {
     return "interface";
   }
@@ -1283,6 +1293,7 @@ function semanticPathFamily(path: string) {
 function diverseSemanticFiles(
   files: CapabilityManifestArea["files"],
   target: number,
+  seedPaths: string[] = [],
 ) {
   const substantive = files.filter((file) => {
     const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
@@ -1294,7 +1305,7 @@ function diverseSemanticFiles(
   );
   const selected: typeof ranked = [];
   const selectedIds = new Set<string>();
-  const families = new Set<string>();
+  const families = new Set(seedPaths.map(semanticPathFamily));
   for (const file of ranked) {
     const family = semanticPathFamily(file.path);
     if (families.has(family)) continue;
@@ -1499,14 +1510,25 @@ export function critiqueRepositoryCoverage(input: {
       domain.requiredSupportedCandidates - domain.supportedCandidates,
     );
     const uninspected = area.files.filter((file) => !inspected.has(file.id));
+    const areaImplementationFiles = area.files.filter((file) =>
+      isCoverageEvidencePath(area.key, file.path)
+    );
+    const areaEvidenceFiles = areaImplementationFiles.length
+      ? areaImplementationFiles
+      : area.files;
     const implementationFiles = uninspected.filter((file) =>
       isCoverageEvidencePath(area.key, file.path)
     );
-    const ids = (implementationFiles.length ? implementationFiles : uninspected)
-      // Every scheduled repair must fit one funded provider micro-batch. A
-      // broader unmet audit target remains an explicit final coverage gap.
-      .slice(0, Math.min(desired, SEMANTIC_MICRO_BATCH_SIZE))
-      .map((file) => file.id);
+    // Reuse the initial planner's diversity rule, seeded with families that
+    // this area already inspected. This is the useful part of adaptive fair
+    // sampling: the one funded repair wave seeks a genuinely new boundary
+    // before reading another near-neighbor, without adding files or calls.
+    const repairFiles = diverseSemanticFiles(
+      implementationFiles.length ? implementationFiles : uninspected,
+      Math.min(desired, SEMANTIC_MICRO_BATCH_SIZE),
+      areaEvidenceFiles.filter((file) => inspected.has(file.id)).map((file) => file.path),
+    );
+    const ids = repairFiles.map((file) => file.id);
     return packageTemplate({
       capabilityKeys: [area.key],
       fileSnapshotIds: ids,

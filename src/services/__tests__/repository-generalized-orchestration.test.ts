@@ -135,6 +135,50 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(2);
   });
 
+  it("spends repair capacity on uninspected product boundaries before near-neighbor files", () => {
+    const area = {
+      key: "repository_area:application_core",
+      label: "Application core",
+      scopeKey: "example/community-product",
+      salience: 300,
+      files: [
+        { id: "contribution", path: "src/server/services/contribution-service.ts", score: 50 },
+        { id: "internal-api", path: "src/lib/internal-api.ts", score: 49 },
+        { id: "onboarding", path: "src/server/services/onboarding-service.ts", score: 48 },
+        { id: "prisma", path: "src/lib/prisma.ts", score: 47 },
+        { id: "session", path: "src/lib/session.ts", score: 46 },
+        { id: "analytics", path: "src/server/services/contribution-analytics.ts", score: 45 },
+        { id: "repository", path: "src/server/data/community-repository.ts", score: 44 },
+        ...Array.from({ length: 9 }, (_, index) => ({
+          id: `helper-${index}`,
+          path: `src/lib/helper-${index}.ts`,
+          score: 30 - index,
+        })),
+      ],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: ["contribution", "internal-api"],
+        candidates: [
+          candidate(area.key, "contribution"),
+          candidate(area.key, "internal-api"),
+        ],
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 4,
+      inspectedSamples: 2,
+      status: "thin",
+    });
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual([
+      "session",
+      "analytics",
+    ]);
+  });
+
   it("keeps the established audit-depth curve while the first pass stays bounded", () => {
     const cases = [
       [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
