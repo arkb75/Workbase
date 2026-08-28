@@ -140,7 +140,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v18-hybrid",
       semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
       coveragePolicyVersion: "repository-coverage-v10-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v15-hybrid",
       synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -372,7 +372,7 @@ describe("latest-commit freshness barrier", () => {
       analyzerVersion: "repository-coverage-v18-hybrid",
       semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
       coveragePolicyVersion: "repository-coverage-v10-hybrid",
-      orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v15-hybrid",
       synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -594,7 +594,7 @@ describe("latest-commit freshness barrier", () => {
           analyzerVersion: "repository-coverage-v18-hybrid",
           semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
           coveragePolicyVersion: "repository-coverage-v10-hybrid",
-          orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+          orchestrationPolicyVersion: "repository-orchestration-v15-hybrid",
           synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),

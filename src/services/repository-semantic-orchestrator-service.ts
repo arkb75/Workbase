@@ -32,7 +32,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v14-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v15-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -300,7 +300,7 @@ export interface RepositoryCartographyFile {
   >;
 }
 
-function repositoryFileSalience(file: RepositoryCartographyFile, incomingReferences = 0) {
+function repositoryFileSalience(file: RepositoryCartographyFile) {
   // Static analyzers may carry legacy specialized recognizers. Cartography
   // uses only bounded, language-neutral signal presence so those recognizers
   // cannot buy a repository more semantic attention.
@@ -309,7 +309,6 @@ function repositoryFileSalience(file: RepositoryCartographyFile, incomingReferen
     Math.min(4, file.analysis.architectureSignals.length) * 4 +
     Math.min(8, file.analysis.symbols.length) * 2 +
     Math.min(12, file.analysis.dependencies.length) +
-    Math.min(24, incomingReferences * 6) +
     (file.changeType && file.changeType !== "unchanged" ? 16 : 0);
   const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
   const incidentalPenalty = /^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename)
@@ -318,48 +317,6 @@ function repositoryFileSalience(file: RepositoryCartographyFile, incomingReferen
       ? 10
       : 0;
   return Math.max(1, base - incidentalPenalty);
-}
-
-/** Count repository-local imports so frequently used implementation files win representative ties. */
-export function repositoryIncomingReferenceCounts(
-  files: Array<{ path: string; analysis: Pick<RepositoryFileAnalysis, "dependencies"> }>,
-) {
-  const stripExtension = (value: string) => value.replace(/\.(?:[cm]?[jt]sx?|py|java|kt|kts|go|rs|rb|php|cs)$/i, "");
-  const canonical = new Map<string, string>();
-  for (const file of files) {
-    const path = stripExtension(file.path.replace(/\\/g, "/"));
-    canonical.set(path, file.path);
-    if (path.endsWith("/index")) canonical.set(path.slice(0, -6), file.path);
-  }
-  const normalizeRelative = (from: string, dependency: string) => {
-    const parts = from.replace(/\\/g, "/").split("/").slice(0, -1);
-    for (const part of dependency.split("/")) {
-      if (part === "." || !part) continue;
-      if (part === "..") parts.pop();
-      else parts.push(part);
-    }
-    return stripExtension(parts.join("/"));
-  };
-  const counts = new Map(files.map((file) => [file.path, 0]));
-  for (const file of files) {
-    for (const dependency of file.analysis.dependencies) {
-      const normalized = dependency.startsWith(".")
-        ? normalizeRelative(file.path, dependency)
-        : stripExtension(dependency.replace(/^@[^/]+\//, "").replace(/\./g, "/"));
-      const suffixes = normalized.split("/")
-        .map((_segment, index, segments) => segments.slice(index).join("/"))
-        .filter((value) => value.split("/").length >= 2);
-      const suffixTarget = Array.from(canonical.entries()).flatMap(([key, path]) => {
-        const matchingSuffix = suffixes
-          .filter((suffix) => key.endsWith(`/${suffix}`) || key.endsWith(`/${suffix}/index`))
-          .sort((left, right) => right.length - left.length)[0];
-        return matchingSuffix ? [{ path, matchLength: matchingSuffix.length }] : [];
-      }).sort((left, right) => right.matchLength - left.matchLength || left.path.localeCompare(right.path))[0]?.path;
-      const target = canonical.get(normalized) ?? canonical.get(`${normalized}/index`) ?? suffixTarget;
-      if (target && target !== file.path) counts.set(target, (counts.get(target) ?? 0) + 1);
-    }
-  }
-  return counts;
 }
 
 function repositoryDomainLabel(key: string) {
@@ -381,7 +338,6 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
   maxDomains?: number;
 }) {
   const groups = new Map<string, CapabilityManifestArea>();
-  const incomingReferenceCounts = repositoryIncomingReferenceCounts(input.files);
   const repositorySlug = input.scopeKey
     .replace(/\.git$/i, "")
     .split("/")
@@ -408,7 +364,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
       salience: 0,
       files: [],
     };
-    const score = repositoryFileSalience(file, incomingReferenceCounts.get(file.path) ?? 0);
+    const score = repositoryFileSalience(file);
     current.salience = (current.salience ?? 0) + score;
     current.files.push({ id: file.id, path: file.path, score });
     groups.set(key, current);
@@ -526,10 +482,12 @@ export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "key" | 
   ).length;
   const evidenceCount = implementationCount || area.files.length;
   if (evidenceCount <= 2) return evidenceCount;
-  if (evidenceCount <= 6) return 2;
-  if (evidenceCount <= 15) return 3;
-  if (evidenceCount <= 30) return 4;
-  return 5;
+  // The initial pass is breadth-first: two diverse implementation files per
+  // area let ten areas fit into five single-call workers. Thin or contradictory
+  // areas still receive the existing bounded critic/repair wave. Larger
+  // proportional samples created unfundable second micro-batches and stranded
+  // the rest of the package after its first call.
+  return 2;
 }
 
 export interface CapabilityCandidate {
@@ -1270,9 +1228,34 @@ function packageTemplate(input: {
 }
 
 function semanticPathFamily(path: string) {
-  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) {
+    return "quality";
+  }
+  if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) {
+    return "interface";
+  }
+  if (/(?:^|\/)(?:models?|schemas?)(?:\/|$)|\.prisma$/i.test(normalized)) {
+    return "data:model";
+  }
+  if (/(?:^|\/)(?:persistence|repositories?|data)(?:\/|$)/i.test(normalized)) {
+    return "data:persistence";
+  }
+  if (/(?:^|\/)migrations?(?:\/|$)|\.sql$/i.test(normalized)) {
+    return "data:migration";
+  }
+  if (/(?:^|\/)(?:workflows?|jobs?|queues?|workers?)(?:\/|$)/i.test(normalized)) {
+    return "orchestration";
+  }
+  if (/(?:^|\/)(?:services?|integrations?|clients?|providers?|connectors?)(?:\/|$)/i.test(normalized)) {
+    return "service";
+  }
+  if (/(?:^|\/)(?:components?|frontend|ui|views?|pages?)(?:\/|$)|(?:^|\/)app\/(?!api(?:\/|$))/i.test(normalized)) {
+    return "presentation";
+  }
+  const segments = normalized.split("/").filter(Boolean);
   if (segments.length <= 1) return "root";
-  return segments.slice(0, Math.min(3, segments.length - 1)).join("/").toLowerCase();
+  return segments.slice(0, Math.min(3, segments.length - 1)).join("/");
 }
 
 function diverseSemanticFiles(
@@ -1317,6 +1300,7 @@ export function buildRepositoryDerivedSemanticPlan(input: {
   maxWorkers?: number;
 }) {
   const maxWorkers = input.maxWorkers ?? REPOSITORY_ORCHESTRATION_MAX_WORKERS;
+  const initialFileLimit = Math.min(MAX_FILES_PER_WORKER, SEMANTIC_MICRO_BATCH_SIZE);
   if (!input.manifest.length || maxWorkers < 1) return [];
   const plannerOwner = new Map<string, number>();
   for (const [index, workPackage] of (input.plannerPackages ?? []).entries()) {
@@ -1355,7 +1339,11 @@ export function buildRepositoryDerivedSemanticPlan(input: {
         preferred: index === preferredOwner,
         load: workPackage.fileSnapshotIds.length,
       }))
-      .filter((candidate) => candidate.load + candidate.newFileCount <= MAX_FILES_PER_WORKER)
+      // Keep the initial pass to one provider micro-batch per worker. A thin
+      // area can spend the separately reserved repair budget after critique;
+      // assigning a second initial batch strands work when the first call uses
+      // most of that worker's proportional token slice.
+      .filter((candidate) => candidate.load + candidate.newFileCount <= initialFileLimit)
       .sort((left, right) =>
         right.overlap - left.overlap ||
         Number(right.preferred) - Number(left.preferred) ||

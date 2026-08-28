@@ -4,7 +4,6 @@ import {
   buildRepositoryDerivedSemanticPlan,
   critiqueRepositoryCoverage,
   isRepositoryCartographyNoisePath,
-  repositoryIncomingReferenceCounts,
   semanticSampleTarget,
   type CapabilityCandidate,
   type RepositoryCartographyFile,
@@ -94,44 +93,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(isRepositoryCartographyNoisePath("frontend/main.min.js")).toBe(true);
   });
 
-  it("uses cross-language repository references as a bounded representative signal", () => {
-    const counts = repositoryIncomingReferenceCounts([
-      { path: "src/orders/controller.ts", analysis: { dependencies: ["./service"] } },
-      { path: "src/orders/service.ts", analysis: { dependencies: ["./repository"] } },
-      { path: "src/orders/repository.ts", analysis: { dependencies: [] } },
-      { path: "src/scoring/api.py", analysis: { dependencies: ["./engine"] } },
-      { path: "src/scoring/engine.py", analysis: { dependencies: [] } },
-      { path: "src/main/java/com/acme/billing/BillingApi.java", analysis: { dependencies: ["com/acme/billing/BillingService"] } },
-      { path: "src/main/java/com/acme/billing/BillingService.java", analysis: { dependencies: [] } },
-    ]);
-
-    expect(counts.get("src/orders/service.ts")).toBe(1);
-    expect(counts.get("src/orders/repository.ts")).toBe(1);
-    expect(counts.get("src/scoring/engine.py")).toBe(1);
-    expect(counts.get("src/main/java/com/acme/billing/BillingService.java")).toBe(1);
-  });
-
-  it("ranks a repository-local dependency hub above otherwise equal files", () => {
-    const callers = ["alpha", "beta", "gamma"].map((name) => ({
-      ...mappedFile(name, `src/orders/${name}.ts`),
-      analysis: {
-        ...mappedFile(name, `src/orders/${name}.ts`).analysis,
-        dependencies: ["./z-central"],
-      },
-    }));
-    const manifest = buildRepositoryDerivedCapabilityManifest({
-      scopeKey: "example/commerce",
-      files: [
-        ...callers,
-        mappedFile("central", "src/orders/z-central.ts"),
-      ],
-    });
-
-    expect(manifest.find((area) => area.key === "project_domain:orders")?.files[0])
-      .toMatchObject({ id: "central", path: "src/orders/z-central.ts" });
-  });
-
-  it("samples large domains proportionally within bounded investigator packages", () => {
+  it("starts large domains with two diverse samples and leaves depth to bounded repair", () => {
     const area = {
       key: "project_domain:feed",
       label: "Feed",
@@ -145,11 +107,30 @@ describe("repository-derived cartographer and coverage critic", () => {
     };
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
 
-    expect(semanticSampleTarget(area)).toBe(4);
+    expect(semanticSampleTarget(area)).toBe(2);
     expect(plan).toHaveLength(1);
-    expect(plan[0]?.fileSnapshotIds).toHaveLength(4);
-    expect(plan[0]?.fileSnapshotIds).toEqual(["feed-0", "feed-1", "feed-2", "feed-3"]);
+    expect(plan[0]?.fileSnapshotIds).toHaveLength(2);
+    expect(plan[0]?.fileSnapshotIds).toEqual(["feed-0", "feed-1"]);
     expect(plan[0]?.fileSnapshotIds.length).toBeLessThanOrEqual(8);
+  });
+
+  it("fits ten independent areas into five single-call worker packages", () => {
+    const manifest = Array.from({ length: 10 }, (_, areaIndex) => ({
+      key: `project_domain:area-${areaIndex}`,
+      label: `Area ${areaIndex}`,
+      scopeKey: "example/broad-project",
+      salience: 100 - areaIndex,
+      files: Array.from({ length: 12 }, (_, fileIndex) => ({
+        id: `area-${areaIndex}-file-${fileIndex}`,
+        path: `src/features/area-${areaIndex}/file-${fileIndex}.ts`,
+        score: 20 - fileIndex,
+      })),
+    }));
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest });
+    expect(plan).toHaveLength(5);
+    expect(plan.every((workPackage) => workPackage.fileSnapshotIds.length <= 4)).toBe(true);
+    expect(new Set(plan.flatMap((workPackage) => workPackage.capabilityKeys)).size).toBe(10);
   });
 
   it("samples distinct path families before near-duplicate files", () => {
@@ -170,6 +151,26 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toContain("model-a");
     expect(plan[0]?.fileSnapshotIds).toContain("loader");
+  });
+
+  it("samples an interface and presentation instead of two parallel page wrappers", () => {
+    const area = {
+      key: "project_domain:messages",
+      label: "Messages",
+      scopeKey: "example/marketplace",
+      salience: 120,
+      files: [
+        { id: "founder-page", path: "app/founder/messages/[id]/page.tsx", score: 100 },
+        { id: "investor-page", path: "app/investor/messages/[id]/page.tsx", score: 90 },
+        { id: "messages-api", path: "app/api/messages/[id]/route.ts", score: 80 },
+        { id: "chat-view", path: "components/messages/ChatView.tsx", score: 70 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toContain("founder-page");
+    expect(plan[0]?.fileSnapshotIds).toContain("messages-api");
+    expect(plan[0]?.fileSnapshotIds).not.toContain("investor-page");
   });
 
   it("reserves structural coverage and rejects IDE, raw-data, and repository-wrapper domains", () => {
