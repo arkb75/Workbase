@@ -5,6 +5,9 @@ import {
   type RepositoryKnowledgeEvidenceReference,
   type RepositoryKnowledgeFixture,
 } from "@/src/evals/repository-knowledge-quality";
+import {
+  collectUnknownModelUsageAttempts,
+} from "@/src/services/model-usage-service";
 
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -40,6 +43,94 @@ function tokenCount(value: unknown): number {
   return Object.values(data).reduce<number>(
     (sum, entry) => sum + tokenCount(entry),
     0,
+  );
+}
+
+function maximumBudgetModelCalls(value: unknown) {
+  let maximum = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) return;
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const data = current as Record<string, unknown>;
+    const modelCalls = numberValue(data.modelCalls);
+    if (modelCalls !== null) maximum = Math.max(maximum, Math.floor(Math.max(0, modelCalls)));
+    Object.values(data).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return maximum;
+}
+
+function countedProviderAttempts(value: unknown) {
+  let total = 0;
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, depth: number) => {
+    if (!current || typeof current !== "object" || depth > 6 || seen.has(current)) return;
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    const data = current as Record<string, unknown>;
+    const explicitAttempts = numberValue(data.providerAttemptCount);
+    if (explicitAttempts !== null && explicitAttempts > 0) {
+      total += Math.floor(explicitAttempts);
+      return;
+    }
+    const budgetCalls = numberValue(data.modelCalls);
+    if (budgetCalls !== null && budgetCalls > 0) {
+      // Budget snapshots commonly repeat aggregate input/output token totals.
+      // They are not another provider attempt leaf.
+      return;
+    }
+    if ([
+      "inputTokens",
+      "input_tokens",
+      "outputTokens",
+      "output_tokens",
+      "totalTokens",
+      "total_tokens",
+    ].some((key) => numberValue(data[key]) !== null)) {
+      total += 1;
+      return;
+    }
+    Object.values(data).forEach((entry) => visit(entry, depth + 1));
+  };
+  visit(value, 0);
+  return total;
+}
+
+/**
+ * A GenerationRun is a logical audited operation, not necessarily one paid
+ * model dispatch. Prefer its provider-attempt envelope, with legacy budget and
+ * unknown-usage counters as floors. Taking the maximum prevents an aggregate
+ * wrapper and its nested attempt leaves from counting the same dispatch twice.
+ */
+export function modelCallsFromGenerationTelemetry(value: unknown) {
+  return Math.max(
+    countedProviderAttempts(value),
+    collectUnknownModelUsageAttempts(value),
+    maximumBudgetModelCalls(value),
+  );
+}
+
+export function repositoryGenerationModelCalls(
+  generationRuns: ReadonlyArray<{ tokenUsage: unknown }>,
+  refreshBudgetUsage?: unknown,
+) {
+  const generationAttempts = generationRuns.reduce(
+    (total, generation) => total + modelCallsFromGenerationTelemetry(generation.tokenUsage),
+    0,
+  );
+  // Refresh budget telemetry is cumulative and overlaps the per-generation
+  // evidence, so it is an aggregate floor rather than an additive source.
+  return Math.max(
+    generationAttempts,
+    modelCallsFromGenerationTelemetry(refreshBudgetUsage),
   );
 }
 
@@ -290,7 +381,10 @@ export async function repositoryKnowledgeObservationFromDatabase(
       durationMs: startedAt && finishedAt
         ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
         : null,
-      modelCalls: generationRuns.length,
+      modelCalls: repositoryGenerationModelCalls(
+        generationRuns,
+        snapshot.refreshRun?.budgetUsage,
+      ),
       totalTokens: generationRuns.reduce(
         (sum, generation) => sum + tokenCount(generation.tokenUsage),
         0,
