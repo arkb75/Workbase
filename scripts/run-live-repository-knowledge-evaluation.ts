@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { repositoryKnowledgeFixtures } from "@/src/evals/repository-knowledge-fixtures";
+import {
+  evaluateRepositoryKnowledgeMainPath,
+  repositoryKnowledgeModelGenerationKinds,
+  type RepositoryKnowledgeExpectedModelIdentity,
+} from "@/src/evals/repository-knowledge-main-path";
+import {
+  resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
+} from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
   fetchGitHubRepositoryDetail,
@@ -31,7 +40,8 @@ Usage:
 
 Run mode defaults to all real fixtures. WORKBASE_DEMO_USER_EMAIL supplies the
 evaluation user unless --user-email is provided. Cleanup accepts only explicit
-temporary evaluation work-item IDs.
+temporary evaluation work-item IDs. Live comparisons require the real model
+extraction and synthesis path; deterministic or mock synthesis is rejected.
 
 Available fixtures:
 ${liveFixtures.map((fixture) => `  ${fixture.id} (${fixture.repository})`).join("\n")}`;
@@ -138,6 +148,10 @@ async function runRepository(input: {
   repositoryFullName: string;
   userId: string;
   variant: string;
+  expectedIdentities: Partial<Record<
+    (typeof repositoryKnowledgeModelGenerationKinds)[number],
+    RepositoryKnowledgeExpectedModelIdentity
+  >>;
 }) {
   const startedAt = Date.now();
   progress(`${input.variant}/${input.fixtureId}: resolving repository`);
@@ -229,19 +243,52 @@ async function runRepository(input: {
         coverage: true,
         budgetUsage: true,
         warnings: true,
+        startedAt: true,
+        finishedAt: true,
       },
     });
-    const counts = await prisma.workItem.findUniqueOrThrow({
-      where: { id: workItem.id },
-      select: {
-        _count: {
-          select: {
-            highlights: true,
-            projectFacts: true,
-            evidenceItems: true,
+    if (!completed.startedAt) {
+      throw new Error("Completed repository refresh has no generation start time.");
+    }
+    const generationStartedAt = completed.startedAt;
+    const [counts, generationRuns] = await Promise.all([
+      prisma.workItem.findUniqueOrThrow({
+        where: { id: workItem.id },
+        select: {
+          _count: {
+            select: {
+              highlights: true,
+              projectFacts: true,
+              evidenceItems: true,
+            },
           },
         },
-      },
+      }),
+      prisma.generationRun.findMany({
+        where: {
+          workItemId: workItem.id,
+          kind: { in: [...repositoryKnowledgeModelGenerationKinds] },
+          createdAt: {
+            gte: generationStartedAt,
+            ...(completed.finishedAt ? { lte: completed.finishedAt } : {}),
+          },
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          kind: true,
+          status: true,
+          provider: true,
+          modelId: true,
+          resultRefs: true,
+          tokenUsage: true,
+        },
+      }),
+    ]);
+    const mainPathIntegrity = evaluateRepositoryKnowledgeMainPath({
+      generationRuns,
+      expectedIdentities: input.expectedIdentities,
+      coverage: completed.coverage,
+      warnings: completed.warnings,
     });
     return {
       fixtureId: input.fixtureId,
@@ -251,6 +298,7 @@ async function runRepository(input: {
       elapsedMs: Date.now() - startedAt,
       counts: counts._count,
       ...completed,
+      mainPathIntegrity,
     };
   } catch (error) {
     if (refreshRunId) {
@@ -297,6 +345,21 @@ async function main() {
   if (!options.variant || !/^[a-z0-9][a-z0-9._-]{0,63}$/iu.test(options.variant)) {
     throw new Error("--variant is required and must be a short slug.");
   }
+  const synthesisMode = process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE?.trim() || "model";
+  if (synthesisMode !== "model") {
+    throw new Error(
+      "Live repository-knowledge evaluation requires WORKBASE_REPOSITORY_SYNTHESIS_MODE=model.",
+    );
+  }
+  if (resolveWorkbaseLlmProvider() === "mock") {
+    throw new Error("Live repository-knowledge evaluation requires a real model provider.");
+  }
+  const expectedIdentities = {
+    semantic_extraction: resolveActiveTextModelIdentity("code_extraction"),
+    semantic_repair: resolveActiveTextModelIdentity("code_extraction"),
+    capability_synthesis: resolveActiveTextModelIdentity("deep_synthesis"),
+    coverage_audit: resolveActiveTextModelIdentity("verification"),
+  };
   const requestedFixtureIds = Array.from(new Set(options.fixtureIds));
   const unknownFixtureIds = requestedFixtureIds.filter((fixtureId) =>
     !liveFixtures.some((fixture) => fixture.id === fixtureId)
@@ -326,14 +389,18 @@ async function main() {
       repositoryFullName: fixture.repository!,
       userId: user.id,
       variant: options.variant,
+      expectedIdentities,
     }));
   }
   process.stdout.write(`${JSON.stringify({
-    schemaVersion: "repository-knowledge-live-run-v1",
+    schemaVersion: "repository-knowledge-live-run-v2",
     variant: options.variant,
     results,
   }, null, 2)}\n`);
-  if (results.some((result) => "error" in result)) process.exitCode = 1;
+  if (results.some((result) =>
+    "error" in result ||
+    ("mainPathIntegrity" in result && !result.mainPathIntegrity.passed)
+  )) process.exitCode = 1;
 }
 
 main()
