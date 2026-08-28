@@ -1965,7 +1965,10 @@ export async function synthesizeRepositoryKnowledge(
     synthesisFallbackReason?: string;
   }> = [];
   const tokenUsage: unknown[] = [];
-  const synthesisMode = process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "deterministic";
+  // Model synthesis is the product path. Deterministic synthesis is an
+  // explicit rollback/diagnostic mode and must never become the default just
+  // because a deployment omitted an environment variable.
+  const synthesisMode = process.env.WORKBASE_REPOSITORY_SYNTHESIS_MODE ?? "model";
   if (options.fallbackOnly || synthesisMode !== "model") {
     synthesizedSubsystems.push(...synthesisInputs.map((subsystem) => ({
       subsystemKey: subsystem.subsystemKey,
