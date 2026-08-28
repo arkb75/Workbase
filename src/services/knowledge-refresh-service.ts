@@ -863,24 +863,38 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     offset += MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE
   ) {
     const wave = pendingFiles.slice(offset, offset + MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE);
-    const pending = await Promise.all(wave.map(async ({ file, target }) => ({
-      file,
-      target,
-      read: await repositoryKnowledgeSyncService.readFile({
-        userId: run.workItem.userId,
-        workItemId: run.workItemId,
-        target,
-        entry: {
-          path: file.path,
-          blobSha: file.blobSha!,
-          sizeBytes: file.sizeBytes,
-          mode: "100644",
-          objectType: "blob",
-          disposition: "eligible",
-          exclusionReason: null,
-        },
-      }),
-    })));
+    const readResults = await Promise.all(wave.map(async ({ file, target }) => {
+      try {
+        return {
+          file,
+          target,
+          read: await repositoryKnowledgeSyncService.readFile({
+            userId: run.workItem.userId,
+            workItemId: run.workItemId,
+            target,
+            entry: {
+              path: file.path,
+              blobSha: file.blobSha!,
+              sizeBytes: file.sizeBytes,
+              mode: "100644",
+              objectType: "blob",
+              disposition: "eligible",
+              exclusionReason: null,
+            },
+          }),
+        };
+      } catch (error) {
+        const exclusionReason = repositoryReadExclusionReason(error);
+        if (!exclusionReason) throw error;
+        await prisma.repositoryFileSnapshot.update({
+          where: { id: file.id },
+          data: { disposition: "excluded", exclusionReason },
+        });
+        return null;
+      }
+    }));
+    const pending = readResults.filter((entry) => entry !== null);
+    if (!pending.length) continue;
     const analyses = await analyzeRepositoryFilesHierarchically(pending.map((entry) => ({
       repository: entry.target.repository,
       commitSha: entry.target.commitSha,
@@ -958,6 +972,13 @@ export function pairRepositoryAnalysesByInputOrder<T extends {
     }
     return { entry, analysis };
   });
+}
+
+export function repositoryReadExclusionReason(error: unknown) {
+  const message = error instanceof Error ? error.message : null;
+  if (message === "binary_file") return "binary";
+  if (message === "file_too_large") return "oversized";
+  return null;
 }
 
 export async function analyzeKnowledgeRefreshChunk(input: {

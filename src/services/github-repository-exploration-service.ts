@@ -180,6 +180,7 @@ const ignoredDirectoryNames = new Set([
   ".cache",
   ".git",
   ".gradle",
+  ".idea",
   ".next",
   ".nuxt",
   ".parcel-cache",
@@ -187,6 +188,7 @@ const ignoredDirectoryNames = new Set([
   ".terraform",
   ".turbo",
   ".venv",
+  ".vscode",
   "__generated__",
   "__pycache__",
   "bower_components",
@@ -205,6 +207,7 @@ const ignoredDirectoryNames = new Set([
 ]);
 
 const generatedFileNames = new Set([
+  ".ds_store",
   "bun.lock",
   "bun.lockb",
   "cargo.lock",

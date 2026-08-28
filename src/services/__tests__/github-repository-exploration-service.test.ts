@@ -23,6 +23,7 @@ vi.mock("@/src/lib/prisma", () => ({
 vi.mock("@/src/services/github-client", () => githubClientMocks);
 
 import {
+  classifyRepositoryPathForKnowledgeSync,
   GitHubRepositoryExplorationError,
   githubRepositoryExplorationService,
 } from "@/src/services/github-repository-exploration-service";
@@ -122,6 +123,13 @@ describe("githubRepositoryExplorationService", () => {
         treeEntry({ path: "src", sha: "7".repeat(40), type: "tree" }),
       ],
     });
+  });
+
+  it("excludes operating-system and editor metadata without hiding implementation files", () => {
+    expect(classifyRepositoryPathForKnowledgeSync(".DS_Store", 8196).exclusionReason).toBe("generated");
+    expect(classifyRepositoryPathForKnowledgeSync(".idea/workspace.xml", 512).exclusionReason).toBe("generated");
+    expect(classifyRepositoryPathForKnowledgeSync(".vscode/settings.json", 512).exclusionReason).toBe("generated");
+    expect(classifyRepositoryPathForKnowledgeSync("src/main/java/app/Main.java", 512).exclusionReason).toBeNull();
   });
 
   it("authorizes through the user, Work Item, and attached GitHub source", async () => {
