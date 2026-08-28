@@ -17,6 +17,7 @@ import {
   requiredSemanticBaselineFacts,
   repositorySynthesisSafetyGuidance,
   repositorySynthesisSchema,
+  runOrderedSynthesisBatches,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
@@ -57,6 +58,43 @@ function entry(path: string, statement = `${path} defines supported repository b
 describe("repository synthesis limit fallback", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("runs independent synthesis batches three at a time and returns input order", async () => {
+    const started: number[] = [];
+    const releases = new Map<number, () => void>();
+    let active = 0;
+    let maximumActive = 0;
+    const execution = runOrderedSynthesisBatches(
+      [0, 1, 2, 3, 4],
+      async (value) => {
+        started.push(value);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise<void>((resolve) => releases.set(value, resolve));
+        active -= 1;
+        return `batch-${value}`;
+      },
+    );
+
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
+    expect(maximumActive).toBe(3);
+    releases.get(1)!();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
+    releases.get(2)!();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3, 4]));
+    releases.get(4)!();
+    releases.get(3)!();
+    releases.get(0)!();
+
+    await expect(execution).resolves.toEqual([
+      "batch-0",
+      "batch-1",
+      "batch-2",
+      "batch-3",
+      "batch-4",
+    ]);
+    expect(maximumActive).toBe(3);
   });
 
   it("aligns model synthesis wording with the deterministic absolute-claim safety gate", () => {

@@ -454,6 +454,352 @@ describe("BedrockStructuredLlmClient", () => {
     expect(budget.usage).toMatchObject({ modelCalls: 1, inputTokens: 10, outputTokens: 20, totalTokens: 30 });
   });
 
+  it("waits for temporary token reservations and admits the next call after settlement", async () => {
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        await providerGate;
+        return {
+          text: "",
+          structuredData: { ok: true },
+          tokenUsage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "test-model",
+    });
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 512,
+      maxTotalTokens: 3_000,
+    });
+    const request = () => client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 512,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    const first = request();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    let secondSettled = false;
+    const second = request().finally(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toHaveLength(1);
+    expect(secondSettled).toBe(false);
+    releaseProvider();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ data: { ok: true } }),
+      expect.objectContaining({ data: { ok: true } }),
+    ]);
+    expect(calls).toHaveLength(2);
+    expect(budget.usage.totalTokens).toBe(60);
+    expect(budget.usage.totalTokens).toBeLessThanOrEqual(
+      budget.limits.maxTotalTokens,
+    );
+  });
+
+  it("does not reserve an unused fallback attempt for concurrent Bedrock calls", async () => {
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        await providerGate;
+        return {
+          text: "",
+          structuredData: { ok: true },
+          tokenUsage: { inputTokens: 50, outputTokens: 50, totalTokens: 100 },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "test-model",
+    });
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 4,
+      maxRepairPasses: 0,
+      maxOutputTokens: 512,
+      maxTotalTokens: 8_000,
+    });
+    const request = () => client.generateStructured({
+      systemPrompt: "Synthesize evidence-backed repository knowledge.",
+      userPrompt: "repository evidence ".repeat(100),
+      schema,
+      schemaName: "repository_architecture_synthesis",
+      schemaDescription: "A supported repository synthesis.",
+      jsonSchema,
+      maxTokens: 512,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    const attempts = [request(), request()];
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls.map((call) => call.maxProviderAttempts)).toEqual([1, 1]);
+    releaseProvider();
+    await expect(Promise.all(attempts)).resolves.toHaveLength(2);
+    expect(budget.usage).toMatchObject({ modelCalls: 2, totalTokens: 200 });
+  });
+
+  it("waits instead of shrinking a third Bedrock call against temporary reservations", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        const index = calls.push(input) - 1;
+        if (index === 0) await firstGate;
+        if (index === 1) await secondGate;
+        return {
+          text: "",
+          structuredData: { ok: true },
+          tokenUsage: {
+            inputTokens: 400,
+            outputTokens: 100,
+            cacheReadInputTokens: 400,
+            totalTokens: 900,
+          },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "test-model",
+    });
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 3,
+      maxRepairPasses: 0,
+      maxOutputTokens: 512,
+      maxTotalTokens: 6_000,
+    });
+    const request = () => client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "repository_architecture_synthesis",
+      schemaDescription: "A supported repository synthesis.",
+      jsonSchema,
+      maxTokens: 512,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    const attempts = [request(), request(), request()];
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls.map((call) => call.maxTokens)).toEqual([512, 512]);
+    releaseFirst();
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]!.maxTokens).toBe(512);
+    releaseSecond();
+
+    await expect(Promise.all(attempts)).resolves.toHaveLength(3);
+    expect(budget.usage.totalTokens).toBe(2_700);
+  });
+
+  it("reserves cache accounting for Bedrock but not OpenRouter", async () => {
+    const run = async (provider: "bedrock" | "openrouter") => {
+      const runtime: ConverseTextRuntime = {
+        async converse() {
+          return {
+            text: "",
+            structuredData: { ok: true },
+            tokenUsage: null,
+          };
+        },
+      };
+      const client = new BedrockStructuredLlmClient(runtime, {
+        provider,
+        region: provider === "bedrock" ? "us-east-1" : null,
+        modelId: "test-model",
+      });
+      const budget = createStructuredGenerationBudget({
+        maxModelCalls: 2,
+        maxRepairPasses: 0,
+        maxOutputTokens: 512,
+        maxTotalTokens: 10_000,
+      });
+      await client.generateStructured({
+        systemPrompt: "Return JSON.",
+        userPrompt: "Return ok.",
+        schema,
+        schemaName: "workbase_test_schema",
+        schemaDescription: "Test schema.",
+        jsonSchema,
+        maxTokens: 512,
+        transportPreference: ["bedrock_json_schema"],
+        budget,
+      });
+      return budget.usage;
+    };
+
+    const bedrockUsage = await run("bedrock");
+    const openRouterUsage = await run("openrouter");
+    expect(bedrockUsage.inputTokens).toBe(openRouterUsage.inputTokens * 2);
+    expect(bedrockUsage.outputTokens).toBe(openRouterUsage.outputTokens);
+  });
+
+  it("uses charged cache tokens to safely bound a waiting Bedrock call", async () => {
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        await providerGate;
+        return {
+          text: "",
+          structuredData: { ok: true },
+          tokenUsage: {
+            inputTokens: 400,
+            outputTokens: 100,
+            cacheReadInputTokens: 400,
+            totalTokens: 900,
+          },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "test-model",
+    });
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 512,
+      maxTotalTokens: 2_800,
+    });
+    const request = () => client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 512,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    const first = request();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const second = request();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toHaveLength(1);
+    releaseProvider();
+
+    await expect(first).resolves.toMatchObject({ data: { ok: true } });
+    await expect(second).resolves.toMatchObject({ data: { ok: true } });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.maxTokens).toBeGreaterThan(0);
+    expect(calls[1]!.maxTokens).toBeLessThan(512);
+    expect(budget.usage.totalTokens).toBe(1_800);
+    expect(budget.usage.totalTokens).toBeLessThanOrEqual(
+      budget.limits.maxTotalTokens,
+    );
+  });
+
+  it("admits only one concurrent repair against one shared repair pass", async () => {
+    let releaseGeneration!: () => void;
+    const generationGate = new Promise<void>((resolve) => {
+      releaseGeneration = resolve;
+    });
+    let generationCalls = 0;
+    let repairCalls = 0;
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        if (input.structuredOutput) {
+          generationCalls += 1;
+          await generationGate;
+          return {
+            text: "not-json",
+            structuredData: null,
+            tokenUsage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+          };
+        }
+        repairCalls += 1;
+        return {
+          text: '{"ok":true}',
+          structuredData: null,
+          tokenUsage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "test-model",
+    });
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 5,
+      maxRepairPasses: 1,
+      maxOutputTokens: 128,
+      maxTotalTokens: 10_000,
+    });
+    const request = () => client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+      budget,
+    });
+
+    const attempts = [request(), request()];
+    await vi.waitFor(() => expect(generationCalls).toBe(2));
+    releaseGeneration();
+    const settled = await Promise.allSettled(attempts);
+
+    expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(settled.filter((result) => result.status === "rejected")).toEqual([
+      expect.objectContaining({
+        reason: expect.objectContaining({ code: "repair_budget_exhausted" }),
+      }),
+    ]);
+    expect(repairCalls).toBe(1);
+    expect(budget.usage).toMatchObject({ modelCalls: 3, repairPasses: 1 });
+    expect(budget.usage.modelCalls).toBeLessThanOrEqual(
+      budget.limits.maxModelCalls,
+    );
+  });
+
   it("enforces output, repair, and cumulative token ceilings before another call", async () => {
     const { client, calls } = makeClient([{ text: "not valid json" }]);
     const budget = createStructuredGenerationBudget({

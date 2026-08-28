@@ -1318,6 +1318,28 @@ function fallbackSynthesisSet(
   };
 }
 
+export async function runOrderedSynthesisBatches<T, TResult>(
+  batches: readonly T[],
+  execute: (batch: T, index: number) => Promise<TResult>,
+  concurrency = 3,
+) {
+  if (!batches.length) return [];
+  const results = new Array<TResult>(batches.length);
+  const workerCount = Math.min(
+    batches.length,
+    Math.max(1, Math.floor(concurrency)),
+  );
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < batches.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await execute(batches[index]!, index);
+    }
+  }));
+  return results;
+}
+
 async function synthesizeSubsystemSet(input: {
   workItemId: string;
   refreshRunId: string;
@@ -2083,28 +2105,36 @@ export async function synthesizeRepositoryKnowledge(
       maxTotalTokens: 80_000,
     });
     let budgetExhausted = false;
-    for (const batch of batches) {
-      let result: SynthesisSetResult;
-      try {
-        if (budgetExhausted) throw new StructuredGenerationBudgetError(
-          "token_budget_exhausted",
-          "The shared repository-synthesis budget was already exhausted.",
-          snapshotStructuredGenerationBudget(synthesisBudget),
-        );
-        result = await synthesizeSubsystemSet({
-          workItemId: run.workItemId,
-          refreshRunId: runId,
-          projectTitle: run.workItem.title,
-          subsystems: batch,
-          budget: synthesisBudget,
-        });
-      } catch (error) {
-        budgetExhausted ||= error instanceof StructuredGenerationBudgetError;
-        const reason = error instanceof StructuredGenerationBudgetError
-          ? "The shared 80K-token repository-synthesis budget was exhausted."
-          : "High-effort subsystem synthesis failed before returning a supported structured result.";
-        result = fallbackSynthesisSet(batch, reason);
-      }
+    const completedBatches = await runOrderedSynthesisBatches(
+      batches,
+      async (batch) => {
+        let result: SynthesisSetResult;
+        try {
+          if (budgetExhausted) throw new StructuredGenerationBudgetError(
+            "token_budget_exhausted",
+            "The shared repository-synthesis budget was already exhausted.",
+            snapshotStructuredGenerationBudget(synthesisBudget),
+          );
+          result = await synthesizeSubsystemSet({
+            workItemId: run.workItemId,
+            refreshRunId: runId,
+            projectTitle: run.workItem.title,
+            subsystems: batch,
+            budget: synthesisBudget,
+          });
+        } catch (error) {
+          budgetExhausted ||=
+            error instanceof StructuredGenerationBudgetError;
+          const reason = error instanceof StructuredGenerationBudgetError
+            ? "The shared 80K-token repository-synthesis budget was exhausted."
+            : "High-effort subsystem synthesis failed before returning a supported structured result.";
+          result = fallbackSynthesisSet(batch, reason);
+        }
+        return result;
+      },
+      3,
+    );
+    for (const result of completedBatches) {
       synthesizedSubsystems.push(...result.data.subsystems.flatMap((entry) => {
         const original = modelInputBySynthesisKey.get(entry.subsystemKey);
         return original ? [{
