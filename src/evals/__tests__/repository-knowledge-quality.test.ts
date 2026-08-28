@@ -133,6 +133,24 @@ describe("generalized repository knowledge evaluation", () => {
     ]));
   });
 
+  it("treats hyphenated and underscored feature directories as the same fixture family", () => {
+    const fixture = repositoryKnowledgeFixture("solopilot-agent-documents")!;
+    const capability = fixture.expectedCapabilities.find(({ key }) =>
+      key === "email_intake"
+    )!;
+
+    expect(capability.evidencePathPatterns.some((pattern) =>
+      new RegExp(pattern, "iu").test(
+        "frontend/email-intake/src/components/ReplyEditor.tsx",
+      )
+    )).toBe(true);
+    expect(capability.evidencePathPatterns.some((pattern) =>
+      new RegExp(pattern, "iu").test(
+        "src/agents/email_intake/conversational_responder.py",
+      )
+    )).toBe(true);
+  });
+
   it("passes broad, grounded observations without exact-prose assertions", () => {
     const fixtures = repositoryKnowledgeFixtures.map(withRepresentativeContent);
     const runs = fixtures.map(representativeRun);
