@@ -11,9 +11,11 @@ import {
   isWorkbaseRepositoryIdentity,
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
+  normalizeRepositoryHighlightText,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
   repositorySynthesisSafetyGuidance,
+  repositorySynthesisSchema,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
@@ -62,6 +64,72 @@ describe("repository synthesis limit fallback", () => {
       expect(repositorySynthesisSafetyGuidance).toContain(qualifier);
     }
     expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
+  });
+
+  it("normalizes provider title overshoot without rejecting the supported synthesis", () => {
+    const concise = "Built an idempotent payment workflow.";
+    expect(normalizeRepositoryHighlightText(concise)).toBe(concise);
+
+    const longTitle = `Built an idempotent payment workflow that preserves receipt state across retries and coordinates downstream publication ${"with bounded recovery controls ".repeat(8)}`;
+    const normalized = normalizeRepositoryHighlightText(longTitle);
+    expect(normalized.length).toBeLessThanOrEqual(240);
+    expect(normalized).toMatch(/…$/u);
+    expect(longTitle.startsWith(normalized.slice(0, -1))).toBe(true);
+
+    const parsed = repositorySynthesisSchema.safeParse({
+      subsystems: [{
+        subsystemKey: "project_domain:payments",
+        facts: [],
+        highlights: [{
+          text: longTitle,
+          summary: longTitle,
+          confidence: "high",
+          sensitivityFlag: false,
+          visibility: "private",
+          citationIndexes: [1],
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        }],
+        unresolvedQuestions: [],
+      }],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("applies the title bound before a model Highlight reaches reconciliation", () => {
+    const statement = "The payment workflow records idempotency before publishing a receipt.";
+    const longTitle = `Implemented an idempotent payment workflow ${"with durable receipt publication and bounded retry coordination ".repeat(6)}`;
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "project_domain:payments",
+      notebook: [{
+        ...entry("src/payments/charge-service.ts", statement),
+        evidenceMode: "semantic",
+        semanticStatus: "succeeded",
+      }],
+      coverageGaps: [],
+      result: {
+        facts: [],
+        highlights: [{
+          text: longTitle,
+          summary: statement,
+          confidence: "high",
+          sensitivityFlag: false,
+          visibility: "private",
+          citationIndexes: [1],
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        }],
+        unresolvedQuestions: [],
+      },
+      tokenUsage: null,
+    });
+
+    expect(finalized.highlights[0]?.text.length).toBeLessThanOrEqual(240);
+    expect(finalized.highlights[0]?.summary).toBe(statement);
   });
 
   it("admits only exact high-confidence static lifecycle anchors", () => {

@@ -51,7 +51,10 @@ const synthesisSchema = z.object({
     distinctiveness: z.number().int().min(0).max(5),
   })).max(3),
   highlights: z.array(z.object({
-    text: z.string().trim().min(10).max(240),
+    // Structured-output providers can treat maxLength as guidance. Accept a
+    // bounded overshoot here, then normalize the display title to the product
+    // limit before it can reach reconciliation.
+    text: z.string().trim().min(10).max(1_000),
     summary: z.string().trim().min(10).max(1_000),
     confidence: z.enum(["low", "medium", "high"]),
     sensitivityFlag: z.boolean(),
@@ -185,6 +188,25 @@ export interface SynthesizedKnowledge {
 
 export const repositorySynthesisSafetyGuidance =
   "Avoid absolute qualifiers such as mandatory, always, never, exclusively, every, all, only, guarantees, production-grade, or tamper-evident unless an exact executable notebook entry states that qualifier. Prefer a narrower non-absolute description when the notebook supports the underlying behavior but not the qualifier.";
+
+export function normalizeRepositoryHighlightText(value: string) {
+  const normalized = normalizeWhitespace(value);
+  if (normalized.length <= 240) return normalized;
+
+  const available = normalized.slice(0, 239);
+  const sentenceEnd = Math.max(
+    available.lastIndexOf(". "),
+    available.lastIndexOf("! "),
+    available.lastIndexOf("? "),
+  );
+  if (sentenceEnd >= 40) return available.slice(0, sentenceEnd + 1);
+
+  const wordEnd = available.lastIndexOf(" ");
+  const prefix = available
+    .slice(0, wordEnd >= 40 ? wordEnd : 239)
+    .replace(/[,:;\-\s]+$/u, "");
+  return `${prefix}…`;
+}
 
 function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -1225,7 +1247,7 @@ export function substantialFactHighlightFallback(
   const candidate = selected.fact;
 
   return [{
-    text: candidate.statement,
+    text: normalizeRepositoryHighlightText(candidate.statement),
     summary: candidate.statement,
     confidence: candidate.confidence,
     sensitivityFlag: candidate.sensitivityFlag,
@@ -1328,6 +1350,7 @@ async function synthesizeSubsystemSet(input: {
           "Treat README and documentation entries as context: future, planned, roadmap, TODO, or not-yet-built behavior is not implemented and cannot become a Highlight without direct implementation evidence.",
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "Return up to three nonredundant Project Facts when the subsystem supports multiple important behaviors, and up to two Highlights only for substantial career-relevant systems.",
+          "Keep each Highlight text to one concise title-like sentence of at most 220 characters; put supporting detail in summary.",
           "Repository code proves project implementation, not the user's personal ownership or measured impact. Avoid unsupported solo-built, shipped, production-grade, scale, adoption, or metric claims.",
           repositorySynthesisSafetyGuidance,
           "A Highlight should be a distinct, substantial accomplishment; emit none when a subsystem only supports low-level facts.",
@@ -1699,12 +1722,17 @@ export function finalizeRepositorySubsystemSynthesis(input: {
       fact.citationIndexes.every((index) => validIndexes.has(index))
     )
     .slice(0, 3);
-  const modelHighlights = result.highlights.filter((highlight) =>
-    highlight.citationIndexes.every((index) =>
-      validIndexes.has(index) &&
-      notebook[index - 1]?.evidenceMode !== "deterministic_anchor"
-    )
-  );
+  const modelHighlights = result.highlights
+    .map((highlight) => ({
+      ...highlight,
+      text: normalizeRepositoryHighlightText(highlight.text),
+    }))
+    .filter((highlight) =>
+      highlight.citationIndexes.every((index) =>
+        validIndexes.has(index) &&
+        notebook[index - 1]?.evidenceMode !== "deterministic_anchor"
+      )
+    );
 
   return {
     subsystemKey,

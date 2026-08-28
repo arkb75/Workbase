@@ -34,7 +34,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v38-hybrid";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v39-hybrid";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
