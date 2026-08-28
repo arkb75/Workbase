@@ -130,10 +130,10 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-adaptive-v1",
-      semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
-      coveragePolicyVersion: "repository-coverage-v9-adaptive",
-      orchestrationPolicyVersion: "repository-adaptive-coverage-v1",
+      analyzerVersion: "repository-adaptive-v2",
+      semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
+      coveragePolicyVersion: "repository-coverage-v10-adaptive",
+      orchestrationPolicyVersion: "repository-adaptive-coverage-v2",
       synthesisPolicyVersion: "repository-synthesis-v32",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -362,10 +362,10 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const warnings = {
-      analyzerVersion: "repository-adaptive-v1",
-      semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
-      coveragePolicyVersion: "repository-coverage-v9-adaptive",
-      orchestrationPolicyVersion: "repository-adaptive-coverage-v1",
+      analyzerVersion: "repository-adaptive-v2",
+      semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
+      coveragePolicyVersion: "repository-coverage-v10-adaptive",
+      orchestrationPolicyVersion: "repository-adaptive-coverage-v2",
       synthesisPolicyVersion: "repository-synthesis-v32",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
@@ -462,10 +462,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-adaptive-v1",
+          analyzerVersion: "repository-adaptive-v2",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
+          semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -481,7 +481,7 @@ describe("latest-commit freshness barrier", () => {
         capabilityCoverageStatus: "failed",
         semanticPaths: 0,
         coverageGaps: expect.arrayContaining([
-          "Intelligence and search has static coverage but no successful semantic analysis.",
+          "Intelligence and search has 0 of 1 required successful semantic analyses.",
           "Semantic analysis degraded for src/agent.ts.",
         ]),
       }),
@@ -516,10 +516,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-adaptive-v1",
+          analyzerVersion: "repository-adaptive-v2",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
+          semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -554,15 +554,115 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-adaptive-v1",
-          semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
-          coveragePolicyVersion: "repository-coverage-v9-adaptive",
-          orchestrationPolicyVersion: "repository-adaptive-coverage-v1",
+          analyzerVersion: "repository-adaptive-v2",
+          semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
+          coveragePolicyVersion: "repository-coverage-v10-adaptive",
+          orchestrationPolicyVersion: "repository-adaptive-coverage-v2",
           synthesisPolicyVersion: "repository-synthesis-v32",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
     }));
+  });
+
+  it("keeps broad-area coverage partial until its representative quota succeeds", async () => {
+    const repositoryAnalysis = (path: string, mode: "static" | "semantic"): RepositoryFileAnalysis => ({
+      path,
+      summary: `${path} implements order behavior.`,
+      subsystemKeys: ["application_logic"],
+      responsibilities: ["Implements order behavior."],
+      symbols: ["OrderService"],
+      dependencies: [],
+      architectureSignals: [],
+      userFacingCapabilities: [],
+      facts: [{
+        statement: `${path} implements order behavior.`,
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart: 1,
+        lineEnd: 4,
+        productImportance: 4,
+        implementationBreadth: 3,
+        technicalDifficulty: 2,
+        subsystemKeys: ["application_logic"],
+        evidenceMode: mode === "semantic" ? "semantic" : "static",
+        path,
+      }],
+      unresolvedQuestions: [],
+      chunksAnalyzed: 1,
+      tokenUsage: [],
+      analysisMode: mode,
+      semanticStatus: mode === "semantic" ? "succeeded" : "not_selected",
+      semanticSource: mode === "semantic" ? "model" : undefined,
+    });
+    const paths = Array.from({ length: 5 }, (_, index) => `src/services/service-${index}.ts`);
+    prismaMock.agentRun.findMany.mockResolvedValue([{
+      id: "worker-orders",
+      request: {
+        capabilityKeys: ["application_logic"],
+        fileSnapshotIds: ["file-0", "file-1", "other-repository-file"],
+      },
+    }]);
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
+      id: "refresh-quota",
+      workItemId: "work-item-1",
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "example/orders",
+        branch: "main",
+        commitSha: "d".repeat(40),
+        treeSha: "e".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      warnings: null,
+      snapshots: [{
+        id: "snapshot-1",
+        sourceId: "source-1",
+        commitSha: "d".repeat(40),
+        files: paths.map((path, index) => ({
+          id: `file-${index}`,
+          path,
+          disposition: "analyzed",
+          analyzerVersion: "repository-adaptive-v2",
+          analysis: repositoryAnalysis(path, "static"),
+          ...(index === 0 ? {
+            semanticStatus: "succeeded",
+            semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
+            semanticRefreshRunId: "refresh-quota",
+            semanticAnalysis: repositoryAnalysis(path, "semantic"),
+          } : {}),
+        })),
+      }],
+    });
+
+    const result = await finalizeKnowledgeCoverage("refresh-quota");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        coverageStatus: "partial",
+        semanticCoverageStatus: "partial",
+        capabilityCoverageStatus: "partial",
+        coverageGaps: ["Application and domain logic has 1 of 2 required successful semantic analyses."],
+      }),
+    ]);
+    const ledgerCall = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.create.capabilityKey === "application_logic");
+    expect(ledgerCall).toMatchObject({
+      create: {
+        status: "partial",
+        representativeFileIds: ["file-0", "file-1"],
+        workerRunIds: ["worker-orders"],
+        gaps: ["Only 1 of 2 required representative files produced successful semantic evidence."],
+      },
+      update: {
+        status: "partial",
+        representativeFileIds: ["file-0", "file-1"],
+        workerRunIds: ["worker-orders"],
+      },
+    });
   });
 
   it("does not turn path-inferred static capabilities into semantic evidence", async () => {
@@ -610,10 +710,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-auth",
           path,
           disposition: "analyzed",
-          analyzerVersion: "repository-adaptive-v1",
+          analyzerVersion: "repository-adaptive-v2",
           analysis: staticAnalysis,
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
+          semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
           semanticRefreshRunId: "refresh-auth",
           semanticAnalysis,
         }],
@@ -626,7 +726,7 @@ describe("latest-commit freshness barrier", () => {
       expect.objectContaining({
         coverageStatus: "partial",
         coverageGaps: expect.arrayContaining([
-          "Tests and operations has static coverage but no successful semantic analysis.",
+          "Tests and operations has 0 of 1 required successful semantic analyses.",
         ]),
       }),
     ]);
@@ -639,8 +739,8 @@ describe("latest-commit freshness barrier", () => {
       });
     expect(ledgerCalls.find((input) => input.create.capabilityKey === "project_domain:auth"))
       .toMatchObject({
-        create: { status: "semantic_verified", semanticObservationCount: 1 },
-        update: { status: "semantic_verified", semanticObservationCount: 1 },
+        create: { status: "static_only", semanticObservationCount: 0 },
+        update: { status: "static_only", semanticObservationCount: 0 },
       });
   });
 
@@ -658,10 +758,10 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-adaptive-v1",
+      analyzerVersion: "repository-adaptive-v2",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-adaptive-semantic-v1",
+      semanticAnalyzerVersion: "repository-adaptive-semantic-v2",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

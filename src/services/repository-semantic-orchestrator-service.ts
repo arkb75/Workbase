@@ -8,6 +8,7 @@ import {
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
   createRepositorySemanticBudget,
+  isRepositoryImplementationPathForCapability,
   selectRequiredSemanticCoverageAreas,
   snapshotRepositorySemanticBudget,
   type RepositoryFileAnalysis,
@@ -20,7 +21,7 @@ import {
 } from "@/src/services/repository-knowledge-sync-service";
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-adaptive-coverage-v1";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-adaptive-coverage-v2";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -495,11 +496,14 @@ function stablePackageId(refreshRunId: string, capabilityKeys: string[], fileSna
 export function selectDiverseCapabilityRepresentatives(
   area: CapabilityManifestArea,
 ) {
-  const targetCount = Math.min(
-    area.files.length,
-    area.requiredSemanticPathCount ?? Math.min(3, Math.max(1, Math.ceil(Math.sqrt(area.files.length) / 2))),
+  const implementationFiles = area.files.filter((file) =>
+    isRepositoryImplementationPathForCapability(file.path, area.key)
   );
-  const remaining = [...area.files];
+  const targetCount = Math.min(
+    implementationFiles.length,
+    area.requiredSemanticPathCount ?? Math.min(3, Math.max(1, Math.ceil(Math.sqrt(implementationFiles.length) / 2))),
+  );
+  const remaining = [...implementationFiles];
   const selected: typeof area.files = [];
   const selectedFamilies = new Set<string>();
   const pathFamily = (path: string) => {
@@ -512,10 +516,8 @@ export function selectDiverseCapabilityRepresentatives(
       const rightFamilyBonus = selectedFamilies.has(pathFamily(right.path)) ? 0 : 40;
       const leftImplementationBonus = /(?:route|controller|service|handler|worker|pipeline|model|schema|page|screen)/i.test(left.path) ? 12 : 0;
       const rightImplementationBonus = /(?:route|controller|service|handler|worker|pipeline|model|schema|page|screen)/i.test(right.path) ? 12 : 0;
-      const leftContextPenalty = /(?:^|\/)(?:docs?|examples?)(?:\/|$)|^README(?:\.[^.]+)?$/i.test(left.path) ? 20 : 0;
-      const rightContextPenalty = /(?:^|\/)(?:docs?|examples?)(?:\/|$)|^README(?:\.[^.]+)?$/i.test(right.path) ? 20 : 0;
-      return (right.score + rightFamilyBonus + rightImplementationBonus - rightContextPenalty) -
-        (left.score + leftFamilyBonus + leftImplementationBonus - leftContextPenalty) ||
+      return (right.score + rightFamilyBonus + rightImplementationBonus) -
+        (left.score + leftFamilyBonus + leftImplementationBonus) ||
         left.path.localeCompare(right.path);
     });
     const next = remaining.shift();
@@ -644,13 +646,15 @@ export function semanticCoverageAssignmentGaps(input: {
   );
   const assignmentGaps = input.manifest.flatMap((area) => {
     const areaFileIds = new Set(area.files.map((file) => file.id));
-    const assigned = input.packages.some((workPackage) =>
-      workPackage.capabilityKeys.includes(area.key) &&
-      workPackage.fileSnapshotIds.some((fileId) => areaFileIds.has(fileId))
-    );
-    return assigned
+    const assignedFileIds = new Set(input.packages.flatMap((workPackage) =>
+      workPackage.capabilityKeys.includes(area.key)
+        ? workPackage.fileSnapshotIds.filter((fileId) => areaFileIds.has(fileId))
+        : []
+    ));
+    const requiredCount = area.requiredSemanticPathCount ?? Math.min(3, Math.max(1, area.files.length));
+    return assignedFileIds.size >= requiredCount
       ? []
-      : [`Semantic coverage capacity omitted ${area.key} for ${area.scopeKey ?? "an attached repository"}.`];
+      : [`Semantic coverage assigned ${assignedFileIds.size} of ${requiredCount} required representative files for ${area.key} in ${area.scopeKey ?? "an attached repository"}.`];
   });
   return Array.from(new Set([...missingRepositoryScopes, ...assignmentGaps]));
 }
@@ -733,9 +737,18 @@ export function repositoryIncomingReferenceCounts(
     for (const dependency of file.analysis.dependencies) {
       const normalized = dependency.startsWith(".")
         ? normalizeRelative(file.path, dependency)
-        : stripExtension(dependency.replace(/^@[^/]+\//, ""));
+        : stripExtension(dependency.replace(/^@[^/]+\//, "").replace(/\./g, "/"));
+      const suffixes = normalized.split("/")
+        .map((_segment, index, segments) => segments.slice(index).join("/"))
+        .filter((value) => value.split("/").length >= 2);
+      const suffixTarget = Array.from(canonical.entries()).flatMap(([key, path]) => {
+        const matchingSuffix = suffixes
+          .filter((suffix) => key.endsWith(`/${suffix}`) || key.endsWith(`/${suffix}/index`))
+          .sort((left, right) => right.length - left.length)[0];
+        return matchingSuffix ? [{ path, matchLength: matchingSuffix.length }] : [];
+      }).sort((left, right) => right.matchLength - left.matchLength || left.path.localeCompare(right.path))[0]?.path;
       const target = canonical.get(normalized) ?? canonical.get(`${normalized}/index`) ??
-        Array.from(canonical.entries()).find(([key]) => key.endsWith(`/${normalized}`))?.[1];
+        suffixTarget;
       if (target && target !== file.path) counts.set(target, (counts.get(target) ?? 0) + 1);
     }
   }
@@ -1133,7 +1146,10 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         label: area.label,
         scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
         requiredSemanticPathCount: area.requiredSemanticPathCount,
-        files: analyzed.filter((entry) => entry.analysis.subsystemKeys.includes(area.key)).map((entry) => ({
+        files: analyzed.filter((entry) =>
+          entry.analysis.subsystemKeys.includes(area.key) &&
+          isRepositoryImplementationPathForCapability(entry.path, area.key)
+        ).map((entry) => ({
           id: entry.file.id,
           path: entry.path,
           score: scoreAdaptiveRepresentative({

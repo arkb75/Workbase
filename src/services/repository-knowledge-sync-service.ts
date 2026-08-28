@@ -15,12 +15,10 @@ import {
   redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
-// Static and semantic extraction intentionally have separate fingerprints.
-// They currently share a value for backward-compatible cache reuse, but a
-// future prompt/schema/window change can advance semantic extraction without
-// forcing every unchanged repository blob through static analysis again.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-adaptive-v1";
-export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-adaptive-semantic-v1";
+// Static and semantic extraction intentionally have separate fingerprints so
+// parser and prompt/schema changes can invalidate only the affected cache.
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-adaptive-v2";
+export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-adaptive-semantic-v2";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 

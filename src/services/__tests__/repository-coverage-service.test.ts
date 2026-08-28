@@ -5,6 +5,7 @@ vi.mock("@/src/lib/llm-config", () => ({
 }));
 
 import {
+  analyzeRepositoryFile,
   analyzeRepositoryFiles,
   BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
@@ -27,6 +28,7 @@ describe("adaptive repository coverage", () => {
     paths: [`src/${key}/index.ts`],
     observationCount,
     staticPathCount: 1,
+    eligibleSemanticPathCount: 1,
     semanticPathCount: 0,
     requiredSemanticPathCount: 1,
     semanticCoverageRatio: 0,
@@ -54,6 +56,17 @@ describe("adaptive repository coverage", () => {
     expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
     expect(inferProjectDomainCapability("src/main/java/com/acme/orders/OrderService.java"))
       .toBe("project_domain:orders");
+  });
+
+  it("strips structural folders and leading namespaces from project domains", () => {
+    expect(inferProjectDomainCapability("src/backend/rest/orders/OrderController.java"))
+      .toBe("project_domain:orders");
+    expect(inferProjectDomainCapability("src/acme/orders/calculator.py"))
+      .toBe("project_domain:orders");
+    expect(inferProjectDomainCapability("src/frontend/components/Checkout.tsx")).toBeNull();
+    expect(inferProjectDomainCapability("src/data/validations/order.ts")).toBeNull();
+    expect(inferProjectDomainCapability("src/agents/planner.ts")).toBeNull();
+    expect(inferProjectDomainCapability("src/providers/storage/client.ts")).toBeNull();
   });
 
   it("filters generated, tool, fixture, and test-resource paths from product domains and modules", () => {
@@ -95,6 +108,81 @@ describe("adaptive repository coverage", () => {
     })).toEqual(expect.arrayContaining(["automation_workflows", "intelligence_search"]));
   });
 
+  it("does not create mandatory roles from bare retry, prompt, completion, or validation vocabulary", () => {
+    const inferred = inferRepositoryCapabilities({
+      path: "src/common/helpers.ts",
+      content: [
+        "const retry = options.retry;",
+        "const prompt = form.prompt;",
+        "onCompletion(callback);",
+        "validate(value);",
+      ].join("\n"),
+    });
+    expect(inferred).not.toContain("automation_workflows");
+    expect(inferred).not.toContain("intelligence_search");
+    expect(inferred).not.toContain("security_reliability");
+
+    expect(inferRepositoryCapabilities({
+      path: "src/common/worker.ts",
+      content: "const maxRetries = 3; const timeoutMs = 5000; abort();",
+    })).toContain("automation_workflows");
+    expect(inferRepositoryCapabilities({
+      path: "src/common/generator.ts",
+      content: "return generateStructured(schema);",
+    })).toContain("intelligence_search");
+    expect(inferRepositoryCapabilities({
+      path: "src/common/guard.ts",
+      content: "return validatePermission(token) && authorize(user);",
+    })).toContain("security_reliability");
+  });
+
+  it("extracts Java, Python, and Go definitions and imports for representative scoring", async () => {
+    const analyses = await analyzeRepositoryFiles([
+      {
+        repository: "example/orders",
+        commitSha: "a".repeat(40),
+        path: "src/main/java/com/acme/orders/OrderCalculator.java",
+        content: [
+          "package com.acme.orders;",
+          "import com.acme.pricing.PricePolicy;",
+          "public final class OrderCalculator {}",
+        ].join("\n"),
+      },
+      {
+        repository: "example/orders",
+        commitSha: "a".repeat(40),
+        path: "src/acme/orders/calculator.py",
+        content: [
+          "from pricing.policy import PricePolicy",
+          "class OrderCalculator:",
+          "    def calculate(self): return True",
+        ].join("\n"),
+      },
+      {
+        repository: "example/orders",
+        commitSha: "a".repeat(40),
+        path: "internal/orders/calculator.go",
+        content: [
+          "package orders",
+          "import (",
+          '  "example.com/project/pricing"',
+          ")",
+          "type OrderCalculator struct{}",
+          "func (c *OrderCalculator) Calculate() bool { return true }",
+        ].join("\n"),
+      },
+    ]);
+
+    expect(analyses[0]).toMatchObject({
+      symbols: ["OrderCalculator"],
+      dependencies: ["com/acme/pricing/PricePolicy"],
+    });
+    expect(analyses[1]?.symbols).toEqual(expect.arrayContaining(["OrderCalculator", "calculate"]));
+    expect(analyses[1]?.dependencies).toContain("pricing/policy");
+    expect(analyses[2]?.symbols).toEqual(expect.arrayContaining(["OrderCalculator", "Calculate"]));
+    expect(analyses[2]?.dependencies).toContain("example.com/project/pricing");
+  });
+
   it("recognizes planned documentation ranges and not implemented sections", () => {
     const content = [
       "1: # CircleFund",
@@ -132,6 +220,50 @@ describe("adaptive repository coverage", () => {
     expect(analysis.facts.some((fact) => /Contributions are persisted/.test(fact.statement))).toBe(true);
     expect(analysis.facts.some((fact) => /Loan approval/.test(fact.statement))).toBe(false);
     expect(analysis.unresolvedQuestions).toContain("README.md:4 describes planned rather than implemented scope.");
+  });
+
+  it("does not let a large README inflate executable representative quotas", async () => {
+    const [readme, screen] = await analyzeRepositoryFiles([
+      {
+        repository: "example/catalog",
+        commitSha: "b".repeat(40),
+        path: "README.md",
+        content: Array.from({ length: 40 }, (_, index) => `Documented capability ${index}.`).join("\n"),
+      },
+      {
+        repository: "example/catalog",
+        commitSha: "b".repeat(40),
+        path: "src/screens/checkout-screen.tsx",
+        content: "export function CheckoutScreen() { return <main>Checkout</main>; }",
+      },
+    ]);
+    const productSurface = buildCoverageMatrix([
+      { path: "README.md", analysis: readme! },
+      { path: "src/screens/checkout-screen.tsx", analysis: screen! },
+    ]).find((area) => area.key === "product_surface");
+    expect(productSurface).toMatchObject({
+      staticPathCount: 2,
+      eligibleSemanticPathCount: 1,
+      requiredSemanticPathCount: 1,
+    });
+  });
+
+  it("does not promote documentation-only semantic claims", async () => {
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/catalog",
+      commitSha: "b".repeat(40),
+      path: "README.md",
+      content: "# Catalog\nThe API supports checkout and refunds.",
+      task: {
+        objective: "Determine the shipped product surface.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["Executable implementation evidence"],
+      },
+    });
+    expect(analysis.semanticStatus).toBe("degraded");
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.unresolvedQuestions.join(" ")).toMatch(/planning context|implementation evidence/i);
   });
 
   it("calibrates semantic verification to repository area size", () => {

@@ -1205,7 +1205,9 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       remainingGaps: orchestrationGaps,
     });
     const coverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
-      ...(area.semanticPathCount === 0 ? [`${area.label} has static coverage but no successful semantic analysis.`] : []),
+      ...(area.semanticPathCount < area.requiredSemanticPathCount
+        ? [`${area.label} has ${area.semanticPathCount} of ${area.requiredSemanticPathCount} required successful semantic analyses.`]
+        : []),
     ]), ...semanticDegradations.map((entry) => entry.message), ...scopedOrchestrationGaps]));
     const semanticPaths = analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length;
     const semanticCoverageStatus = requiredAreas.length === 0 && semanticDegradations.length === 0 && scopedOrchestrationGaps.length === 0
@@ -1248,10 +1250,22 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     coverageByRepository.push(coverage);
     const ledgerUpserts: Array<() => Promise<unknown>> = [];
     for (const area of matrix) {
-      const representativeFileIds = snapshot.files
+      const areaFileIds = new Set(snapshot.files
         .filter((file) => area.paths.includes(file.path))
-        .slice(0, 12)
-        .map((file) => file.id);
+        .map((file) => file.id));
+      const sampledWorkers = semanticWorkers.flatMap((worker) => {
+        const request = record(worker.request);
+        const capabilityKeys = Array.isArray(request.capabilityKeys)
+          ? request.capabilityKeys.filter((key): key is string => typeof key === "string")
+          : [];
+        const fileSnapshotIds = Array.isArray(request.fileSnapshotIds)
+          ? request.fileSnapshotIds.filter((id): id is string => typeof id === "string" && areaFileIds.has(id))
+          : [];
+        return capabilityKeys.includes(area.key) && fileSnapshotIds.length
+          ? [{ workerId: worker.id, fileSnapshotIds }]
+          : [];
+      });
+      const representativeFileIds = Array.from(new Set(sampledWorkers.flatMap((worker) => worker.fileSnapshotIds))).slice(0, 12);
       const priority = repositoryCapabilityPriority({
         capabilityKey: area.key,
         observationCount: area.observationCount,
@@ -1266,15 +1280,15 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         .map((entry) => entry.message);
       const status = area.status === "not_applicable"
         ? "not_applicable"
-        : area.semanticPathCount > 0 && !blockingGaps.length
+        : area.semanticPathCount >= area.requiredSemanticPathCount && area.requiredSemanticPathCount > 0 && !blockingGaps.length
           ? "semantic_verified"
           : area.semanticPathCount > 0
             ? "partial"
             : "static_only";
-      const workerRunIds = semanticWorkers.flatMap((worker) => {
-        const request = record(worker.request);
-        return Array.isArray(request?.capabilityKeys) && request.capabilityKeys.includes(area.key) ? [worker.id] : [];
-      });
+      const workerRunIds = sampledWorkers.map((worker) => worker.workerId);
+      const quotaGaps = area.semanticPathCount < area.requiredSemanticPathCount && area.requiredSemanticPathCount > 0
+        ? [`Only ${area.semanticPathCount} of ${area.requiredSemanticPathCount} required representative files produced successful semantic evidence.`]
+        : [];
       ledgerUpserts.push(() => prisma.repositoryCapabilityLedger.upsert({
         where: { snapshotId_capabilityKey: { snapshotId: snapshot.id, capabilityKey: area.key } },
         create: {
@@ -1289,7 +1303,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           staticObservationCount: area.observationCount,
           semanticObservationCount: area.semanticPathCount,
           gaps: toInputJson([
-            ...(area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
+            ...quotaGaps,
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),
@@ -1305,7 +1319,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           staticObservationCount: area.observationCount,
           semanticObservationCount: area.semanticPathCount,
           gaps: toInputJson([
-            ...(area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
+            ...quotaGaps,
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),

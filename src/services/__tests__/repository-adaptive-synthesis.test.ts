@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyGlobalSynthesisDiversity,
   deterministicSynthesisAnchorSubsystems,
+  semanticFactsForSubsystem,
   synthesisCandidateSimilarity,
   type SynthesizedKnowledge,
 } from "@/src/services/repository-knowledge-synthesis-service";
@@ -68,6 +69,39 @@ describe("adaptive repository synthesis", () => {
       evidenceMode: "static",
       path: "README.md",
     }, "README.md")).toEqual([]);
+  });
+
+  it("does not promote cached documentation-only semantic claims", () => {
+    expect(semanticFactsForSubsystem({
+      path: "README.md",
+      summary: "Documents checkout.",
+      subsystemKeys: ["product_surface"],
+      responsibilities: [],
+      symbols: [],
+      dependencies: [],
+      architectureSignals: [],
+      userFacingCapabilities: [],
+      facts: [{
+        statement: "The product supports checkout.",
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart: 2,
+        lineEnd: 2,
+        productImportance: 4,
+        implementationBreadth: 3,
+        technicalDifficulty: 2,
+        subsystemKeys: ["product_surface"],
+        evidenceMode: "semantic",
+        path: "README.md",
+      }],
+      unresolvedQuestions: [],
+      chunksAnalyzed: 1,
+      tokenUsage: [],
+      analysisMode: "semantic",
+      semanticStatus: "succeeded",
+      semanticSource: "model",
+    }, "product_surface")).toEqual([]);
   });
 
   it("detects paraphrased accomplishment duplicates", () => {

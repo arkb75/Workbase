@@ -779,6 +779,51 @@ describe("repository semantic task and budget", () => {
     expect(analysis.semanticBudgetUsage).toMatchObject({ inputBytes: 0, modelCalls: 0 });
   });
 
+  it("rejects documentation-only model findings even when the prose sounds implemented", async () => {
+    generateStructuredMock.mockImplementationOnce(async () => ({
+      data: {
+        summary: "The README describes checkout.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The product supports checkout and refunds.",
+          kind: "user_capability",
+          capabilityKeys: ["product_surface"],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 2,
+          lineEnd: 2,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    }));
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/catalog",
+      commitSha: "a".repeat(40),
+      path: "README.md",
+      content: "# Catalog\nThe product supports checkout and refunds.",
+      task: {
+        objective: "Determine the shipped product surface.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["Executable implementation evidence"],
+      },
+    });
+
+    expect(analysis.semanticStatus).toBe("degraded");
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.unresolvedQuestions).toEqual(expect.arrayContaining([
+      expect.stringContaining("context-only documentation"),
+    ]));
+  });
+
   it("retains a provider failure as an explicit partial-coverage gap", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("Bedrock temporarily unavailable"));
     const budget = createRepositorySemanticBudget({

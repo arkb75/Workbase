@@ -55,7 +55,7 @@ describe("adaptive semantic coverage planning", () => {
       label: "Product surface",
       requiredSemanticPathCount: 1,
       files: [
-        { id: "readme", path: "README.md", score: 100 },
+        { id: "readme", path: "README.md", score: 238 },
         { id: "screen", path: "src/screens/checkout-screen.tsx", score: 82 },
       ],
     }).map((file) => file.id)).toEqual(["screen"]);
@@ -136,6 +136,29 @@ describe("adaptive semantic coverage planning", () => {
     expect(Array.from(selected).every((id) => id.endsWith("-0"))).toBe(true);
   });
 
+  it("reports partial assignment when capacity misses a representative quota", () => {
+    expect(semanticCoverageAssignmentGaps({
+      manifest: [{
+        key: "application_logic",
+        label: "Application logic",
+        scopeKey: "example/large",
+        requiredSemanticPathCount: 3,
+        files: [
+          { id: "one", path: "src/orders/one.ts", score: 30 },
+          { id: "two", path: "src/orders/two.ts", score: 20 },
+          { id: "three", path: "src/orders/three.ts", score: 10 },
+        ],
+      }],
+      packages: [{
+        capabilityKeys: ["application_logic"],
+        fileSnapshotIds: ["one", "two"],
+      }],
+      expectedScopeKeys: ["example/large"],
+    })).toEqual([
+      "Semantic coverage assigned 2 of 3 required representative files for application_logic in example/large.",
+    ]);
+  });
+
   it("derives import centrality from relative references", () => {
     const counts = repositoryIncomingReferenceCounts([
       { path: "src/core/ledger.ts", analysis: { dependencies: [] } },
@@ -145,6 +168,20 @@ describe("adaptive semantic coverage planning", () => {
     ]);
     expect(counts.get("src/core/ledger.ts")).toBe(2);
     expect(counts.get("src/api/route.ts")).toBe(1);
+  });
+
+  it("derives centrality from Java, Python, and Go module-style imports", () => {
+    const counts = repositoryIncomingReferenceCounts([
+      { path: "src/main/java/com/acme/orders/OrderCalculator.java", analysis: { dependencies: [] } },
+      { path: "src/main/java/com/acme/api/OrderController.java", analysis: { dependencies: ["com/acme/orders/OrderCalculator"] } },
+      { path: "src/acme/orders/calculator.py", analysis: { dependencies: [] } },
+      { path: "src/acme/api/routes.py", analysis: { dependencies: ["acme/orders/calculator"] } },
+      { path: "internal/orders/calculator.go", analysis: { dependencies: [] } },
+      { path: "cmd/server/main.go", analysis: { dependencies: ["example.com/project/internal/orders/calculator"] } },
+    ]);
+    expect(counts.get("src/main/java/com/acme/orders/OrderCalculator.java")).toBe(1);
+    expect(counts.get("src/acme/orders/calculator.py")).toBe(1);
+    expect(counts.get("internal/orders/calculator.go")).toBe(1);
   });
 
   it("scores substantive, central implementation above test and documentation context", () => {

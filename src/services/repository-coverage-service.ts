@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v9-adaptive";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v10-adaptive";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -40,12 +40,13 @@ export const MINIMUM_REQUIRED_SEMANTIC_TARGETS = 8;
 
 const projectDomainContainerSegments = new Set([
   "adapter", "adapters", "api", "app", "apps", "client", "common", "component", "components", "connector", "connectors", "controller", "controllers",
-  "cmd", "com", "core", "feature", "features", "handler", "handlers", "hook", "hooks", "internal", "io",
+  "agent", "agents", "application", "backend", "cmd", "com", "core", "data", "feature", "features", "frontend", "handler", "handlers", "hook", "hooks", "infra", "infrastructure", "internal", "io",
   "java", "kotlin", "lib", "libs", "main",
   "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
-  "repositories", "resources", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "store", "stores",
-  "integration", "integrations", "job", "jobs", "net", "org", "pipeline", "pipelines", "python", "queue", "queues",
+  "repositories", "resources", "rest", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "storage", "store", "stores",
+  "form", "forms", "integration", "integrations", "job", "jobs", "net", "org", "pipeline", "pipelines", "presentation", "provider", "providers", "python", "queue", "queues",
   "type", "types", "ui", "util", "utils", "view", "views", "worker", "workers", "workflow", "workflows",
+  "validation", "validations", "web",
 ]);
 
 const excludedProjectDomainRoots = new Set([
@@ -68,6 +69,20 @@ export function isRepositoryAnalysisNoisePath(path: string) {
   if (segments.some((segment) => repositoryAnalysisNoiseSegments.has(segment))) return true;
   if (segments.some((segment, index) => segment === "resources" && segments[index - 1] === "test")) return true;
   return /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/i.test(segments.at(-1) ?? "");
+}
+
+export function isRepositoryDocumentationPath(path: string) {
+  return /(?:^|\/)(?:(?:README|ROADMAP|ARCHITECTURE|CONTRIBUTING|CHANGELOG)(?:\.[^/]+)?|docs?(?:\/|$))/i.test(path.replace(/\\/g, "/"));
+}
+
+export function isRepositoryContextOnlyPath(path: string) {
+  return isRepositoryDocumentationPath(path) || /(?:^|\/)(?:examples?)(?:\/|$)/i.test(path.replace(/\\/g, "/"));
+}
+
+export function isRepositoryImplementationPathForCapability(path: string, capabilityKey: string) {
+  if (isRepositoryAnalysisNoisePath(path) || isRepositoryContextOnlyPath(path)) return false;
+  const isTest = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(path);
+  return !isTest || capabilityKey === "tests_operations";
 }
 
 export function isRepositoryProductPath(path: string) {
@@ -103,8 +118,11 @@ export function inferProjectDomainCapability(path: string) {
     !/^v\d+$/.test(segment) &&
     /^[a-z][a-z0-9_-]{1,63}$/.test(segment)
   );
-  const conventionalPackageTree = /(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized);
-  const candidate = conventionalPackageTree ? candidates.at(-1) : candidates[0];
+  // The deepest stable directory is normally the product concept; leading
+  // namespaces and structural folders have already been removed. This also
+  // handles Python/Go/TypeScript `src/acme/orders/...` layouts without naming
+  // particular organizations.
+  const candidate = candidates.at(-1);
   return candidate ? `${PROJECT_DOMAIN_CAPABILITY_PREFIX}${candidate}` : null;
 }
 
@@ -381,7 +399,7 @@ export function inferSubsystemsFromPath(path: string) {
   const value = path.toLowerCase();
   const keys: string[] = [];
   const isTestPath = /(?:^|\/)(?:__tests__|tests?|specs?|fixtures?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/u.test(value);
-  if (/readme|docs?\/|(?:^|\/)(?:pages?|views?|screens?|components?|templates?)(?:\/|$)/.test(value)) {
+  if (isRepositoryDocumentationPath(path) || /(?:^|\/)(?:pages?|views?|screens?|components?|templates?)(?:\/|$)/.test(value)) {
     keys.push("product_surface");
   }
   if (/(?:^|[/_.-])(?:schema|models?|entities|domain|types?|migrations?)(?:[/_.-]|$)|\.prisma$/.test(value)) {
@@ -451,9 +469,9 @@ export function inferRepositoryCapabilities(input: { path: string; content: stri
   };
   add("domain_data", /(?:\bCREATE\s+TABLE\b|\bclass\s+\w+(?:Entity|Model)\b|\bmodel\s+\w+\s*\{|@Entity\b|mongoose\.Schema|sqlalchemy)/iu);
   add("interfaces_integrations", /(?:\b(?:GET|POST|PUT|PATCH|DELETE)\s+\/|\bfetch\s*\(|axios\.|@(?:Get|Post|Put|Delete)Mapping\b|\bhttp\.(?:Get|Post)\b|grpc\.|webhook)/iu);
-  add("automation_workflows", /(?:\b(?:enqueue|dequeue|schedule|cron|workflow|pipeline|background job|retry)\b|@Scheduled\b|Celery\b)/iu);
-  add("intelligence_search", /(?:\b(?:embedding|vector search|full[- ]text search|rank(?:ing)?|recommend(?:ation)?|inference|prompt|completion)\b)/iu);
-  add("security_reliability", /(?:\b(?:authorize|authenticate|permission|rate limit|circuit breaker|health check|redact|encrypt|validate)\w*\b)/iu);
+  add("automation_workflows", /(?:\b(?:enqueue|dequeue|schedule|dispatch|publish)\w*\s*\(|["']use (?:workflow|step)["']|@Scheduled\b|\bCelery\b|\b(?:maxRetries|retryCount|backoff)\b[\s\S]{0,240}\b(?:timeout|abort|cancel)\w*\b)/iu);
+  add("intelligence_search", /(?:\b(?:embedding|vector search|full[- ]text search|semantic search|recommendation engine)\b|\b(?:inference|predict|generateText|generateObject|generateStructured)\w*\s*\(|\b(?:chat\.completions|responses)\.create\s*\()/iu);
+  add("security_reliability", /(?:\b(?:authorize|authenticate|encrypt|decrypt|redact)\w*\s*\(|\bvalidate(?:Token|Permission|Credential|Signature|Request)\w*\s*\(|\b(?:rate limit|circuit breaker|health check|access control)\b)/iu);
   add("application_logic", /(?:\b(?:class|function|func|def)\s+\w*(?:Service|UseCase|Handler|Processor|Engine)\b)/u);
   return unique(keys, 12);
 }
@@ -621,6 +639,7 @@ export function selectSemanticWindows(
 
 function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabilityKeys?: string[]): RepositoryChunkAnalysis {
   const supportedKeys = capabilityKeys?.length ? capabilityKeys : inferSubsystemsFromPath(path);
+  const documentationOnly = isRepositoryContextOnlyPath(path);
   return {
     summary: `${path} is an analyzed repository source file.`,
     subsystemKeys: inferSubsystemsFromPath(path),
@@ -629,7 +648,7 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabili
     dependencies: [],
     architectureSignals: [],
     userFacingCapabilities: [],
-    facts: [{
+    facts: documentationOnly ? [] : [{
       statement: `${path} is present in the current repository snapshot and contains project implementation.`,
       category: "code_location",
       confidence: "medium",
@@ -642,7 +661,9 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabili
       subsystemKeys: supportedKeys,
       evidenceMode: "semantic",
     }],
-    unresolvedQuestions: [],
+    unresolvedQuestions: documentationOnly
+      ? ["Documentation and examples are planning context; executable implementation evidence is required."]
+      : [],
   };
 }
 
@@ -652,7 +673,7 @@ export function isPlannedDocumentationRange(input: {
   lineStart: number;
   lineEnd: number;
 }) {
-  if (!/(?:^|\/)(?:README(?:\.[^.]+)?|docs?\/)/i.test(input.path)) return false;
+  if (!isRepositoryDocumentationPath(input.path)) return false;
   const lines = input.numberedContent.split("\n").flatMap((line) => {
     const match = /^(\d+):\s?(.*)$/u.exec(line);
     return match ? [{ number: Number(match[1]), text: match[2] ?? "" }] : [];
@@ -804,6 +825,10 @@ async function analyzeChunk(input: {
       lineEnd: finding.lineEnd,
     })) {
       rejected.push(`Rejected planned documentation finding at ${finding.lineStart}-${finding.lineEnd}.`);
+      return [];
+    }
+    if (isRepositoryContextOnlyPath(input.path)) {
+      rejected.push(`Rejected context-only documentation or example finding at ${finding.lineStart}-${finding.lineEnd}.`);
       return [];
     }
     const category: ProjectFactCategory = finding.kind === "data_flow"
@@ -1384,6 +1409,10 @@ export async function analyzeRepositoryFileBatch(
         rejected.push(`Rejected planned documentation finding at ${finding.lineStart}-${finding.lineEnd}.`);
         return [];
       }
+      if (isRepositoryContextOnlyPath(entry.file.path)) {
+        rejected.push(`Rejected context-only documentation or example finding at ${finding.lineStart}-${finding.lineEnd}.`);
+        return [];
+      }
       acceptedFindings.push(finding);
       const category: ProjectFactCategory = finding.kind === "data_flow"
         ? "data_flow"
@@ -1461,6 +1490,70 @@ export async function analyzeRepositoryFileBatch(
 
 export const MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE = 8;
 
+function pythonModuleDependency(value: string) {
+  const leadingDots = value.match(/^\.+/)?.[0].length ?? 0;
+  const modulePath = value.slice(leadingDots).replace(/\./g, "/");
+  if (!leadingDots) return modulePath;
+  return `${leadingDots === 1 ? "./" : "../".repeat(leadingDots - 1)}${modulePath}`;
+}
+
+function sourceDependenciesForLine(input: {
+  path: string;
+  line: string;
+  inGoImportBlock: boolean;
+}) {
+  const dependencies: string[] = [];
+  const extension = input.path.split(".").at(-1)?.toLowerCase();
+  const quotedModule = input.line.match(/(?:\bfrom\s+|\brequire\s*\(|^\s*import\s*)['"]([^'"]+)['"]/u)?.[1];
+  if (quotedModule) dependencies.push(quotedModule);
+
+  if (extension === "py") {
+    const fromModule = input.line.match(/^\s*from\s+([.\w]+)\s+import\b/u)?.[1];
+    const importedModules = input.line.match(/^\s*import\s+([\w.,\s]+?)(?:\s+as\s+\w+)?\s*$/u)?.[1];
+    if (fromModule) dependencies.push(pythonModuleDependency(fromModule));
+    if (importedModules) {
+      for (const moduleName of importedModules.split(",").map((value) => value.trim().split(/\s+as\s+/u)[0]).filter(Boolean)) {
+        dependencies.push(pythonModuleDependency(moduleName!));
+      }
+    }
+  }
+
+  if (extension === "java" || extension === "kt" || extension === "kts") {
+    const importedType = input.line.match(/^\s*import\s+(?:static\s+)?([\w.]+?)(?:\.\*)?\s*;?\s*$/u)?.[1];
+    if (importedType) dependencies.push(importedType.replace(/\./g, "/"));
+  }
+
+  if (extension === "go" && (input.inGoImportBlock || /^\s*import\s+/u.test(input.line))) {
+    const goModule = input.line.match(/["`]([^"`]+)["`]/u)?.[1];
+    if (goModule) dependencies.push(goModule);
+  }
+  return unique(dependencies, 8);
+}
+
+function sourceSymbolsForLine(path: string, line: string) {
+  const extension = path.split(".").at(-1)?.toLowerCase();
+  const symbols: string[] = [];
+  const add = (match: RegExpMatchArray | null) => {
+    if (match?.[1]) symbols.push(match[1]);
+  };
+  if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(extension ?? "")) {
+    add(line.match(/^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/u));
+    add(line.match(/^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/u));
+  } else if (extension === "py") {
+    add(line.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u));
+    add(line.match(/^\s*class\s+([A-Za-z_]\w*)\b/u));
+  } else if (extension === "java") {
+    add(line.match(/^\s*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed)\s+)*(?:class|interface|enum|record)\s+([A-Za-z_]\w*)\b/u));
+  } else if (extension === "kt" || extension === "kts") {
+    add(line.match(/^\s*(?:(?:public|protected|private|internal|abstract|final|open|sealed|data)\s+)*(?:class|interface|object|enum\s+class)\s+([A-Za-z_]\w*)\b/u));
+    add(line.match(/^\s*(?:(?:public|protected|private|internal|suspend|inline|operator)\s+)*fun\s+(?:<[^>]+>\s*)?([A-Za-z_]\w*)\s*\(/u));
+  } else if (extension === "go") {
+    add(line.match(/^\s*type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b/u));
+    add(line.match(/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/u));
+  }
+  return unique(symbols, 4);
+}
+
 export async function analyzeRepositoryFiles(input: Array<{
   repository: string;
   commitSha: string;
@@ -1484,6 +1577,7 @@ export async function analyzeRepositoryFiles(input: Array<{
     const facts: RepositoryFileAnalysis["facts"] = [];
     const planningContext: string[] = [];
     let readmePlanningSection = false;
+    let inGoImportBlock = false;
     const isTest = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(file.path);
     const broadProductRoles = fileCapabilityKeys.filter((key) =>
       !key.startsWith("module:") && !isProjectDomainCapabilityKey(key)
@@ -1507,7 +1601,7 @@ export async function analyzeRepositoryFiles(input: Array<{
         lineEnd,
         productImportance: Math.min(5, productImportance),
         implementationBreadth: Math.min(5, breadth),
-        technicalDifficulty: Math.min(5, /workflow|agent|bedrock|openrouter|model routing|embedding|oauth|encrypt|retriev/i.test(statement) ? 4 : 2),
+        technicalDifficulty: Math.min(5, /workflow|agent|inference|embedding|encrypt|retriev|transaction|concurr|queue|distributed|authorization/i.test(statement) ? 4 : 2),
         subsystemKeys: fileCapabilityKeys,
         evidenceMode: "static",
         path: file.path,
@@ -1520,14 +1614,16 @@ export async function analyzeRepositoryFiles(input: Array<{
       if (/^readme(?:\.[^.]+)?$/i.test(file.path) && /^#{1,6}\s+/.test(line)) {
         readmePlanningSection = /\b(?:future|roadmap|planned|todo|next steps?|not yet|coming soon)\b/i.test(line);
       }
-      const importMatch = line.match(/(?:from\s+|require\()['\"]([^'\"]+)['\"]/);
-      if (importMatch?.[1]) dependencies.push(importMatch[1]);
-      const symbolMatch = file.path.endsWith(".prisma")
-        ? null
-        : line.match(/^(?:export\s+)(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type|enum)\s+([A-Za-z_$][\w$]*)/);
+      const isGo = file.path.endsWith(".go");
+      const beginsGoImportBlock = isGo && /^import\s*\(\s*$/u.test(line);
+      const endsGoImportBlock = isGo && inGoImportBlock && /^\)\s*$/u.test(line);
+      if (beginsGoImportBlock) inGoImportBlock = true;
+      dependencies.push(...sourceDependenciesForLine({ path: file.path, line, inGoImportBlock }));
+      if (endsGoImportBlock) inGoImportBlock = false;
+      const sourceSymbols = file.path.endsWith(".prisma") ? [] : sourceSymbolsForLine(file.path, line);
       const prismaModelMatch = line.match(/^model\s+([A-Za-z_$][\w$]*)\s*\{/);
-      const symbol = symbolMatch?.[1] ?? prismaModelMatch?.[1];
-      if (symbol) {
+      const lineSymbols = unique([...sourceSymbols, ...(prismaModelMatch?.[1] ? [prismaModelMatch[1]] : [])], 4);
+      for (const symbol of lineSymbols) {
         symbols.push(symbol);
         addFact(`${file.path} defines ${prismaModelMatch ? "the persisted model" : "the symbol"} ${symbol}.`, prismaModelMatch ? "data_flow" : "code_location", lineNumber);
       }
@@ -1686,6 +1782,7 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
     semanticPaths: Set<string>;
     modelSemanticPaths: Set<string>;
     deterministicFallbackPaths: Set<string>;
+    semanticCandidatePaths: Set<string>;
     observations: number;
     unresolved: Set<string>;
   }>();
@@ -1697,6 +1794,7 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
       semanticPaths: new Set(),
       modelSemanticPaths: new Set(),
       deterministicFallbackPaths: new Set(),
+      semanticCandidatePaths: new Set(),
       observations: 0,
       unresolved: new Set(),
     });
@@ -1714,16 +1812,24 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
         semanticPaths: new Set<string>(),
         modelSemanticPaths: new Set<string>(),
         deterministicFallbackPaths: new Set<string>(),
+        semanticCandidatePaths: new Set<string>(),
         observations: 0,
         unresolved: new Set<string>(),
       };
       const factsForCapability = file.analysis.facts.filter((fact) => fact.subsystemKeys?.includes(key));
       const semanticFactsForCapability = factsForCapability.filter((fact) => fact.evidenceMode !== "static");
       current.paths.add(file.path);
+      if (isRepositoryImplementationPathForCapability(file.path, key)) {
+        current.semanticCandidatePaths.add(file.path);
+      }
       const successfulSemanticAnalysis =
         file.analysis.analysisMode === "semantic" &&
         file.analysis.semanticStatus === "succeeded";
-      if (successfulSemanticAnalysis && semanticFactsForCapability.length > 0) {
+      if (
+        successfulSemanticAnalysis &&
+        current.semanticCandidatePaths.has(file.path) &&
+        semanticFactsForCapability.length > 0
+      ) {
         current.semanticPaths.add(file.path);
         if (file.analysis.semanticSource === "deterministic_fallback") current.deterministicFallbackPaths.add(file.path);
         else current.modelSemanticPaths.add(file.path);
@@ -1739,7 +1845,7 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
     }
   }
   return Array.from(targetMap.values()).map((target) => {
-    const requiredSemanticPathCount = requiredSemanticRepresentativeCount(target.paths.size);
+    const requiredSemanticPathCount = requiredSemanticRepresentativeCount(target.semanticCandidatePaths.size);
     const semanticCoverageRatio = requiredSemanticPathCount
       ? Math.min(1, target.semanticPaths.size / requiredSemanticPathCount)
       : 0;
@@ -1760,6 +1866,7 @@ export function buildCoverageMatrix(input: Array<{ path: string; analysis: Repos
       paths: Array.from(target.paths).sort(),
       observationCount: target.observations,
       staticPathCount: target.paths.size,
+      eligibleSemanticPathCount: target.semanticCandidatePaths.size,
       semanticPathCount: target.semanticPaths.size,
       requiredSemanticPathCount,
       semanticCoverageRatio,
@@ -1786,12 +1893,12 @@ export function selectRequiredSemanticCoverageAreas(
   }
   const baseOrder = new Map<string, number>(BASE_COVERAGE_TARGETS.map((target, index) => [target.key, index]));
   const applicableBase = matrix
-    .filter((area) => baseOrder.has(area.key) && area.staticPathCount > 0)
+    .filter((area) => baseOrder.has(area.key) && area.requiredSemanticPathCount > 0)
     .sort((left, right) => baseOrder.get(left.key)! - baseOrder.get(right.key)!);
   const remaining = Math.max(0, minimumTargetCount - applicableBase.length);
   if (!remaining) return applicableBase;
   const projectDomains = matrix
-    .filter((area) => isProjectDomainCapabilityKey(area.key) && area.staticPathCount > 0 && area.observationCount > 0)
+    .filter((area) => isProjectDomainCapabilityKey(area.key) && area.requiredSemanticPathCount > 0 && area.observationCount > 0)
     .sort((left, right) =>
       right.observationCount - left.observationCount ||
       right.staticPathCount - left.staticPathCount ||
