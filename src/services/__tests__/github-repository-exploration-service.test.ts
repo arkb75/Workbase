@@ -165,6 +165,25 @@ describe("githubRepositoryExplorationService", () => {
     ).toBeNull();
   });
 
+  it("excludes top-level runtime datasets without hiding source or schema files", () => {
+    expect(
+      classifyRepositoryPathForKnowledgeSync("data/productdetails.json", 512)
+        .exclusionReason,
+    ).toBe("generated");
+    expect(
+      classifyRepositoryPathForKnowledgeSync("data/orders.csv", 512)
+        .exclusionReason,
+    ).toBe("generated");
+    expect(
+      classifyRepositoryPathForKnowledgeSync("src/data/catalog.json", 512)
+        .exclusionReason,
+    ).toBeNull();
+    expect(
+      classifyRepositoryPathForKnowledgeSync("data/schema.sql", 512)
+        .exclusionReason,
+    ).toBeNull();
+  });
+
   it("authorizes through the user, Work Item, and attached GitHub source", async () => {
     prismaMock.source.findFirst.mockResolvedValue(null);
 

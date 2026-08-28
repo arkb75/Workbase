@@ -491,6 +491,7 @@ function extensionForPath(path: string) {
 function classifyExcludedPath(path: string, size: number | null): ExclusionReason | null {
   const parts = path.toLowerCase().split("/");
   const fileName = parts.at(-1) ?? "";
+  const extension = extensionForPath(path);
   const hiddenAgentSkillPackage = parts.some((part, index) =>
     (part === ".agents" || part === ".codex" || part === ".claude") &&
     parts[index + 1] === "skills"
@@ -505,7 +506,11 @@ function classifyExcludedPath(path: string, size: number | null): ExclusionReaso
 
   if (
     generatedFileNames.has(fileName) ||
-    /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/.test(fileName)
+    /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/.test(fileName) ||
+    (
+      parts[0] === "data" &&
+      ["avro", "csv", "json", "jsonl", "parquet", "tsv"].includes(extension)
+    )
   ) {
     return "generated";
   }
@@ -520,7 +525,7 @@ function classifyExcludedPath(path: string, size: number | null): ExclusionReaso
     return "sensitive";
   }
 
-  if (binaryExtensions.has(extensionForPath(path))) {
+  if (binaryExtensions.has(extension)) {
     return "binary";
   }
 

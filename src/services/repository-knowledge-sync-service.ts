@@ -17,8 +17,9 @@ import {
 
 // Static parsing and semantic extraction keep separate fingerprints so a
 // parser-only change does not invalidate otherwise compatible model output.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v21-hybrid";
-export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v27-hybrid";
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v22-hybrid";
+export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v28-hybrid";
+export const REPOSITORY_INVENTORY_POLICY_VERSION = "repository-inventory-v2-hybrid";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 
@@ -259,7 +260,9 @@ export async function inventoryRepositoryAtTarget(input: {
     target: input.target,
     entries,
     treeLookups,
-    manifestHash: hash(entries.map((entry) => [entry.path, entry.blobSha, entry.disposition, entry.exclusionReason].join(":")).join("\n")),
+    manifestHash: `${REPOSITORY_INVENTORY_POLICY_VERSION}:${hash(entries.map((entry) =>
+      [entry.path, entry.blobSha, entry.disposition, entry.exclusionReason].join(":")
+    ).join("\n"))}`,
   };
 }
 

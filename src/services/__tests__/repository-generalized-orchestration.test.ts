@@ -5,6 +5,7 @@ import {
   critiqueRepositoryCoverage,
   isImplementationEvidencePath,
   isRepositoryCartographyNoisePath,
+  semanticEvidenceUniverseFromFiles,
   semanticEvidenceUniverseFromManifest,
   semanticAuditTarget,
   semanticSampleTarget,
@@ -163,6 +164,17 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(universe).toEqual({
       fileSnapshotIds: ["client", "python-model", "test"],
       fileCount: 3,
+    });
+  });
+
+  it("keeps eligible but unmapped files in the independent semantic denominator", () => {
+    expect(semanticEvidenceUniverseFromFiles([
+      { id: "service", path: "src/circles/contribution-service.ts" },
+      { id: "types", path: "src/lib/api-types.ts" },
+      { id: "docs", path: "README.md" },
+    ])).toEqual({
+      fileSnapshotIds: ["service", "types"],
+      fileCount: 2,
     });
   });
 
@@ -793,6 +805,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(dataPackage?.fileSnapshotIds).toEqual(["loader", "model"]);
     expect(qualityPackage?.fileSnapshotIds).toHaveLength(2);
     expect(qualityPackage?.fileSnapshotIds.every((id) => id.startsWith("test-"))).toBe(true);
+    expect(qualityPackage?.capabilityKeys).toEqual(["repository_area:quality"]);
     expect(semanticAuditTarget(quality)).toBe(2);
     expect(critiqueRepositoryCoverage({
       manifest: [quality],
@@ -1023,6 +1036,16 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(manifest.map((area) => area.key)).not.toContain("project_domain:data");
   });
 
+  it("maps singular repository filenames into data-model coverage", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/circle",
+      files: [mappedFile("repository", "src/server/data/circle-repository.ts")],
+    });
+
+    expect(manifest.find((area) => area.key === "repository_area:data_model")
+      ?.files.map((file) => file.id)).toContain("repository");
+  });
+
   it("keeps a flat source tree researchable without inventing filename domains", () => {
     const manifest = buildRepositoryDerivedCapabilityManifest({
       scopeKey: "example/flat-service",
@@ -1079,6 +1102,22 @@ describe("repository-derived cartographer and coverage critic", () => {
     });
     expect(finalCritique.domains[0]?.status).toBe("covered");
     expect(finalCritique.repairPackages).toEqual([]);
+  });
+
+  it("does not spend repair capacity on context-only files", () => {
+    const critique = critiqueRepositoryCoverage({
+      manifest: [{
+        key: "project_domain:funding",
+        label: "Funding",
+        scopeKey: "example/docs-only",
+        files: [{ id: "roadmap", path: "README.md", score: 50 }],
+      }],
+      reports: [],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]?.status).toBe("missing");
+    expect(critique.repairPackages).toEqual([]);
   });
 
   it("shares two bounded repair batches across unresolved domains", () => {

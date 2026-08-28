@@ -13,6 +13,7 @@ import {
   inferProjectDomainCapability,
   isRepositoryAnalysisNoisePath,
   isRepositorySemanticEvidencePath,
+  isRepositoryTestPath,
   isProjectDomainCapabilityKey,
   PROJECT_DOMAIN_CAPABILITY_PREFIX,
   snapshotRepositorySemanticBudget,
@@ -33,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v28-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v30-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -64,7 +65,7 @@ const repositoryAreaRules = [
   {
     key: `${REPOSITORY_AREA_PREFIX}data_model`,
     label: "Data model and persistence",
-    pattern: /(?:^|[\/_.-])(?:schema|migrations?|models?|entities|repositories?|database|storage|persistence|db|dao)(?:[\/_.-]|$)/i,
+    pattern: /(?:^|[\/_.-])(?:schema|migrations?|models?|entities|repositor(?:y|ies)|database|storage|persistence|db|dao)(?:[\/_.-]|$)/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}integrations`,
@@ -100,6 +101,9 @@ function repositoryAreaMatchesPath(
   area: (typeof repositoryAreaRules)[number],
   path: string,
 ) {
+  if (area.key === `${REPOSITORY_AREA_PREFIX}quality`) {
+    return isRepositoryTestPath(path);
+  }
   if (area.key === `${REPOSITORY_AREA_PREFIX}application_core`) {
     return ["core", "service", "interface"].includes(
       semanticImplementationLayer(path),
@@ -592,8 +596,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
 }
 
 function isQualityEvidencePath(path: string) {
-  const normalized = path.replace(/\\/g, "/");
-  return /(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized);
+  return isRepositoryTestPath(path);
 }
 
 function isCoverageEvidencePath(areaKey: string, path: string) {
@@ -614,11 +617,20 @@ function isCoverageEvidencePath(areaKey: string, path: string) {
 export function semanticEvidenceUniverseFromManifest(
   manifest: CapabilityManifestArea[],
 ) {
-  const fileSnapshotIds = Array.from(new Set(manifest.flatMap((area) =>
-    area.files
-      .filter((file) => isCoverageEvidencePath(area.key, file.path))
-      .map((file) => file.id)
-  ))).sort();
+  return semanticEvidenceUniverseFromFiles(manifest.flatMap((area) => area.files));
+}
+
+/**
+ * The persisted denominator is independent of cartography. Eligible source
+ * files that do not form a named area still count as unselected coverage;
+ * otherwise a planner could improve its reported coverage by omitting them.
+ */
+export function semanticEvidenceUniverseFromFiles(
+  files: Array<{ id: string; path: string }>,
+) {
+  const fileSnapshotIds = Array.from(new Set(files
+    .filter((file) => isRepositorySemanticCartographyEvidencePath(file.path))
+    .map((file) => file.id))).sort();
   return {
     fileSnapshotIds,
     fileCount: fileSnapshotIds.length,
@@ -991,10 +1003,30 @@ export function fileRelevantCapabilityKeys(input: {
   staticSubsystemKeys: string[];
   path?: string;
 }) {
+  // A package key is emitted after cartography has merged aliases; static
+  // analysis still carries the original directory spelling for this file.
+  const projectDomainAliasIdentity = (key: string) => {
+    if (!isProjectDomainCapabilityKey(key)) return null;
+    const label = key
+      .slice(PROJECT_DOMAIN_CAPABILITY_PREFIX.length)
+      .replace(/_+/g, "-")
+      .replace(/-+/g, "-");
+    return label.endsWith("s") && label.length >= 5
+      ? label.slice(0, -1)
+      : label;
+  };
   const staticKeys = new Set(input.staticSubsystemKeys);
+  const staticProjectDomainKeys = new Set(
+    input.staticSubsystemKeys.flatMap((key) => {
+      const normalized = projectDomainAliasIdentity(key);
+      return normalized ? [normalized] : [];
+    }),
+  );
   const staticallyRelevant = Array.from(new Set(input.workPackageCapabilityKeys))
     .filter((key) => {
       if (staticKeys.has(key)) return true;
+      const normalizedDomainKey = projectDomainAliasIdentity(key);
+      if (normalizedDomainKey && staticProjectDomainKeys.has(normalizedDomainKey)) return true;
       if (!input.path || !key.startsWith(REPOSITORY_AREA_PREFIX)) return false;
       return repositoryAreaRules.some((area) =>
         area.key === key && repositoryAreaMatchesPath(area, input.path!)
@@ -1002,12 +1034,18 @@ export function fileRelevantCapabilityKeys(input: {
     });
   if (!input.path) return staticallyRelevant;
 
-  // Repository-derived domains and structural areas intentionally have no
-  // product-specific path contract. Their exact file membership was already
-  // authorized by the cartographer.
-  if (staticallyRelevant.every((key) =>
+  const admissibleRelevant = staticallyRelevant.filter((key) =>
+    !isProjectDomainCapabilityKey(key) && !key.startsWith(REPOSITORY_AREA_PREFIX)
+      ? true
+      : isCoverageEvidencePath(key, input.path!)
+  );
+
+  // Repository-derived domains and structural areas use the cartographer's
+  // file membership, but only production implementation can prove those
+  // capabilities. Executable tests remain admissible for the quality area.
+  if (admissibleRelevant.every((key) =>
     isProjectDomainCapabilityKey(key) || key.startsWith(REPOSITORY_AREA_PREFIX)
-  )) return staticallyRelevant;
+  )) return admissibleRelevant;
 
   const capabilitiesWithPathContracts = new Set<string>(
     SEMANTIC_SIGNAL_RULES.map(([, capabilityKey]) => capabilityKey),
@@ -1015,15 +1053,15 @@ export function fileRelevantCapabilityKeys(input: {
   const pathCapabilities = new Set(
     semanticSignalKeysForFile({
       path: input.path,
-      capabilityKeys: staticallyRelevant,
+      capabilityKeys: admissibleRelevant,
     }).map((signalKey) => signalKey.split(".")[0]!),
   );
   // Keep the static classifier as the fallback for repositories whose files do
   // not match Workbase's curated path contracts. Once a known path contract
   // does match, use it to prevent a broad static tag from making a backend
   // service responsible for an unrelated UI (or vice versa) capability.
-  if (!pathCapabilities.size) return staticallyRelevant;
-  return staticallyRelevant.filter((key) =>
+  if (!pathCapabilities.size) return admissibleRelevant;
+  return admissibleRelevant.filter((key) =>
     !capabilitiesWithPathContracts.has(key) || pathCapabilities.has(key)
   );
 }
@@ -1464,7 +1502,7 @@ function semanticBehaviorFamily(path: string) {
 function semanticImplementationLayer(path: string) {
   const normalized = path.replace(/\\/g, "/").toLowerCase();
   const basename = normalized.split("/").at(-1)?.replace(/\.[^.]+$/, "") ?? "";
-  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return "quality";
+  if (isRepositoryTestPath(path)) return "quality";
   if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) return "interface";
   if (
     /(?:^|[\/_.-])(?:repositories?|persistence|storage|stores?|dao)(?:[\/_.-]|$)/i.test(normalized) ||
@@ -1718,7 +1756,9 @@ export function buildRepositoryDerivedSemanticPlan(input: {
   for (const workPackage of packages) {
     const selectedIds = new Set(workPackage.fileSnapshotIds);
     for (const area of input.manifest) {
-      if (area.files.some((file) => selectedIds.has(file.id))) {
+      if (area.files.some((file) =>
+        selectedIds.has(file.id) && isCoverageEvidencePath(area.key, file.path)
+      )) {
         workPackage.capabilityKeys.push(area.key);
       }
     }
@@ -1753,7 +1793,7 @@ export interface RepositoryCoverageCritique {
 export function isImplementationEvidencePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
   if (!isRepositorySemanticCartographyEvidencePath(normalized)) return false;
-  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
+  if (isRepositoryTestPath(normalized)) return false;
   return true;
 }
 
@@ -1968,7 +2008,9 @@ export function critiqueRepositoryCoverage(input: {
             area.key === domain.key && area.scopeKey === domain.scopeKey
           )!,
         }))
-        .filter(({ area }) => area.files.some((file) => !inspected.has(file.id)))
+        .filter(({ area }) => area.files.some((file) =>
+          !inspected.has(file.id) && isCoverageEvidencePath(area.key, file.path)
+        ))
         .sort((left, right) =>
           (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
           Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
@@ -1987,19 +2029,19 @@ export function critiqueRepositoryCoverage(input: {
     const areaImplementationFiles = area.files.filter((file) =>
       isCoverageEvidencePath(area.key, file.path)
     );
-    const areaEvidenceFiles = areaImplementationFiles.length
-      ? areaImplementationFiles
-      : area.files;
+    const areaEvidenceFiles = areaImplementationFiles;
     const evidenceFiles = uninspected.filter((file) =>
       isCoverageEvidencePath(area.key, file.path)
     );
-    const repairPool = evidenceFiles.length ? evidenceFiles : uninspected;
+    const repairPool = evidenceFiles;
     const repairLimit = Math.min(desired, MAX_REPAIR_FILES);
     const fileById = new Map(area.files.map((file) => [file.id, file] as const));
     const priorityAuditFiles = domain.priorityAuditFileIds
       .map((id) => fileById.get(id))
       .filter((file): file is CapabilityManifestArea["files"][number] =>
-        file !== undefined && !inspected.has(file.id)
+        file !== undefined &&
+        !inspected.has(file.id) &&
+        isCoverageEvidencePath(area.key, file.path)
       )
       .slice(0, repairLimit);
     const priorityAuditFileIds = new Set(priorityAuditFiles.map((file) => file.id));
@@ -2054,11 +2096,15 @@ export function critiqueRepositoryCoverage(input: {
         !creditedRepairIds[overlapIndex]!.has(id)
       );
       const qualifiesForPriority = requiredPriorityIds[overlapIndex]!.has(file.id);
+      const overlapFile = overlap.area.files.find((candidate) =>
+        candidate.id === file.id
+      );
       if (
         remainingNeed[overlapIndex] > 0 &&
         !creditedRepairIds[overlapIndex]!.has(file.id) &&
         (!pendingPriority || qualifiesForPriority) &&
-        overlap.area.files.some((candidate) => candidate.id === file.id)
+        overlapFile &&
+        isCoverageEvidencePath(overlap.area.key, overlapFile.path)
       ) {
         selected.capabilityKeys.add(overlap.area.key);
         creditedRepairIds[overlapIndex]!.add(file.id);
@@ -2530,7 +2576,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       files,
     });
   });
-  const semanticEvidenceUniverse = semanticEvidenceUniverseFromManifest(manifest);
+  const semanticEvidenceUniverse = semanticEvidenceUniverseFromFiles(
+    run.snapshots.flatMap((snapshot) => snapshot.files),
+  );
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = buildRepositoryDerivedSemanticPlan({
     manifest,

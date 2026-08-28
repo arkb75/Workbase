@@ -14,6 +14,7 @@ import {
   isPlannedDocumentationRange,
   isRepositoryAnalysisNoisePath,
   isRepositoryContextOnlyPath,
+  isRepositoryTestPath,
   recoverRepositorySemanticAnalysisFromStatic,
   repositorySemanticFindingGuidance,
   REPOSITORY_FILE_CHUNK_BYTES,
@@ -52,6 +53,21 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("example/payments/demo.py")).toBeNull();
     expect(inferProjectDomainCapability("packages/sdk/examples/payments/demo.ts")).toBeNull();
     expect(inferProjectDomainCapability("uploads/payments/handler.ts")).toBe("project_domain:payments");
+  });
+
+  it("recognizes common dedicated and co-located test conventions across languages", () => {
+    for (const path of [
+      "src/circles/__tests__/contribution.test.ts",
+      "src/circles/contribution_test.go",
+      "src/circles/test_contribution.py",
+      "src/circles/contribution_spec.rb",
+      "src/circles/ContributionServiceTest.java",
+      "src/circles/ContributionServiceTests.cs",
+    ]) {
+      expect(isRepositoryTestPath(path)).toBe(true);
+      expect(inferProjectDomainCapability(path)).toBeNull();
+    }
+    expect(isRepositoryTestPath("src/circles/contribution-service.ts")).toBe(false);
   });
 
   it("keeps low-level UI and helper wiring out of user-capability ranking", () => {

@@ -17,6 +17,7 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
+  REPOSITORY_INVENTORY_POLICY_VERSION,
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   REPOSITORY_STATIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
@@ -70,6 +71,7 @@ function currentKnowledgeRefreshPolicyHash() {
 
 function currentKnowledgeRefreshPolicyMetadata() {
   return {
+    inventoryPolicyVersion: REPOSITORY_INVENTORY_POLICY_VERSION,
     analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
     semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
     coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
@@ -294,7 +296,8 @@ function activeKnowledgeRefreshes(
 function currentKnowledgeRefreshPolicyMatches(warningsValue: unknown) {
   const warnings = record(warningsValue);
   const policy = currentKnowledgeRefreshPolicyMetadata();
-  return warnings.analyzerVersion === policy.analyzerVersion &&
+  return warnings.inventoryPolicyVersion === policy.inventoryPolicyVersion &&
+    warnings.analyzerVersion === policy.analyzerVersion &&
     warnings.semanticAnalyzerVersion === policy.semanticAnalyzerVersion &&
     warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
     warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
@@ -624,7 +627,10 @@ export async function inventoryKnowledgeRefresh(runId: string) {
     const existing = await prisma.repositorySnapshot.findUnique({
       where: { sourceId_commitSha: { sourceId: target.sourceId, commitSha: target.commitSha } },
     });
-    if (existing?.inventoryComplete) {
+    if (
+      existing?.inventoryComplete &&
+      existing.manifestHash?.startsWith(`${REPOSITORY_INVENTORY_POLICY_VERSION}:`)
+    ) {
       const outdatedAnalyses = await prisma.repositoryFileSnapshot.count({
         where: {
           snapshotId: existing.id,
@@ -706,6 +712,8 @@ export async function inventoryKnowledgeRefresh(runId: string) {
           treeSha: target.treeSha,
           resolvedAt: new Date(target.resolvedAt),
           inventoryComplete: true,
+          analysisComplete: false,
+          coverageComplete: false,
           manifestHash: inventory.manifestHash,
           delta: toInputJson(delta),
         },

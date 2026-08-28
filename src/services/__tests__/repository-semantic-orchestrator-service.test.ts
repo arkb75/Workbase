@@ -941,6 +941,58 @@ describe("repository semantic orchestration guardrails", () => {
     expect(task?.capabilityKeys).toEqual(["repository_area:data_model"]);
   });
 
+  it("keeps cartography-canonical project domains relevant across singular and plural static aliases", () => {
+    const task = buildFileSemanticTask({
+      path: "src/circles/contribution-service.ts",
+      workPackageCapabilityKeys: ["project_domain:circle"],
+      staticSubsystemKeys: ["project_domain:circles"],
+    });
+
+    expect(task?.capabilityKeys).toEqual(["project_domain:circle"]);
+    expect(missingAssignedFileCandidateGaps({
+      files: [{
+        id: "circle-contributions",
+        path: "src/circles/contribution-service.ts",
+        staticSubsystemKeys: ["project_domain:circles"],
+      }],
+      workPackageCapabilityKeys: ["project_domain:circle"],
+      candidates: [{
+        key: "project_domain:circle",
+        evidence: [{ fileSnapshotId: "circle-contributions", lineStart: 1, lineEnd: 8 }],
+      }],
+    })).toEqual([]);
+  });
+
+  it("requires repository-derived capabilities only from admissible coverage evidence", () => {
+    const task = buildFileSemanticTask({
+      path: "src/test/persistence/DataLoaderTest.java",
+      workPackageCapabilityKeys: [
+        "repository_area:data_model",
+        "repository_area:quality",
+        "project_domain:catalog",
+      ],
+      staticSubsystemKeys: ["project_domain:catalog"],
+    });
+
+    expect(task?.capabilityKeys).toEqual(["repository_area:quality"]);
+    expect(missingAssignedFileCandidateGaps({
+      files: [{
+        id: "data-loader-test",
+        path: "src/test/persistence/DataLoaderTest.java",
+        staticSubsystemKeys: ["project_domain:catalog"],
+      }],
+      workPackageCapabilityKeys: [
+        "repository_area:data_model",
+        "repository_area:quality",
+        "project_domain:catalog",
+      ],
+      candidates: [{
+        key: "repository_area:quality",
+        evidence: [{ fileSnapshotId: "data-loader-test", lineStart: 1, lineEnd: 8 }],
+      }],
+    })).toEqual([]);
+  });
+
   it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {
     expect(semanticSignalKeysForFile({
       path: "app/work-items/[id]/page.tsx",

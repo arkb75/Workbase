@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v13-hybrid";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v14-hybrid";
 export const REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES = 4 * 1024;
 
 export const BASE_COVERAGE_TARGETS = [
@@ -89,6 +89,21 @@ export function isRepositoryExecutableSourcePath(path: string) {
 }
 
 /**
+ * Recognize both dedicated test trees and the common co-located naming
+ * conventions used by JavaScript, Go, Python, Ruby, JVM, and .NET projects.
+ * Keeping this predicate file-based prevents a test-heavy repository from
+ * inflating production-domain coverage.
+ */
+export function isRepositoryTestPath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  const fileName = normalized.split("/").at(-1) ?? "";
+  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)/i.test(normalized)) return true;
+  if (/\.(?:test|spec)\.[^.]+$/i.test(fileName)) return true;
+  if (/^(?:test_.+|.+_(?:test|spec))\.(?:py|rb|go)$/i.test(fileName)) return true;
+  return /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb)$/u.test(fileName);
+}
+
+/**
  * Repository-wide denominator for files that can provide semantic code
  * evidence. Tests remain eligible; documentation, generated/noise paths, and
  * hidden tool configuration do not.
@@ -147,6 +162,7 @@ export function inferProjectDomainCapability(path: string) {
   if (
     !directories.length ||
     !isRepositoryProductPath(path) ||
+    isRepositoryTestPath(path) ||
     isRepositoryContextOnlyPath(path) ||
     (demonstrationTree && !javaProductionTree) ||
     directories.some((segment) => projectDomainSuppressedRoots.has(segment))
