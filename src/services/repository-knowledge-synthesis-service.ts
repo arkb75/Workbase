@@ -37,6 +37,18 @@ const categories = [
   "configuration",
 ] as const satisfies readonly ProjectFactCategory[];
 
+// Bedrock's supported JSON-Schema subset removes numeric minimum/maximum
+// constraints before dispatch. Ranking fields are bounded heuristics rather
+// than evidence-bearing claims, so normalize an otherwise valid integer at the
+// provider boundary instead of paying for a full synthesis replay because the
+// model used a familiar 0-10 scale.
+const synthesisScoreSchema = z.preprocess(
+  (value) => typeof value === "number" && Number.isInteger(value)
+    ? Math.max(0, Math.min(5, value))
+    : value,
+  z.number().int().min(0).max(5),
+);
+
 const synthesisSchema = z.object({
   facts: z.array(z.object({
     statement: z.string().trim().min(10).max(500),
@@ -45,10 +57,10 @@ const synthesisSchema = z.object({
     sensitivityFlag: z.boolean(),
     citationIndexes: z.array(z.number().int().min(1)).min(1).max(6),
     reviewNotes: z.string().trim().max(1_000).nullable(),
-    productImportance: z.number().int().min(0).max(5),
-    implementationBreadth: z.number().int().min(0).max(5),
-    technicalDifficulty: z.number().int().min(0).max(5),
-    distinctiveness: z.number().int().min(0).max(5),
+    productImportance: synthesisScoreSchema,
+    implementationBreadth: synthesisScoreSchema,
+    technicalDifficulty: synthesisScoreSchema,
+    distinctiveness: synthesisScoreSchema,
   })).max(3),
   highlights: z.array(z.object({
     // Structured-output providers can treat maxLength as guidance. Accept a
@@ -60,10 +72,10 @@ const synthesisSchema = z.object({
     sensitivityFlag: z.boolean(),
     visibility: z.enum(["private", "resume_safe", "linkedin_safe", "public_safe"]),
     citationIndexes: z.array(z.number().int().min(1)).min(1).max(6),
-    productImportance: z.number().int().min(0).max(5),
-    implementationBreadth: z.number().int().min(0).max(5),
-    technicalDifficulty: z.number().int().min(0).max(5),
-    distinctiveness: z.number().int().min(0).max(5),
+    productImportance: synthesisScoreSchema,
+    implementationBreadth: synthesisScoreSchema,
+    technicalDifficulty: synthesisScoreSchema,
+    distinctiveness: synthesisScoreSchema,
   })).max(2),
   unresolvedQuestions: z.array(z.string().trim().min(2).max(500)).max(8),
 });
@@ -1351,6 +1363,7 @@ async function synthesizeSubsystemSet(input: {
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "Return up to three nonredundant Project Facts when the subsystem supports multiple important behaviors, and up to two Highlights only for substantial career-relevant systems.",
           "Keep each Highlight text to one concise title-like sentence of at most 220 characters; put supporting detail in summary.",
+          "All productImportance, implementationBreadth, technicalDifficulty, and distinctiveness scores must be integers from 0 through 5.",
           "Repository code proves project implementation, not the user's personal ownership or measured impact. Avoid unsupported solo-built, shipped, production-grade, scale, adoption, or metric claims.",
           repositorySynthesisSafetyGuidance,
           "A Highlight should be a distinct, substantial accomplishment; emit none when a subsystem only supports low-level facts.",
@@ -1373,7 +1386,11 @@ async function synthesizeSubsystemSet(input: {
         maxTokens: 8_000,
         temperature: 0,
         effort: "high",
-        transportPreference: ["json_schema", "strict_tool_use", "text_repair_fallback"],
+        // Native JSON Schema is the main path on the configured providers. A
+        // single bounded schema-repair pass is enough; replaying the same full
+        // synthesis through strict tool use consumed budget without improving
+        // semantically valid responses.
+        transportPreference: ["json_schema", "text_repair_fallback"],
         repairStrategy: "repair_last_failure",
         budget: input.budget,
         extraValidation: (value) => {
@@ -2051,8 +2068,10 @@ export async function synthesizeRepositoryKnowledge(
       modelInputs.slice(index * 2, index * 2 + 2),
     );
     const synthesisBudget = createStructuredGenerationBudget({
-      maxModelCalls: 8,
-      maxRepairPasses: 4,
+      // Every batch gets its native structured call plus one bounded schema
+      // repair. Keep the independent total-token ceiling as the hard cost cap.
+      maxModelCalls: Math.max(8, batches.length * 2),
+      maxRepairPasses: Math.max(4, batches.length),
       maxOutputTokens: 8_000,
       maxTotalTokens: 80_000,
     });

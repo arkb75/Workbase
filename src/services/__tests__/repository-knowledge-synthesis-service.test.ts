@@ -100,6 +100,57 @@ describe("repository synthesis limit fallback", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("normalizes integer ranking-scale overshoot without replaying supported synthesis", () => {
+    const parsed = repositorySynthesisSchema.safeParse({
+      subsystems: [{
+        subsystemKey: "project_domain:payments",
+        facts: [{
+          statement: "The payment workflow persists an idempotency key before receipt publication.",
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 8,
+          implementationBreadth: 7,
+          technicalDifficulty: 6,
+          distinctiveness: 9,
+        }],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.subsystems[0]?.facts[0]).toMatchObject({
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+      distinctiveness: 5,
+    });
+
+    expect(repositorySynthesisSchema.safeParse({
+      subsystems: [{
+        subsystemKey: "project_domain:payments",
+        facts: [{
+          statement: "The payment workflow persists an idempotency key before receipt publication.",
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 4.5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        }],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    }).success).toBe(false);
+  });
+
   it("applies the title bound before a model Highlight reaches reconciliation", () => {
     const statement = "The payment workflow records idempotency before publishing a receipt.";
     const longTitle = `Implemented an idempotent payment workflow ${"with durable receipt publication and bounded retry coordination ".repeat(6)}`;
