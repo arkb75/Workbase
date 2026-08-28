@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v26-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v27-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -95,6 +95,24 @@ const repositoryAreaRules = [
     pattern: /(?:^|\/)(?:__tests__|tests?|specs?|e2e|scripts?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i,
   },
 ] as const;
+
+function repositoryAreaMatchesPath(
+  area: (typeof repositoryAreaRules)[number],
+  path: string,
+) {
+  if (area.key !== `${REPOSITORY_AREA_PREFIX}product_surface`) {
+    return area.pattern.test(path);
+  }
+  const normalized = path.replace(/\\/g, "/");
+  if (/^README(?:\.[^/]+)?$/i.test(normalized)) return true;
+  const layer = semanticImplementationLayer(normalized);
+  if (layer === "presentation") return true;
+  // React/Vue/Svelte route components can live beneath a generic `routes`
+  // directory. Keep those visible while excluding server API handlers.
+  return layer === "interface" &&
+    /\.(?:tsx|jsx|vue|svelte|html)$/i.test(normalized) &&
+    !/(?:^|\/)api(?:\/|$)/i.test(normalized);
+}
 
 const repositoryCartographyNoiseSegments = new Set([
   ".github", ".idea", ".playwright-cli", ".vscode", ".workflow-data", ".nyc_output", ".next",
@@ -489,7 +507,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     )));
     for (const key of domainKeys) add(key, repositoryDomainLabel(key), file);
     for (const area of repositoryAreaRules) {
-      if (area.pattern.test(normalizedPath)) add(area.key, area.label, file);
+      if (repositoryAreaMatchesPath(area, normalizedPath)) add(area.key, area.label, file);
     }
   }
 
@@ -973,7 +991,9 @@ export function fileRelevantCapabilityKeys(input: {
     .filter((key) => {
       if (staticKeys.has(key)) return true;
       if (!input.path || !key.startsWith(REPOSITORY_AREA_PREFIX)) return false;
-      return repositoryAreaRules.some((area) => area.key === key && area.pattern.test(input.path!));
+      return repositoryAreaRules.some((area) =>
+        area.key === key && repositoryAreaMatchesPath(area, input.path!)
+      );
     });
   if (!input.path) return staticallyRelevant;
 

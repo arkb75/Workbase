@@ -949,6 +949,26 @@ describe("repository-derived cartographer and coverage critic", () => {
       ]));
   });
 
+  it("maps presentation routes, not server endpoints, to the product surface", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/messaging-app",
+      files: [
+        mappedFile("api", "app/api/messages/send/route.ts"),
+        mappedFile("page", "app/messages/page.tsx"),
+        mappedFile("ui-route", "src/routes/Conversation.tsx"),
+        mappedFile("server-route", "src/routes/messages.ts"),
+      ],
+    });
+
+    const productSurface = manifest.find((area) =>
+      area.key === "repository_area:product_surface"
+    );
+    expect(productSurface?.files.map((file) => file.path)).toEqual([
+      "app/messages/page.tsx",
+      "src/routes/Conversation.tsx",
+    ]);
+  });
+
   it("canonicalizes duplicate domain spellings and demotes structural folders", () => {
     const manifest = buildRepositoryDerivedCapabilityManifest({
       scopeKey: "owner/general-app",

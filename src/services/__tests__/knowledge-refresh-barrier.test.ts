@@ -154,7 +154,7 @@ describe("latest-commit freshness barrier", () => {
       targets: [target],
     })).toBe(false);
     expect(isReusableKnowledgeRefresh({
-      warnings: { ...currentWarnings, semanticAnalyzerVersion: "repository-coverage-v24-hybrid" },
+      warnings: { ...currentWarnings, semanticAnalyzerVersion: "repository-coverage-v25-hybrid" },
       qualityStatus: "verified",
       completedTargets: [target],
       targets: [target],
