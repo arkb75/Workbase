@@ -34,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v30-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v31-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -675,8 +675,22 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
         .map((profile) => profile.entity)).size >= 4
     ? 4
     : 0;
-  if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor);
-  if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor);
+  // Flat desktop and component trees commonly encode separate product
+  // workflows in filenames rather than directories. Give a genuinely broad
+  // surface one fourth audit slot so a shell plus one high-scoring workflow
+  // cannot make several neighboring workflows disappear. This changes no
+  // worker or repair ceiling; it only spends existing bounded capacity.
+  const surfaceDiversityFloor = (
+    area.key === `${REPOSITORY_AREA_PREFIX}product_surface` ||
+    isProjectDomainCapabilityKey(area.key)
+  ) && new Set(area.files
+    .filter((file) => isCoverageEvidencePath(area.key, file.path))
+    .map((file) => semanticPathProfile(file.path).surface)
+    .filter(Boolean)).size >= 4
+    ? 4
+    : 0;
+  if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor);
+  if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 30) return 4;
   // Very broad surfaces may use both bounded repair micro-batches after the
   // two-file breadth pass. Eight total samples remains far below adaptive
@@ -1542,6 +1556,62 @@ function semanticEntityFamily(path: string, layer: string) {
   return normalized || basename.toLowerCase();
 }
 
+const semanticPresentationScaffoldingTokens = new Set([
+  "app", "component", "components", "dashboard", "dialog", "form", "frontend", "gui",
+  "home", "index", "layout", "main", "menu", "modal", "nav", "navigation", "page",
+  "pages", "panel", "route", "routes", "screen", "screens", "shell", "src", "sub",
+  "table", "ui", "view", "views", "widget", "window",
+]);
+
+const semanticPresentationActionTokens = new Set([
+  "add", "browse", "create", "delete", "detail", "details", "edit", "list",
+  "manage", "management", "new", "remove", "search", "select", "show", "update",
+]);
+
+function semanticPresentationSurfaceFamily(path: string, layer: string) {
+  const normalizedPath = path.replace(/\\/g, "/");
+  const isPresentationRoute = layer === "interface" &&
+    /\.(?:tsx|jsx|vue|svelte|html)$/i.test(normalizedPath) &&
+    !/(?:^|\/)api(?:\/|$)/i.test(normalizedPath);
+  if (layer !== "presentation" && !isPresentationRoute) return "";
+
+  const normalizeSegment = (value: string) => {
+    const tokens = value
+      .replace(/\.[^.]+$/, "")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+      .replace(/([a-z\d])([A-Z])/g, "$1-$2")
+      .toLowerCase()
+      .split(/[^a-z\d]+/)
+      .filter(Boolean);
+    while (tokens.length > 1 && semanticPresentationScaffoldingTokens.has(tokens.at(-1)!)) {
+      tokens.pop();
+    }
+    while (tokens.length > 1 && semanticPresentationActionTokens.has(tokens.at(-1)!)) {
+      tokens.pop();
+    }
+    while (tokens.length > 1 && semanticPresentationActionTokens.has(tokens[0]!)) {
+      tokens.shift();
+    }
+    if (
+      !tokens.length ||
+      tokens.every((token) => semanticPresentationScaffoldingTokens.has(token)) ||
+      tokens.some((token) => /^\d+$/.test(token))
+    ) return "";
+    return tokens.join("-");
+  };
+
+  const segments = normalizedPath.split("/").filter(Boolean);
+  const basenameSurface = normalizeSegment(segments.at(-1) ?? "");
+  if (basenameSurface) return basenameSurface;
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    const segment = segments[index]!;
+    if (/^(?:\[.*\]|\{.*\}|<.*>|:[a-z0-9_-]+)$/i.test(segment)) continue;
+    const surface = normalizeSegment(segment);
+    if (surface) return surface;
+  }
+  return "";
+}
+
 function semanticPathProfile(path: string) {
   const layer = semanticImplementationLayer(path);
   const behavior = semanticBehaviorFamily(path);
@@ -1581,6 +1651,7 @@ function semanticPathProfile(path: string) {
     layer,
     language: semanticLanguageFamily(path),
     entity: semanticEntityFamily(path, layer),
+    surface: semanticPresentationSurfaceFamily(path, layer),
   };
 }
 
@@ -1637,6 +1708,7 @@ function diverseSemanticFiles(
     layers: new Set(profiles.map((profile) => profile.layer)),
     languages: new Set(profiles.map((profile) => profile.language)),
     entities: new Set(profiles.map((profile) => profile.entity).filter(Boolean)),
+    surfaces: new Set(profiles.map((profile) => profile.surface).filter(Boolean)),
     variants: new Set(profiles.map((profile) => profile.variant).filter(Boolean)),
   };
   while (selected.length < target) {
@@ -1659,6 +1731,11 @@ function diverseSemanticFiles(
               Boolean(profile.variant) &&
               !covered.variants.has(profile.variant)
             ) * 2 +
+            Number(
+              !newBehavior &&
+              Boolean(profile.surface) &&
+              !covered.surfaces.has(profile.surface)
+            ) * 3 +
             Number(Boolean(profile.entity) && !covered.entities.has(profile.entity))
           ),
         };
@@ -1677,6 +1754,7 @@ function diverseSemanticFiles(
     covered.languages.add(next.profile.language);
     if (next.profile.variant) covered.variants.add(next.profile.variant);
     if (next.profile.entity) covered.entities.add(next.profile.entity);
+    if (next.profile.surface) covered.surfaces.add(next.profile.surface);
   }
   return selected;
 }
@@ -1865,19 +1943,28 @@ export function critiqueRepositoryCoverage(input: {
       targetSamples > 1 &&
       implementationFiles.length > 0 &&
       area.key !== `${REPOSITORY_AREA_PREFIX}quality`;
-    const usefulValues = (profiles: ReturnType<typeof semanticPathProfile>[], dimension: "layer" | "language" | "entity") =>
+    const usefulValues = (profiles: ReturnType<typeof semanticPathProfile>[], dimension: "layer" | "language" | "entity" | "surface") =>
       new Set(profiles.map((profile) => profile[dimension]).filter((value) => value && value !== "unknown"));
+    const idealSurfaceCount = usefulValues(idealProfiles, "surface").size;
     const diversityDimensions = shouldRequireDiversity
       ? ([
-          { label: "implementation layers", dimension: "layer" as const },
-          { label: "language families", dimension: "language" as const },
+          { label: "implementation layers", dimension: "layer" as const, maxRequired: 2 },
+          { label: "language families", dimension: "language" as const, maxRequired: 2 },
           ...(area.key === `${REPOSITORY_AREA_PREFIX}data_model`
-            ? [{ label: "data entities", dimension: "entity" as const }]
+            ? [{ label: "data entities", dimension: "entity" as const, maxRequired: 2 }]
             : []),
-        ]).map(({ label, dimension }) => {
+          ...(
+            idealSurfaceCount >= 2 && (
+              area.key === `${REPOSITORY_AREA_PREFIX}product_surface` ||
+              isProjectDomainCapabilityKey(area.key)
+            )
+              ? [{ label: "product workflow families", dimension: "surface" as const, maxRequired: 3 }]
+              : []
+          ),
+        ]).map(({ label, dimension, maxRequired }) => {
           const idealValues = usefulValues(idealProfiles, dimension);
           const inspectedValues = usefulValues(inspectedProfiles, dimension);
-          const required = Math.min(2, targetSamples, idealValues.size);
+          const required = Math.min(maxRequired, targetSamples, idealValues.size);
           return {
             label,
             dimension,

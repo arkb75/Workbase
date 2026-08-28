@@ -392,6 +392,72 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(plan[0]?.fileSnapshotIds).toContain("loader");
   });
 
+  it("samples distinct initialism-based workflows from a flat presentation directory before operation siblings", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/desktop-operations",
+      salience: 120,
+      files: [
+        { id: "receivable-create", path: "src/ui/ARCreate.tsx", score: 100 },
+        { id: "receivable-edit", path: "src/ui/AREdit.tsx", score: 99 },
+        { id: "receivable-view", path: "src/ui/ARView.tsx", score: 98 },
+        { id: "payable-create", path: "src/ui/APCreate.tsx", score: 80 },
+        { id: "ledger-list", path: "src/ui/LedgerList.tsx", score: 70 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+
+    expect(plan[0]?.fileSnapshotIds).toEqual(["payable-create", "receivable-create"]);
+    expect(plan[0]?.fileSnapshotIds).not.toEqual(expect.arrayContaining([
+      "receivable-edit",
+      "receivable-view",
+    ]));
+  });
+
+  it("uses bounded repair to represent broad flat presentation workflow families", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/desktop-operations",
+      salience: 120,
+      files: [
+        { id: "shell", path: "src/ui/MainMenu.tsx", score: 110 },
+        { id: "invoice-create", path: "src/ui/InvoiceCreate.tsx", score: 100 },
+        { id: "invoice-edit", path: "src/ui/InvoiceEdit.tsx", score: 99 },
+        { id: "invoice-view", path: "src/ui/InvoiceView.tsx", score: 98 },
+        { id: "shipment-create", path: "src/ui/ShipmentCreate.tsx", score: 80 },
+        { id: "customer-list", path: "src/ui/CustomerList.tsx", score: 70 },
+        { id: "payment-dialog", path: "src/ui/PaymentDialog.tsx", score: 60 },
+      ],
+    };
+    const reports = [{
+      inspectedFileSnapshotIds: ["shell", "invoice-create", "invoice-edit"],
+      candidates: ["shell", "invoice-create", "invoice-edit"].map((id) => ({
+        ...candidate(area.key, id),
+        statement: `${id} supports a distinct implemented behavior.`,
+      })),
+    }];
+
+    expect(semanticAuditTarget(area)).toBe(4);
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports,
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      inspectedSamples: 3,
+      diversityGaps: 1,
+      status: "thin",
+    }));
+    expect(repairedIds).toEqual(["shipment-create", "customer-list"]);
+    expect(repairedIds).not.toEqual(expect.arrayContaining(["invoice-view"]));
+    expect(repairedIds.length).toBeLessThanOrEqual(6);
+  });
+
   it("keeps account entrypoints distinct from neighboring authentication handlers", () => {
     const area = {
       key: "repository_area:product_surface",

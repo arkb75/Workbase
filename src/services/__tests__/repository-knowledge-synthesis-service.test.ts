@@ -14,6 +14,7 @@ import {
   normalizeRepositoryHighlightText,
   repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
+  repositoryUserFacingCapabilityGuidance,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
   repositorySynthesisSafetyGuidance,
@@ -117,11 +118,26 @@ describe("repository synthesis limit fallback", () => {
     expect(repositoryHighlightSelectionGuidance).toContain("two broadest distinct supported capabilities");
   });
 
+  it("requires product-surface synthesis to name the interface and supported user workflow", () => {
+    expect(repositoryUserFacingCapabilityGuidance).toContain("without filenames, class names, or framework knowledge");
+    for (const surface of ["desktop UI", "web UI", "API", "CLI"]) {
+      expect(repositoryUserFacingCapabilityGuidance).toContain(surface);
+    }
+    expect(repositoryUserFacingCapabilityGuidance).toContain("concrete user action or outcome");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("not a user-facing capability");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("distinct supported workflows");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("Navigation evidence proves");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("separately supported workflows");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("cited action evidence");
+  });
+
   it("keeps exact implementation details inside their cited evidence boundary", () => {
-    for (const detail of ["endpoint", "route", "state name", "numeric value", "unit", "threshold", "persistence action", "lifecycle transition"]) {
+    for (const detail of ["endpoint", "route", "state name", "numeric value", "unit", "threshold", "persistence action", "lifecycle transition", "type relationship"]) {
       expect(repositoryEvidenceBoundaryGuidance).toContain(detail);
     }
     expect(repositoryEvidenceBoundaryGuidance).toContain("cite every entry needed to support a compound claim");
+    expect(repositoryEvidenceBoundaryGuidance).toContain("does not by itself prove that its class implements an interface");
+    expect(repositoryEvidenceBoundaryGuidance).toContain("cite the declaration for that relationship");
     expect(repositoryEvidenceBoundaryGuidance).toContain("A client or interface entry proves that layer only");
     expect(repositoryEvidenceBoundaryGuidance).toContain("server, service, storage, or model behavior");
   });
