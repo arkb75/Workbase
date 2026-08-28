@@ -33,6 +33,7 @@ import {
   pairRepositoryAnalysesByInputOrder,
   policyScopedKnowledgeRefreshIdempotencyKey,
   releaseInlineKnowledgeRefreshExecution,
+  repositoryReadExclusionReason,
   repositoryCapabilityPriority,
   repositoryOrchestrationCoverageGaps,
 } from "@/src/services/knowledge-refresh-service";
@@ -109,6 +110,12 @@ describe("latest-commit freshness barrier", () => {
       { repository: "owner/repository-a", summary: "Repository A README" },
       { repository: "owner/repository-b", summary: "Repository B README" },
     ]);
+  });
+
+  it("skips content-discovered binary and oversized blobs but preserves operational failures", () => {
+    expect(repositoryReadExclusionReason(new Error("binary_file"))).toBe("binary");
+    expect(repositoryReadExclusionReason(new Error("file_too_large"))).toBe("oversized");
+    expect(repositoryReadExclusionReason(new Error("GitHub request failed"))).toBeNull();
   });
 
   it("reserves high-priority ledger status for cartographer-selected capabilities", () => {
