@@ -89,6 +89,9 @@ The executable cold-lifecycle and provider-comparison runbook is in
 [`tests/e2e/README.md`](tests/e2e/README.md). Migration decisions, historical
 controls, privacy invariants, and embedding rollback procedure are recorded in
 [`docs/openrouter-migration.md`](docs/openrouter-migration.md).
+The implementation-neutral, multi-project repository extraction gate and its
+local/serialized observation runner are documented in
+[`docs/repository-knowledge-evaluation.md`](docs/repository-knowledge-evaluation.md).
 
 5. Generate the Prisma client and apply committed migrations
 
@@ -159,6 +162,10 @@ The test suite covers:
 - exact same-thread accomplishments freshness follow-ups, including current-head
   breadth continuity and cross-repository contamination rejection
 - commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
+- generalized repository knowledge extraction across SaaS, agent/document,
+  fintech, developer-tool, dataset, Java/ML, and CLI/library shapes, including
+  coverage calibration, provenance precision, planned-feature traps, generated
+  artifact pollution, generic-token false positives, and cluster granularity
 - DLP-safe manual-note generation, content-addressed provenance/input fences,
   deterministic extractive recovery, and cited-source-only attribution
 - durable chat and artifact workflows, including review/resume behavior

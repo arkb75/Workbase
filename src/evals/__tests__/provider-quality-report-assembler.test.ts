@@ -253,7 +253,7 @@ function fixtures() {
     failedChecks: [],
   });
   const profile = parseRepositoryAccomplishmentsProfile({
-    schemaVersion: "workbase-repository-accomplishments-profile-v2",
+    schemaVersion: "repository-accomplishments-profile-v3",
     workItemTitle: "Workbase",
     repository: REPOSITORY,
     requiredCapabilityPatterns: ["grounded", "repository"],
@@ -275,7 +275,7 @@ function fixtures() {
     evidenceItemCount: 50,
   };
   const accomplishments = {
-    schemaVersion: "workbase-repository-accomplishments-report-v2",
+    schemaVersion: "repository-accomplishments-report-v3",
     gitCommit: GIT_COMMIT,
     passed: true,
     provider: "openrouter",
