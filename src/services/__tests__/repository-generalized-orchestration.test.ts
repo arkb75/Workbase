@@ -182,7 +182,7 @@ describe("repository-derived cartographer and coverage critic", () => {
   it("keeps the established audit-depth curve while the first pass stays bounded", () => {
     const cases = [
       [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
-      [7, 3], [15, 3], [16, 4], [30, 4], [31, 6],
+      [7, 3], [15, 3], [16, 4], [30, 4], [31, 8],
     ] as const;
 
     for (const [fileCount, auditTarget] of cases) {
@@ -199,7 +199,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     }
   });
 
-  it("schedules a failed broad-area repair as one funded micro-batch and leaves depth auditable", () => {
+  it("bounds a failed broad-area repair to two funded micro-batches and leaves depth auditable", () => {
     const area = {
       key: "project_domain:catalog",
       label: "Catalog",
@@ -213,8 +213,9 @@ describe("repository-derived cartographer and coverage critic", () => {
     };
     const critique = critiqueRepositoryCoverage({ manifest: [area], reports: [], allowRepair: true });
 
-    expect(critique.domains[0]).toMatchObject({ targetSamples: 6, status: "missing" });
-    expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(4);
+    expect(critique.domains[0]).toMatchObject({ targetSamples: 8, status: "missing" });
+    expect(critique.repairPackages).toHaveLength(2);
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toHaveLength(8);
     expect(critique.gaps).toEqual([expect.stringContaining("no supported semantic finding")]);
   });
 
@@ -315,22 +316,43 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(plan[0]?.fileSnapshotIds).not.toContain("account");
   });
 
-  it("uses a broad-area repair wave across distinct API subdomains", () => {
+  it("normalizes API versions and dynamic parameters before sampling route families", () => {
     const area = {
       key: "repository_area:product_surface",
       label: "Product surface",
-      scopeKey: "example/marketplace",
+      scopeKey: "example/http-service",
+      salience: 120,
+      files: [
+        { id: "order-bracket", path: "app/api/v2/orders/[orderId]/route.ts", score: 100 },
+        { id: "order-colon", path: "server/routes/v2/orders/:id/handler.ts", score: 99 },
+        { id: "catalog", path: "app/api/v2/catalog/items/route.ts", score: 98 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+
+    expect(plan[0]?.fileSnapshotIds).toEqual(expect.arrayContaining(["order-bracket", "catalog"]));
+    expect(plan[0]?.fileSnapshotIds).not.toContain("order-colon");
+  });
+
+  it("uses a broad-area repair wave across versioned and nested API subdomains", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/commerce-service",
       salience: 1_000,
       files: [
-        { id: "upload", path: "app/api/upload/route.ts", score: 100 },
-        { id: "profile", path: "app/api/profile/route.ts", score: 99 },
-        { id: "feed", path: "app/api/feed/events/route.ts", score: 98 },
-        { id: "interest", path: "app/api/interest/like/route.ts", score: 97 },
-        { id: "investment", path: "app/api/investments/commit/route.ts", score: 96 },
-        { id: "messages", path: "app/api/messages/send/route.ts", score: 95 },
+        { id: "catalog", path: "app/api/v2/catalog/items/route.ts", score: 100 },
+        { id: "orders", path: "app/api/v2/orders/[orderId]/route.ts", score: 99 },
+        { id: "billing", path: "app/api/v2/organizations/[id]/billing/invoices/route.ts", score: 98 },
+        { id: "exports", path: "app/api/v2/exports/route.ts", score: 97 },
+        { id: "subscriptions", path: "app/api/v2/subscriptions/route.ts", score: 96 },
+        { id: "notifications", path: "app/api/v2/notifications/route.ts", score: 95 },
+        { id: "payments", path: "app/api/v2/payments/route.ts", score: 94 },
+        { id: "webhooks", path: "app/api/v2/webhooks/route.ts", score: 93 },
         ...Array.from({ length: 25 }, (_, index) => ({
-          id: `upload-helper-${index}`,
-          path: `app/api/upload/helpers/${index}.ts`,
+          id: `catalog-helper-${index}`,
+          path: `app/api/v2/catalog/helpers/${index}.ts`,
           score: 70 - index,
         })),
       ],
@@ -338,27 +360,35 @@ describe("repository-derived cartographer and coverage critic", () => {
     const critique = critiqueRepositoryCoverage({
       manifest: [area],
       reports: [{
-        inspectedFileSnapshotIds: ["upload", "profile"],
+        inspectedFileSnapshotIds: ["catalog", "orders"],
         candidates: [
-          candidate(area.key, "upload"),
-          candidate(area.key, "profile"),
+          {
+            ...candidate(area.key, "catalog"),
+            statement: "The catalog endpoint returns a versioned item collection.",
+          },
+          {
+            ...candidate(area.key, "orders"),
+            statement: "The order endpoint retrieves one order by its stable identifier.",
+          },
         ],
       }],
       allowRepair: true,
     });
 
     expect(critique.domains[0]).toMatchObject({
-      targetSamples: 6,
-      requiredSupportedCandidates: 6,
+      targetSamples: 8,
+      requiredSupportedCandidates: 8,
       supportedFileCount: 2,
-      requiredSupportedFiles: 6,
+      requiredSupportedFiles: 8,
       status: "thin",
     });
-    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual([
-      "feed",
-      "interest",
-      "investment",
-      "messages",
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "billing",
+      "exports",
+      "subscriptions",
+      "notifications",
+      "payments",
+      "webhooks",
     ]);
   });
 
@@ -504,7 +534,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(finalCritique.repairPackages).toEqual([]);
   });
 
-  it("caps repair to the two most important fundable unresolved domains", () => {
+  it("shares two bounded repair batches across unresolved domains", () => {
     const manifest = Array.from({ length: 6 }, (_, index) => ({
       key: `project_domain:domain-${index}`,
       label: `Domain ${index}`,
@@ -518,10 +548,34 @@ describe("repository-derived cartographer and coverage critic", () => {
 
     const critique = critiqueRepositoryCoverage({ manifest, reports: [], allowRepair: true });
     expect(critique.repairPackages).toHaveLength(2);
-    expect(critique.repairPackages.map((entry) => entry.capabilityKeys[0])).toEqual([
-      "project_domain:domain-0",
-      "project_domain:domain-1",
-    ]);
+    expect(new Set(critique.repairPackages.flatMap((entry) => entry.capabilityKeys))).toEqual(
+      new Set(Array.from({ length: 6 }, (_, index) => `project_domain:domain-${index}`)),
+    );
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual(
+      expect.arrayContaining(Array.from({ length: 6 }, (_, index) => `domain-${index}-a`)),
+    );
+  });
+
+  it("does not starve later broad areas when repair depth exceeds the global cap", () => {
+    const manifest = Array.from({ length: 3 }, (_, areaIndex) => ({
+      key: `project_domain:area-${areaIndex}`,
+      label: `Area ${areaIndex}`,
+      scopeKey: "example/multi-surface",
+      salience: 100 - areaIndex,
+      files: Array.from({ length: 31 }, (_unused, fileIndex) => ({
+        id: `area-${areaIndex}-${fileIndex}`,
+        path: `src/area-${areaIndex}/file-${fileIndex}.ts`,
+        score: 31 - fileIndex,
+      })),
+    }));
+
+    const critique = critiqueRepositoryCoverage({ manifest, reports: [], allowRepair: true });
+    const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(selected).toHaveLength(8);
+    for (let areaIndex = 0; areaIndex < 3; areaIndex += 1) {
+      expect(selected.some((fileId) => fileId.startsWith(`area-${areaIndex}-`))).toBe(true);
+    }
   });
 
   it("accepts test evidence for quality coverage without treating tests as product implementation", () => {

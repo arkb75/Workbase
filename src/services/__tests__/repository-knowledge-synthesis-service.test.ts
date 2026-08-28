@@ -337,7 +337,7 @@ describe("repository synthesis limit fallback", () => {
     }
   });
 
-  it("promotes a corroborated workflow without requiring product-specific signal names", () => {
+  it("does not infer automatic product salience from two ordinary behavior findings", () => {
     const statement =
       "The repository manages resume variants through long-lived branches and selects the closest variant before making minimal edits.";
     const notebook = [
@@ -380,11 +380,7 @@ describe("repository synthesis limit fallback", () => {
       implementationBreadth: 2,
       technicalDifficulty: 3,
       distinctiveness: 3,
-    }], notebook)).toEqual([expect.objectContaining({
-      text: statement,
-      citationIndexes: [1, 2],
-      visibility: "private",
-    })]);
+    }], notebook)).toEqual([]);
   });
 
   it("keeps a corroborated product fallback when synthesis distributes citations across facts", () => {
@@ -544,7 +540,7 @@ describe("repository synthesis limit fallback", () => {
     }], [repeated, { ...repeated }])).toEqual([]);
   });
 
-  it("preserves failed-model ineligibility for candidate-level reconciliation", () => {
+  it("preserves the model's no-Highlight decision for candidate-level reconciliation", () => {
     const statement =
       "The application combines signed-session rotation with scoped authorization for protected project data.";
     const notebook = [
@@ -588,13 +584,7 @@ describe("repository synthesis limit fallback", () => {
 
     expect(finalized).toMatchObject({
       approvalEligible: false,
-      highlights: [{
-        text: statement,
-        citationIndexes: [1, 2],
-        confidence: "high",
-        sensitivityFlag: false,
-        visibility: "private",
-      }],
+      highlights: [],
     });
   });
 

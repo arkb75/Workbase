@@ -58,6 +58,53 @@ function knowledge(input: {
 }
 
 describe("global repository Highlight selection", () => {
+  it("does not let a weak first subsystem candidate crowd out a stronger second candidate", () => {
+    const domain = knowledge({
+      subsystemKey: "project_domain:orders",
+      path: "src/orders/format-label.ts",
+      text: "Order label formatting helper",
+    });
+    domain.highlights[0] = {
+      ...domain.highlights[0]!,
+      productImportance: 1,
+      implementationBreadth: 1,
+      technicalDifficulty: 1,
+      distinctiveness: 1,
+    };
+    domain.notebook.push(notebook("src/orders/fulfillment-workflow.ts"));
+    domain.highlights.push({
+      text: "Transactional order fulfillment with inventory reservation",
+      summary: "Reserves inventory and commits fulfillment state through the implemented workflow.",
+      confidence: "high",
+      sensitivityFlag: false,
+      visibility: "private",
+      citationIndexes: [2],
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    });
+    const other = knowledge({
+      subsystemKey: "project_domain:telemetry",
+      path: "src/telemetry/counter.ts",
+      text: "Request counter telemetry",
+    });
+    other.highlights[0] = {
+      ...other.highlights[0]!,
+      productImportance: 2,
+      implementationBreadth: 1,
+      technicalDifficulty: 1,
+      distinctiveness: 1,
+    };
+
+    const selected = selectGlobalRepositoryHighlights([domain, other], 1);
+
+    expect(selected[0]?.highlights.map((highlight) => highlight.text)).toEqual([
+      "Transactional order fulfillment with inventory reservation",
+    ]);
+    expect(selected[1]?.highlights).toEqual([]);
+  });
+
   it("deduplicates across domains while preserving a different implementation", () => {
     const selected = selectGlobalRepositoryHighlights([
       knowledge({

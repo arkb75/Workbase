@@ -919,11 +919,20 @@ export class BedrockStructuredLlmClient {
         }
         budget.usage.modelCalls += 1;
         if (phase === "repair") budget.usage.repairPasses += 1;
+        const repairCallReserve =
+          phase !== "repair" &&
+          transportPreference.includes("text_repair_fallback") &&
+          budget.usage.repairPasses < budget.limits.maxRepairPasses
+            ? 1
+            : 0;
         boundedRequest = {
           ...request,
           maxTokens: permittedOutputTokens,
           maxProviderAttempts:
-            budget.limits.maxModelCalls - budget.usage.modelCalls + 1,
+            Math.max(
+              1,
+              budget.limits.maxModelCalls - budget.usage.modelCalls + 1 - repairCallReserve,
+            ),
         };
       }
       const chargeConservativeUnknownUsage = (attemptCount = 1) => {

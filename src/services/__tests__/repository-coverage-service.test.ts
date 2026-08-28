@@ -40,6 +40,8 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("src/payments/charge-service.ts")).toBe("project_domain:payments");
     expect(inferProjectDomainCapability("app/api/search/route.ts")).toBe("project_domain:search");
     expect(inferProjectDomainCapability("app/api/investments/commit/route.ts")).toBe("project_domain:investments");
+    expect(inferProjectDomainCapability("app/api/v2/orders/[orderId]/refunds/route.ts")).toBe("project_domain:orders");
+    expect(inferProjectDomainCapability("server/routes/internal/organizations/[id]/billing/invoices.ts")).toBe("project_domain:organizations");
     expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
     expect(inferProjectDomainCapability("src/services/miscellaneous-service.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/payments/__tests__/charge.test.ts")).toBeNull();

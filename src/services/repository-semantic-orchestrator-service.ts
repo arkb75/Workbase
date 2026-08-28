@@ -33,7 +33,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v21-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v22-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -44,7 +44,8 @@ const SEMANTIC_MICRO_BATCH_SIZE = 4;
 const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
-const MAX_REPAIR_DOMAINS = 2;
+const MAX_REPAIR_PACKAGES = 2;
+const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * SEMANTIC_MICRO_BATCH_SIZE;
 const REPAIR_TOKEN_RESERVE = 20_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 
@@ -509,11 +510,10 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   if (evidenceCount <= 6) return 2;
   if (evidenceCount <= 15) return 3;
   if (evidenceCount <= 30) return 4;
-  // Very broad surfaces get one full four-file repair micro-batch after the
-  // two-file breadth pass. This remains bounded while giving large APIs or
-  // monorepos enough depth to expose more than their two highest-scoring
-  // entrypoints.
-  return 6;
+  // Very broad surfaces may use both bounded repair micro-batches after the
+  // two-file breadth pass. Eight total samples remains far below adaptive
+  // repository-wide waves while representing more than the busiest endpoints.
+  return 8;
 }
 
 export interface CapabilityCandidate {
@@ -1253,6 +1253,11 @@ function packageTemplate(input: {
   };
 }
 
+const semanticInterfaceActionSegments = new Set([
+  "commit", "create", "delete", "events", "get", "handler", "index", "like", "list",
+  "post", "put", "patch", "respond", "route", "send", "update",
+]);
+
 function semanticPathFamily(path: string) {
   const normalized = path.replace(/\\/g, "/").toLowerCase();
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) {
@@ -1271,15 +1276,28 @@ function semanticPathFamily(path: string) {
   if (/(?:^|[\/_.-])(?:collaborat(?:e|ion|or|ors)?|invites?|invitations?|memberships?|teams?|companies?)(?:[\/_.-]|$)/i.test(normalized)) {
     return "boundary:collaboration-membership";
   }
-  const interfaceMatch = /(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)\/([^/]+)/i.exec(normalized);
-  if (interfaceMatch) {
-    const boundary = interfaceMatch[1]!
-      .replace(/^\[+|\]+$/g, "")
-      .replace(/[^a-z0-9_-]+/g, "-") || "dynamic";
-    return `interface:${boundary}`;
-  }
-  if (/(?:^|\/)(?:api|routes?|controllers?|handlers?|rest)(?:\/|$)/i.test(normalized)) {
-    return "interface:root";
+  const interfaceSegments = normalized.split("/").filter(Boolean);
+  const interfaceIndex = interfaceSegments.findIndex((segment) =>
+    /^(?:api|routes?|controllers?|handlers?|rest)$/.test(segment)
+  );
+  if (interfaceIndex >= 0) {
+    const stableSegments = interfaceSegments
+      .slice(interfaceIndex + 1)
+      .map((segment) => segment.replace(/\.[a-z0-9]+$/i, ""))
+      .filter((segment) =>
+        segment &&
+        !/^(?:\[.*\]|\{.*\}|<.*>|:[a-z0-9_-]+)$/.test(segment) &&
+        !/^v\d+$/.test(segment) &&
+        !/^(?:internal|public|private|external)$/.test(segment)
+      );
+    const boundary = stableSegments
+      // Keep an action-like word when it is the top-level resource (`api/events`),
+      // but do not split one resource into families for `orders/create` and
+      // `orders/update`.
+      .filter((segment, index) => index === 0 || !semanticInterfaceActionSegments.has(segment))
+      .slice(0, 2)
+      .join("/");
+    return `interface:${boundary || "root"}`;
   }
   if (/(?:^|\/)(?:models?|schemas?)(?:\/|$)|\.prisma$/i.test(normalized)) {
     return "data:model";
@@ -1532,13 +1550,12 @@ export function critiqueRepositoryCoverage(input: {
         }))
         .filter(({ area }) => area.files.some((file) => !inspected.has(file.id)))
         .sort((left, right) =>
-          Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
           (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
+          Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
           left.area.key.localeCompare(right.area.key)
         )
-        .slice(0, MAX_REPAIR_DOMAINS)
     : [];
-  const repairPackages = repairAreas.map(({ domain, area }) => {
+  const repairRequests = repairAreas.map(({ domain, area }) => {
     const desired = Math.max(
       1,
       domain.targetSamples - domain.inspectedSamples,
@@ -1561,17 +1578,48 @@ export function critiqueRepositoryCoverage(input: {
     // before reading another near-neighbor, without adding files or calls.
     const repairFiles = diverseSemanticFiles(
       implementationFiles.length ? implementationFiles : uninspected,
-      Math.min(desired, SEMANTIC_MICRO_BATCH_SIZE),
+      Math.min(desired, MAX_REPAIR_FILES),
       areaEvidenceFiles.filter((file) => inspected.has(file.id)).map((file) => file.path),
     );
-    const ids = repairFiles.map((file) => file.id);
-    return packageTemplate({
-      capabilityKeys: [area.key],
-      fileSnapshotIds: ids,
-      manifest: input.manifest,
-      repair: true,
-    });
+    return { area, repairFiles };
   });
+  // Keep the existing two-call repair ceiling, but share its eight file slots
+  // round-robin across unresolved areas. This prevents a large repository's
+  // first two areas from deterministically starving every later area.
+  const repairSelections = new Map<string, {
+    file: CapabilityManifestArea["files"][number];
+    capabilityKeys: Set<string>;
+  }>();
+  for (let depth = 0; depth < MAX_REPAIR_FILES; depth += 1) {
+    for (const request of repairRequests) {
+      const file = request.repairFiles[depth];
+      if (!file) continue;
+      const existing = repairSelections.get(file.id);
+      if (existing) {
+        existing.capabilityKeys.add(request.area.key);
+      } else if (repairSelections.size < MAX_REPAIR_FILES) {
+        repairSelections.set(file.id, {
+          file,
+          capabilityKeys: new Set([request.area.key]),
+        });
+      }
+    }
+  }
+  const selectedRepairs = Array.from(repairSelections.values());
+  const repairPackages = Array.from(
+    { length: Math.ceil(selectedRepairs.length / SEMANTIC_MICRO_BATCH_SIZE) },
+    (_unused, index) => selectedRepairs.slice(
+      index * SEMANTIC_MICRO_BATCH_SIZE,
+      (index + 1) * SEMANTIC_MICRO_BATCH_SIZE,
+    ),
+  ).slice(0, MAX_REPAIR_PACKAGES).map((entries) => packageTemplate({
+    capabilityKeys: Array.from(new Set(entries.flatMap((entry) =>
+      Array.from(entry.capabilityKeys)
+    ))),
+    fileSnapshotIds: entries.map((entry) => entry.file.id),
+    manifest: input.manifest,
+    repair: true,
+  }));
   return { domains, gaps, repairPackages };
 }
 
@@ -2052,11 +2100,11 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       // Enforce the micro-batched execution shape in the budget itself. A
       // future regression to one provider call per file should fail closed
       // instead of silently restoring the old cost profile.
-      maxModelCalls: modelCallCounts[index]!,
+      maxModelCalls: modelCallCounts[index]! + 1,
       maxInputBytes: 64 * 1024,
       maxOutputTokens: 6_000,
       maxTotalTokens: workerTokenAllocations[index]!,
-      maxRepairPasses: 0 as const,
+      maxRepairPasses: 1 as const,
     },
   })).sort((left, right) => left.id.localeCompare(right.id));
   await prisma.knowledgeRefreshRun.update({
@@ -2113,12 +2161,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     ...entry,
     id: stablePackageId(`${refreshRunId}:repair`, entry.capabilityKeys, entry.fileSnapshotIds),
     budget: {
-      maxWorkers: MAX_REPAIR_DOMAINS,
-      maxModelCalls: repairCallCounts[index]!,
+      maxWorkers: MAX_REPAIR_PACKAGES,
+      maxModelCalls: repairCallCounts[index]! + 1,
       maxInputBytes: 64 * 1024,
       maxOutputTokens: 6_000,
       maxTotalTokens: repairTokenAllocations[index]!,
-      maxRepairPasses: 0 as const,
+      maxRepairPasses: 1 as const,
     },
   }));
   const settledRepairReports = await Promise.allSettled(repairPackages.map((workPackage) => runWorkPackage({

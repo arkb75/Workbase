@@ -326,6 +326,8 @@ describe("repository semantic task and budget", () => {
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("fileKey");
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
     expect(request.effort).toBe("low");
+    expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
   });
 
   it("degrades only missing or invalid file members and retains their exact gaps", async () => {
@@ -808,6 +810,8 @@ describe("repository semantic task and budget", () => {
     });
     expect(request.maxTokens).toBe(777);
     expect(request.budget).toBe(budget.model);
+    expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
   });

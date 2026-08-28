@@ -46,7 +46,7 @@ const projectDomainContainerSegments = new Set([
   "core", "data", "domain", "eval", "evals", "feature", "features", "form", "forms", "frontend", "handler", "handlers", "hook", "hooks", "infra", "infrastructure", "integration", "integrations", "internal", "job", "jobs", "lib", "libs",
   "com", "io", "java", "kotlin", "main", "net", "org", "python", "resources", "scala",
   "model", "models", "module", "modules", "package", "packages", "page", "pages", "persistence", "pipeline", "pipelines", "presentation", "provider", "providers", "queue", "queues", "repository",
-  "repositories", "rest", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "storage", "store", "stores",
+  "repositories", "rest", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "storage", "store", "stores", "public", "private", "external",
   "type", "types", "ui", "util", "utils", "view", "views",
   "validation", "validations", "web", "worker", "workers", "workflow", "workflows", "lambda", "terraform", "new",
 ]);
@@ -797,7 +797,10 @@ async function analyzeChunk(input: {
       // deeper reasoning here reduces reliability without adding authority.
       effort: "low",
       repairStrategy: "repair_last_failure",
-      transportPreference: ["json_schema"],
+      // A malformed native structured response is repaired once by the same
+      // model. Deterministic analysis remains a degraded path and is rejected
+      // by live evaluation; schema repair is the bounded provider path.
+      transportPreference: ["json_schema", "text_repair_fallback"],
       budget: input.budget?.model,
       extraValidation: (value) => value.findings.flatMap((finding, index) =>
         [
@@ -1326,7 +1329,9 @@ export async function analyzeRepositoryFileBatch(
         // file observations the workflow actually needs.
         effort: "low",
         repairStrategy: "repair_last_failure",
-        transportPreference: ["json_schema"],
+        // Preserve the semantic model path when a provider returns malformed
+        // JSON instead of replacing the whole micro-batch deterministically.
+        transportPreference: ["json_schema", "text_repair_fallback"],
         budget: sharedBudget?.model,
       }),
     }) as typeof result;

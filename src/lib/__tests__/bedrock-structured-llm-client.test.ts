@@ -705,6 +705,46 @@ describe("BedrockStructuredLlmClient", () => {
     ]);
   });
 
+  it("repairs malformed native semantic JSON with one bounded model call", async () => {
+    const { client, calls } = makeClient([
+      {
+        text: '{"files":{"file-1":{"summary":"incomplete"}',
+        stopReason: "end_turn",
+        tokenUsage: { inputTokens: 120, outputTokens: 20, totalTokens: 140 },
+      },
+      {
+        text: '{"ok":true}',
+        tokenUsage: { inputTokens: 80, outputTokens: 8, totalTokens: 88 },
+      },
+    ]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 128,
+      maxTotalTokens: 20_000,
+    });
+
+    const result = await client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "Return the supplied facts as JSON.",
+      schema,
+      schemaName: "repository_semantic_observation_batch",
+      schemaDescription: "A bounded repository observation batch.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+      budget,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(result.transportMode).toBe("text_repair_fallback");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.maxProviderAttempts).toBe(1);
+    expect(calls[1]?.systemPrompt).toContain("repair structured model outputs");
+    expect(budget.usage).toMatchObject({ modelCalls: 2, repairPasses: 1, totalTokens: 228 });
+  });
+
   it("rejects an adversarial one-character token stream before it can overspend the budget", async () => {
     const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
     const budget = createStructuredGenerationBudget({

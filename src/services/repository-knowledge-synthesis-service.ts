@@ -1159,7 +1159,7 @@ export function substantialFactHighlightFallback(
   facts: RepositorySubsystemSynthesis["facts"],
   notebook: SynthesisNotebookEntry[],
 ): RepositorySubsystemSynthesis["highlights"] {
-  const repositorySubstantialEvidence = Array.from(new Map(
+  const repositoryProductCapabilityEvidence = Array.from(new Map(
     notebook
       .filter((citation) =>
         citation.evidenceMode === "semantic" &&
@@ -1168,7 +1168,10 @@ export function substantialFactHighlightFallback(
         !citation.sensitivityFlag &&
         citation.productImportance >= 3 &&
         citation.implementationBreadth >= 2 &&
-        citation.technicalDifficulty >= 3
+        citation.technicalDifficulty >= 3 &&
+        citation.semanticSignals?.some((signal) =>
+          signal.startsWith("product_surface.")
+        )
       )
       .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
   ).values());
@@ -1199,18 +1202,21 @@ export function substantialFactHighlightFallback(
       citation.implementationBreadth >= 2 &&
       citation.technicalDifficulty >= 3
     );
-    const corroboratedCapabilityEvidence = Array.from(new Map(
+    const corroboratedProductCapabilityEvidence = Array.from(new Map(
       exactCitations
         .filter((citation) =>
           citation.productImportance >= 3 &&
           citation.implementationBreadth >= 2 &&
-          citation.technicalDifficulty >= 3
+          citation.technicalDifficulty >= 3 &&
+          citation.semanticSignals?.some((signal) =>
+            signal.startsWith("product_surface.")
+          )
         )
         .map((citation) => [synthesisNotebookReferenceKey(citation), citation]),
     ).values());
-    const repositoryCorroboratedEvidence = corroboratedCapabilityEvidence.filter(
+    const repositoryCorroboratedEvidence = corroboratedProductCapabilityEvidence.filter(
       (citation) =>
-        repositorySubstantialEvidence.filter((candidate) =>
+        repositoryProductCapabilityEvidence.filter((candidate) =>
           repositoryKey(candidate) === repositoryKey(citation)
         ).length >= 2,
     );
@@ -1218,7 +1224,7 @@ export function substantialFactHighlightFallback(
     // and 3 to a behavior finding. The same exact product workflow can
     // legitimately be phrased as either across model runs, so do not let that
     // classifier choice make automatic Highlight creation nondeterministic.
-    // Two independent exact capability observations are a stricter
+    // Two independent exact product-capability observations are a stricter
     // substitute for one importance-4 observation. They need not both be
     // attached to the same synthesized Fact: models legitimately distribute a
     // repository workflow across several individually grounded Facts. The
@@ -1752,9 +1758,10 @@ export function finalizeRepositorySubsystemSynthesis(input: {
   return {
     subsystemKey,
     facts,
-    highlights: modelHighlights.length
-      ? modelHighlights
-      : substantialFactHighlightFallback(facts, notebook),
+    // The synthesis model is authoritative about whether a supported Fact is
+    // substantial enough to become a Highlight. Do not silently promote a
+    // Fact after the model deliberately returned no Highlights.
+    highlights: modelHighlights,
     unresolvedQuestions: Array.from(new Set([
       ...result.unresolvedQuestions,
       ...coverageGaps,
@@ -1836,11 +1843,13 @@ export function selectGlobalRepositoryHighlights(
       };
     })
   ).sort((left, right) =>
-    // Prefer the strongest first candidate from each domain before a second
-    // candidate from a domain with already represented evidence.
-    left.highlightIndex - right.highlightIndex ||
+    // Rank the repository-wide candidate set by supported value. A weak first
+    // candidate from one subsystem must not crowd out a stronger second
+    // candidate from another; evidence and semantic deduplication below still
+    // prevent one implementation from filling several slots.
     right.score - left.score ||
     right.pathCount - left.pathCount ||
+    left.highlightIndex - right.highlightIndex ||
     left.highlight.text.localeCompare(right.highlight.text)
   );
   const selected: typeof candidates = [];

@@ -71,9 +71,9 @@ describe("repository knowledge main-path integrity", () => {
   });
 
   it("counts bounded model schema repair without confusing it with deterministic fallback", () => {
-    const synthesis = generation("capability_synthesis", "synthesis-model", {
+    const repairedExtraction = generation("semantic_extraction", "semantic-model", {
       resultRefs: {
-        configuredModelId: "synthesis-model",
+        configuredModelId: "semantic-model",
         requestIds: ["generate", "repair"],
         usageComplete: true,
         failedProviderAttempts: [],
@@ -83,8 +83,8 @@ describe("repository knowledge main-path integrity", () => {
     });
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
-        generation("semantic_extraction", "semantic-model"),
-        synthesis,
+        repairedExtraction,
+        generation("capability_synthesis", "synthesis-model"),
       ],
       expectedIdentities,
       coverage: null,
