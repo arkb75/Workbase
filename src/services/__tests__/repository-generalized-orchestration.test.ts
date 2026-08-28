@@ -66,19 +66,24 @@ describe("repository-derived cartographer and coverage critic", () => {
         mappedFile("noise-1", ".playwright-cli/session.json", 5),
         mappedFile("noise-2", ".workflow-data/runs/run.ts", 5),
         mappedFile("noise-3", "test/resources/generated/AccountModel.java", 5),
+        mappedFile("instructions-1", "AGENTS.md", 5),
+        mappedFile("instructions-2", ".agents/skills/database/SKILL.md", 5),
       ],
     });
 
-    expect(manifest.map((area) => area.key)).toEqual([
+    expect(manifest.map((area) => area.key)).toEqual(expect.arrayContaining([
       "project_domain:accounts",
       "project_domain:messaging",
       "project_domain:payments",
-    ]);
+      "repository_area:application_core",
+    ]));
     expect(manifest.flatMap((area) => area.files.map((file) => file.path))).not.toEqual(
       expect.arrayContaining([
         ".playwright-cli/session.json",
         ".workflow-data/runs/run.ts",
         "test/resources/generated/AccountModel.java",
+        "AGENTS.md",
+        ".agents/skills/database/SKILL.md",
       ]),
     );
     expect(manifest.some((area) => /ai_runtime|ingestion|project_domain:(?:api|model)/.test(area.key))).toBe(false);
@@ -99,11 +104,115 @@ describe("repository-derived cartographer and coverage critic", () => {
     };
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
 
-    expect(semanticSampleTarget(area)).toBe(3);
+    expect(semanticSampleTarget(area)).toBe(4);
     expect(plan).toHaveLength(1);
-    expect(plan[0]?.fileSnapshotIds).toHaveLength(3);
-    expect(plan[0]?.fileSnapshotIds).toEqual(["feed-0", "feed-1", "feed-2"]);
+    expect(plan[0]?.fileSnapshotIds).toHaveLength(4);
+    expect(plan[0]?.fileSnapshotIds).toEqual(["feed-0", "feed-1", "feed-2", "feed-3"]);
     expect(plan[0]?.fileSnapshotIds.length).toBeLessThanOrEqual(8);
+  });
+
+  it("samples distinct path families before near-duplicate files", () => {
+    const area = {
+      key: "repository_area:data_model",
+      label: "Data model and persistence",
+      scopeKey: "example/desktop",
+      salience: 120,
+      files: [
+        { id: "model-a", path: "src/main/model/Product.java", score: 100 },
+        { id: "model-b", path: "src/main/model/Order.java", score: 90 },
+        { id: "model-c", path: "src/main/model/Customer.java", score: 80 },
+        { id: "loader", path: "src/main/persistence/DataLoader.java", score: 40 },
+        { id: "writer", path: "src/main/persistence/DataWriter.java", score: 30 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toContain("model-a");
+    expect(plan[0]?.fileSnapshotIds).toContain("loader");
+  });
+
+  it("reserves structural coverage and rejects IDE, raw-data, and repository-wrapper domains", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/InsightUBC",
+      files: [
+        mappedFile("idea-1", ".idea/codeStyles/Project.xml", 8),
+        mappedFile("idea-2", ".idea/codeStyles/codeStyleConfig.xml", 8),
+        mappedFile("query-1", "src/controller/QueryParser.ts", 5),
+        mappedFile("query-2", "src/controller/QueryExecutor.ts", 5),
+        mappedFile("front-1", "frontend/insightubc/src/App.js", 5),
+        mappedFile("front-2", "frontend/insightubc/src/components/Insights.js", 5),
+        mappedFile("service-1", "src/services/dataset-service.ts", 5),
+        mappedFile("service-2", "src/services/query-service.ts", 5),
+      ],
+    });
+
+    expect(manifest.map((area) => area.key)).toEqual(expect.arrayContaining([
+      "repository_area:product_surface",
+      "repository_area:application_core",
+    ]));
+    expect(manifest.map((area) => area.key)).not.toEqual(expect.arrayContaining([
+      "project_domain:insightubc",
+      "project_domain:codestyles",
+    ]));
+    expect(manifest.flatMap((area) => area.files.map((file) => file.path)))
+      .not.toEqual(expect.arrayContaining([
+        ".idea/codeStyles/Project.xml",
+        ".idea/codeStyles/codeStyleConfig.xml",
+      ]));
+  });
+
+  it("canonicalizes duplicate domain spellings and demotes structural folders", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/general-app",
+      files: [
+        mappedFile("circle-1", "src/components/circle/dashboard.tsx"),
+        mappedFile("circle-2", "src/components/circle/contributions.tsx"),
+        mappedFile("circles-1", "src/app/circles/list.tsx"),
+        mappedFile("circles-2", "src/app/circles/detail.tsx"),
+        mappedFile("email-a", "frontend/email_intake/src/conversation.ts"),
+        mappedFile("email-b", "frontend/email_intake/src/revision.ts"),
+        mappedFile("email-c", "src/email-intake/parse.ts"),
+        mappedFile("email-d", "src/email-intake/respond.ts"),
+        mappedFile("validation-1", "src/validations/auth.ts"),
+        mappedFile("validation-2", "src/validations/circles.ts"),
+      ],
+    });
+
+    expect(manifest.map((area) => area.key).filter((key) => key.startsWith("project_domain:")))
+      .toEqual(expect.arrayContaining([
+        "project_domain:circle",
+        "project_domain:email-intake",
+      ]));
+    expect(manifest.map((area) => area.key)).not.toEqual(expect.arrayContaining([
+      "project_domain:circles",
+      "project_domain:email_intake",
+      "project_domain:validations",
+    ]));
+  });
+
+  it("maps a mixed Java/Python desktop repository without promoting raw data", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/Amazon-Marketplace-Analytic-Software",
+      files: [
+        mappedFile("raw-1", "data/productdetails.json", 8),
+        mappedFile("raw-2", "data/purchaseorders.json", 8),
+        mappedFile("model-1", "src/main/model/ProductDetails.java", 5),
+        mappedFile("model-2", "src/main/model/PurchaseOrders.java", 5),
+        mappedFile("ui-1", "src/main/ui/Main.java", 5),
+        mappedFile("ui-2", "src/main/ui/ForecastPanel.java", 5),
+        mappedFile("client", "src/main/service/ForecastClient.java", 5),
+        mappedFile("ml-1", "ml_service/forecast_service.py", 5),
+        mappedFile("ml-2", "ml_service/requirements.txt", 5),
+      ],
+    });
+
+    expect(manifest.map((area) => area.key)).toEqual(expect.arrayContaining([
+      "repository_area:intelligence",
+      "repository_area:data_model",
+      "repository_area:product_surface",
+      "repository_area:integrations",
+    ]));
+    expect(manifest.map((area) => area.key)).not.toContain("project_domain:data");
   });
 
   it("keeps a flat source tree researchable without inventing filename domains", () => {
@@ -150,12 +259,12 @@ describe("repository-derived cartographer and coverage critic", () => {
       supportedCandidates: 0,
     }));
     expect(critique.repairPackages).toHaveLength(1);
-    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(["contribution"]);
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(["contribution", "repayment"]);
 
     const finalCritique = critiqueRepositoryCoverage({
       manifest,
       reports: [...firstPass, {
-        inspectedFileSnapshotIds: ["contribution"],
+        inspectedFileSnapshotIds: ["contribution", "repayment"],
         candidates: [candidate("project_domain:funding", "contribution")],
       }],
       allowRepair: false,
@@ -185,6 +294,31 @@ describe("repository-derived cartographer and coverage critic", () => {
     ]);
   });
 
+  it("accepts test evidence for quality coverage without treating tests as product implementation", () => {
+    const manifest = [{
+      key: "repository_area:quality",
+      label: "Quality and operations",
+      scopeKey: "example/service",
+      salience: 30,
+      files: [
+        { id: "test-a", path: "tests/auth.test.ts", score: 10 },
+        { id: "test-b", path: "tests/orders.test.ts", score: 9 },
+        { id: "test-c", path: "tests/payments.test.ts", score: 8 },
+      ],
+    }];
+    const critique = critiqueRepositoryCoverage({
+      manifest,
+      reports: [{
+        inspectedFileSnapshotIds: ["test-a", "test-b"],
+        candidates: [candidate("repository_area:quality", "test-a")],
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({ status: "covered" }));
+    expect(critique.repairPackages).toEqual([]);
+  });
+
   it("keeps identical domain keys isolated across attached repositories", () => {
     const manifest = ["owner/repo-a", "owner/repo-b"].map((scopeKey, index) => ({
       key: "project_domain:payments",
@@ -199,7 +333,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     const critique = critiqueRepositoryCoverage({
       manifest,
       reports: [{
-        inspectedFileSnapshotIds: ["payments-0-a"],
+        inspectedFileSnapshotIds: ["payments-0-a", "payments-0-b"],
         candidates: [candidate("project_domain:payments", "payments-0-a")],
       }],
       allowRepair: true,
@@ -212,6 +346,6 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.gaps).toEqual([
       expect.stringContaining("owner/repo-b"),
     ]);
-    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(["payments-1-a"]);
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(["payments-1-a", "payments-1-b"]);
   });
 });

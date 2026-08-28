@@ -1692,6 +1692,10 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         warnings: toInputJson(embeddingRefreshState.warnings),
         budgetUsage: toInputJson({
           ...objectRecord(current.budgetUsage),
+          repositorySynthesis: {
+            maxTokens: 80_000,
+            usage: synthesis[0]?.tokenUsage ?? null,
+          },
           reconciliation: {
             stageTimingsMs,
             totalMs: Date.now() - reconciliationStartedAt,

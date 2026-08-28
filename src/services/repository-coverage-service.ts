@@ -43,11 +43,12 @@ export const MINIMUM_REQUIRED_SEMANTIC_TARGETS = 8;
 
 const projectDomainContainerSegments = new Set([
   "adapter", "adapters", "api", "app", "apps", "client", "clients", "common", "component", "components", "controller", "controllers",
-  "core", "feature", "features", "handler", "handlers", "hook", "hooks", "internal", "lib", "libs",
+  "backend", "core", "data", "domain", "eval", "evals", "feature", "features", "frontend", "handler", "handlers", "hook", "hooks", "internal", "lib", "libs",
   "com", "io", "java", "kotlin", "main", "net", "org", "python", "resources", "scala",
   "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
-  "repositories", "route", "routes", "server", "service", "services", "shared", "src", "store", "stores",
+  "repositories", "persistence", "provider", "providers", "rest", "route", "routes", "server", "service", "services", "shared", "src", "storage", "store", "stores",
   "type", "types", "ui", "util", "utils", "view", "views",
+  "validation", "validations", "workflow", "workflows", "lambda", "terraform", "new",
 ]);
 
 const excludedProjectDomainRoots = new Set([

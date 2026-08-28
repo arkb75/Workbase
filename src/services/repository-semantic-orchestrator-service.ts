@@ -40,7 +40,7 @@ const SEMANTIC_MICRO_BATCH_SIZE = 4;
 // that helper or use these Workbase-era selection limits.
 const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
-const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 8;
+const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_DOMAINS = 3;
 const REPAIR_TOKEN_RESERVE = 20_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 32_000;
@@ -51,7 +51,7 @@ const repositoryAreaRules = [
   {
     key: `${REPOSITORY_AREA_PREFIX}product_surface`,
     label: "Product surface",
-    pattern: /(?:^README(?:\.[^/]+)?$|(?:^|\/)(?:app|pages|views?|components?|screens?|routes?)(?:\/|$))/i,
+    pattern: /(?:^README(?:\.[^/]+)?$|(?:^|\/)(?:app|frontend|pages|ui|views?|components?|screens?|routes?)(?:\/|$))/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}data_model`,
@@ -74,7 +74,7 @@ const repositoryAreaRules = [
     // Deliberately exclude bare "model" and "api": both are ordinary
     // application vocabulary in Java/TypeScript and previously created large
     // numbers of false AI/integration classifications.
-    pattern: /(?:search|retriev|rank(?:er|ing)|recommend|embedding|vector|agents?|llm|inference|training)/i,
+    pattern: /(?:search|retriev|rank(?:er|ing)|recommend|embedding|vector|agents?|llm|inference|training|machine[-_ ]learning|ml_service|forecast|predict)/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}application_core`,
@@ -89,12 +89,14 @@ const repositoryAreaRules = [
 ] as const;
 
 const repositoryCartographyNoiseSegments = new Set([
-  ".playwright-cli", ".workflow-data", ".nyc_output", ".next", "build", "coverage", "dist",
-  "fixtures", "generated", "node_modules", "test-results", "vendor",
+  ".github", ".idea", ".playwright-cli", ".vscode", ".workflow-data", ".nyc_output", ".next",
+  "build", "coverage", "dist", "eval", "evals", "fixtures", "generated",
+  "node_modules", "test-results", "vendor",
 ]);
 
 export function isRepositoryCartographyNoisePath(path: string) {
   const segments = path.replace(/\\/g, "/").split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  if (segments.at(-1) === ".ds_store") return true;
   if (segments.some((segment) => repositoryCartographyNoiseSegments.has(segment))) return true;
   return segments.some((segment, index) =>
     /^(?:tests?|specs?)$/.test(segment) && segments[index + 1] === "resources"
@@ -296,15 +298,22 @@ export interface RepositoryCartographyFile {
 }
 
 function repositoryFileSalience(file: RepositoryCartographyFile) {
-  return file.analysis.facts.reduce(
-    (total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty,
-    0,
-  ) +
-    file.analysis.userFacingCapabilities.length * 8 +
-    file.analysis.architectureSignals.length * 4 +
-    file.analysis.symbols.length * 2 +
+  // Static analyzers may carry legacy specialized recognizers. Cartography
+  // uses only bounded, language-neutral signal presence so those recognizers
+  // cannot buy a repository more semantic attention.
+  const base = (file.analysis.facts.length ? 8 : 0) +
+    Math.min(2, file.analysis.userFacingCapabilities.length) * 8 +
+    Math.min(4, file.analysis.architectureSignals.length) * 4 +
+    Math.min(8, file.analysis.symbols.length) * 2 +
     Math.min(12, file.analysis.dependencies.length) +
     (file.changeType && file.changeType !== "unchanged" ? 16 : 0);
+  const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
+  const incidentalPenalty = /^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename)
+    ? 24
+    : /^(?:I[A-Z][A-Za-z0-9_]*|types?)\.[^.]+$/.test(basename)
+      ? 10
+      : 0;
+  return Math.max(1, base - incidentalPenalty);
 }
 
 function repositoryDomainLabel(key: string) {
@@ -326,6 +335,21 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
   maxDomains?: number;
 }) {
   const groups = new Map<string, CapabilityManifestArea>();
+  const repositorySlug = input.scopeKey
+    .replace(/\.git$/i, "")
+    .split("/")
+    .filter(Boolean)
+    .at(-1)
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+  const cartographyPath = (path: string) => path
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment, index, segments) => {
+      if (index === segments.length - 1 || !repositorySlug) return true;
+      return segment.toLowerCase().replace(/[^a-z0-9]+/g, "-") !== repositorySlug;
+    })
+    .join("/");
   const add = (key: string, label: string, file: RepositoryCartographyFile) => {
     const current = groups.get(key) ?? {
       key,
@@ -345,14 +369,36 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
 
   for (const file of input.files) {
     if (isRepositoryCartographyNoisePath(file.path)) continue;
+    // Re-derive the domain here from the repository path instead of trusting
+    // static labels produced before cartography normalization. In particular,
+    // a checked-in wrapper directory named after the repository is not a
+    // product domain (for example frontend/<repo>/src).
+    const normalizedPath = cartographyPath(file.path);
     const domainKeys = Array.from(new Set([
-      ...file.analysis.subsystemKeys.filter(isProjectDomainCapabilityKey),
-      inferProjectDomainCapability(file.path),
-    ].filter((key): key is string => Boolean(key))));
+      inferProjectDomainCapability(normalizedPath),
+    ].filter((key): key is string => Boolean(key)).map((key) =>
+      `${PROJECT_DOMAIN_CAPABILITY_PREFIX}${key
+        .slice(PROJECT_DOMAIN_CAPABILITY_PREFIX.length)
+        .replace(/_/g, "-")}`
+    )));
     for (const key of domainKeys) add(key, repositoryDomainLabel(key), file);
     for (const area of repositoryAreaRules) {
-      if (area.pattern.test(file.path)) add(area.key, area.label, file);
+      if (area.pattern.test(normalizedPath)) add(area.key, area.label, file);
     }
+  }
+
+  // Merge singular/plural directory variants only when both are actually
+  // present in this repository; do not blindly stem every product noun.
+  for (const [key, plural] of Array.from(groups.entries())) {
+    if (!isProjectDomainCapabilityKey(key)) continue;
+    const label = key.slice(PROJECT_DOMAIN_CAPABILITY_PREFIX.length);
+    if (!label.endsWith("s") || label.length < 5) continue;
+    const singularKey = `${PROJECT_DOMAIN_CAPABILITY_PREFIX}${label.slice(0, -1)}`;
+    const singular = groups.get(singularKey);
+    if (!singular) continue;
+    singular.files.push(...plural.files);
+    singular.salience = (singular.salience ?? 0) + (plural.salience ?? 0);
+    groups.delete(key);
   }
 
   const rankedDomains = Array.from(groups.values())
@@ -360,15 +406,15 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     // A one-file directory is evidence, but not a stable project domain. It
     // remains discoverable through a structural fallback instead of
     // fragmenting the project map into incidental folders.
-    .filter((area) => area.files.length >= 2)
+    .filter((area) =>
+      area.files.filter((file) => isImplementationEvidencePath(file.path)).length >= 2
+    )
     .sort((left, right) =>
       (right.salience ?? 0) - (left.salience ?? 0) ||
       right.files.length - left.files.length ||
       left.key.localeCompare(right.key),
     );
   const maxDomains = input.maxDomains ?? MAX_DISCOVERED_DOMAINS_PER_REPOSITORY;
-  const selected = rankedDomains.slice(0, maxDomains);
-  const selectedFileIds = new Set(selected.flatMap((area) => area.files.map((file) => file.id)));
   const specificallyClassifiedStructuralFileIds = new Set(Array.from(groups.values())
     .filter((area) =>
       area.key.startsWith(REPOSITORY_AREA_PREFIX) &&
@@ -380,21 +426,34 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     .map((area) => ({
       ...area,
       files: area.files.filter((file) =>
-        !selectedFileIds.has(file.id) &&
-        (area.key !== `${REPOSITORY_AREA_PREFIX}application_core` ||
-          !specificallyClassifiedStructuralFileIds.has(file.id))
+        area.key !== `${REPOSITORY_AREA_PREFIX}application_core` ||
+        !specificallyClassifiedStructuralFileIds.has(file.id)
       ),
     }))
-    .filter((area) => area.files.length)
+    .filter((area) =>
+      area.files.some((file) => isCoverageEvidencePath(area.key, file.path))
+    )
     .sort((left, right) =>
-      (right.salience ?? 0) - (left.salience ?? 0) || left.key.localeCompare(right.key),
+      Number(left.key === `${REPOSITORY_AREA_PREFIX}application_core`) -
+        Number(right.key === `${REPOSITORY_AREA_PREFIX}application_core`) ||
+      (right.salience ?? 0) - (left.salience ?? 0) ||
+      left.key.localeCompare(right.key),
     );
 
-  // Three independently evidenced areas is a useful lower bound for a broad
-  // project map, while repositories with rich domain structure stay entirely
-  // repository-derived rather than being forced through a fixed ontology.
-  const fallbackCount = Math.max(0, Math.min(3, maxDomains) - selected.length);
-  return [...selected, ...structuralFallbacks.slice(0, fallbackCount)]
+  // Every evidenced architectural role is an obligation. Product-domain
+  // folders use only the capacity left after those roles, so UI routes cannot
+  // crowd out persistence, integrations, automation, or core services.
+  const structuralReserve = Math.min(structuralFallbacks.length, maxDomains);
+  const selectedDomains = rankedDomains.slice(0, Math.max(0, maxDomains - structuralReserve));
+  const structuralSlots = Math.max(0, maxDomains - selectedDomains.length);
+  const applicationCore = structuralFallbacks.find((area) =>
+    area.key === `${REPOSITORY_AREA_PREFIX}application_core`
+  );
+  const specificStructural = structuralFallbacks.filter((area) => area !== applicationCore);
+  const selectedStructural = applicationCore && structuralSlots > 0
+    ? [...specificStructural.slice(0, structuralSlots - 1), applicationCore]
+    : specificStructural.slice(0, structuralSlots);
+  return [...selectedDomains, ...selectedStructural]
     .map((area) => ({
       ...area,
       files: area.files
@@ -403,10 +462,27 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     }));
 }
 
-export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "files">) {
-  if (area.files.length <= 2) return 1;
-  if (area.files.length <= 12) return 2;
-  return 3;
+function isQualityEvidencePath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  return /(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized);
+}
+
+function isCoverageEvidencePath(areaKey: string, path: string) {
+  return isImplementationEvidencePath(path) || (
+    areaKey === `${REPOSITORY_AREA_PREFIX}quality` && isQualityEvidencePath(path)
+  );
+}
+
+export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "key" | "files">) {
+  const implementationCount = area.files.filter((file) =>
+    isCoverageEvidencePath(area.key, file.path)
+  ).length;
+  const evidenceCount = implementationCount || area.files.length;
+  if (evidenceCount <= 2) return evidenceCount;
+  if (evidenceCount <= 6) return 2;
+  if (evidenceCount <= 15) return 3;
+  if (evidenceCount <= 30) return 4;
+  return 5;
 }
 
 export interface CapabilityCandidate {
@@ -1145,6 +1221,43 @@ function packageTemplate(input: {
   };
 }
 
+function semanticPathFamily(path: string) {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (segments.length <= 1) return "root";
+  return segments.slice(0, Math.min(3, segments.length - 1)).join("/").toLowerCase();
+}
+
+function diverseSemanticFiles(
+  files: CapabilityManifestArea["files"],
+  target: number,
+) {
+  const substantive = files.filter((file) => {
+    const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
+    return !/^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename);
+  });
+  const candidates = substantive.length >= target ? substantive : files;
+  const ranked = [...candidates].sort((left, right) =>
+    right.score - left.score || left.path.localeCompare(right.path)
+  );
+  const selected: typeof ranked = [];
+  const selectedIds = new Set<string>();
+  const families = new Set<string>();
+  for (const file of ranked) {
+    const family = semanticPathFamily(file.path);
+    if (families.has(family)) continue;
+    selected.push(file);
+    selectedIds.add(file.id);
+    families.add(family);
+    if (selected.length >= target) return selected;
+  }
+  for (const file of ranked) {
+    if (selectedIds.has(file.id)) continue;
+    selected.push(file);
+    if (selected.length >= target) break;
+  }
+  return selected;
+}
+
 /**
  * Turn cartographer domains into bounded investigator assignments. The
  * planner may express a preferred ownership grouping, but cannot replace the
@@ -1172,12 +1285,18 @@ export function buildRepositoryDerivedSemanticPlan(input: {
   );
   for (const area of sortedManifest) {
     const target = semanticSampleTarget(area);
-    const implementationFiles = area.files.filter((file) => isImplementationEvidencePath(file.path));
-    const contextualFiles = area.files.filter((file) => !isImplementationEvidencePath(file.path));
-    const selectedFiles = target >= 2 && implementationFiles.length && contextualFiles.length
-      ? [implementationFiles[0]!, contextualFiles[0]!, ...implementationFiles.slice(1)]
-      : [...implementationFiles, ...contextualFiles];
-    const selectedIds = selectedFiles.slice(0, target).map((file) => file.id);
+    const implementationFiles = area.files.filter((file) =>
+      isCoverageEvidencePath(area.key, file.path)
+    );
+    const contextualFiles = area.files.filter((file) =>
+      !isCoverageEvidencePath(area.key, file.path)
+    );
+    // Context can explain implementation, but it must not displace executable
+    // or schema evidence from the bounded quota.
+    const selectedFiles = implementationFiles.length
+      ? diverseSemanticFiles(implementationFiles, target)
+      : diverseSemanticFiles(contextualFiles, target);
+    const selectedIds = selectedFiles.map((file) => file.id);
     if (!selectedIds.length) continue;
     const preferredOwner = plannerOwner.get(area.key);
     const candidates = packages
@@ -1220,6 +1339,7 @@ export interface RepositoryCoverageCritique {
     targetSamples: number;
     inspectedSamples: number;
     supportedCandidates: number;
+    requiredSupportedCandidates: number;
     status: "covered" | "thin" | "missing";
   }>;
   gaps: string[];
@@ -1229,9 +1349,14 @@ export interface RepositoryCoverageCritique {
 export function isImplementationEvidencePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
   if (/^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized)) return false;
-  if (/(?:^|\/)(?:docs?|examples?|fixtures?|__fixtures__)(?:\/|$)/i.test(normalized)) return false;
+  if (/(?:^|\/)(?:docs?|fixtures?|__fixtures__)(?:\/|$)/i.test(normalized)) return false;
+  if (
+    /(?:^|\/)examples?(?:\/|$)/i.test(normalized) &&
+    !/(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized)
+  ) return false;
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
-  return true;
+  if (normalized.split("/").some((segment) => segment.startsWith("."))) return false;
+  return /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i.test(normalized);
 }
 
 /**
@@ -1252,14 +1377,20 @@ export function critiqueRepositoryCoverage(input: {
   const domains = input.manifest.map((area) => {
     const targetSamples = semanticSampleTarget(area);
     const areaFileIds = new Set(area.files.map((file) => file.id));
-    const inspectedSamples = area.files.filter((file) => inspected.has(file.id)).length;
-    const supportedCandidates = allCandidates.filter((candidate) =>
+    const implementationFiles = area.files.filter((file) =>
+      isCoverageEvidencePath(area.key, file.path)
+    );
+    const evidenceFiles = implementationFiles.length ? implementationFiles : area.files;
+    const inspectedSamples = evidenceFiles.filter((file) => inspected.has(file.id)).length;
+    const supportedCandidateStatements = new Set(allCandidates.filter((candidate) =>
       candidate.key === area.key && candidate.evidence.some((evidence) => {
         if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
         const path = pathByFileId.get(evidence.fileSnapshotId);
-        return path ? isImplementationEvidencePath(path) : false;
+        return path ? isCoverageEvidencePath(area.key, path) : false;
       })
-    ).length;
+    ).map((candidate) => candidate.statement.trim().toLowerCase().replace(/\s+/g, " ")));
+    const supportedCandidates = supportedCandidateStatements.size;
+    const requiredSupportedCandidates = targetSamples >= 4 ? 2 : 1;
     return {
       key: area.key,
       label: area.label,
@@ -1268,9 +1399,10 @@ export function critiqueRepositoryCoverage(input: {
       targetSamples,
       inspectedSamples,
       supportedCandidates,
+      requiredSupportedCandidates,
       status: supportedCandidates === 0
         ? "missing" as const
-        : inspectedSamples < targetSamples
+        : supportedCandidates < requiredSupportedCandidates || inspectedSamples < targetSamples
           ? "thin" as const
           : "covered" as const,
     };
@@ -1279,6 +1411,9 @@ export function critiqueRepositoryCoverage(input: {
     const scope = domain.scopeKey ? ` in ${domain.scopeKey}` : "";
     if (domain.supportedCandidates === 0) {
       return [`${domain.label}${scope} has no supported semantic finding after inspecting ${domain.inspectedSamples} of ${domain.totalFiles} mapped files.`];
+    }
+    if (domain.supportedCandidates < domain.requiredSupportedCandidates) {
+      return [`${domain.label}${scope} has only ${domain.supportedCandidates} of ${domain.requiredSupportedCandidates} required distinct supported findings.`];
     }
     if (domain.inspectedSamples < domain.targetSamples) {
       return [`${domain.label}${scope} has only ${domain.inspectedSamples} of ${domain.targetSamples} required semantic samples.`];
@@ -1303,9 +1438,15 @@ export function critiqueRepositoryCoverage(input: {
         .slice(0, MAX_REPAIR_DOMAINS)
     : [];
   const repairPackages = repairAreas.map(({ domain, area }) => {
-    const desired = Math.max(1, domain.targetSamples - domain.inspectedSamples);
+    const desired = Math.max(
+      1,
+      domain.targetSamples - domain.inspectedSamples,
+      domain.requiredSupportedCandidates - domain.supportedCandidates,
+    );
     const uninspected = area.files.filter((file) => !inspected.has(file.id));
-    const implementationFiles = uninspected.filter((file) => isImplementationEvidencePath(file.path));
+    const implementationFiles = uninspected.filter((file) =>
+      isCoverageEvidencePath(area.key, file.path)
+    );
     const ids = (implementationFiles.length ? implementationFiles : uninspected)
       .slice(0, desired)
       .map((file) => file.id);
@@ -1811,6 +1952,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       budgetUsage: inputJson({
         maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
         maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+        maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
         allocatedWorkerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
         workerTokenAllocations,
         repairTokenReserve,
@@ -1963,7 +2105,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         remainingGaps,
       }),
       budgetUsage: inputJson({
-        limits: { maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS },
+        limits: {
+          maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
+          maxSemanticTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+          maxSynthesisTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+          maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
+        },
         allocations: {
           plannerTokens: plannerTokenReserve,
           workerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),

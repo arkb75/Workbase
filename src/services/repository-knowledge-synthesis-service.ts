@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ProjectFactCategory, ProjectKnowledgeCitation } from "@/src/domain/project-chat";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
@@ -1238,7 +1239,11 @@ type SynthesisSetResult = {
 };
 
 function fallbackSynthesisSet(
-  subsystems: Array<{ subsystemKey: string; notebook: SynthesisNotebookEntry[] }>,
+  subsystems: Array<{
+    subsystemKey: string;
+    synthesisKey?: string;
+    notebook: SynthesisNotebookEntry[];
+  }>,
   reason?: string,
   tokenUsage: unknown = null,
 ): SynthesisSetResult {
@@ -1247,7 +1252,7 @@ function fallbackSynthesisSet(
       subsystems: subsystems.map((subsystem) => {
         const fallback = fallbackSubsystemSynthesis(subsystem.subsystemKey, subsystem.notebook);
         return {
-          subsystemKey: subsystem.subsystemKey,
+          subsystemKey: subsystem.synthesisKey ?? subsystem.subsystemKey,
           ...fallback,
           unresolvedQuestions: reason
             ? [reason, ...fallback.unresolvedQuestions]
@@ -1257,7 +1262,9 @@ function fallbackSynthesisSet(
     },
     tokenUsage,
     fallbackUsed: true,
-    fallbackSubsystemKeys: subsystems.map((subsystem) => subsystem.subsystemKey),
+    fallbackSubsystemKeys: subsystems.map((subsystem) =>
+      subsystem.synthesisKey ?? subsystem.subsystemKey
+    ),
   };
 }
 
@@ -1265,14 +1272,18 @@ async function synthesizeSubsystemSet(input: {
   workItemId: string;
   refreshRunId: string;
   projectTitle: string;
-  subsystems: Array<{ subsystemKey: string; notebook: SynthesisNotebookEntry[] }>;
+  subsystems: Array<{
+    subsystemKey: string;
+    synthesisKey?: string;
+    notebook: SynthesisNotebookEntry[];
+  }>;
   budget?: StructuredGenerationBudget;
 }): Promise<SynthesisSetResult> {
   if (resolveWorkbaseLlmProvider() === "mock") {
     return {
       data: {
         subsystems: input.subsystems.map((subsystem) => ({
-          subsystemKey: subsystem.subsystemKey,
+          subsystemKey: subsystem.synthesisKey ?? subsystem.subsystemKey,
           ...fallbackSubsystemSynthesis(subsystem.subsystemKey, subsystem.notebook),
         })),
       },
@@ -1281,16 +1292,18 @@ async function synthesizeSubsystemSet(input: {
       fallbackSubsystemKeys: [],
     };
   }
-  const expectedKeys = new Set(input.subsystems.map((subsystem) => subsystem.subsystemKey));
+  const expectedKeys = new Set(input.subsystems.map((subsystem) =>
+    subsystem.synthesisKey ?? subsystem.subsystemKey
+  ));
   try {
     const result = await runAuditedStructuredGeneration({
       workItemId: input.workItemId,
       kind: "capability_synthesis",
       profile: "deep_synthesis",
-      idempotencyKey: `${input.refreshRunId}:capability-synthesis:${input.subsystems.map((entry) => entry.subsystemKey).sort().join(",")}`,
+      idempotencyKey: `${input.refreshRunId}:capability-synthesis:${input.subsystems.map((entry) => entry.synthesisKey ?? entry.subsystemKey).sort().join(",")}`,
       inputSummary: {
         refreshRunId: input.refreshRunId,
-        subsystemKeys: input.subsystems.map((entry) => entry.subsystemKey),
+        subsystemKeys: input.subsystems.map((entry) => entry.synthesisKey ?? entry.subsystemKey),
         notebookEntries: input.subsystems.reduce((total, entry) => total + entry.notebook.length, 0),
       },
       execute: () => getStructuredLlmClient("deep_synthesis").generateStructured({
@@ -1309,7 +1322,7 @@ async function synthesizeSubsystemSet(input: {
         userPrompt: JSON.stringify({
           projectTitle: input.projectTitle,
           subsystems: input.subsystems.map((subsystem) => ({
-            subsystemKey: subsystem.subsystemKey,
+            subsystemKey: subsystem.synthesisKey ?? subsystem.subsystemKey,
             notebook: subsystem.notebook.map((entry, index) => ({ index: index + 1, ...entry })),
           })),
         }),
@@ -1798,7 +1811,25 @@ export async function synthesizeRepositoryKnowledge(
       snapshots: { include: { files: { where: { disposition: "analyzed" } } } },
     },
   });
-  const notebookBySubsystem = new Map<string, SynthesisNotebookEntry[]>();
+  const notebookBySubsystem = new Map<string, {
+    subsystemKey: string;
+    scopeKey: string;
+    notebook: SynthesisNotebookEntry[];
+  }>();
+  const scopedNotebook = (input: {
+    sourceId: string;
+    scopeKey: string;
+    subsystemKey: string;
+  }) => {
+    const key = JSON.stringify([input.sourceId, input.subsystemKey]);
+    const current = notebookBySubsystem.get(key) ?? {
+      subsystemKey: input.subsystemKey,
+      scopeKey: input.scopeKey,
+      notebook: [],
+    };
+    notebookBySubsystem.set(key, current);
+    return current.notebook;
+  };
   for (const snapshot of run.snapshots) {
     const target = (run.targetHeads as unknown as RepositoryTargetHead[]).find((entry) => entry.sourceId === snapshot.sourceId);
     if (!target) continue;
@@ -1809,7 +1840,11 @@ export async function synthesizeRepositoryKnowledge(
         : null;
       if (semanticAnalysis) {
         for (const subsystemKey of semanticAnalysis.subsystemKeys) {
-          const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
+          const notebook = scopedNotebook({
+            sourceId: snapshot.sourceId,
+            scopeKey: target.repository,
+            subsystemKey,
+          });
           for (const fact of semanticFactsForSubsystem(semanticAnalysis, subsystemKey)) {
             notebook.push({
               sourceId: snapshot.sourceId,
@@ -1832,7 +1867,6 @@ export async function synthesizeRepositoryKnowledge(
               evidenceMode: "semantic",
             });
           }
-          notebookBySubsystem.set(subsystemKey, notebook);
         }
       }
       const staticAnalysis = file.analyzerVersion === REPOSITORY_STATIC_ANALYZER_VERSION
@@ -1841,7 +1875,11 @@ export async function synthesizeRepositoryKnowledge(
       if (staticAnalysis) {
         for (const fact of staticAnalysis.facts) {
           for (const subsystemKey of deterministicSynthesisAnchorSubsystems(fact, file.path)) {
-            const notebook = notebookBySubsystem.get(subsystemKey) ?? [];
+            const notebook = scopedNotebook({
+              sourceId: snapshot.sourceId,
+              scopeKey: target.repository,
+              subsystemKey,
+            });
             notebook.push({
               sourceId: snapshot.sourceId,
               repository: target.repository,
@@ -1861,7 +1899,6 @@ export async function synthesizeRepositoryKnowledge(
               semanticStatus: "succeeded",
               evidenceMode: "deterministic_anchor",
             });
-            notebookBySubsystem.set(subsystemKey, notebook);
           }
         }
       }
@@ -1869,11 +1906,16 @@ export async function synthesizeRepositoryKnowledge(
   }
 
   const selectedCapabilityKeys = new Set(selectedCapabilityKeysFromOrchestration(run.orchestration));
-  const synthesisInputs = Array.from(notebookBySubsystem.entries())
-    .map(([subsystemKey, rawNotebook]) => {
+  const synthesisInputs = Array.from(notebookBySubsystem.values())
+    .map(({ subsystemKey, scopeKey, notebook: rawNotebook }) => {
       const notebook = selectSubsystemSynthesisNotebook(subsystemKey, rawNotebook);
       return {
         subsystemKey,
+        synthesisKey: `${subsystemKey.slice(0, 88)}#${createHash("sha256")
+          .update(scopeKey)
+          .digest("hex")
+          .slice(0, 10)}`,
+        scopeKey,
         notebook,
         coverageGaps: synthesisNotebookSourceCoverageGaps(rawNotebook, notebook),
         modelNotebook: modelEligibleSynthesisNotebook(notebook),
@@ -1887,9 +1929,14 @@ export async function synthesizeRepositoryKnowledge(
     // runtime synthesis universe. Incidental static classifier labels cannot
     // become facts or Highlights unless they were admitted to the plan.
     .filter((input) => input.notebook.length && selectedCapabilityKeys.has(input.subsystemKey))
-    .sort((left, right) => right.priority - left.priority || left.subsystemKey.localeCompare(right.subsystemKey));
+    .sort((left, right) =>
+      right.priority - left.priority ||
+      left.subsystemKey.localeCompare(right.subsystemKey) ||
+      left.scopeKey.localeCompare(right.scopeKey)
+    );
   const synthesizedSubsystems: Array<RepositorySubsystemSynthesis & {
     subsystemKey: string;
+    synthesisKey: string;
     approvalEligible?: boolean;
   }> = [];
   const tokenUsage: unknown[] = [];
@@ -1897,6 +1944,7 @@ export async function synthesizeRepositoryKnowledge(
   if (options.fallbackOnly || synthesisMode !== "model") {
     synthesizedSubsystems.push(...synthesisInputs.map((subsystem) => ({
       subsystemKey: subsystem.subsystemKey,
+      synthesisKey: subsystem.synthesisKey,
       ...fallbackSubsystemSynthesis(subsystem.subsystemKey, subsystem.notebook),
       ...(options.fallbackOnly
         ? { unresolvedQuestions: ["Reconciliation resumed from the persisted bounded notebook after a partial prior attempt."] }
@@ -1905,21 +1953,37 @@ export async function synthesizeRepositoryKnowledge(
   } else {
     const exactProjectDomains = synthesisInputs.flatMap((subsystem) => {
       const synthesis = exactSinglePathProjectDomainSynthesis(subsystem.subsystemKey, subsystem.notebook);
-      return synthesis ? [{ subsystemKey: subsystem.subsystemKey, ...synthesis }] : [];
+      return synthesis ? [{
+        subsystemKey: subsystem.subsystemKey,
+        synthesisKey: subsystem.synthesisKey,
+        ...synthesis,
+      }] : [];
     });
     synthesizedSubsystems.push(...exactProjectDomains);
-    const exactKeys = new Set(exactProjectDomains.map((entry) => entry.subsystemKey));
+    const exactKeys = new Set(exactProjectDomains.map((entry) => entry.synthesisKey));
     const deterministicOnly = synthesisInputs
-      .filter((entry) => !exactKeys.has(entry.subsystemKey) && entry.modelNotebook.length === 0)
+      .filter((entry) => !exactKeys.has(entry.synthesisKey) && entry.modelNotebook.length === 0)
       .map((entry) => ({
         subsystemKey: entry.subsystemKey,
+        synthesisKey: entry.synthesisKey,
         ...fallbackSubsystemSynthesis(entry.subsystemKey, entry.notebook),
       }));
     synthesizedSubsystems.push(...deterministicOnly);
-    const deterministicOnlyKeys = new Set(deterministicOnly.map((entry) => entry.subsystemKey));
+    const deterministicOnlyKeys = new Set(deterministicOnly.map((entry) => entry.synthesisKey));
     const modelInputs = synthesisInputs
-      .filter((entry) => !exactKeys.has(entry.subsystemKey) && !deterministicOnlyKeys.has(entry.subsystemKey))
-      .map((entry) => ({ subsystemKey: entry.subsystemKey, notebook: entry.modelNotebook }));
+      .filter((entry) =>
+        !exactKeys.has(entry.synthesisKey) &&
+        !deterministicOnlyKeys.has(entry.synthesisKey)
+      )
+      .map((entry) => ({
+        subsystemKey: entry.subsystemKey,
+        synthesisKey: entry.synthesisKey,
+        notebook: entry.modelNotebook,
+      }));
+    const modelInputBySynthesisKey = new Map(modelInputs.map((entry) => [
+      entry.synthesisKey,
+      entry,
+    ]));
     const batches = Array.from({ length: Math.ceil(modelInputs.length / 2) }, (_, index) =>
       modelInputs.slice(index * 2, index * 2 + 2),
     );
@@ -1952,21 +2016,26 @@ export async function synthesizeRepositoryKnowledge(
           : "High-effort subsystem synthesis failed before returning a supported structured result.";
         result = fallbackSynthesisSet(batch, reason);
       }
-      synthesizedSubsystems.push(...result.data.subsystems.map((entry) => ({
-        ...entry,
-        approvalEligible: !result.fallbackSubsystemKeys.includes(entry.subsystemKey),
-      })));
+      synthesizedSubsystems.push(...result.data.subsystems.flatMap((entry) => {
+        const original = modelInputBySynthesisKey.get(entry.subsystemKey);
+        return original ? [{
+          ...entry,
+          subsystemKey: original.subsystemKey,
+          synthesisKey: original.synthesisKey,
+          approvalEligible: !result.fallbackSubsystemKeys.includes(entry.subsystemKey),
+        }] : [];
+      }));
       if (result.tokenUsage) tokenUsage.push(result.tokenUsage);
     }
     tokenUsage.push({ synthesisBudget: snapshotStructuredGenerationBudget(synthesisBudget) });
   }
-  const byKey = new Map(synthesizedSubsystems.map((subsystem) => [subsystem.subsystemKey, subsystem]));
-  const finalized = synthesisInputs.map(({ subsystemKey, notebook, coverageGaps }) =>
+  const byKey = new Map(synthesizedSubsystems.map((subsystem) => [subsystem.synthesisKey, subsystem]));
+  const finalized = synthesisInputs.map(({ subsystemKey, synthesisKey, notebook, coverageGaps }) =>
     finalizeRepositorySubsystemSynthesis({
       subsystemKey,
       notebook,
       coverageGaps,
-      result: byKey.get(subsystemKey)!,
+      result: byKey.get(synthesisKey)!,
       tokenUsage,
     })
   );

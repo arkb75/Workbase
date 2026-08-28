@@ -626,7 +626,6 @@ describe("latest-commit freshness barrier", () => {
       expect.objectContaining({
         coverageStatus: "partial",
         coverageGaps: expect.arrayContaining([
-          "Product surface does not meet its repository-derived semantic sample and implementation-evidence target.",
           "Quality and operations does not meet its repository-derived semantic sample and implementation-evidence target.",
         ]),
       }),
@@ -639,10 +638,7 @@ describe("latest-commit freshness barrier", () => {
         update: { status: "static_only", semanticObservationCount: 0 },
       });
     expect(ledgerCalls.find((input) => input.create.capabilityKey === "repository_area:product_surface"))
-      .toMatchObject({
-        create: { status: "static_only", semanticObservationCount: 0 },
-        update: { status: "static_only", semanticObservationCount: 0 },
-      });
+      .toBeUndefined();
   });
 
   it("uses the independent critic instead of certifying a domain from one successful file", async () => {
