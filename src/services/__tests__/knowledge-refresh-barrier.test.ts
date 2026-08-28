@@ -111,9 +111,9 @@ describe("latest-commit freshness barrier", () => {
     ]);
   });
 
-  it("reserves high-priority ledger status for required product capabilities", () => {
-    expect(repositoryCapabilityPriority({ capabilityKey: "repository_knowledge_lifecycle", observationCount: 4 })).toBe(5);
-    expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4, requiredForSemanticCoverage: true })).toBe(4);
+  it("reserves high-priority ledger status for cartographer-selected capabilities", () => {
+    expect(repositoryCapabilityPriority({ capabilityKey: "repository_knowledge_lifecycle", observationCount: 4 })).toBe(1);
+    expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4, requiredForSemanticCoverage: true })).toBe(5);
     expect(repositoryCapabilityPriority({ capabilityKey: "project_domain:payments", observationCount: 4 })).toBe(1);
     expect(repositoryCapabilityPriority({ capabilityKey: "module:prisma/schema.prisma", observationCount: 200 })).toBe(3);
     expect(repositoryCapabilityPriority({ capabilityKey: "module:src/utils", observationCount: 3 })).toBe(1);
@@ -130,11 +130,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-coverage-v16",
-      semanticAnalyzerVersion: "repository-coverage-v18",
-      coveragePolicyVersion: "repository-coverage-v8",
-      orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v32",
+      analyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v19",
+      coveragePolicyVersion: "repository-coverage-v9-generalized",
+      orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
+      synthesisPolicyVersion: "repository-synthesis-v33-generalized",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -362,11 +362,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const warnings = {
-      analyzerVersion: "repository-coverage-v16",
-      semanticAnalyzerVersion: "repository-coverage-v18",
-      coveragePolicyVersion: "repository-coverage-v8",
-      orchestrationPolicyVersion: "repository-orchestration-v12",
-      synthesisPolicyVersion: "repository-synthesis-v32",
+      analyzerVersion: "repository-coverage-v17",
+      semanticAnalyzerVersion: "repository-coverage-v19",
+      coveragePolicyVersion: "repository-coverage-v9-generalized",
+      orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
+      synthesisPolicyVersion: "repository-synthesis-v33-generalized",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -462,10 +462,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v16",
+          analyzerVersion: "repository-coverage-v17",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v18",
+          semanticAnalyzerVersion: "repository-coverage-v19",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -481,7 +481,7 @@ describe("latest-commit freshness barrier", () => {
         capabilityCoverageStatus: "failed",
         semanticPaths: 0,
         coverageGaps: expect.arrayContaining([
-          "AI runtime has static coverage but no successful semantic analysis.",
+          "Search, retrieval, and model intelligence does not meet its repository-derived semantic sample and implementation-evidence target.",
           "Semantic analysis degraded for src/agent.ts.",
         ]),
       }),
@@ -516,10 +516,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v16",
+          analyzerVersion: "repository-coverage-v17",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v18",
+          semanticAnalyzerVersion: "repository-coverage-v19",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -543,10 +543,10 @@ describe("latest-commit freshness barrier", () => {
         coverageGaps: [],
       }),
     ]);
-    const aiRuntimeLedgerCall = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
+    const intelligenceLedgerCall = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
       .map(([input]) => input)
-      .find((input) => input.create.capabilityKey === "ai_runtime");
-    expect(aiRuntimeLedgerCall).toMatchObject({
+      .find((input) => input.create.capabilityKey === "repository_area:intelligence");
+    expect(intelligenceLedgerCall).toMatchObject({
       create: { status: "semantic_verified", gaps: [] },
       update: { status: "semantic_verified", gaps: [] },
     });
@@ -554,11 +554,11 @@ describe("latest-commit freshness barrier", () => {
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-coverage-v16",
-          semanticAnalyzerVersion: "repository-coverage-v18",
-          coveragePolicyVersion: "repository-coverage-v8",
-          orchestrationPolicyVersion: "repository-orchestration-v12",
-          synthesisPolicyVersion: "repository-synthesis-v32",
+          analyzerVersion: "repository-coverage-v17",
+          semanticAnalyzerVersion: "repository-coverage-v19",
+          coveragePolicyVersion: "repository-coverage-v9-generalized",
+          orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
+          synthesisPolicyVersion: "repository-synthesis-v33-generalized",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
@@ -610,10 +610,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-auth",
           path,
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v16",
+          analyzerVersion: "repository-coverage-v17",
           analysis: staticAnalysis,
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v18",
+          semanticAnalyzerVersion: "repository-coverage-v19",
           semanticRefreshRunId: "refresh-auth",
           semanticAnalysis,
         }],
@@ -626,22 +626,126 @@ describe("latest-commit freshness barrier", () => {
       expect.objectContaining({
         coverageStatus: "partial",
         coverageGaps: expect.arrayContaining([
-          "Tests and operations has static coverage but no successful semantic analysis.",
+          "Product surface does not meet its repository-derived semantic sample and implementation-evidence target.",
+          "Quality and operations does not meet its repository-derived semantic sample and implementation-evidence target.",
         ]),
       }),
     ]);
     const ledgerCalls = prismaMock.repositoryCapabilityLedger.upsert.mock.calls
       .map(([input]) => input);
-    expect(ledgerCalls.find((input) => input.create.capabilityKey === "tests_operations"))
+    expect(ledgerCalls.find((input) => input.create.capabilityKey === "repository_area:quality"))
       .toMatchObject({
         create: { status: "static_only", semanticObservationCount: 0 },
         update: { status: "static_only", semanticObservationCount: 0 },
       });
-    expect(ledgerCalls.find((input) => input.create.capabilityKey === "project_domain:auth"))
+    expect(ledgerCalls.find((input) => input.create.capabilityKey === "repository_area:product_surface"))
       .toMatchObject({
-        create: { status: "semantic_verified", semanticObservationCount: 1 },
-        update: { status: "semantic_verified", semanticObservationCount: 1 },
+        create: { status: "static_only", semanticObservationCount: 0 },
+        update: { status: "static_only", semanticObservationCount: 0 },
       });
+  });
+
+  it("uses the independent critic instead of certifying a domain from one successful file", async () => {
+    const domainAnalysis = (mode: "static" | "semantic"): RepositoryFileAnalysis => ({
+      ...analysis({ mode, status: mode === "semantic" ? "succeeded" : undefined }),
+      path: "src/payments/charge.ts",
+      subsystemKeys: ["project_domain:payments"],
+      facts: [{
+        ...analysis({ mode }).facts[0]!,
+        path: "src/payments/charge.ts",
+        subsystemKeys: ["project_domain:payments"],
+        evidenceMode: mode === "semantic" ? "semantic" : "static",
+      }],
+    });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
+      id: "refresh-payments",
+      workItemId: "work-item-1",
+      targetHeads: [{
+        sourceId: "source-1",
+        repository: "owner/commerce",
+        branch: "main",
+        commitSha: "d".repeat(40),
+        treeSha: "e".repeat(40),
+        committedAt: null,
+        resolvedAt: new Date().toISOString(),
+      }],
+      warnings: null,
+      orchestration: {
+        cartography: [{
+          key: "project_domain:payments",
+          label: "Payments",
+          scopeKey: "owner/commerce",
+          salience: 60,
+          files: [
+            { id: "charge", path: "src/payments/charge.ts", score: 30 },
+            { id: "ledger", path: "src/payments/ledger.ts", score: 20 },
+            { id: "refund", path: "src/payments/refund.ts", score: 10 },
+          ],
+        }],
+        coverageCritique: {
+          domains: [{
+            key: "project_domain:payments",
+            label: "Payments",
+            scopeKey: "owner/commerce",
+            totalFiles: 3,
+            targetSamples: 2,
+            inspectedSamples: 1,
+            supportedCandidates: 1,
+            status: "thin",
+          }],
+        },
+        remainingGaps: ["Payments in owner/commerce has only 1 of 2 required semantic samples."],
+      },
+      snapshots: [{
+        id: "snapshot-1",
+        sourceId: "source-1",
+        commitSha: "d".repeat(40),
+        files: [
+          {
+            id: "charge",
+            path: "src/payments/charge.ts",
+            disposition: "analyzed",
+            analyzerVersion: "repository-coverage-v17",
+            analysis: domainAnalysis("static"),
+            semanticStatus: "succeeded",
+            semanticAnalyzerVersion: "repository-coverage-v19",
+            semanticRefreshRunId: "refresh-payments",
+            semanticAnalysis: domainAnalysis("semantic"),
+          },
+          ...["ledger", "refund"].map((id) => ({
+            id,
+            path: `src/payments/${id}.ts`,
+            disposition: "analyzed",
+            analyzerVersion: "repository-coverage-v17",
+            analysis: { ...domainAnalysis("static"), path: `src/payments/${id}.ts` },
+            semanticStatus: "not_selected",
+            semanticAnalyzerVersion: null,
+            semanticRefreshRunId: null,
+            semanticAnalysis: null,
+          })),
+        ],
+      }],
+    });
+
+    const result = await finalizeKnowledgeCoverage("refresh-payments");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        coverageStatus: "partial",
+        capabilityCoverageStatus: "partial",
+        targets: [expect.objectContaining({
+          key: "project_domain:payments",
+          criticStatus: "thin",
+          semanticPathCount: 1,
+        })],
+      }),
+    ]);
+    expect(prismaMock.repositoryCapabilityLedger.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        capabilityKey: "project_domain:payments",
+        status: "partial",
+      }),
+    }));
   });
 
   it("preserves repository-scoped semantic capacity gaps through final coverage", async () => {
@@ -658,10 +762,10 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-coverage-v16",
+      analyzerVersion: "repository-coverage-v17",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v18",
+      semanticAnalyzerVersion: "repository-coverage-v19",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

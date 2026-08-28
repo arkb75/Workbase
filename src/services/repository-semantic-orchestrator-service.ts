@@ -9,9 +9,10 @@ import {
   analyzeRepositoryFileBatch,
   analyzeRepositoryFiles,
   BASE_COVERAGE_TARGETS,
-  buildCoverageMatrix,
   createRepositorySemanticBudget,
-  selectRequiredSemanticCoverageAreas,
+  inferProjectDomainCapability,
+  isProjectDomainCapabilityKey,
+  PROJECT_DOMAIN_CAPABILITY_PREFIX,
   snapshotRepositorySemanticBudget,
   type RepositoryFileAnalysis,
   type RepositorySemanticBudgetUsage,
@@ -29,17 +30,76 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v12";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v13-generalized";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
-// Preserve the existing 18-file Workbase coverage target while spreading its
-// five structured calls across five workers. Raising concurrency changes wall
-// time, not the selected evidence set or the global token ceiling.
+// Retained only by the exported legacy-plan helper used for safe fallback and
+// historical policy tests. The generalized runtime path below does not call
+// that helper or use these Workbase-era selection limits.
 const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
+const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 8;
+const MAX_REPAIR_DOMAINS = 3;
+const REPAIR_TOKEN_RESERVE = 20_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 32_000;
+
+const REPOSITORY_AREA_PREFIX = "repository_area:";
+
+const repositoryAreaRules = [
+  {
+    key: `${REPOSITORY_AREA_PREFIX}product_surface`,
+    label: "Product surface",
+    pattern: /(?:^README(?:\.[^/]+)?$|(?:^|\/)(?:app|pages|views?|components?|screens?|routes?)(?:\/|$))/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}data_model`,
+    label: "Data model and persistence",
+    pattern: /(?:schema|migrations?|models?|entities|repositories|database|storage|persistence)/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}integrations`,
+    label: "External integrations",
+    pattern: /(?:integrations?|adapters?|clients?|providers?|webhooks?|oauth|github|stripe|aws|gcp|azure)/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}automation`,
+    label: "Automation and background processing",
+    pattern: /(?:workflows?|workers?|queues?|jobs?|tasks?|pipelines?|orchestrat|scheduler|cron)/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}intelligence`,
+    label: "Search, retrieval, and model intelligence",
+    // Deliberately exclude bare "model" and "api": both are ordinary
+    // application vocabulary in Java/TypeScript and previously created large
+    // numbers of false AI/integration classifications.
+    pattern: /(?:search|retriev|rank(?:er|ing)|recommend|embedding|vector|agents?|llm|inference|training)/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}application_core`,
+    label: "Application core",
+    pattern: /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|rb|php|cs)$/i,
+  },
+  {
+    key: `${REPOSITORY_AREA_PREFIX}quality`,
+    label: "Quality and operations",
+    pattern: /(?:^|\/)(?:__tests__|tests?|specs?|e2e|scripts?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i,
+  },
+] as const;
+
+const repositoryCartographyNoiseSegments = new Set([
+  ".playwright-cli", ".workflow-data", ".nyc_output", ".next", "build", "coverage", "dist",
+  "fixtures", "generated", "node_modules", "test-results", "vendor",
+]);
+
+export function isRepositoryCartographyNoisePath(path: string) {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  if (segments.some((segment) => repositoryCartographyNoiseSegments.has(segment))) return true;
+  return segments.some((segment, index) =>
+    /^(?:tests?|specs?)$/.test(segment) && segments[index + 1] === "resources"
+  );
+}
 
 const SEMANTIC_FACET_SUPPLEMENTS = [
   {
@@ -216,13 +276,138 @@ export interface SemanticWorkPackage {
   };
 }
 
-type CapabilityManifestArea = {
+export type CapabilityManifestArea = {
   key: string;
   label: string;
   /** Distinguishes the same capability in separate immutable repository snapshots. */
   scopeKey?: string;
+  description?: string;
+  salience?: number;
   files: Array<{ id: string; path: string; score: number }>;
 };
+
+export interface RepositoryCartographyFile {
+  id: string;
+  path: string;
+  changeType?: string;
+  analysis: Pick<RepositoryFileAnalysis,
+    "subsystemKeys" | "facts" | "symbols" | "dependencies" | "architectureSignals" | "userFacingCapabilities"
+  >;
+}
+
+function repositoryFileSalience(file: RepositoryCartographyFile) {
+  return file.analysis.facts.reduce(
+    (total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty,
+    0,
+  ) +
+    file.analysis.userFacingCapabilities.length * 8 +
+    file.analysis.architectureSignals.length * 4 +
+    file.analysis.symbols.length * 2 +
+    Math.min(12, file.analysis.dependencies.length) +
+    (file.changeType && file.changeType !== "unchanged" ? 16 : 0);
+}
+
+function repositoryDomainLabel(key: string) {
+  const value = key.startsWith(PROJECT_DOMAIN_CAPABILITY_PREFIX)
+    ? key.slice(PROJECT_DOMAIN_CAPABILITY_PREFIX.length)
+    : key.slice(REPOSITORY_AREA_PREFIX.length);
+  return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Build the cartographer's map from the repository's own directory structure
+ * and static inventory. Generic structural areas are only fallbacks for
+ * important root-level concerns that do not live beneath a product-domain
+ * folder. No product name, known path, or expected feature is encoded here.
+ */
+export function buildRepositoryDerivedCapabilityManifest(input: {
+  scopeKey: string;
+  files: RepositoryCartographyFile[];
+  maxDomains?: number;
+}) {
+  const groups = new Map<string, CapabilityManifestArea>();
+  const add = (key: string, label: string, file: RepositoryCartographyFile) => {
+    const current = groups.get(key) ?? {
+      key,
+      label,
+      scopeKey: input.scopeKey,
+      description: key.startsWith(PROJECT_DOMAIN_CAPABILITY_PREFIX)
+        ? `Repository-derived product domain labelled from the ${label} source tree.`
+        : `Repository-derived structural area for ${label.toLowerCase()}.`,
+      salience: 0,
+      files: [],
+    };
+    const score = repositoryFileSalience(file);
+    current.salience = (current.salience ?? 0) + score;
+    current.files.push({ id: file.id, path: file.path, score });
+    groups.set(key, current);
+  };
+
+  for (const file of input.files) {
+    if (isRepositoryCartographyNoisePath(file.path)) continue;
+    const domainKeys = Array.from(new Set([
+      ...file.analysis.subsystemKeys.filter(isProjectDomainCapabilityKey),
+      inferProjectDomainCapability(file.path),
+    ].filter((key): key is string => Boolean(key))));
+    for (const key of domainKeys) add(key, repositoryDomainLabel(key), file);
+    for (const area of repositoryAreaRules) {
+      if (area.pattern.test(file.path)) add(area.key, area.label, file);
+    }
+  }
+
+  const rankedDomains = Array.from(groups.values())
+    .filter((area) => isProjectDomainCapabilityKey(area.key))
+    // A one-file directory is evidence, but not a stable project domain. It
+    // remains discoverable through a structural fallback instead of
+    // fragmenting the project map into incidental folders.
+    .filter((area) => area.files.length >= 2)
+    .sort((left, right) =>
+      (right.salience ?? 0) - (left.salience ?? 0) ||
+      right.files.length - left.files.length ||
+      left.key.localeCompare(right.key),
+    );
+  const maxDomains = input.maxDomains ?? MAX_DISCOVERED_DOMAINS_PER_REPOSITORY;
+  const selected = rankedDomains.slice(0, maxDomains);
+  const selectedFileIds = new Set(selected.flatMap((area) => area.files.map((file) => file.id)));
+  const specificallyClassifiedStructuralFileIds = new Set(Array.from(groups.values())
+    .filter((area) =>
+      area.key.startsWith(REPOSITORY_AREA_PREFIX) &&
+      area.key !== `${REPOSITORY_AREA_PREFIX}application_core`
+    )
+    .flatMap((area) => area.files.map((file) => file.id)));
+  const structuralFallbacks = Array.from(groups.values())
+    .filter((area) => area.key.startsWith(REPOSITORY_AREA_PREFIX))
+    .map((area) => ({
+      ...area,
+      files: area.files.filter((file) =>
+        !selectedFileIds.has(file.id) &&
+        (area.key !== `${REPOSITORY_AREA_PREFIX}application_core` ||
+          !specificallyClassifiedStructuralFileIds.has(file.id))
+      ),
+    }))
+    .filter((area) => area.files.length)
+    .sort((left, right) =>
+      (right.salience ?? 0) - (left.salience ?? 0) || left.key.localeCompare(right.key),
+    );
+
+  // Three independently evidenced areas is a useful lower bound for a broad
+  // project map, while repositories with rich domain structure stay entirely
+  // repository-derived rather than being forced through a fixed ontology.
+  const fallbackCount = Math.max(0, Math.min(3, maxDomains) - selected.length);
+  return [...selected, ...structuralFallbacks.slice(0, fallbackCount)]
+    .map((area) => ({
+      ...area,
+      files: area.files
+        .filter((file, index, all) => all.findIndex((other) => other.id === file.id) === index)
+        .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path)),
+    }));
+}
+
+export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "files">) {
+  if (area.files.length <= 2) return 1;
+  if (area.files.length <= 12) return 2;
+  return 3;
+}
 
 export interface CapabilityCandidate {
   key: string;
@@ -557,8 +742,19 @@ export function fileRelevantCapabilityKeys(input: {
 }) {
   const staticKeys = new Set(input.staticSubsystemKeys);
   const staticallyRelevant = Array.from(new Set(input.workPackageCapabilityKeys))
-    .filter((key) => staticKeys.has(key));
+    .filter((key) => {
+      if (staticKeys.has(key)) return true;
+      if (!input.path || !key.startsWith(REPOSITORY_AREA_PREFIX)) return false;
+      return repositoryAreaRules.some((area) => area.key === key && area.pattern.test(input.path!));
+    });
   if (!input.path) return staticallyRelevant;
+
+  // Repository-derived domains and structural areas intentionally have no
+  // product-specific path contract. Their exact file membership was already
+  // authorized by the cartographer.
+  if (staticallyRelevant.every((key) =>
+    isProjectDomainCapabilityKey(key) || key.startsWith(REPOSITORY_AREA_PREFIX)
+  )) return staticallyRelevant;
 
   const capabilitiesWithPathContracts = new Set<string>(
     SEMANTIC_SIGNAL_RULES.map(([, capabilityKey]) => capabilityKey),
@@ -925,6 +1121,204 @@ function defaultPackages(input: {
   }));
 }
 
+function packageTemplate(input: {
+  capabilityKeys: string[];
+  fileSnapshotIds: string[];
+  manifest: CapabilityManifestArea[];
+  repair?: boolean;
+}) {
+  const labels = input.capabilityKeys.map((key) =>
+    input.manifest.find((area) => area.key === key)?.label ?? repositoryDomainLabel(key)
+  );
+  return {
+    objective: `${input.repair ? "Close evidence gaps in" : "Investigate"} ${labels.join(", ")}.`,
+    capabilityKeys: input.capabilityKeys,
+    fileSnapshotIds: input.fileSnapshotIds,
+    questions: labels.map((label) =>
+      `What important implemented user capability, cross-file flow, invariant, or integration is supported in ${label}?`
+    ),
+    expectedOutputs: [
+      "Evidence-backed implemented capabilities",
+      "Exact supporting line ranges",
+      "Contradictions and unresolved evidence gaps",
+    ],
+  };
+}
+
+/**
+ * Turn cartographer domains into bounded investigator assignments. The
+ * planner may express a preferred ownership grouping, but cannot replace the
+ * deterministic sample requirements or introduce paths and domains.
+ */
+export function buildRepositoryDerivedSemanticPlan(input: {
+  manifest: CapabilityManifestArea[];
+  plannerPackages?: Array<Omit<SemanticWorkPackage, "id" | "budget">>;
+  maxWorkers?: number;
+}) {
+  const maxWorkers = input.maxWorkers ?? REPOSITORY_ORCHESTRATION_MAX_WORKERS;
+  if (!input.manifest.length || maxWorkers < 1) return [];
+  const plannerOwner = new Map<string, number>();
+  for (const [index, workPackage] of (input.plannerPackages ?? []).entries()) {
+    for (const key of workPackage.capabilityKeys) {
+      if (!plannerOwner.has(key) && index < maxWorkers) plannerOwner.set(key, index);
+    }
+  }
+  const packages = Array.from({ length: Math.min(maxWorkers, input.manifest.length) }, () => ({
+    capabilityKeys: [] as string[],
+    fileSnapshotIds: [] as string[],
+  }));
+  const sortedManifest = [...input.manifest].sort((left, right) =>
+    (right.salience ?? 0) - (left.salience ?? 0) || left.key.localeCompare(right.key)
+  );
+  for (const area of sortedManifest) {
+    const target = semanticSampleTarget(area);
+    const implementationFiles = area.files.filter((file) => isImplementationEvidencePath(file.path));
+    const contextualFiles = area.files.filter((file) => !isImplementationEvidencePath(file.path));
+    const selectedFiles = target >= 2 && implementationFiles.length && contextualFiles.length
+      ? [implementationFiles[0]!, contextualFiles[0]!, ...implementationFiles.slice(1)]
+      : [...implementationFiles, ...contextualFiles];
+    const selectedIds = selectedFiles.slice(0, target).map((file) => file.id);
+    if (!selectedIds.length) continue;
+    const preferredOwner = plannerOwner.get(area.key);
+    const candidates = packages
+      .map((workPackage, index) => ({
+        index,
+        overlap: selectedIds.filter((id) => workPackage.fileSnapshotIds.includes(id)).length,
+        newFileCount: selectedIds.filter((id) => !workPackage.fileSnapshotIds.includes(id)).length,
+        preferred: index === preferredOwner,
+        load: workPackage.fileSnapshotIds.length,
+      }))
+      .filter((candidate) => candidate.load + candidate.newFileCount <= MAX_FILES_PER_WORKER)
+      .sort((left, right) =>
+        right.overlap - left.overlap ||
+        Number(right.preferred) - Number(left.preferred) ||
+        left.load - right.load ||
+        left.index - right.index
+      );
+    const owner = candidates[0];
+    if (!owner) continue;
+    const workPackage = packages[owner.index]!;
+    workPackage.capabilityKeys.push(area.key);
+    workPackage.fileSnapshotIds.push(...selectedIds);
+    workPackage.fileSnapshotIds = Array.from(new Set(workPackage.fileSnapshotIds));
+  }
+  return packages
+    .filter((workPackage) => workPackage.fileSnapshotIds.length)
+    .map((workPackage) => packageTemplate({
+      capabilityKeys: Array.from(new Set(workPackage.capabilityKeys)).sort(),
+      fileSnapshotIds: Array.from(new Set(workPackage.fileSnapshotIds)).sort(),
+      manifest: input.manifest,
+    }));
+}
+
+export interface RepositoryCoverageCritique {
+  domains: Array<{
+    key: string;
+    label: string;
+    scopeKey?: string;
+    totalFiles: number;
+    targetSamples: number;
+    inspectedSamples: number;
+    supportedCandidates: number;
+    status: "covered" | "thin" | "missing";
+  }>;
+  gaps: string[];
+  repairPackages: Array<Omit<SemanticWorkPackage, "id" | "budget">>;
+}
+
+export function isImplementationEvidencePath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  if (/^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized)) return false;
+  if (/(?:^|\/)(?:docs?|examples?|fixtures?|__fixtures__)(?:\/|$)/i.test(normalized)) return false;
+  if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
+  return true;
+}
+
+/**
+ * Independently judge worker output against the cartographer's original map.
+ * This critic does not accept the planner's package-completion flags as proof
+ * of coverage. It can request one bounded wave over uninspected evidence.
+ */
+export function critiqueRepositoryCoverage(input: {
+  manifest: CapabilityManifestArea[];
+  reports: Array<Pick<CapabilityReport, "inspectedFileSnapshotIds" | "candidates">>;
+  allowRepair: boolean;
+}): RepositoryCoverageCritique {
+  const inspected = new Set(input.reports.flatMap((report) => report.inspectedFileSnapshotIds));
+  const pathByFileId = new Map(input.manifest.flatMap((area) =>
+    area.files.map((file) => [file.id, file.path] as const)
+  ));
+  const allCandidates = input.reports.flatMap((report) => report.candidates);
+  const domains = input.manifest.map((area) => {
+    const targetSamples = semanticSampleTarget(area);
+    const areaFileIds = new Set(area.files.map((file) => file.id));
+    const inspectedSamples = area.files.filter((file) => inspected.has(file.id)).length;
+    const supportedCandidates = allCandidates.filter((candidate) =>
+      candidate.key === area.key && candidate.evidence.some((evidence) => {
+        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
+        const path = pathByFileId.get(evidence.fileSnapshotId);
+        return path ? isImplementationEvidencePath(path) : false;
+      })
+    ).length;
+    return {
+      key: area.key,
+      label: area.label,
+      scopeKey: area.scopeKey,
+      totalFiles: area.files.length,
+      targetSamples,
+      inspectedSamples,
+      supportedCandidates,
+      status: supportedCandidates === 0
+        ? "missing" as const
+        : inspectedSamples < targetSamples
+          ? "thin" as const
+          : "covered" as const,
+    };
+  });
+  const gaps = domains.flatMap((domain) => {
+    const scope = domain.scopeKey ? ` in ${domain.scopeKey}` : "";
+    if (domain.supportedCandidates === 0) {
+      return [`${domain.label}${scope} has no supported semantic finding after inspecting ${domain.inspectedSamples} of ${domain.totalFiles} mapped files.`];
+    }
+    if (domain.inspectedSamples < domain.targetSamples) {
+      return [`${domain.label}${scope} has only ${domain.inspectedSamples} of ${domain.targetSamples} required semantic samples.`];
+    }
+    return [];
+  });
+  const repairAreas = input.allowRepair
+    ? domains
+        .filter((domain) => domain.status !== "covered")
+        .map((domain) => ({
+          domain,
+          area: input.manifest.find((area) =>
+            area.key === domain.key && area.scopeKey === domain.scopeKey
+          )!,
+        }))
+        .filter(({ area }) => area.files.some((file) => !inspected.has(file.id)))
+        .sort((left, right) =>
+          Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
+          (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
+          left.area.key.localeCompare(right.area.key)
+        )
+        .slice(0, MAX_REPAIR_DOMAINS)
+    : [];
+  const repairPackages = repairAreas.map(({ domain, area }) => {
+    const desired = Math.max(1, domain.targetSamples - domain.inspectedSamples);
+    const uninspected = area.files.filter((file) => !inspected.has(file.id));
+    const implementationFiles = uninspected.filter((file) => isImplementationEvidencePath(file.path));
+    const ids = (implementationFiles.length ? implementationFiles : uninspected)
+      .slice(0, desired)
+      .map((file) => file.id);
+    return packageTemplate({
+      capabilityKeys: [area.key],
+      fileSnapshotIds: ids,
+      manifest: input.manifest,
+      repair: true,
+    });
+  });
+  return { domains, gaps, repairPackages };
+}
+
 async function ensureRefreshAgentRun(input: { refreshRunId: string; userId: string; workItemId: string }) {
   return prisma.agentRun.upsert({
     where: { userId_idempotencyKey: { userId: input.userId, idempotencyKey: `repository-refresh:${input.refreshRunId}` } },
@@ -984,7 +1378,7 @@ async function planWorkPackages(input: {
         userPrompt: JSON.stringify({ projectTitle: input.projectTitle, manifest: input.manifest, maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxFilesPerWorker: MAX_FILES_PER_WORKER }),
         schema: workPackageSchema,
         schemaName: "repository_semantic_work_plan",
-        schemaDescription: "One to four bounded, non-overlapping repository semantic work packages.",
+        schemaDescription: "One to five bounded, non-overlapping repository semantic work packages.",
         jsonSchema: workPackageJsonSchema,
         maxTokens: 4_000,
         temperature: 0,
@@ -1357,27 +1751,25 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const targets = new Map((run.targetHeads as unknown as RepositoryTargetHead[]).map((target) => [target.sourceId, target]));
   const root = await ensureRefreshAgentRun({ refreshRunId, userId: run.workItem.userId, workItemId: run.workItem.id });
   const manifest = run.snapshots.flatMap((snapshot) => {
-    const analyzed = snapshot.files.flatMap((file) => {
+    const files = snapshot.files.flatMap((file) => {
       const analysis = parseAnalysis(file.analysis);
-      return analysis ? [{ path: file.path, analysis, file }] : [];
+      return analysis ? [{
+        id: file.id,
+        path: file.path,
+        changeType: file.changeType,
+        analysis,
+      }] : [];
     });
-    return selectRequiredSemanticCoverageAreas(buildCoverageMatrix(analyzed))
-      .map((area) => ({
-        key: area.key,
-        label: area.label,
-        scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
-        files: analyzed.filter((entry) => entry.analysis.subsystemKeys.includes(area.key)).map((entry) => ({
-          id: entry.file.id,
-          path: entry.path,
-          score:
-            entry.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
-            entry.analysis.architectureSignals.length * 4 +
-            (entry.file.changeType === "unchanged" ? 0 : 24),
-        })),
-      }));
+    return buildRepositoryDerivedCapabilityManifest({
+      scopeKey: targets.get(snapshot.sourceId)?.repository ?? snapshot.id,
+      files,
+    });
   });
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
-  const guardedPlan = enforceMandatoryCoverage({ packages: planned.packages, manifest });
+  const guardedPlan = buildRepositoryDerivedSemanticPlan({
+    manifest,
+    plannerPackages: planned.packages,
+  });
   const plannerTokenReserve = semanticPlannerTokenReserve(planned.usage);
   const normalizedPlan = guardedPlan.map((entry) => ({
     ...entry,
@@ -1387,8 +1779,13 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const modelCallCounts = normalizedPlan.map((entry) =>
     Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE))
   );
+  const availableWorkerTokens = Math.max(
+    0,
+    REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve,
+  );
+  const repairTokenReserve = Math.min(REPAIR_TOKEN_RESERVE, Math.floor(availableWorkerTokens / 2));
   const workerTokenAllocations = allocateSemanticWorkerTokenBudgets({
-    totalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenReserve,
+    totalTokens: Math.max(0, availableWorkerTokens - repairTokenReserve),
     modelCallCounts,
   });
   const packages: SemanticWorkPackage[] = normalizedPlan.map((entry, index) => ({
@@ -1416,6 +1813,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
         allocatedWorkerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
         workerTokenAllocations,
+        repairTokenReserve,
       }),
     },
   });
@@ -1427,7 +1825,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     targets,
     workPackage,
   })));
-  const finalReports = preserveSettledCapabilityReports(packages, settledReports);
+  const initialReports = preserveSettledCapabilityReports(packages, settledReports);
   await Promise.all(settledReports.flatMap((result, index) => result.status === "rejected"
     ? [prisma.agentRun.updateMany({
         where: {
@@ -1442,13 +1840,58 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         },
       })]
     : []));
+  const initialCritique = critiqueRepositoryCoverage({
+    manifest,
+    reports: initialReports,
+    allowRepair: true,
+  });
+  const repairCallCounts = initialCritique.repairPackages.map((entry) =>
+    Math.max(1, Math.ceil(entry.fileSnapshotIds.length / SEMANTIC_MICRO_BATCH_SIZE))
+  );
+  const repairTokenAllocations = allocateSemanticWorkerTokenBudgets({
+    totalTokens: repairTokenReserve,
+    modelCallCounts: repairCallCounts,
+  });
+  const repairPackages: SemanticWorkPackage[] = initialCritique.repairPackages.map((entry, index) => ({
+    ...entry,
+    id: stablePackageId(`${refreshRunId}:repair`, entry.capabilityKeys, entry.fileSnapshotIds),
+    budget: {
+      maxWorkers: MAX_REPAIR_DOMAINS,
+      maxModelCalls: repairCallCounts[index]!,
+      maxInputBytes: 64 * 1024,
+      maxOutputTokens: 6_000,
+      maxTotalTokens: repairTokenAllocations[index]!,
+      maxRepairPasses: 0 as const,
+    },
+  }));
+  const settledRepairReports = await Promise.allSettled(repairPackages.map((workPackage) => runWorkPackage({
+    rootRunId: root.id,
+    refreshRunId,
+    userId: run.workItem.userId,
+    workItemId: run.workItem.id,
+    targets,
+    workPackage,
+  })));
+  const repairReports = preserveSettledCapabilityReports(repairPackages, settledRepairReports);
+  const finalReports = [...initialReports, ...repairReports];
+  const finalCritique = critiqueRepositoryCoverage({
+    manifest,
+    reports: finalReports,
+    allowRepair: false,
+  });
+  const executionGaps = finalReports.flatMap((report) => report.gaps).filter((gap) =>
+    /(?:failed|failure|unavailable|degraded|exhausted|could not|returned no file result)/i.test(gap)
+  );
+  const mappedScopes = new Set(manifest.flatMap((area) => area.scopeKey ? [area.scopeKey] : []));
+  const missingScopeGaps = Array.from(targets.values()).flatMap((target) =>
+    mappedScopes.has(target.repository)
+      ? []
+      : [`No repository-derived semantic domain could be mapped for ${target.repository}.`]
+  );
   const remainingGaps = Array.from(new Set([
-    ...finalReports.flatMap((report) => report.gaps),
-    ...semanticCoverageAssignmentGaps({
-      manifest,
-      packages,
-      expectedScopeKeys: Array.from(targets.values()).map((target) => target.repository),
-    }),
+    ...finalCritique.gaps,
+    ...executionGaps,
+    ...missingScopeGaps,
   ]));
   const packageCompletion = partitionCapabilityReports(finalReports);
   const workerUsage = aggregateWorkerUsage(finalReports);
@@ -1474,6 +1917,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       request: inputJson({ packageIds: packages.map((entry) => entry.id) }),
       result: inputJson({
         ...packageCompletion,
+        initialCritique,
+        repairWaveCount: repairPackages.length ? 1 : 0,
+        finalCritique,
         remainingGaps,
         usage: actualUsage,
       }),
@@ -1485,6 +1931,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       status: "completed",
       result: inputJson({
         ...packageCompletion,
+        initialCritique,
+        repairWaveCount: repairPackages.length ? 1 : 0,
+        finalCritique,
         remainingGaps,
         usage: actualUsage,
       }),
@@ -1499,13 +1948,28 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     where: { id: refreshRunId },
     data: {
       status: "auditing",
-      orchestration: inputJson({ policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION, rootAgentRunId: root.id, coverageAuditRunId: coverageAudit.id, fallbackUsed: planned.fallbackUsed, generationRunId: planned.generationRunId, packages, reportCount: finalReports.length, remainingGaps }),
+      orchestration: inputJson({
+        policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+        rootAgentRunId: root.id,
+        coverageAuditRunId: coverageAudit.id,
+        fallbackUsed: planned.fallbackUsed,
+        generationRunId: planned.generationRunId,
+        cartography: manifest,
+        packages,
+        repairPackages,
+        repairWaveCount: repairPackages.length ? 1 : 0,
+        coverageCritique: finalCritique,
+        reportCount: finalReports.length,
+        remainingGaps,
+      }),
       budgetUsage: inputJson({
         limits: { maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS, maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS },
         allocations: {
           plannerTokens: plannerTokenReserve,
           workerTokens: workerTokenAllocations.reduce((total, value) => total + value, 0),
           workerTokenAllocations,
+          repairTokens: repairTokenAllocations.reduce((total, value) => total + value, 0),
+          repairTokenAllocations,
         },
         actual: actualUsage,
       }),

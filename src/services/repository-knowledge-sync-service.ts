@@ -19,8 +19,8 @@ import {
 // They currently share a value for backward-compatible cache reuse, but a
 // future prompt/schema/window change can advance semantic extraction without
 // forcing every unchanged repository blob through static analysis again.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v16";
-export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v18";
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v17";
+export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v19";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 

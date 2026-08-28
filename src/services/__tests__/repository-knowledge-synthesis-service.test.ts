@@ -1011,7 +1011,7 @@ describe("repository synthesis limit fallback", () => {
     expect(requiredSemanticBaselineFacts("product_surface", incompleteHybridNotebook)).toEqual([]);
   });
 
-  it("retains exact product anchors when unrelated semantic coverage makes the refresh degraded", async () => {
+  it("does not inject product-specific anchors without a cartographer-selected runtime domain", async () => {
     const readme = [
       "2. Create a Work Item",
       "3. Attach manual notes and import a real GitHub repository",
@@ -1058,18 +1058,9 @@ describe("repository synthesis limit fallback", () => {
       }],
     } as never);
 
-    const [product] = await synthesizeRepositoryKnowledge("refresh-1", { fallbackOnly: true });
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1", { fallbackOnly: true });
 
-    expect(product).toMatchObject({
-      subsystemKey: "product_surface",
-      approvalEligible: true,
-      facts: [expect.objectContaining({
-        statement: expect.stringContaining("connects Work Items and attached sources"),
-      })],
-      highlights: [],
-    });
-    expect(product?.notebook).toHaveLength(6);
-    expect(product?.notebook.every((item) => item.evidenceMode === "deterministic_anchor")).toBe(true);
+    expect(synthesis).toEqual([]);
   });
 
   it("never injects Workbase product memory into another repository", () => {

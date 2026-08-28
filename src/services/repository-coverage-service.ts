@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v8";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v9-generalized";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -42,17 +42,18 @@ export const PROJECT_DOMAIN_CAPABILITY_PREFIX = "project_domain:";
 export const MINIMUM_REQUIRED_SEMANTIC_TARGETS = 8;
 
 const projectDomainContainerSegments = new Set([
-  "api", "app", "apps", "client", "common", "component", "components", "controller", "controllers",
+  "adapter", "adapters", "api", "app", "apps", "client", "clients", "common", "component", "components", "controller", "controllers",
   "core", "feature", "features", "handler", "handlers", "hook", "hooks", "internal", "lib", "libs",
+  "com", "io", "java", "kotlin", "main", "net", "org", "python", "resources", "scala",
   "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
   "repositories", "route", "routes", "server", "service", "services", "shared", "src", "store", "stores",
   "type", "types", "ui", "util", "utils", "view", "views",
 ]);
 
 const excludedProjectDomainRoots = new Set([
-  ".github", ".next", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
+  ".github", ".next", ".nyc_output", ".playwright-cli", ".workflow-data", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
   "docs", "examples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
-  "spec", "specs", "test", "tests", "vendor",
+  "spec", "specs", "test", "test-results", "tests", "vendor",
 ]);
 
 export function isProjectDomainCapabilityKey(key: string) {
@@ -72,7 +73,10 @@ export function inferProjectDomainCapability(path: string) {
   if (segments.length < 2) return null;
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
   if (!directories.length || directories.some((segment) => excludedProjectDomainRoots.has(segment))) return null;
-  const candidate = directories.find((segment) =>
+  // Prefer the nearest meaningful product directory. This avoids turning a
+  // Java package namespace such as `com/example` into the domain when the
+  // actual feature lives at `.../accounts/service`.
+  const candidate = [...directories].reverse().find((segment) =>
     !projectDomainContainerSegments.has(segment) &&
     !/^\[.*\]$/.test(segment) &&
     !/^v\d+$/.test(segment) &&
