@@ -582,6 +582,148 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(plan[0]?.fileSnapshotIds).not.toEqual(expect.arrayContaining(["panel", "adapter"]));
   });
 
+  it("repairs a broad area that was inspected through only one runtime and layer", () => {
+    const area = {
+      key: "repository_area:intelligence",
+      label: "Search, retrieval, and model intelligence",
+      scopeKey: "example/mixed-runtime",
+      salience: 120,
+      files: [
+        ...Array.from({ length: 4 }, (_, index) => ({
+          id: `panel-${index}`,
+          path: `src/main/ui/ForecastPanel${index}.java`,
+          score: 100 - index,
+        })),
+        { id: "python-service", path: "ml_service/forecast_service.py", score: 50 },
+      ],
+    };
+    const javaReports = area.files.slice(0, 4).map((file) => ({
+      inspectedFileSnapshotIds: [file.id],
+      candidates: [{
+        ...candidate(area.key, file.id),
+        statement: `${file.id} supports a distinct forecast presentation behavior.`,
+      }],
+    }));
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: javaReports,
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      inspectedSamples: 4,
+      diversityGaps: 2,
+      status: "thin",
+    }));
+    expect(critique.gaps).toEqual(expect.arrayContaining([
+      expect.stringContaining("implementation layers"),
+      expect.stringContaining("language families"),
+    ]));
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "python-service",
+    ]);
+
+    const finalCritique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [...javaReports, {
+        inspectedFileSnapshotIds: ["python-service"],
+        candidates: [{
+          ...candidate(area.key, "python-service"),
+          statement: "The Python service implements the forecast runtime.",
+        }],
+      }],
+      allowRepair: false,
+    });
+    expect(finalCritique.domains[0]?.status).toBe("covered");
+  });
+
+  it("recognizes filename-based sibling onboarding branches", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/flat-onboarding",
+      salience: 120,
+      files: [
+        { id: "generic", path: "src/onboarding/index.ts", score: 100 },
+        { id: "founder", path: "src/onboarding/founder.ts", score: 99 },
+        { id: "investor", path: "src/onboarding/investor.ts", score: 98 },
+        { id: "messages", path: "src/services/messages/service.ts", score: 80 },
+        { id: "feed", path: "src/services/feed/service.ts", score: 70 },
+        ...Array.from({ length: 11 }, (_, index) => ({
+          id: `dashboard-${index}`,
+          path: `src/dashboard/view-${index}.tsx`,
+          score: 60 - index,
+        })),
+      ],
+    };
+    const inspectedFileSnapshotIds = ["generic", "messages", "feed", "founder"];
+    const alreadyCovered = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} supports a distinct product behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+    expect(alreadyCovered.domains[0]?.missingBranchVariants).toBe(0);
+
+    const genericOnlyIds = ["generic", "messages", "feed"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: genericOnlyIds,
+        candidates: genericOnlyIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} supports a distinct product behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+    expect(critique.domains[0]?.missingBranchVariants).toBe(1);
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .toEqual(expect.arrayContaining(["founder"]));
+  });
+
+  it("does not infer onboarding branches across unrelated monorepo apps", () => {
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/monorepo",
+      salience: 120,
+      files: [
+        { id: "admin-generic", path: "apps/admin/onboarding/index.ts", score: 100 },
+        { id: "user-founder", path: "apps/user/onboarding/founder.ts", score: 99 },
+        { id: "user-investor", path: "apps/user/onboarding/investor.ts", score: 98 },
+        { id: "messages", path: "apps/admin/services/messages/service.ts", score: 80 },
+        { id: "feed", path: "apps/admin/services/feed/service.ts", score: 70 },
+        ...Array.from({ length: 11 }, (_, index) => ({
+          id: `admin-view-${index}`,
+          path: `apps/admin/dashboard/view-${index}.tsx`,
+          score: 60 - index,
+        })),
+      ],
+    };
+    const inspectedFileSnapshotIds = ["admin-generic", "messages", "feed", "admin-view-0"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} supports a distinct product behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]?.missingBranchVariants).toBe(0);
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .not.toEqual(expect.arrayContaining(["user-founder", "user-investor"]));
+  });
+
   it("uses model entity stems to spend repair depth on distinct persisted concepts", () => {
     const area = {
       key: "repository_area:data_model",
@@ -986,6 +1128,80 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(repairedIds).toContain("shared");
     expect(repairedIds).not.toContain("overlap-alternative");
     expect(repairedKeys).toEqual(new Set(manifest.map((area) => area.key)));
+  });
+
+  it("credits an overlapping repair file only once per area", () => {
+    const shared = { id: "shared", path: "src/shared/workflow.ts", score: 100 };
+    const area = (key: string, prefix: string) => ({
+      key: `project_domain:${key}`,
+      label: key,
+      scopeKey: "example/shared-depth",
+      salience: 100,
+      files: [
+        shared,
+        ...Array.from({ length: 6 }, (_, index) => ({
+          id: `${prefix}-${index}`,
+          path: `src/${prefix}/workflow-${index}.ts`,
+          score: 90 - index,
+        })),
+      ],
+    });
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area("alpha", "a"), area("beta", "b")],
+      reports: [],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(repairedIds).toHaveLength(5);
+    expect(repairedIds).toEqual(expect.arrayContaining([
+      "shared",
+      "a-0",
+      "a-1",
+      "b-0",
+      "b-1",
+    ]));
+  });
+
+  it("does not let generic overlap consume an exact diversity repair", () => {
+    const shared = { id: "shared-java-ui", path: "src/main/ui/SharedForecast.java", score: 120 };
+    const intelligence = {
+      key: "repository_area:intelligence",
+      label: "Search, retrieval, and model intelligence",
+      scopeKey: "example/overlap-runtime",
+      salience: 90,
+      files: [
+        shared,
+        ...Array.from({ length: 4 }, (_, index) => ({
+          id: `inspected-java-${index}`,
+          path: `src/main/ui/ForecastPanel${index}.java`,
+          score: 110 - index,
+        })),
+        { id: "python-runtime", path: "ml_service/forecast_service.py", score: 50 },
+      ],
+    };
+    const inspectedFileSnapshotIds = intelligence.files.slice(1, 5).map((file) => file.id);
+    const critique = critiqueRepositoryCoverage({
+      manifest: [{
+        key: "project_domain:shared",
+        label: "Shared",
+        scopeKey: "example/overlap-runtime",
+        salience: 100,
+        files: [shared],
+      }, intelligence],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(intelligence.key, id),
+          statement: `${id} supports a distinct forecast presentation behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(repairedIds).toContain("python-runtime");
+    expect(repairedIds).toContain("shared-java-ui");
   });
 
   it("does not starve later broad areas when repair depth exceeds the global cap", () => {

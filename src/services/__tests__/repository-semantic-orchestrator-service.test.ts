@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  BedrockStructuredLlmClient,
+  type ConverseTextRuntime,
+} from "@/src/lib/bedrock-structured-llm-client";
+import {
   allocateSemanticWorkerTokenBudgets,
+  buildRepositorySemanticPlannerRequest,
   buildFileSemanticTask,
   capabilityCandidatesFromAnalysis,
+  compactRepositorySemanticPlannerInput,
+  createRepositorySemanticPlannerBudget,
   enforceMandatoryCoverage,
   immutableSemanticCacheWhere,
   missingAssignedFileCandidateGaps,
@@ -16,6 +23,7 @@ import {
   semanticFileReportSignals,
   semanticPlannerTokenReserve,
   semanticSignalKeysForFile,
+  type CapabilityManifestArea,
   type CapabilityReport,
   type SemanticWorkPackage,
 } from "@/src/services/repository-semantic-orchestrator-service";
@@ -93,6 +101,77 @@ describe("repository semantic orchestration guardrails", () => {
       totalTokens: 40_000,
       unknownUsageCalls: 0,
     })).toBe(10_000);
+  });
+
+  it("dispatches a realistic large manifest through the compact planner prompt", async () => {
+    const omittedAnalysisMarker = "FULL_SEMANTIC_ANALYSIS_MUST_NOT_REACH_ROUTING";
+    const largeManifest = Array.from({ length: 30 }, (_, areaIndex) => ({
+      key: `project_domain:capability-${String(areaIndex).padStart(2, "0")}`,
+      label: `Capability ${areaIndex}`,
+      scopeKey: `example/repository-${Math.floor(areaIndex / 10)}`,
+      description: `${omittedAnalysisMarker}:${areaIndex}`,
+      salience: 500 - areaIndex,
+      files: Array.from({ length: 60 }, (_, fileIndex) => ({
+        id: `cmtd5planner${String(areaIndex).padStart(2, "0")}${String(fileIndex).padStart(3, "0")}`,
+        path: `src/features/capability-${areaIndex}/workflow/deeply-nested-implementation-${fileIndex}.ts`,
+        score: 100 - fileIndex,
+        analysis: {
+          facts: Array.from({ length: 20 }, () => omittedAnalysisMarker),
+        },
+      })),
+    })) as unknown as CapabilityManifestArea[];
+    const budget = createRepositorySemanticPlannerBudget();
+    const request = buildRepositorySemanticPlannerRequest({
+      projectTitle: "A realistic multi-surface application",
+      manifest: largeManifest,
+      budget,
+    });
+    const prompt = compactRepositorySemanticPlannerInput({
+      projectTitle: "A realistic multi-surface application",
+      manifest: largeManifest,
+    });
+
+    expect(prompt.capabilities).toHaveLength(30);
+    expect(prompt.capabilities.every((capability) =>
+      capability.representativeFiles.length === 1
+    )).toBe(true);
+    expect(request.userPrompt).not.toContain(omittedAnalysisMarker);
+    expect(request.userPrompt).not.toContain("analysis");
+
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const responsePackage = {
+      objective: "Route the complete capability inventory for semantic inspection.",
+      capabilityKeys: largeManifest.map((area) => area.key),
+      fileSnapshotIds: [largeManifest[0]!.files[0]!.id],
+      questions: ["What behavior does each routed capability implement?"],
+      expectedOutputs: ["Evidence-backed capability findings."],
+    };
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        return {
+          text: "",
+          structuredData: { packages: [responsePackage] },
+          tokenUsage: { inputTokens: 3_200, outputTokens: 700, totalTokens: 3_900 },
+          requestId: "planner-large-manifest-1",
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(runtime, {
+      provider: "bedrock",
+      region: "us-east-1",
+      modelId: "routing-model",
+    });
+
+    await expect(client.generateStructured(request)).resolves.toMatchObject({
+      data: { packages: [responsePackage] },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxTokens).toBe(2_500);
+    expect(budget.usage).toMatchObject({
+      modelCalls: 1,
+      totalTokens: 3_900,
+    });
   });
 
   it("finds a feasible bounded packing when greedy placement can strand capacity", () => {
