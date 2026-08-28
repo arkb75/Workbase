@@ -11,9 +11,14 @@ import {
   buildCoverageMatrix,
   inferProjectDomainCapability,
   inferSubsystemsFromPath,
+  isPlannedDocumentationRange,
+  isRepositoryAnalysisNoisePath,
+  isRepositoryContextOnlyPath,
+  recoverRepositorySemanticAnalysisFromStatic,
   REPOSITORY_FILE_CHUNK_BYTES,
   selectRequiredSemanticCoverageAreas,
   selectSemanticWindows,
+  type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 
 describe("complete repository coverage", () => {
@@ -36,6 +41,21 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("packages/billing/src/index.ts")).toBe("project_domain:billing");
     expect(inferProjectDomainCapability("src/services/miscellaneous-service.ts")).toBeNull();
     expect(inferProjectDomainCapability("src/payments/__tests__/charge.test.ts")).toBeNull();
+    expect(inferProjectDomainCapability("src/email_intake/parse.py")).toBe("project_domain:email-intake");
+    expect(inferProjectDomainCapability("src/main/java/com/acme/orders/OrderService.java")).toBe("project_domain:orders");
+    expect(inferProjectDomainCapability("docs/payments/roadmap.md")).toBeNull();
+    expect(inferProjectDomainCapability("samples/payments/demo.py")).toBeNull();
+    expect(inferProjectDomainCapability("uploads/payments/handler.ts")).toBe("project_domain:payments");
+  });
+
+  it("quarantines generated, cached, minified, and documentation-only paths", () => {
+    expect(isRepositoryAnalysisNoisePath(".gradle/8.9/fileHashes.bin")).toBe(true);
+    expect(isRepositoryAnalysisNoisePath(".venv/lib/python/site-packages/client.py")).toBe(true);
+    expect(isRepositoryAnalysisNoisePath("frontend/app.bundle.js")).toBe(true);
+    expect(isRepositoryAnalysisNoisePath("src/orders/service.py")).toBe(false);
+    expect(isRepositoryContextOnlyPath("ROADMAP.md")).toBe(true);
+    expect(isRepositoryContextOnlyPath("poc/search/demo.go")).toBe(true);
+    expect(isRepositoryContextOnlyPath("src/search/index.go")).toBe(false);
   });
 
   it("classifies persisted chat-run coordination as workflow orchestration", () => {
@@ -76,6 +96,147 @@ describe("complete repository coverage", () => {
       .not.toContain("ai_runtime");
     expect(inferSubsystemsFromPath("docs/agents/planner.ts"))
       .not.toContain("ai_runtime");
+  });
+
+  it("uses boundary-aware path roles instead of generic-token substrings", () => {
+    const javaModel = inferSubsystemsFromPath("src/main/java/com/acme/loans/model/Loan.java");
+    expect(javaModel).toContain("domain_data");
+    expect(javaModel).not.toContain("ai_runtime");
+    expect(inferSubsystemsFromPath("src/resources/ResourceLoader.java")).not.toContain("ingestion_integrations");
+    expect(inferSubsystemsFromPath("src/services/knowledge-review-service.ts")).not.toContain("review_ui");
+    expect(inferSubsystemsFromPath("src/lib/contest.ts")).not.toContain("tests_operations");
+    expect(inferSubsystemsFromPath("src/lib/configuration.ts")).not.toContain("tests_operations");
+    expect(inferProjectDomainCapability("lambda/payments/handler.ts")).toBe("project_domain:payments");
+    expect(inferProjectDomainCapability("templates/email/welcome.ts")).toBe("project_domain:email");
+    expect(inferProjectDomainCapability("src/uploads/payments/handler.ts")).toBe("project_domain:payments");
+  });
+
+  it("rejects semantic claims cited from roadmap ranges", () => {
+    const numberedContent = [
+      "1: # Product",
+      "2: Current ingestion is available.",
+      "3: ## Roadmap",
+      "4: Semantic recommendations will add personalized discovery.",
+    ].join("\n");
+
+    expect(isPlannedDocumentationRange({
+      path: "README.md",
+      numberedContent,
+      lineStart: 2,
+      lineEnd: 2,
+    })).toBe(false);
+    expect(isPlannedDocumentationRange({
+      path: "README.md",
+      numberedContent,
+      lineStart: 4,
+      lineEnd: 4,
+    })).toBe(true);
+    expect(isPlannedDocumentationRange({
+      path: "src/recommendations/service.ts",
+      numberedContent,
+      lineStart: 4,
+      lineEnd: 4,
+    })).toBe(false);
+  });
+
+  it("extracts imports and symbols across TypeScript, Python, Java, and Go", async () => {
+    const [typescript, python, java, go] = await analyzeRepositoryFiles([
+      {
+        repository: "example/polyglot",
+        commitSha: "f".repeat(40),
+        path: "src/web/controller.ts",
+        content: "import { run } from '../core/service';\nexport class ApiController {}",
+      },
+      {
+        repository: "example/polyglot",
+        commitSha: "f".repeat(40),
+        path: "src/scoring/engine.py",
+        content: "from ..core import ranking\nimport requests\nclass ScoringEngine:\n    def predict(self):\n        return requests.get('/rank')",
+      },
+      {
+        repository: "example/polyglot",
+        commitSha: "f".repeat(40),
+        path: "src/main/java/com/acme/orders/OrderController.java",
+        content: "import com.acme.orders.OrderService;\npublic class OrderController {\n  @GetMapping(\"/orders\")\n  public void list() {}\n}",
+      },
+      {
+        repository: "example/polyglot",
+        commitSha: "f".repeat(40),
+        path: "internal/queue/worker.go",
+        content: "import (\n  \"example.com/project/core\"\n  \"net/http\"\n)\ntype Worker struct {}\nfunc (w *Worker) Run() { http.Get(endpoint) }",
+      },
+    ]);
+
+    expect(typescript).toMatchObject({
+      dependencies: expect.arrayContaining(["../core/service"]),
+      symbols: expect.arrayContaining(["ApiController"]),
+    });
+    expect(python).toMatchObject({
+      dependencies: expect.arrayContaining(["../core", "requests"]),
+      symbols: expect.arrayContaining(["ScoringEngine", "predict"]),
+      architectureSignals: expect.arrayContaining(["external integration"]),
+    });
+    expect(java).toMatchObject({
+      dependencies: expect.arrayContaining(["com/acme/orders/OrderService"]),
+      symbols: expect.arrayContaining(["OrderController"]),
+      architectureSignals: expect.arrayContaining(["request endpoint"]),
+    });
+    expect(go).toMatchObject({
+      dependencies: expect.arrayContaining(["example.com/project/core", "net/http"]),
+      symbols: expect.arrayContaining(["Worker", "Run"]),
+      architectureSignals: expect.arrayContaining(["external integration"]),
+    });
+  });
+
+  it("keeps planned README scope as an unresolved question instead of an implementation fact", async () => {
+    const [analysis] = await analyzeRepositoryFiles([{
+      repository: "example/roadmap",
+      commitSha: "e".repeat(40),
+      path: "README.md",
+      content: [
+        "# Product",
+        "The current release imports signed records.",
+        "## Roadmap",
+        "Vector recommendations will add semantic discovery.",
+      ].join("\n"),
+    }]);
+
+    expect(analysis?.facts.some((fact) => fact.statement.includes("current release imports"))).toBe(true);
+    expect(analysis?.facts.some((fact) => fact.statement.includes("Vector recommendations"))).toBe(false);
+    expect(analysis?.unresolvedQuestions).toContain("README.md:4 describes planned rather than implemented scope.");
+  });
+
+  it("recovers generic executable evidence when semantic extraction degrades", async () => {
+    const [staticAnalysis] = await analyzeRepositoryFiles([{
+      repository: "example/orders",
+      commitSha: "d".repeat(40),
+      path: "src/orders/sync.py",
+      content: "import requests\ndef sync_orders():\n    return requests.get('/orders')",
+    }]);
+    const failedAnalysis: RepositoryFileAnalysis = {
+      ...staticAnalysis!,
+      facts: [],
+      analysisMode: "semantic",
+      semanticStatus: "failed",
+      semanticDiagnostics: [{ status: "provider_error" }],
+    };
+    const recovered = recoverRepositorySemanticAnalysisFromStatic({
+      staticAnalysis: staticAnalysis!,
+      failedAnalysis,
+      task: {
+        objective: "Establish supported order synchronization behavior.",
+        capabilityKeys: ["project_domain:orders"],
+        questions: ["How are orders synchronized?"],
+        expectedOutputs: ["Exact implementation evidence"],
+      },
+    });
+
+    expect(recovered.semanticSource).toBe("deterministic_fallback");
+    expect(recovered.facts).toContainEqual(expect.objectContaining({
+      statement: expect.stringContaining("external service through a network client"),
+      evidenceMode: "deterministic_fallback",
+      subsystemKeys: ["project_domain:orders"],
+    }));
   });
 
   it("extracts exact workflow retry, startup, and persisted-run guards without path-only inference", async () => {

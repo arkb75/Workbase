@@ -53,6 +53,128 @@ describe("repository semantic task and budget", () => {
     });
   });
 
+  it("rejects planned documentation findings in single-file semantic extraction", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The roadmap describes future semantic recommendations.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The product provides semantic recommendations.",
+          kind: "user_capability",
+          capabilityKeys: ["product_surface"],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 4,
+          lineEnd: 4,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/product",
+      commitSha: "a".repeat(40),
+      path: "README.md",
+      content: [
+        "# Product",
+        "Current ingestion is available.",
+        "## Roadmap",
+        "Semantic recommendations will add personalized discovery.",
+      ].join("\n"),
+      task: {
+        objective: "Identify implemented product behavior.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.unresolvedQuestions.join(" ")).toContain("Rejected planned documentation finding at 4-4");
+  });
+
+  it("rejects planned documentation findings in semantic micro-batches", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The roadmap describes future semantic recommendations.",
+            subsystemKeys: ["product_surface"],
+            findings: [{
+              statement: "The product provides semantic recommendations.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 4,
+              lineEnd: 4,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The implementation exposes a current product surface.",
+            subsystemKeys: ["product_surface"],
+            findings: [{
+              statement: "The current implementation renders the product surface.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const task = {
+      objective: "Identify implemented product behavior.",
+      capabilityKeys: ["product_surface"],
+      questions: [],
+      expectedOutputs: [],
+    };
+    const [analysis] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "README.md",
+        content: [
+          "# Product",
+          "Current ingestion is available.",
+          "## Roadmap",
+          "Semantic recommendations will add personalized discovery.",
+        ].join("\n"),
+        task,
+      },
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "src/app/page.tsx",
+        content: "export default function Page() { return <main>Current product</main>; }",
+        task,
+      },
+    ]);
+
+    expect(analysis?.facts).toEqual([]);
+    expect(analysis?.unresolvedQuestions.join(" ")).toContain("Rejected planned documentation finding at 4-4");
+  });
+
   it("salvages bounded prose that slightly exceeds provider maxLength output", async () => {
     const overlongSummary = `Summary ${"s".repeat(1_300)}`;
     const overlongStatement = `The file implements ${"supported behavior ".repeat(40)}`;

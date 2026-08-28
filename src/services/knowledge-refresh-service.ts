@@ -34,7 +34,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v33-generalized";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v34-hybrid";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -1093,7 +1093,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
   const persistedCritique = coverageRecords(record(orchestrationRecord.coverageCritique).domains);
   const semanticWorkers = await prisma.agentRun.findMany({
     where: { knowledgeRefreshRunId: runId, kind: "semantic_worker" },
-    select: { id: true, request: true },
+    select: { id: true, request: true, result: true },
   });
   for (const snapshot of run.snapshots) {
     const repository = parseTargets(run.targetHeads).find((target) => target.sourceId === snapshot.sourceId)?.repository ?? snapshot.sourceId;
@@ -1229,10 +1229,35 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     coverageByRepository.push(coverage);
     const ledgerUpserts: Array<() => Promise<unknown>> = [];
     for (const area of matrix) {
-      const representativeFileIds = snapshot.files
+      const areaFileIds = new Set(snapshot.files
         .filter((file) => area.paths.includes(file.path))
-        .slice(0, 12)
-        .map((file) => file.id);
+        .map((file) => file.id));
+      const sampledWorkers = semanticWorkers.flatMap((worker) => {
+        const request = record(worker.request);
+        const result = record(worker.result);
+        const inspectedFileSnapshotIds = new Set(
+          Array.isArray(result.inspectedFileSnapshotIds)
+            ? result.inspectedFileSnapshotIds.filter((id): id is string => typeof id === "string")
+            : [],
+        );
+        const capabilityKeys = Array.isArray(request.capabilityKeys)
+          ? request.capabilityKeys.filter((key): key is string => typeof key === "string")
+          : [];
+        const fileSnapshotIds = Array.isArray(request.fileSnapshotIds)
+          ? request.fileSnapshotIds.filter((id): id is string =>
+              typeof id === "string" && areaFileIds.has(id) && inspectedFileSnapshotIds.has(id)
+            )
+          : [];
+        return capabilityKeys.includes(area.key) && fileSnapshotIds.length
+          ? [{ workerId: worker.id, fileSnapshotIds }]
+          : [];
+      });
+      // The ledger records what investigators actually sampled. Mapped-but-
+      // unread files remain visible in the matrix, not mislabelled as semantic
+      // representatives.
+      const representativeFileIds = Array.from(new Set(
+        sampledWorkers.flatMap((worker) => worker.fileSnapshotIds),
+      )).slice(0, 12);
       const priority = repositoryCapabilityPriority({
         capabilityKey: area.key,
         observationCount: area.observationCount,
@@ -1259,10 +1284,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           : area.semanticPathCount > 0
             ? "partial"
             : "static_only";
-      const workerRunIds = semanticWorkers.flatMap((worker) => {
-        const request = record(worker.request);
-        return Array.isArray(request?.capabilityKeys) && request.capabilityKeys.includes(area.key) ? [worker.id] : [];
-      });
+      const workerRunIds = sampledWorkers.map((worker) => worker.workerId);
       ledgerUpserts.push(() => prisma.repositoryCapabilityLedger.upsert({
         where: { snapshotId_capabilityKey: { snapshotId: snapshot.id, capabilityKey: area.key } },
         create: {

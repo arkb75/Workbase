@@ -632,6 +632,7 @@ describe("repository synthesis limit fallback", () => {
 
     expect(semanticFactsForSubsystem(base, "ai_runtime").map((fact) => fact.statement)).toEqual(["Uses Bedrock Converse tool results."]);
     expect(semanticFactsForSubsystem(base, "domain_data").map((fact) => fact.statement)).toEqual(["Persists a normalized project record."]);
+    expect(semanticFactsForSubsystem({ ...base, path: "README.md" }, "ai_runtime")).toEqual([]);
   });
 
   it("creates a capability-level AI runtime fact from clause-level semantic observations", () => {

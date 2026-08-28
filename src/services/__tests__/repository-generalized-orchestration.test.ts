@@ -4,6 +4,7 @@ import {
   buildRepositoryDerivedSemanticPlan,
   critiqueRepositoryCoverage,
   isRepositoryCartographyNoisePath,
+  repositoryIncomingReferenceCounts,
   semanticSampleTarget,
   type CapabilityCandidate,
   type RepositoryCartographyFile,
@@ -88,6 +89,46 @@ describe("repository-derived cartographer and coverage critic", () => {
     );
     expect(manifest.some((area) => /ai_runtime|ingestion|project_domain:(?:api|model)/.test(area.key))).toBe(false);
     expect(isRepositoryCartographyNoisePath(".nyc_output/process.json")).toBe(true);
+    expect(isRepositoryCartographyNoisePath(".gradle/8.9/fileHashes.bin")).toBe(true);
+    expect(isRepositoryCartographyNoisePath(".venv/lib/python/site-packages/client.py")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("frontend/main.min.js")).toBe(true);
+  });
+
+  it("uses cross-language repository references as a bounded representative signal", () => {
+    const counts = repositoryIncomingReferenceCounts([
+      { path: "src/orders/controller.ts", analysis: { dependencies: ["./service"] } },
+      { path: "src/orders/service.ts", analysis: { dependencies: ["./repository"] } },
+      { path: "src/orders/repository.ts", analysis: { dependencies: [] } },
+      { path: "src/scoring/api.py", analysis: { dependencies: ["./engine"] } },
+      { path: "src/scoring/engine.py", analysis: { dependencies: [] } },
+      { path: "src/main/java/com/acme/billing/BillingApi.java", analysis: { dependencies: ["com/acme/billing/BillingService"] } },
+      { path: "src/main/java/com/acme/billing/BillingService.java", analysis: { dependencies: [] } },
+    ]);
+
+    expect(counts.get("src/orders/service.ts")).toBe(1);
+    expect(counts.get("src/orders/repository.ts")).toBe(1);
+    expect(counts.get("src/scoring/engine.py")).toBe(1);
+    expect(counts.get("src/main/java/com/acme/billing/BillingService.java")).toBe(1);
+  });
+
+  it("ranks a repository-local dependency hub above otherwise equal files", () => {
+    const callers = ["alpha", "beta", "gamma"].map((name) => ({
+      ...mappedFile(name, `src/orders/${name}.ts`),
+      analysis: {
+        ...mappedFile(name, `src/orders/${name}.ts`).analysis,
+        dependencies: ["./z-central"],
+      },
+    }));
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/commerce",
+      files: [
+        ...callers,
+        mappedFile("central", "src/orders/z-central.ts"),
+      ],
+    });
+
+    expect(manifest.find((area) => area.key === "project_domain:orders")?.files[0])
+      .toMatchObject({ id: "central", path: "src/orders/z-central.ts" });
   });
 
   it("samples large domains proportionally within bounded investigator packages", () => {

@@ -137,11 +137,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const currentWarnings = {
-      analyzerVersion: "repository-coverage-v17",
-      semanticAnalyzerVersion: "repository-coverage-v19",
-      coveragePolicyVersion: "repository-coverage-v9-generalized",
-      orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
-      synthesisPolicyVersion: "repository-synthesis-v33-generalized",
+      analyzerVersion: "repository-coverage-v18-hybrid",
+      semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
+      coveragePolicyVersion: "repository-coverage-v10-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+      synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
 
@@ -369,11 +369,11 @@ describe("latest-commit freshness barrier", () => {
       resolvedAt: new Date().toISOString(),
     };
     const warnings = {
-      analyzerVersion: "repository-coverage-v17",
-      semanticAnalyzerVersion: "repository-coverage-v19",
-      coveragePolicyVersion: "repository-coverage-v9-generalized",
-      orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
-      synthesisPolicyVersion: "repository-synthesis-v33-generalized",
+      analyzerVersion: "repository-coverage-v18-hybrid",
+      semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
+      coveragePolicyVersion: "repository-coverage-v10-hybrid",
+      orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+      synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
       lifecyclePolicyVersion: "knowledge-lifecycle-v3",
     };
     const now = new Date("2026-07-15T12:15:00.000Z");
@@ -469,10 +469,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v17",
+          analyzerVersion: "repository-coverage-v18-hybrid",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "degraded",
-          semanticAnalyzerVersion: "repository-coverage-v19",
+          semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({ mode: "semantic", status: "degraded" }),
         }],
@@ -502,6 +502,26 @@ describe("latest-commit freshness barrier", () => {
   });
 
   it("does not let a successful model's informational question degrade verified coverage", async () => {
+    prismaMock.agentRun.findMany.mockResolvedValue([
+      {
+        id: "worker-intelligence",
+        request: {
+          capabilityKeys: ["repository_area:intelligence"],
+          fileSnapshotIds: ["file-1", "file-from-another-repository"],
+        },
+        result: {
+          inspectedFileSnapshotIds: ["file-1", "file-that-failed-before-read"],
+        },
+      },
+      {
+        id: "worker-failed-before-read",
+        request: {
+          capabilityKeys: ["repository_area:intelligence"],
+          fileSnapshotIds: ["file-1"],
+        },
+        result: { inspectedFileSnapshotIds: [] },
+      },
+    ]);
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue({
       id: "refresh-1",
       workItemId: "work-item-1",
@@ -523,10 +543,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-1",
           path: "src/agent.ts",
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v17",
+          analyzerVersion: "repository-coverage-v18-hybrid",
           analysis: analysis({ mode: "static" }),
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v19",
+          semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
           semanticRefreshRunId: "refresh-1",
           semanticAnalysis: analysis({
             mode: "semantic",
@@ -554,18 +574,28 @@ describe("latest-commit freshness barrier", () => {
       .map(([input]) => input)
       .find((input) => input.create.capabilityKey === "repository_area:intelligence");
     expect(intelligenceLedgerCall).toMatchObject({
-      create: { status: "semantic_verified", gaps: [] },
-      update: { status: "semantic_verified", gaps: [] },
+      create: {
+        status: "semantic_verified",
+        gaps: [],
+        representativeFileIds: ["file-1"],
+        workerRunIds: ["worker-intelligence"],
+      },
+      update: {
+        status: "semantic_verified",
+        gaps: [],
+        representativeFileIds: ["file-1"],
+        workerRunIds: ["worker-intelligence"],
+      },
     });
     expect(prismaMock.knowledgeRefreshRun.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         qualityStatus: "verified",
         warnings: expect.objectContaining({
-          analyzerVersion: "repository-coverage-v17",
-          semanticAnalyzerVersion: "repository-coverage-v19",
-          coveragePolicyVersion: "repository-coverage-v9-generalized",
-          orchestrationPolicyVersion: "repository-orchestration-v13-generalized",
-          synthesisPolicyVersion: "repository-synthesis-v33-generalized",
+          analyzerVersion: "repository-coverage-v18-hybrid",
+          semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
+          coveragePolicyVersion: "repository-coverage-v10-hybrid",
+          orchestrationPolicyVersion: "repository-orchestration-v14-hybrid",
+          synthesisPolicyVersion: "repository-synthesis-v34-hybrid",
           lifecyclePolicyVersion: "knowledge-lifecycle-v3",
         }),
       }),
@@ -617,10 +647,10 @@ describe("latest-commit freshness barrier", () => {
           id: "file-auth",
           path,
           disposition: "analyzed",
-          analyzerVersion: "repository-coverage-v17",
+          analyzerVersion: "repository-coverage-v18-hybrid",
           analysis: staticAnalysis,
           semanticStatus: "succeeded",
-          semanticAnalyzerVersion: "repository-coverage-v19",
+          semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
           semanticRefreshRunId: "refresh-auth",
           semanticAnalysis,
         }],
@@ -708,10 +738,10 @@ describe("latest-commit freshness barrier", () => {
             id: "charge",
             path: "src/payments/charge.ts",
             disposition: "analyzed",
-            analyzerVersion: "repository-coverage-v17",
+            analyzerVersion: "repository-coverage-v18-hybrid",
             analysis: domainAnalysis("static"),
             semanticStatus: "succeeded",
-            semanticAnalyzerVersion: "repository-coverage-v19",
+            semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
             semanticRefreshRunId: "refresh-payments",
             semanticAnalysis: domainAnalysis("semantic"),
           },
@@ -719,7 +749,7 @@ describe("latest-commit freshness barrier", () => {
             id,
             path: `src/payments/${id}.ts`,
             disposition: "analyzed",
-            analyzerVersion: "repository-coverage-v17",
+            analyzerVersion: "repository-coverage-v18-hybrid",
             analysis: { ...domainAnalysis("static"), path: `src/payments/${id}.ts` },
             semanticStatus: "not_selected",
             semanticAnalyzerVersion: null,
@@ -765,10 +795,10 @@ describe("latest-commit freshness barrier", () => {
       id,
       path: "src/agent.ts",
       disposition: "analyzed",
-      analyzerVersion: "repository-coverage-v17",
+      analyzerVersion: "repository-coverage-v18-hybrid",
       analysis: analysis({ mode: "static" }),
       semanticStatus: "succeeded",
-      semanticAnalyzerVersion: "repository-coverage-v19",
+      semanticAnalyzerVersion: "repository-coverage-v20-hybrid",
       semanticRefreshRunId: "refresh-multi",
       semanticAnalysis: analysis({ mode: "semantic", status: "succeeded" }),
     });

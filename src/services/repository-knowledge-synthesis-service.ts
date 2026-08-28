@@ -14,6 +14,7 @@ import {
   type StructuredGenerationBudget,
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
+  isRepositoryContextOnlyPath,
   isProjectDomainCapabilityKey,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
@@ -190,6 +191,7 @@ function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
 }
 
 export function semanticFactsForSubsystem(analysis: RepositoryFileAnalysis, subsystemKey: string) {
+  if (isRepositoryContextOnlyPath(analysis.path)) return [];
   return analysis.facts.filter((fact) => !fact.subsystemKeys?.length || fact.subsystemKeys.includes(subsystemKey));
 }
 

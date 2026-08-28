@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v9-generalized";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v10-hybrid";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -42,20 +42,60 @@ export const PROJECT_DOMAIN_CAPABILITY_PREFIX = "project_domain:";
 export const MINIMUM_REQUIRED_SEMANTIC_TARGETS = 8;
 
 const projectDomainContainerSegments = new Set([
-  "adapter", "adapters", "api", "app", "apps", "client", "clients", "common", "component", "components", "controller", "controllers",
-  "backend", "core", "data", "domain", "eval", "evals", "feature", "features", "frontend", "handler", "handlers", "hook", "hooks", "internal", "lib", "libs",
+  "adapter", "adapters", "agent", "agents", "api", "app", "application", "apps", "backend", "client", "clients", "cmd", "common", "component", "components", "connector", "connectors", "controller", "controllers",
+  "core", "data", "domain", "eval", "evals", "feature", "features", "form", "forms", "frontend", "handler", "handlers", "hook", "hooks", "infra", "infrastructure", "integration", "integrations", "internal", "job", "jobs", "lib", "libs",
   "com", "io", "java", "kotlin", "main", "net", "org", "python", "resources", "scala",
-  "model", "models", "module", "modules", "package", "packages", "page", "pages", "repository",
-  "repositories", "persistence", "provider", "providers", "rest", "route", "routes", "server", "service", "services", "shared", "src", "storage", "store", "stores",
+  "model", "models", "module", "modules", "package", "packages", "page", "pages", "persistence", "pipeline", "pipelines", "presentation", "provider", "providers", "queue", "queues", "repository",
+  "repositories", "rest", "route", "routes", "schema", "schemas", "server", "service", "services", "shared", "src", "storage", "store", "stores",
   "type", "types", "ui", "util", "utils", "view", "views",
-  "validation", "validations", "workflow", "workflows", "lambda", "terraform", "new",
+  "validation", "validations", "web", "worker", "workers", "workflow", "workflows", "lambda", "terraform", "new",
 ]);
 
 const excludedProjectDomainRoots = new Set([
   ".github", ".next", ".nyc_output", ".playwright-cli", ".workflow-data", "__fixtures__", "__mocks__", "__tests__", "build", "config", "coverage", "dist",
   "docs", "examples", "fixtures", "generated", "migrations", "node_modules", "prisma", "public", "scripts",
-  "spec", "specs", "test", "test-results", "tests", "vendor",
+  "spec", "specs", "target", "test", "test-results", "tests", "tmp", "vendor",
 ]);
+
+const projectDomainSuppressedRoots = new Set([
+  "poc", "sample-input", "sample_input", "terraform",
+]);
+
+const repositoryAnalysisNoiseSegments = new Set([
+  ".cache", ".gradle", ".idea", ".mypy_cache", ".next", ".nuxt", ".nyc_output", ".parcel-cache",
+  ".playwright-cli", ".pytest_cache", ".terraform", ".turbo", ".venv", ".vscode", ".workflow-data",
+  "__fixtures__", "__generated__", "__pycache__", "bower_components", "build", "coverage", "dist",
+  "fixtures", "generated", "node_modules", "obj", "out", "playwright-report", "target", "test-results", "tmp",
+  "vendor", "vendors", "venv",
+]);
+
+export function isRepositoryAnalysisNoisePath(path: string) {
+  const segments = path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase().split("/").filter(Boolean);
+  if (!segments.length || segments.at(-1) === ".ds_store") return true;
+  if (segments.some((segment) => repositoryAnalysisNoiseSegments.has(segment))) return true;
+  if (segments.some((segment, index) => segment === "resources" && /^(?:tests?|specs?)$/.test(segments[index - 1] ?? ""))) return true;
+  return /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/i.test(segments.at(-1) ?? "");
+}
+
+export function isRepositoryDocumentationPath(path: string) {
+  return /(?:^|\/)(?:(?:README|ROADMAP|ARCHITECTURE|CONTRIBUTING|CHANGELOG)(?:\.[^/]+)?|docs?(?:\/|$))/i
+    .test(path.replace(/\\/g, "/"));
+}
+
+export function isRepositoryContextOnlyPath(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  return isRepositoryDocumentationPath(normalized) ||
+    /(?:^|\/)(?:examples?|samples?|sample[-_]?inputs?|poc)(?:\/|$)/i.test(normalized) ||
+    /\.(?:md|markdown|mdown|rst|adoc|txt)$/i.test(normalized);
+}
+
+function isRepositoryProductPath(path: string) {
+  const segments = path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase().split("/").filter(Boolean);
+  if (!segments.length || isRepositoryAnalysisNoisePath(path)) return false;
+  if (segments.some((segment) => segment.startsWith(".") && segment !== ".github")) return false;
+  if (segments.some((segment) => excludedProjectDomainRoots.has(segment))) return false;
+  return !segments.some((segment, index) => segment === "resources" && /^(?:tests?|specs?)$/.test(segments[index - 1] ?? ""));
+}
 
 export function isProjectDomainCapabilityKey(key: string) {
   return key.startsWith(PROJECT_DOMAIN_CAPABILITY_PREFIX) && key.length > PROJECT_DOMAIN_CAPABILITY_PREFIX.length;
@@ -73,11 +113,17 @@ export function inferProjectDomainCapability(path: string) {
   const segments = normalized.split("/").filter(Boolean);
   if (segments.length < 2) return null;
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
-  if (!directories.length || directories.some((segment) => excludedProjectDomainRoots.has(segment))) return null;
+  const javaProductionTree = /(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized);
+  if (
+    !directories.length ||
+    !isRepositoryProductPath(path) ||
+    (isRepositoryContextOnlyPath(path) && !javaProductionTree) ||
+    directories.some((segment) => projectDomainSuppressedRoots.has(segment))
+  ) return null;
   // Prefer the nearest meaningful product directory. This avoids turning a
   // Java package namespace such as `com/example` into the domain when the
   // actual feature lives at `.../accounts/service`.
-  const candidate = [...directories].reverse().find((segment) =>
+  const candidate = [...directories].reverse().map((segment) => segment.replace(/_+/g, "-").replace(/-+/g, "-")).find((segment) =>
     !projectDomainContainerSegments.has(segment) &&
     !/^\[.*\]$/.test(segment) &&
     !/^v\d+$/.test(segment) &&
@@ -355,14 +401,15 @@ function structurallySupportedSemanticCapabilityKeys(input: {
 }
 
 export function inferSubsystemsFromPath(path: string) {
+  if (isRepositoryAnalysisNoisePath(path)) return [];
   const value = path.toLowerCase();
   const keys: string[] = [];
   if (/knowledge-refresh|repository-(?:coverage|knowledge-(?:sync|synthesis)|semantic-orchestrator)|knowledge-(?:reconciliation|staleness)/.test(value)) keys.push("repository_knowledge_lifecycle");
   if (/project-chat|project-execution-router|project-agent-harness|chat-citation|answer-grounding|prior-turn-provenance/.test(value)) keys.push("project_chat_grounding");
   if (/artifact-(?:workflow|generation|persistence)|artifacts?\//.test(value)) keys.push("artifact_generation");
   if (/knowledge-(?:review|update)|candidate-review|highlight-review/.test(value)) keys.push("knowledge_review_lifecycle");
-  if (/readme|package\.json|docs?\//.test(value)) keys.push("product_surface");
-  if (/prisma|schema|domain|types/.test(value)) keys.push("domain_data");
+  if (/(?:^|\/)(?:readme(?:\.[^/]+)?|package\.json)$|(?:^|\/)docs?(?:\/|$)/.test(value)) keys.push("product_surface");
+  if (/(?:^|[/_.-])(?:prisma|schemas?|domain|types?|models?|entities|migrations?)(?:[/_.-]|$)/.test(value)) keys.push("domain_data");
   // Repository-root AGENTS.md, docs, fixtures, and tests are not proof of a
   // production model runtime. Recognize both singular agent modules and common
   // plural production layouts such as src/agents/planner.ts.
@@ -376,25 +423,27 @@ export function inferSubsystemsFromPath(path: string) {
     /(?:^|[/_.-])agents?(?:[/_.-]|$)/u.test(value) &&
     /\.(?:[cm]?[jt]sx?|py|go|rs|java)$/u.test(value) &&
     !agentExamplePath;
-  if (/bedrock|openrouter|llm|model|converse/.test(value) || executableAgentPath) {
+  if (/(?:^|[/_.-])(?:bedrock|openrouter|llm|converse)(?:[/_.-]|$)/.test(value) || executableAgentPath) {
     keys.push("ai_runtime");
   }
-  if (/github|source|import|ingest|oauth|integration/.test(value)) keys.push("ingestion_integrations");
-  if (/retriev|citation|provenance|embedding|search/.test(value)) keys.push("retrieval_provenance");
+  if (/(?:^|[/_.-])(?:github|sources?|imports?|ingest(?:ion)?|oauth|integrations?)(?:[/_.-]|$)/.test(value)) keys.push("ingestion_integrations");
+  if (/(?:^|[/_.-])(?:retriev(?:al|er|e)?|citations?|provenance|embeddings?|search)(?:[/_.-]|$)/.test(value)) keys.push("retrieval_provenance");
   if (
     /workflow|orchestrat|run-|queue|job/.test(value) ||
     value === "src/services/project-chat-store.ts"
   ) keys.push("workflow_orchestration");
   const appUiPath = /(?:^|\/)(?:src\/)?app\/(?!api(?:\/|$))/u.test(value);
   const componentUiPath = /(?:^|\/)components?(?:\/|$)/u.test(value);
-  const namedUiModule = /(?:^|[/_.-])(?:review|workspace|ui)(?:[/_.-]|$)/u.test(value);
+  const namedUiModule = /(?:^|[/_.-])(?:workspace|ui)(?:[/_.-]|$)/u.test(value);
   if (
     appUiPath ||
     componentUiPath ||
     namedUiModule ||
     /(?:^|\/)(?:page|layout)\.[cm]?[jt]sx$/u.test(value)
   ) keys.push("review_ui");
-  if (/test|spec|vitest|health|config|script/.test(value)) keys.push("tests_operations");
+  if (
+    /(?:^|\/)(?:__tests__|tests?|specs?|scripts?|config|health)(?:\/|\.)|\.(?:test|spec)\.[^.]+$|(?:^|[/_.-])vitest(?:[/_.-]|$)/u.test(value)
+  ) keys.push("tests_operations");
   const projectDomain = inferProjectDomainCapability(path);
   if (projectDomain) keys.push(projectDomain);
   const parts = path.split("/");
@@ -565,6 +614,7 @@ export function selectSemanticWindows(
 
 function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabilityKeys?: string[]): RepositoryChunkAnalysis {
   const supportedKeys = capabilityKeys?.length ? capabilityKeys : inferSubsystemsFromPath(path);
+  const documentationOnly = isRepositoryContextOnlyPath(path);
   return {
     summary: `${path} is an analyzed repository source file.`,
     subsystemKeys: inferSubsystemsFromPath(path),
@@ -573,7 +623,7 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabili
     dependencies: [],
     architectureSignals: [],
     userFacingCapabilities: [],
-    facts: [{
+    facts: documentationOnly ? [] : [{
       statement: `${path} is present in the current repository snapshot and contains project implementation.`,
       category: "code_location",
       confidence: "medium",
@@ -586,8 +636,31 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabili
       subsystemKeys: supportedKeys,
       evidenceMode: "semantic",
     }],
-    unresolvedQuestions: [],
+    unresolvedQuestions: documentationOnly
+      ? ["Documentation and examples are planning context; executable implementation evidence is required."]
+      : [],
   };
+}
+
+/** Reject model findings cited from explicitly future-facing documentation. */
+export function isPlannedDocumentationRange(input: {
+  path: string;
+  numberedContent: string;
+  lineStart: number;
+  lineEnd: number;
+}) {
+  if (!isRepositoryDocumentationPath(input.path)) return false;
+  const lines = input.numberedContent.split("\n").flatMap((line) => {
+    const match = /^(\d+):\s?(.*)$/u.exec(line);
+    return match ? [{ number: Number(match[1]), text: match[2] ?? "" }] : [];
+  });
+  const selected = lines.filter((line) => line.number >= input.lineStart && line.number <= input.lineEnd);
+  const precedingHeading = lines
+    .filter((line) => line.number <= input.lineStart && /^#{1,6}\s+/.test(line.text))
+    .at(-1)?.text ?? "";
+  return /\b(?:future|roadmap|planned|todo|not yet|coming soon|will add|would like|could add)\b/i.test(
+    `${precedingHeading} ${selected.map((line) => line.text).join(" ")}`,
+  );
 }
 
 async function analyzeChunk(input: {
@@ -720,6 +793,15 @@ async function analyzeChunk(input: {
       rejected.push(`Rejected out-of-window finding at ${finding.lineStart}-${finding.lineEnd}.`);
       return [];
     }
+    if (isPlannedDocumentationRange({
+      path: input.path,
+      numberedContent: input.content,
+      lineStart: finding.lineStart,
+      lineEnd: finding.lineEnd,
+    })) {
+      rejected.push(`Rejected planned documentation finding at ${finding.lineStart}-${finding.lineEnd}.`);
+      return [];
+    }
     const category: ProjectFactCategory = finding.kind === "data_flow"
       ? "data_flow"
       : finding.kind === "integration"
@@ -767,6 +849,7 @@ async function analyzeChunk(input: {
 function isMeaningfulDeterministicFallbackFact(fact: RepositoryFileAnalysis["facts"][number]) {
   if (fact.confidence !== "high" || fact.sensitivityFlag || fact.lineEnd < fact.lineStart) return false;
   if (/\bis present in the (?:current|complete) (?:repository )?snapshot\b/i.test(fact.statement)) return false;
+  if (/\b(?:readme|roadmap|changelog)(?:\.[^/\s]+)?\s+states:/i.test(fact.statement)) return false;
   if (isDeterministicFallbackAnchor(fact)) return true;
   if (fact.category !== "code_location") {
     return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|reads or writes persisted application state through Prisma|implements (?:provider-neutral conversation or tool-result handling|OpenRouter chat and tool-loop transports|Bedrock Converse or tool-result handling)|routes model work through OpenRouter|invokes schema-constrained model generation|defines automated tests|README\.md states|replays completed repository reconciliation from a persisted checkpoint|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
@@ -776,7 +859,30 @@ function isMeaningfulDeterministicFallbackFact(fact: RepositoryFileAnalysis["fac
 
 function isDeterministicFallbackAnchor(fact: RepositoryFileAnalysis["facts"][number]) {
   if (fact.category === "code_location") return /persisted model/i.test(fact.statement);
-  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements (?:provider-neutral conversation or tool-result handling|OpenRouter chat and tool-loop transports|Bedrock Converse or tool-result handling)|routes model work through OpenRouter|invokes schema-constrained model generation|defines automated tests|README\.md states|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after|replays completed repository reconciliation from a persisted checkpoint|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
+  const genericImplementationSignal = /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps|automated tests for project behavior)|dispatches asynchronous or scheduled work|invokes schema-constrained model generation|reads or writes persisted application state through (?:Prisma|a database abstraction)|contains embedding, vector, or lexical retrieval behavior|implements citation or provenance handling|communicates with an external service through a network client|contains sensitive-data protection or redaction behavior|contains authorization or ownership checks|exposes a request-handling endpoint|contains cache or expiry behavior|coordinates a multi-step database mutation inside an explicit transaction boundary|bounds retry behavior and exposes timeout or cancellation handling|validates an identity, credential, permission, or signed request before continuing)/i;
+  return genericImplementationSignal.test(fact.statement) ||
+    isLegacyDeterministicFallbackAnchor(fact);
+}
+
+function isLegacyDeterministicFallbackAnchor(fact: RepositoryFileAnalysis["facts"][number]) {
+  return /(?:defines (?:a durable workflow entrypoint|retry-safe workflow steps)|uses a durable approval hook|implements (?:provider-neutral conversation or tool-result handling|OpenRouter chat and tool-loop transports|Bedrock Converse or tool-result handling)|routes model work through OpenRouter|dispatches keep, edit-and-keep, revert, and retire review decisions|queues an idempotent repository revalidation pass|retires a review card when its snapshot no longer matches|maps lifecycle actions to restore-retired|restores validation state and exact .* evidence relations|creates a successor .* linked to its predecessor|invalidates downstream dependents after|replays completed repository reconciliation from a persisted checkpoint|lets a waiting turn claim a released shared refresh|conditionally reserves an unstarted queued run|serializes chat-run creation|serializes agent-run event appends|locks persisted run state during completion)/i.test(fact.statement);
+}
+
+function deterministicFallbackFactSupportsCapability(
+  fact: RepositoryFileAnalysis["facts"][number],
+  capabilityKey: string,
+) {
+  if (isProjectDomainCapabilityKey(capabilityKey)) return true;
+  if (isLegacyDeterministicFallbackAnchor(fact)) return true;
+  const capabilitySignals: Partial<Record<(typeof BASE_COVERAGE_TARGETS)[number]["key"], RegExp>> = {
+    domain_data: /(?:database abstraction|explicit transaction boundary)/i,
+    ai_runtime: /(?:schema-constrained model generation|provider-neutral conversation|model runtime)/i,
+    ingestion_integrations: /(?:external service through a network client)/i,
+    retrieval_provenance: /(?:embedding, vector, or lexical retrieval|citation or provenance)/i,
+    workflow_orchestration: /(?:durable workflow|retry-safe workflow|asynchronous or scheduled work|bounds retry behavior)/i,
+    tests_operations: /(?:automated tests for project behavior)/i,
+  };
+  return capabilitySignals[capabilityKey as keyof typeof capabilitySignals]?.test(fact.statement) ?? false;
 }
 
 /**
@@ -798,7 +904,9 @@ export function recoverRepositorySemanticAnalysisFromStatic(input: {
   const eligibleFacts = input.staticAnalysis.facts
     .filter(isMeaningfulDeterministicFallbackFact)
     .flatMap((fact) => {
-      const capabilityKeys = (fact.subsystemKeys ?? []).filter((key) => supportedKeys.includes(key));
+      const capabilityKeys = (fact.subsystemKeys ?? []).filter((key) =>
+        supportedKeys.includes(key) && deterministicFallbackFactSupportsCapability(fact, key)
+      );
       if (!capabilityKeys.length) return [];
       return [{
         ...fact,
@@ -1290,6 +1398,15 @@ export async function analyzeRepositoryFileBatch(
         rejected.push(`Rejected out-of-window finding at ${finding.lineStart}-${finding.lineEnd}.`);
         return [];
       }
+      if (isPlannedDocumentationRange({
+        path: entry.file.path,
+        numberedContent: entry.window.content,
+        lineStart: finding.lineStart,
+        lineEnd: finding.lineEnd,
+      })) {
+        rejected.push(`Rejected planned documentation finding at ${finding.lineStart}-${finding.lineEnd}.`);
+        return [];
+      }
       acceptedFindings.push(finding);
       const category: ProjectFactCategory = finding.kind === "data_flow"
         ? "data_flow"
@@ -1367,6 +1484,72 @@ export async function analyzeRepositoryFileBatch(
 
 export const MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE = 8;
 
+function pythonModuleDependency(value: string) {
+  const leadingDots = value.match(/^\.+/)?.[0].length ?? 0;
+  const modulePath = value.slice(leadingDots).replace(/\./g, "/");
+  if (!leadingDots) return modulePath;
+  return `${leadingDots === 1 ? "./" : "../".repeat(leadingDots - 1)}${modulePath}`;
+}
+
+/** Extract imports across the language families supported by repository sync. */
+function sourceDependenciesForLine(input: {
+  path: string;
+  line: string;
+  inGoImportBlock: boolean;
+}) {
+  const dependencies: string[] = [];
+  const extension = input.path.split(".").at(-1)?.toLowerCase();
+  const quotedModule = input.line.match(/(?:\bfrom\s+|\brequire\s*\(|^\s*import\s*)['"]([^'"]+)['"]/u)?.[1];
+  if (quotedModule) dependencies.push(quotedModule);
+
+  if (extension === "py") {
+    const fromModule = input.line.match(/^\s*from\s+([.\w]+)\s+import\b/u)?.[1];
+    const importedModules = input.line.match(/^\s*import\s+([\w.,\s]+?)(?:\s+as\s+\w+)?\s*$/u)?.[1];
+    if (fromModule) dependencies.push(pythonModuleDependency(fromModule));
+    if (importedModules) {
+      for (const moduleName of importedModules.split(",").map((value) => value.trim().split(/\s+as\s+/u)[0]).filter(Boolean)) {
+        dependencies.push(pythonModuleDependency(moduleName!));
+      }
+    }
+  }
+
+  if (extension === "java" || extension === "kt" || extension === "kts") {
+    const importedType = input.line.match(/^\s*import\s+(?:static\s+)?([\w.]+?)(?:\.\*)?\s*;?\s*$/u)?.[1];
+    if (importedType) dependencies.push(importedType.replace(/\./g, "/"));
+  }
+
+  if (extension === "go" && (input.inGoImportBlock || /^\s*import\s+/u.test(input.line))) {
+    const goModule = input.line.match(/["`]([^"`]+)["`]/u)?.[1];
+    if (goModule) dependencies.push(goModule);
+  }
+  return unique(dependencies, 8);
+}
+
+/** Extract declared symbols without assuming TypeScript export syntax. */
+function sourceSymbolsForLine(path: string, line: string) {
+  const extension = path.split(".").at(-1)?.toLowerCase();
+  const symbols: string[] = [];
+  const add = (match: RegExpMatchArray | null) => {
+    if (match?.[1]) symbols.push(match[1]);
+  };
+  if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(extension ?? "")) {
+    add(line.match(/^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/u));
+    add(line.match(/^\s*export\s+(?:default\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/u));
+  } else if (extension === "py") {
+    add(line.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/u));
+    add(line.match(/^\s*class\s+([A-Za-z_]\w*)\b/u));
+  } else if (extension === "java") {
+    add(line.match(/^\s*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed)\s+)*(?:class|interface|enum|record)\s+([A-Za-z_]\w*)\b/u));
+  } else if (extension === "kt" || extension === "kts") {
+    add(line.match(/^\s*(?:(?:public|protected|private|internal|abstract|final|open|sealed|data)\s+)*(?:class|interface|object|enum\s+class)\s+([A-Za-z_]\w*)\b/u));
+    add(line.match(/^\s*(?:(?:public|protected|private|internal|suspend|inline|operator)\s+)*fun\s+(?:<[^>]+>\s*)?([A-Za-z_]\w*)\s*\(/u));
+  } else if (extension === "go") {
+    add(line.match(/^\s*type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b/u));
+    add(line.match(/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/u));
+  }
+  return unique(symbols, 4);
+}
+
 export async function analyzeRepositoryFiles(input: Array<{
   repository: string;
   commitSha: string;
@@ -1378,14 +1561,21 @@ export async function analyzeRepositoryFiles(input: Array<{
   }
   return input.map((file) => {
     const lines = file.content.split("\n");
+    const fileSubsystemKeys = inferSubsystemsFromPath(file.path);
     const dependencies: string[] = [];
     const symbols: string[] = [];
     const responsibilities: string[] = [];
     const architectureSignals: string[] = [];
     const userFacingCapabilities: string[] = [];
     const facts: RepositoryFileAnalysis["facts"] = [];
+    const planningContext: string[] = [];
+    let readmePlanningSection = false;
+    let inGoImportBlock = false;
     const isTest = /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(file.path);
-    const baseImportance = isTest ? 1 : /(?:workflow|artifact|chat|research|retriev|github|schema|bedrock|openrouter|llm|highlight)/i.test(file.path) ? 4 : 2;
+    const broadSubsystemCount = fileSubsystemKeys.filter((key) =>
+      !key.startsWith("module:") && !isProjectDomainCapabilityKey(key)
+    ).length;
+    const baseImportance = isTest ? 1 : broadSubsystemCount >= 2 ? 4 : broadSubsystemCount === 1 ? 3 : 2;
     const addFact = (
       statement: string,
       category: ProjectFactCategory,
@@ -1404,8 +1594,8 @@ export async function analyzeRepositoryFiles(input: Array<{
         lineEnd,
         productImportance: Math.min(5, productImportance),
         implementationBreadth: Math.min(5, breadth),
-        technicalDifficulty: Math.min(5, /workflow|agent|bedrock|openrouter|model routing|embedding|oauth|encrypt|retriev/i.test(statement) ? 4 : 2),
-        subsystemKeys: inferSubsystemsFromPath(file.path),
+        technicalDifficulty: Math.min(5, /workflow|agent|inference|embedding|encrypt|retriev|transaction|concurr|queue|distributed|authorization/i.test(statement) ? 4 : 2),
+        subsystemKeys: fileSubsystemKeys,
         evidenceMode: "static",
         path: file.path,
       });
@@ -1414,14 +1604,19 @@ export async function analyzeRepositoryFiles(input: Array<{
     for (const [index, sourceLine] of lines.entries()) {
       const line = sourceLine.trim();
       const lineNumber = index + 1;
-      const importMatch = line.match(/(?:from\s+|require\()['\"]([^'\"]+)['\"]/);
-      if (importMatch?.[1]) dependencies.push(importMatch[1]);
-      const symbolMatch = file.path.endsWith(".prisma")
-        ? null
-        : line.match(/^(?:export\s+)(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type|enum)\s+([A-Za-z_$][\w$]*)/);
+      if (/^readme(?:\.[^.]+)?$/i.test(file.path) && /^#{1,6}\s+/.test(line)) {
+        readmePlanningSection = /\b(?:future|roadmap|planned|todo|next steps?|not yet|coming soon)\b/i.test(line);
+      }
+      const isGo = file.path.endsWith(".go");
+      const beginsGoImportBlock = isGo && /^import\s*\(\s*$/u.test(line);
+      const endsGoImportBlock = isGo && inGoImportBlock && /^\)\s*$/u.test(line);
+      if (beginsGoImportBlock) inGoImportBlock = true;
+      dependencies.push(...sourceDependenciesForLine({ path: file.path, line, inGoImportBlock }));
+      if (endsGoImportBlock) inGoImportBlock = false;
+      const sourceSymbols = file.path.endsWith(".prisma") ? [] : sourceSymbolsForLine(file.path, line);
       const prismaModelMatch = line.match(/^model\s+([A-Za-z_$][\w$]*)\s*\{/);
-      const symbol = symbolMatch?.[1] ?? prismaModelMatch?.[1];
-      if (symbol) {
+      const lineSymbols = unique([...sourceSymbols, ...(prismaModelMatch?.[1] ? [prismaModelMatch[1]] : [])], 4);
+      for (const symbol of lineSymbols) {
         symbols.push(symbol);
         addFact(`${file.path} defines ${prismaModelMatch ? "the persisted model" : "the symbol"} ${symbol}.`, prismaModelMatch ? "data_flow" : "code_location", lineNumber);
       }
@@ -1433,14 +1628,18 @@ export async function analyzeRepositoryFiles(input: Array<{
         { pattern: /ConverseCommand|tool_use|toolResult/, label: "provider conversation tool loop", statement: `${file.path} implements provider-neutral conversation or tool-result handling.`, category: "architecture", breadth: 5 },
         { pattern: /OpenRouterChatCompletionsRuntime|OpenRouterConverseTransport|sendOpenRouterRequest/, label: "OpenRouter model runtime", statement: `${file.path} implements OpenRouter chat and tool-loop transports.`, category: "architecture", breadth: 5 },
         { pattern: /zeroDataRetention|require_parameters|providerRouting/, label: "strict OpenRouter routing", statement: `${file.path} enforces strict OpenRouter privacy and required-parameter routing.`, category: "behavior", breadth: 5 },
-        { pattern: /generateStructured|getStructuredLlmClient/, label: "structured model generation", statement: `${file.path} invokes schema-constrained model generation.`, category: "behavior", breadth: 4 },
-        { pattern: /prisma\.|\$transaction/, label: "database persistence", statement: `${file.path} reads or writes persisted application state through Prisma.`, category: "data_flow", breadth: 3 },
+        { pattern: /(?:enqueue|publish|dispatch|schedule)\s*\(/i, label: "asynchronous work dispatch", statement: `${file.path} dispatches asynchronous or scheduled work.`, category: "data_flow", breadth: 4 },
+        { pattern: /(?:generateStructured|getStructuredLlmClient|response_format|json_schema|tool_choice)/i, label: "structured model generation", statement: `${file.path} invokes schema-constrained model generation.`, category: "behavior", breadth: 4 },
+        { pattern: /(?:prisma\.|\$transaction|EntityManager|DbContext|sqlalchemy|BEGIN\s+TRANSACTION)/i, label: "database persistence", statement: `${file.path} reads or writes persisted application state through a database abstraction.`, category: "data_flow", breadth: 3 },
         { pattern: /embedding|vector|cosine|ts_rank|plainto_tsquery/i, label: "hybrid retrieval", statement: `${file.path} contains embedding, vector, or lexical retrieval behavior.`, category: "data_flow", breadth: 4 },
         { pattern: /citation|provenance/i, label: "citation and provenance", statement: `${file.path} implements citation or provenance handling.`, category: "data_flow", breadth: 4 },
         { pattern: /github|octokit|oauth/i, label: "GitHub integration", statement: `${file.path} contains GitHub integration behavior.`, category: "dependency", breadth: 4 },
+        { pattern: /(?:fetch\s*\(|axios\.|requests\.|HttpClient|OkHttpClient|grpc\.|\bhttp\.(?:Get|Post|NewRequest)\s*\()/i, label: "external integration", statement: `${file.path} communicates with an external service through a network client.`, category: "dependency", breadth: 4 },
         { pattern: /encrypt|decrypt|redact|secret/i, label: "sensitive-data safeguard", statement: `${file.path} contains sensitive-data protection or redaction behavior.`, category: "behavior", breadth: 3 },
-        { pattern: /authorize|userId.*workItemId|findFirstOrThrow/i, label: "project authorization", statement: `${file.path} contains project-scoped authorization or ownership checks.`, category: "behavior", breadth: 3 },
-        { pattern: /(?:^|[^\w.])(?:describe|it|test)\s*\(/, label: "automated test coverage", statement: `${file.path} defines automated tests for project behavior.`, category: "behavior", breadth: 2 },
+        { pattern: /authorize|authenticate|permission|ownership|access[_ -]?control|userId.*workItemId|findFirstOrThrow/i, label: "authorization boundary", statement: `${file.path} contains authorization or ownership checks.`, category: "behavior", breadth: 3 },
+        { pattern: /(?:^|[^\w.])(?:describe|it|test)\s*\(|@Test\b|def\s+test_|func\s+Test[A-Z]/, label: "automated test coverage", statement: `${file.path} defines automated tests for project behavior.`, category: "behavior", breadth: 2 },
+        { pattern: /@(?:Get|Post|Put|Patch|Delete)Mapping\b|\b(?:router|app)\.(?:get|post|put|patch|delete)\s*\(/i, label: "request endpoint", statement: `${file.path} exposes a request-handling endpoint.`, category: "behavior", breadth: 4 },
+        { pattern: /(?:cache|memoize|ttl|expiresAt)/i, label: "cache behavior", statement: `${file.path} contains cache or expiry behavior.`, category: "architecture", breadth: 3 },
       ];
       for (const signal of signals) {
         if (!signal.pattern.test(line)) continue;
@@ -1449,7 +1648,9 @@ export async function analyzeRepositoryFiles(input: Array<{
       }
       if (/^readme(?:\.[^.]+)?$/i.test(file.path) && line && !/^```/.test(line) && line.length <= 240) {
         const readable = line.replace(/^#+\s*/, "").replace(/^[-*]\s*/, "");
-        if (readable.length >= 12) addFact(`${file.path} states: ${readable}`, "behavior", lineNumber, 4);
+        const planned = readmePlanningSection || /\b(?:future|planned|roadmap|todo|not yet|will add|coming soon|would like|could add)\b/i.test(readable);
+        if (planned) planningContext.push(`${file.path}:${lineNumber} describes planned rather than implemented scope.`);
+        else if (readable.length >= 12) addFact(`${file.path} states: ${readable}`, "behavior", lineNumber, 3);
       }
     }
 
@@ -1490,6 +1691,31 @@ export async function analyzeRepositoryFiles(input: Array<{
         input.productImportance ?? 4,
       );
     };
+
+    // Cross-line signals stay syntax-shaped and require every clause in the
+    // same immutable file. They recover common implementation guarantees in
+    // any supported language without inferring them from a filename.
+    addRangeFact({
+      patterns: [/\b(?:beginTransaction|BEGIN\s+TRANSACTION|\$transaction)\b/i, /\b(?:commit|rollback)\b/i],
+      statement: `${file.path} coordinates a multi-step database mutation inside an explicit transaction boundary.`,
+      category: "data_flow",
+      breadth: 4,
+      productImportance: 4,
+    });
+    addRangeFact({
+      patterns: [/\b(?:maxRetries|retryCount|backoff)\b/i, /\b(?:timeout|abort|cancel)\w*\b/i],
+      statement: `${file.path} bounds retry behavior and exposes timeout or cancellation handling.`,
+      category: "behavior",
+      breadth: 4,
+      productImportance: 4,
+    });
+    addRangeFact({
+      patterns: [/\b(?:verify|validate)\w*\b/i, /\b(?:signature|token|credential|permission)\w*\b/i],
+      statement: `${file.path} validates an identity, credential, permission, or signed request before continuing.`,
+      category: "behavior",
+      breadth: 4,
+      productImportance: 4,
+    });
 
     // These cross-line recognizers are deliberately syntax-shaped rather than
     // path-shaped. They recover high-value lifecycle behavior from exact code
@@ -1725,7 +1951,7 @@ export async function analyzeRepositoryFiles(input: Array<{
       architectureSignals: unique(architectureSignals, 30),
       userFacingCapabilities: unique(userFacingCapabilities, 30),
       facts,
-      unresolvedQuestions: [],
+      unresolvedQuestions: unique(planningContext, 12),
       chunksAnalyzed: 1,
       tokenUsage: [],
       analysisMode: "static",

@@ -11,6 +11,8 @@ import {
   BASE_COVERAGE_TARGETS,
   createRepositorySemanticBudget,
   inferProjectDomainCapability,
+  isRepositoryAnalysisNoisePath,
+  isRepositoryContextOnlyPath,
   isProjectDomainCapabilityKey,
   PROJECT_DOMAIN_CAPABILITY_PREFIX,
   snapshotRepositorySemanticBudget,
@@ -30,7 +32,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v13-generalized";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v14-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -95,6 +97,7 @@ const repositoryCartographyNoiseSegments = new Set([
 ]);
 
 export function isRepositoryCartographyNoisePath(path: string) {
+  if (isRepositoryAnalysisNoisePath(path)) return true;
   const segments = path.replace(/\\/g, "/").split("/").filter(Boolean).map((segment) => segment.toLowerCase());
   if (segments.at(-1) === ".ds_store") return true;
   if (segments.some((segment) => repositoryCartographyNoiseSegments.has(segment))) return true;
@@ -297,7 +300,7 @@ export interface RepositoryCartographyFile {
   >;
 }
 
-function repositoryFileSalience(file: RepositoryCartographyFile) {
+function repositoryFileSalience(file: RepositoryCartographyFile, incomingReferences = 0) {
   // Static analyzers may carry legacy specialized recognizers. Cartography
   // uses only bounded, language-neutral signal presence so those recognizers
   // cannot buy a repository more semantic attention.
@@ -306,6 +309,7 @@ function repositoryFileSalience(file: RepositoryCartographyFile) {
     Math.min(4, file.analysis.architectureSignals.length) * 4 +
     Math.min(8, file.analysis.symbols.length) * 2 +
     Math.min(12, file.analysis.dependencies.length) +
+    Math.min(24, incomingReferences * 6) +
     (file.changeType && file.changeType !== "unchanged" ? 16 : 0);
   const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
   const incidentalPenalty = /^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename)
@@ -314,6 +318,48 @@ function repositoryFileSalience(file: RepositoryCartographyFile) {
       ? 10
       : 0;
   return Math.max(1, base - incidentalPenalty);
+}
+
+/** Count repository-local imports so frequently used implementation files win representative ties. */
+export function repositoryIncomingReferenceCounts(
+  files: Array<{ path: string; analysis: Pick<RepositoryFileAnalysis, "dependencies"> }>,
+) {
+  const stripExtension = (value: string) => value.replace(/\.(?:[cm]?[jt]sx?|py|java|kt|kts|go|rs|rb|php|cs)$/i, "");
+  const canonical = new Map<string, string>();
+  for (const file of files) {
+    const path = stripExtension(file.path.replace(/\\/g, "/"));
+    canonical.set(path, file.path);
+    if (path.endsWith("/index")) canonical.set(path.slice(0, -6), file.path);
+  }
+  const normalizeRelative = (from: string, dependency: string) => {
+    const parts = from.replace(/\\/g, "/").split("/").slice(0, -1);
+    for (const part of dependency.split("/")) {
+      if (part === "." || !part) continue;
+      if (part === "..") parts.pop();
+      else parts.push(part);
+    }
+    return stripExtension(parts.join("/"));
+  };
+  const counts = new Map(files.map((file) => [file.path, 0]));
+  for (const file of files) {
+    for (const dependency of file.analysis.dependencies) {
+      const normalized = dependency.startsWith(".")
+        ? normalizeRelative(file.path, dependency)
+        : stripExtension(dependency.replace(/^@[^/]+\//, "").replace(/\./g, "/"));
+      const suffixes = normalized.split("/")
+        .map((_segment, index, segments) => segments.slice(index).join("/"))
+        .filter((value) => value.split("/").length >= 2);
+      const suffixTarget = Array.from(canonical.entries()).flatMap(([key, path]) => {
+        const matchingSuffix = suffixes
+          .filter((suffix) => key.endsWith(`/${suffix}`) || key.endsWith(`/${suffix}/index`))
+          .sort((left, right) => right.length - left.length)[0];
+        return matchingSuffix ? [{ path, matchLength: matchingSuffix.length }] : [];
+      }).sort((left, right) => right.matchLength - left.matchLength || left.path.localeCompare(right.path))[0]?.path;
+      const target = canonical.get(normalized) ?? canonical.get(`${normalized}/index`) ?? suffixTarget;
+      if (target && target !== file.path) counts.set(target, (counts.get(target) ?? 0) + 1);
+    }
+  }
+  return counts;
 }
 
 function repositoryDomainLabel(key: string) {
@@ -335,6 +381,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
   maxDomains?: number;
 }) {
   const groups = new Map<string, CapabilityManifestArea>();
+  const incomingReferenceCounts = repositoryIncomingReferenceCounts(input.files);
   const repositorySlug = input.scopeKey
     .replace(/\.git$/i, "")
     .split("/")
@@ -361,7 +408,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
       salience: 0,
       files: [],
     };
-    const score = repositoryFileSalience(file);
+    const score = repositoryFileSalience(file, incomingReferenceCounts.get(file.path) ?? 0);
     current.salience = (current.salience ?? 0) + score;
     current.files.push({ id: file.id, path: file.path, score });
     groups.set(key, current);
@@ -872,6 +919,7 @@ export function buildFileSemanticTask(input: {
     expectedOutputs: [
       "Evidence-backed findings only for the listed file-relevant capabilities.",
       "Exact supporting line ranges for every finding.",
+      "Treat roadmap, future, planned, TODO, example, fixture, and generated content as context rather than proof of implemented behavior.",
       "Attach every supplied semantic signal that the cited lines directly establish; omit unsupported signals.",
     ],
   };
@@ -1348,12 +1396,10 @@ export interface RepositoryCoverageCritique {
 
 export function isImplementationEvidencePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
+  if (isRepositoryAnalysisNoisePath(normalized)) return false;
   if (/^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized)) return false;
-  if (/(?:^|\/)(?:docs?|fixtures?|__fixtures__)(?:\/|$)/i.test(normalized)) return false;
-  if (
-    /(?:^|\/)examples?(?:\/|$)/i.test(normalized) &&
-    !/(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized)
-  ) return false;
+  const javaProductionTree = /(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized);
+  if (isRepositoryContextOnlyPath(normalized) && !javaProductionTree) return false;
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
   if (normalized.split("/").some((segment) => segment.startsWith("."))) return false;
   return /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i.test(normalized);
