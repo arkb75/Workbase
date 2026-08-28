@@ -31,20 +31,59 @@ future CSV, broader visualization, loading, cache, and history work.
 
 - weighted, major, and Highlight-specific implemented-capability recall;
 - domain recall without requiring one fixed taxonomy;
-- repository-path validity and claim-to-evidence compatibility;
-- supported knowledge-item precision, so irrelevant output volume hurts;
+- repository-path and exact-quote validity (including bounded, explicit secret
+  redaction placeholders) plus deterministic claim-to-evidence relevance;
+- open-world knowledge-item precision: legitimate additional capabilities are
+  supported by their repository evidence rather than rejected for not appearing
+  in the curated recall catalog, while unrelated claims still hurt;
 - implemented-versus-planned classification;
 - near-duplicate Highlight rate and domain diversity;
 - static, semantic, and knowledge coverage calibration;
 - generated/tooling artifact exclusion from analyzed and semantic paths;
-- capability-map precision, generic-token false positives, and granularity
-  explosion (for example, `Model.java` is not automatically an AI runtime);
+- capability-map precision over asserted evidence mappings, blending valid,
+  non-generated repository provenance with deterministic label-to-evidence
+  relevance; an arbitrary label on a real path receives only partial credit,
+  empty structural ledger placeholders are neutral for precision but still
+  count toward a repository-size-calibrated granularity ceiling, and explicit
+  generic-token false positives remain penalized (for example, `Model.java` is
+  not automatically an AI runtime);
 - bounded duration, model calls, tokens, and estimated cost.
 
 The aggregate is a macro average with a worst-project floor. A strong score on
 Workbase cannot hide a failure on a small finance app or a Java repository.
 Reports retain raw Highlights/Facts, capability assignments, and provenance
 paths so a scalar score is always auditable.
+
+## Run the production lifecycle end to end
+
+The opt-in live runner creates temporary project work items from the same real
+fixture catalog, then executes the ordinary production sequence: start,
+inventory, production-sized static chunks, coverage repair and finalization,
+knowledge reconciliation, staleness reconciliation, and completion. It is
+sequential by design so repository/provider budgets remain auditable. A variant
+slug is required and is recorded in every temporary work-item title.
+
+```bash
+npm run eval:repository-knowledge:live -- \
+  --variant adaptive \
+  --fixture circlefund-fintech \
+  --fixture amazon-marketplace-analytics
+```
+
+Omit `--fixture` to run all six real profiles. The evaluation user comes from
+`WORKBASE_DEMO_USER_EMAIL`, or may be supplied with `--user-email`; that user
+must already have a GitHub connection. The runner prints the work-item and
+refresh-run IDs needed for database scoring and later cleanup. It does not
+silently delete results. Cleanup requires each temporary work-item ID
+explicitly, verifies the evaluation user owns it, refuses titles not marked as
+an evaluation, and uses the ordinary fenced deletion lifecycle to cancel any
+active work safely:
+
+```bash
+npm run eval:repository-knowledge:live -- \
+  --cleanup-work-item <temporary-work-item-id> \
+  --cleanup-work-item <another-temporary-work-item-id>
+```
 
 ## Obtain an observation from a branch
 
@@ -61,6 +100,17 @@ For a product-level run, use the branch normally:
 npm run eval:repository-knowledge -- --from-database-all > /tmp/branch-report.json
 ```
 
+When comparing variants in one database, scope every profile to the exact
+work-item ID printed by its live run so a newer run cannot replace the intended
+observation:
+
+```bash
+npm run eval:repository-knowledge -- \
+  --from-database circlefund-fintech \
+  --work-item circlefund-fintech=<temporary-work-item-id> \
+  --repository-root circlefund-fintech=/tmp/repos/CircleFund
+```
+
 Use one or more `--from-database <fixture-id>` flags for a subset. The six real
 fixture IDs are listed above. The output contains one stable JSON profile and
 report per repository plus the aggregate and the normalized observations.
@@ -68,7 +118,10 @@ report per repository plus the aggregate and the normalized observations.
 For full provenance validation, point each profile at the corresponding local
 checkout. This expands the compact fixture inventory so evidence from any real
 file—not only a representative fixture path—can be validated. Quoted evidence
-is read only from referenced files and is bounded to 512 KiB per file.
+is read only from referenced files and is bounded to 512 KiB per file; a quote
+cannot establish claim support when checkout content was not supplied. The
+curated capability patterns remain recall targets and planned-feature traps,
+not a whitelist of everything a branch is allowed to discover.
 
 ```bash
 npm run eval:repository-knowledge -- \
