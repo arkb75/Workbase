@@ -32,7 +32,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v16-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v17-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -43,9 +43,9 @@ const SEMANTIC_MICRO_BATCH_SIZE = 4;
 const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
-const MAX_REPAIR_DOMAINS = 3;
+const MAX_REPAIR_DOMAINS = 2;
 const REPAIR_TOKEN_RESERVE = 20_000;
-const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 32_000;
+const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 
 const REPOSITORY_AREA_PREFIX = "repository_area:";
 
@@ -1407,8 +1407,7 @@ export function isImplementationEvidencePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
   if (isRepositoryAnalysisNoisePath(normalized)) return false;
   if (/^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized)) return false;
-  const javaProductionTree = /(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized);
-  if (isRepositoryContextOnlyPath(normalized) && !javaProductionTree) return false;
+  if (isRepositoryContextOnlyPath(normalized)) return false;
   if (/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)) return false;
   if (normalized.split("/").some((segment) => segment.startsWith("."))) return false;
   return /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|rb|php|cs|swift|scala|sql|prisma|proto|graphql|gql|sh|bash)$/i.test(normalized);
@@ -1503,7 +1502,9 @@ export function critiqueRepositoryCoverage(input: {
       isCoverageEvidencePath(area.key, file.path)
     );
     const ids = (implementationFiles.length ? implementationFiles : uninspected)
-      .slice(0, desired)
+      // Every scheduled repair must fit one funded provider micro-batch. A
+      // broader unmet audit target remains an explicit final coverage gap.
+      .slice(0, Math.min(desired, SEMANTIC_MICRO_BATCH_SIZE))
       .map((file) => file.id);
     return packageTemplate({
       capabilityKeys: [area.key],

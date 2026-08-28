@@ -14,7 +14,9 @@ import {
   type StructuredGenerationBudget,
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
+  isRepositoryAnalysisNoisePath,
   isRepositoryContextOnlyPath,
+  isRepositoryExecutableSourcePath,
   isProjectDomainCapabilityKey,
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
@@ -191,7 +193,10 @@ function parseAnalysis(value: unknown): RepositoryFileAnalysis | null {
 }
 
 export function semanticFactsForSubsystem(analysis: RepositoryFileAnalysis, subsystemKey: string) {
-  if (isRepositoryContextOnlyPath(analysis.path)) return [];
+  if (
+    isRepositoryAnalysisNoisePath(analysis.path) ||
+    isRepositoryContextOnlyPath(analysis.path)
+  ) return [];
   return analysis.facts.filter((fact) => !fact.subsystemKeys?.length || fact.subsystemKeys.includes(subsystemKey));
 }
 
@@ -1728,11 +1733,10 @@ function setOverlap(left: Set<string>, right: Set<string>) {
 
 function isImplementationSynthesisPath(path: string) {
   const normalized = path.replace(/\\/g, "/");
-  return !(
-    /^(?:README(?:\.[^/]+)?|CHANGELOG(?:\.[^/]+)?|package\.json)$/i.test(normalized) ||
-    /(?:^|\/)(?:docs?|examples?|fixtures?|__fixtures__)(?:\/|$)/i.test(normalized) ||
-    /(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized)
-  );
+  return isRepositoryExecutableSourcePath(normalized) &&
+    !isRepositoryAnalysisNoisePath(normalized) &&
+    !isRepositoryContextOnlyPath(normalized) &&
+    !/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|\.)|\.(?:test|spec)\.[^.]+$/i.test(normalized);
 }
 
 /**

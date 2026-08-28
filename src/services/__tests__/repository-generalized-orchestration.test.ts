@@ -3,6 +3,7 @@ import {
   buildRepositoryDerivedCapabilityManifest,
   buildRepositoryDerivedSemanticPlan,
   critiqueRepositoryCoverage,
+  isImplementationEvidencePath,
   isRepositoryCartographyNoisePath,
   semanticAuditTarget,
   semanticSampleTarget,
@@ -129,6 +130,50 @@ describe("repository-derived cartographer and coverage critic", () => {
       status: "thin",
     }));
     expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(2);
+  });
+
+  it("keeps the established audit-depth curve while the first pass stays bounded", () => {
+    const cases = [
+      [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
+      [7, 3], [15, 3], [16, 4], [30, 4], [31, 5],
+    ] as const;
+
+    for (const [fileCount, auditTarget] of cases) {
+      const area = {
+        key: "project_domain:catalog",
+        files: Array.from({ length: fileCount }, (_, index) => ({
+          id: `file-${index}`,
+          path: `src/catalog/file-${index}.ts`,
+          score: fileCount - index,
+        })),
+      };
+      expect(semanticSampleTarget(area)).toBe(Math.min(fileCount, 2));
+      expect(semanticAuditTarget(area)).toBe(auditTarget);
+    }
+  });
+
+  it("schedules a failed broad-area repair as one funded micro-batch and leaves depth auditable", () => {
+    const area = {
+      key: "project_domain:catalog",
+      label: "Catalog",
+      scopeKey: "example/product",
+      salience: 100,
+      files: Array.from({ length: 31 }, (_, index) => ({
+        id: `catalog-${index}`,
+        path: `src/catalog/file-${index}.ts`,
+        score: 31 - index,
+      })),
+    };
+    const critique = critiqueRepositoryCoverage({ manifest: [area], reports: [], allowRepair: true });
+
+    expect(critique.domains[0]).toMatchObject({ targetSamples: 5, status: "missing" });
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toHaveLength(4);
+    expect(critique.gaps).toEqual([expect.stringContaining("no supported semantic finding")]);
+  });
+
+  it("does not admit documentation source merely because it contains a Java production-shaped suffix", () => {
+    expect(isImplementationEvidencePath("docs/src/main/java/com/acme/orders/Demo.java")).toBe(false);
+    expect(isImplementationEvidencePath("src/main/java/com/example/orders/Order.java")).toBe(true);
   });
 
   it("does not let language-specific declaration volume dominate cartography", () => {
@@ -346,7 +391,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(finalCritique.repairPackages).toEqual([]);
   });
 
-  it("caps repair to the three most important unresolved domains", () => {
+  it("caps repair to the two most important fundable unresolved domains", () => {
     const manifest = Array.from({ length: 6 }, (_, index) => ({
       key: `project_domain:domain-${index}`,
       label: `Domain ${index}`,
@@ -359,11 +404,10 @@ describe("repository-derived cartographer and coverage critic", () => {
     }));
 
     const critique = critiqueRepositoryCoverage({ manifest, reports: [], allowRepair: true });
-    expect(critique.repairPackages).toHaveLength(3);
+    expect(critique.repairPackages).toHaveLength(2);
     expect(critique.repairPackages.map((entry) => entry.capabilityKeys[0])).toEqual([
       "project_domain:domain-0",
       "project_domain:domain-1",
-      "project_domain:domain-2",
     ]);
   });
 

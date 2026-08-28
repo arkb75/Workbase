@@ -45,6 +45,8 @@ describe("complete repository coverage", () => {
     expect(inferProjectDomainCapability("src/main/java/com/acme/orders/OrderService.java")).toBe("project_domain:orders");
     expect(inferProjectDomainCapability("docs/payments/roadmap.md")).toBeNull();
     expect(inferProjectDomainCapability("samples/payments/demo.py")).toBeNull();
+    expect(inferProjectDomainCapability("example/payments/demo.py")).toBeNull();
+    expect(inferProjectDomainCapability("packages/sdk/examples/payments/demo.ts")).toBeNull();
     expect(inferProjectDomainCapability("uploads/payments/handler.ts")).toBe("project_domain:payments");
   });
 
@@ -91,6 +93,36 @@ describe("complete repository coverage", () => {
       .toContain("review_ui");
     expect(inferSubsystemsFromPath("app/work-items/[id]/layout.tsx"))
       .toContain("review_ui");
+  });
+
+  it("does not grant UI location an importance bonus over implementation roles", async () => {
+    const analyses = await analyzeRepositoryFiles([
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "src/components/messages/ChatView.tsx",
+        content: "export function ChatView() { return null; }",
+      },
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "src/retrieval/search-engine.ts",
+        content: "export function searchEngine() { return []; }",
+      },
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "src/integrations/retrieval/search-client.ts",
+        content: "export function searchClient() { return []; }",
+      },
+    ]);
+    const symbolFact = (index: number) => analyses[index]?.facts.find((fact) =>
+      fact.statement.includes("defines the symbol")
+    );
+
+    expect(symbolFact(0)).toMatchObject({ productImportance: 2, implementationBreadth: 2 });
+    expect(symbolFact(1)).toMatchObject({ productImportance: 3, implementationBreadth: 3 });
+    expect(symbolFact(2)).toMatchObject({ productImportance: 4, implementationBreadth: 4 });
   });
 
   it("does not mistake repository agent instructions for an AI model runtime", () => {

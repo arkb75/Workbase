@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v11-hybrid";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v12-hybrid";
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -127,10 +127,12 @@ export function inferProjectDomainCapability(path: string) {
   if (segments.length < 2) return null;
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
   const javaProductionTree = /(?:^|\/)src\/(?:main\/)?(?:java|kotlin)(?:\/|$)/i.test(normalized);
+  const demonstrationTree = /(?:^|\/)(?:examples?|samples?|poc)(?:\/|$)/i.test(normalized);
   if (
     !directories.length ||
     !isRepositoryProductPath(path) ||
-    (isRepositoryContextOnlyPath(path) && !javaProductionTree) ||
+    isRepositoryContextOnlyPath(path) ||
+    (demonstrationTree && !javaProductionTree) ||
     directories.some((segment) => projectDomainSuppressedRoots.has(segment))
   ) return null;
   // Prefer the nearest meaningful product directory. This avoids turning a

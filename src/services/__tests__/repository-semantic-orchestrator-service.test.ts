@@ -74,6 +74,10 @@ describe("repository semantic orchestration guardrails", () => {
       totalTokens: 80_000,
       modelCallCounts: [1, 1, 1, 1],
     })).toEqual([20_000, 20_000, 20_000, 20_000]);
+    expect(allocateSemanticWorkerTokenBudgets({
+      totalTokens: 20_000,
+      modelCallCounts: [1, 1],
+    })).toEqual([10_000, 10_000]);
   });
 
   it("reserves actual planner usage and fails conservatively when provider usage is unknown", () => {
@@ -84,11 +88,11 @@ describe("repository semantic orchestration guardrails", () => {
     expect(semanticPlannerTokenReserve({
       totalTokens: 12_000,
       unknownUsageCalls: 1,
-    })).toBe(32_000);
+    })).toBe(10_000);
     expect(semanticPlannerTokenReserve({
       totalTokens: 40_000,
       unknownUsageCalls: 0,
-    })).toBe(32_000);
+    })).toBe(10_000);
   });
 
   it("finds a feasible bounded packing when greedy placement can strand capacity", () => {
@@ -763,6 +767,9 @@ describe("repository semantic orchestration guardrails", () => {
     expect(task).toMatchObject({
       capabilityKeys: ["retrieval_provenance"],
       questions: expect.arrayContaining([expect.stringContaining("retrieval_provenance")]),
+      expectedOutputs: expect.arrayContaining([
+        expect.stringContaining("Runnable example or proof-of-concept source"),
+      ]),
     });
     expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
 

@@ -120,4 +120,36 @@ describe("global repository Highlight selection", () => {
     expect(selected[1]?.highlights).toHaveLength(1);
     expect(selected[2]?.highlights).toEqual([]);
   });
+
+  it("admits narrowly worded runnable examples while rejecting non-implementation artifacts", () => {
+    const selected = selectGlobalRepositoryHighlights([
+      knowledge({
+        subsystemKey: "project_domain:quickstart",
+        path: "examples/quickstart/server.ts",
+        text: "Runnable quickstart server with signed webhook validation",
+      }),
+      knowledge({
+        subsystemKey: "project_domain:export",
+        path: "poc/export/index.js",
+        text: "Proof-of-concept document export through a renderer client",
+      }),
+      knowledge({
+        subsystemKey: "repository_area:configuration",
+        path: "examples/config/request.json",
+        text: "Example request configuration for batch processing",
+      }),
+      knowledge({
+        subsystemKey: "project_domain:fixture",
+        path: "fixtures/server.ts",
+        text: "Fixture server for simulated message delivery",
+      }),
+      knowledge({
+        subsystemKey: "repository_area:quality",
+        path: "tests/server.test.ts",
+        text: "Automated server delivery verification suite",
+      }),
+    ]);
+
+    expect(selected.map((entry) => entry.highlights.length)).toEqual([1, 1, 0, 0, 0]);
+  });
 });

@@ -17,7 +17,7 @@ import {
 
 // Static parsing and semantic extraction keep separate fingerprints so a
 // parser-only change does not invalidate otherwise compatible model output.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v19-hybrid";
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v20-hybrid";
 export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v21-hybrid";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
