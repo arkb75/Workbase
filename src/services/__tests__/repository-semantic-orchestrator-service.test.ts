@@ -25,6 +25,7 @@ import {
   semanticPlannerTokenCommitment,
   semanticRepairTokenPool,
   semanticSignalKeysForFile,
+  semanticWorkPackageGenerationLimits,
   semanticWorkPackageModelCallCount,
   unresolvedSemanticExecutionGaps,
   type CapabilityManifestArea,
@@ -786,6 +787,27 @@ describe("repository semantic orchestration guardrails", () => {
       "src/orders/menu.ts: Semantic analysis failed.",
       "src/orders/menu.ts: Semantic model retry did not establish complete assigned capability coverage.",
     ]));
+
+    const requiredIds = Array.from({ length: 7 }, (_, index) => `file-${index + 1}`);
+    const selectedIds = requiredIds.slice(0, 6);
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: [{
+        ...initial,
+        inspectedFileSnapshotIds: requiredIds,
+        retryFileSnapshotIds: requiredIds,
+        candidates: [],
+        gaps: [],
+      }],
+      repairReports: [{
+        ...repaired,
+        inspectedFileSnapshotIds: selectedIds,
+        candidates: [],
+      }],
+      retriedFileSnapshotIds: selectedIds,
+      filePathBySnapshotId: new Map(requiredIds.map((id) => [id, `src/orders/${id}.ts`])),
+    })).toEqual([
+      "src/orders/file-7.ts: Semantic model retry did not establish complete assigned capability coverage.",
+    ]);
   });
 
   it("budgets isolated retries separately from remaining micro-batched files", () => {
@@ -796,6 +818,14 @@ describe("repository semantic orchestration guardrails", () => {
     expect(semanticWorkPackageModelCallCount({
       fileSnapshotIds: ["ordinary-a", "ordinary-b", "ordinary-c", "ordinary-d"],
     })).toBe(1);
+    expect(semanticWorkPackageGenerationLimits({
+      fileSnapshotIds: ["retry-a", "retry-b", "retry-c"],
+      singletonFileSnapshotIds: ["retry-a", "retry-b", "retry-c"],
+    })).toEqual({
+      primaryModelCalls: 3,
+      maxModelCalls: 6,
+      maxRepairPasses: 3,
+    });
   });
 
   it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {

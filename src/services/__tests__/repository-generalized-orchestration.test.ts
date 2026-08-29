@@ -1457,6 +1457,83 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(new Set(selected.filter((id) => id.startsWith("uncovered-"))).size).toBe(5);
   });
 
+  it("does not count an exact retry as a new semantic breadth sample", () => {
+    const area = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/broad-orders",
+      salience: 80,
+      files: Array.from({ length: 8 }, (_, index) => ({
+        id: `orders-${index}`,
+        path: `src/orders/workflow-${index}.ts`,
+        score: 20 - index,
+      })),
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: ["orders-0", "orders-1"],
+        retryFileSnapshotIds: ["orders-0"],
+        candidates: [{
+          ...candidate(area.key, "orders-1"),
+          statement: "The service implements the currently supported order workflow.",
+        }],
+      }],
+      allowRepair: true,
+    });
+    const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      status: "thin",
+      inspectedSamples: 2,
+      targetSamples: 3,
+    }));
+    expect(selected).toContain("orders-0");
+    expect(selected.some((id) => id !== "orders-0" && id !== "orders-1")).toBe(true);
+    expect(critique.repairPackages.flatMap((entry) => entry.singletonFileSnapshotIds ?? []))
+      .toEqual(["orders-0"]);
+  });
+
+  it("does count an exact pre-inspection failure as the new sample it becomes", () => {
+    const retryArea = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/pre-inspection-failure",
+      salience: 1,
+      files: [
+        { id: "orders-seen", path: "src/orders/seen.ts", score: 30 },
+        { id: "orders-retry", path: "src/orders/retry.ts", score: 20 },
+        { id: "orders-alternative", path: "src/orders/alternative.ts", score: 10 },
+      ],
+    };
+    const missingAreas = Array.from({ length: 5 }, (_, index) => ({
+      key: `project_domain:missing-${index}`,
+      label: `Missing ${index}`,
+      scopeKey: "example/pre-inspection-failure",
+      salience: 100 - index,
+      files: [{
+        id: `missing-${index}`,
+        path: `src/missing-${index}/service.ts`,
+        score: 10,
+      }],
+    }));
+    const critique = critiqueRepositoryCoverage({
+      manifest: [retryArea, ...missingAreas],
+      reports: [{
+        inspectedFileSnapshotIds: ["orders-seen"],
+        retryFileSnapshotIds: ["orders-retry"],
+        candidates: [candidate(retryArea.key, "orders-seen")],
+      }],
+      allowRepair: true,
+    });
+    const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(selected).toHaveLength(6);
+    expect(selected).toContain("orders-retry");
+    expect(selected).not.toContain("orders-alternative");
+    expect(missingAreas.every((area) => selected.includes(area.files[0]!.id))).toBe(true);
+  });
+
   it("shares two bounded repair batches across unresolved domains", () => {
     const manifest = Array.from({ length: 6 }, (_, index) => ({
       key: `project_domain:domain-${index}`,
