@@ -27,8 +27,12 @@ vi.mock("@/src/services/bedrock-runtime", () => ({
 }));
 
 import {
+  REPOSITORY_SYNTHESIS_REVISION_PAIR_MODEL_CALLS,
+  REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES,
   repositoryEvidenceBoundaryGuidance,
   repositorySynthesisBudgetLimits,
+  repositorySynthesisRevisionPairFits,
+  repositorySynthesisRevisionPairTokenReserve,
   synthesizeRepositoryKnowledge,
 } from "@/src/services/repository-knowledge-synthesis-service";
 import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
@@ -162,7 +166,7 @@ describe("repository synthesis model main path", () => {
       const prompt = JSON.parse(request.userPrompt) as {
         subsystems: Array<{
           subsystemKey: string;
-          claims?: Array<{ claimKey: string }>;
+          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
           notebook?: Array<{ sourceExcerpt?: string | null }>;
         }>;
       };
@@ -227,7 +231,7 @@ describe("repository synthesis model main path", () => {
     ]);
     expect(generateStructuredMock.mock.calls[0]![0]).toMatchObject({
       maxTokens: 10_000,
-      effort: "medium",
+      effort: "low",
     });
     expect(generateStructuredMock.mock.calls[1]![0]).toMatchObject({
       maxTokens: 2_000,
@@ -236,7 +240,15 @@ describe("repository synthesis model main path", () => {
     });
     const synthesisPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
     const criticPrompt = JSON.parse(generateStructuredMock.mock.calls[1]![0].userPrompt);
+    expect(synthesisPrompt.subsystems[0].claimLimits).toEqual({
+      maxFacts: 3,
+      maxHighlights: 2,
+    });
     expect(synthesisPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
+    expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("sourceId");
+    expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("repository");
+    expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("commitSha");
+    expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("blobSha");
     expect(criticPrompt.subsystems[0].notebook[0]).toEqual({
       index: 1,
       sourceExcerpt,
@@ -313,7 +325,7 @@ describe("repository synthesis model main path", () => {
       const prompt = JSON.parse(request.userPrompt) as {
         subsystems: Array<{
           subsystemKey: string;
-          claims?: Array<{ claimKey: string }>;
+          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
           rejectedClaims?: Array<{ claimKey: string }>;
         }>;
       };
@@ -491,7 +503,7 @@ describe("repository synthesis model main path", () => {
       const prompt = JSON.parse(request.userPrompt) as {
         subsystems: Array<{
           subsystemKey: string;
-          claims?: Array<{ claimKey: string }>;
+          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
           rejectedClaims?: Array<{ claimKey: string }>;
         }>;
       };
@@ -513,7 +525,18 @@ describe("repository synthesis model main path", () => {
         data = {
           subsystems: [{
             subsystemKey,
-            facts: [],
+            facts: [{
+              statement,
+              category: "behavior",
+              confidence: "high",
+              sensitivityFlag: false,
+              citationIndexes: [1],
+              reviewNotes: null,
+              productImportance: 5,
+              implementationBreadth: 3,
+              technicalDifficulty: 4,
+              distinctiveness: 4,
+            }],
             highlights: [highlight(
               "Encrypts every receipt through the full payment lifecycle",
               "The service encrypts every receipt through a complete payment lifecycle.",
@@ -535,11 +558,13 @@ describe("repository synthesis model main path", () => {
       } else {
         criticRound += 1;
         data = {
-          assessments: [{
-            claimKey: prompt.subsystems[0]!.claims![0]!.claimKey,
-            supported: criticRound === 2,
-            issues: criticRound === 1 ? ["unsupported_broad_qualifier"] : [],
-          }],
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: claim.kind === "fact" || criticRound === 2,
+            issues: claim.kind === "highlight" && criticRound === 1
+              ? ["unsupported_broad_qualifier"]
+              : [],
+          })),
         };
       }
       expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
@@ -1031,6 +1056,128 @@ describe("repository synthesis model main path", () => {
       ["synthesis", 2],
       ["entailment_critic", 2],
     ]);
+  });
+
+  it("keeps the verified primary result when only native revision-pair headroom remains", async () => {
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      if (request.budget) {
+        request.budget.usage.modelCalls += 1;
+        request.budget.usage.inputTokens += 29_000;
+        request.budget.usage.outputTokens += 1_000;
+        request.budget.usage.totalTokens += 30_000;
+      }
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      const data = request.schemaName === "repository_architecture_synthesis"
+        ? {
+            subsystems: [{
+              subsystemKey: prompt.subsystems[0]!.subsystemKey,
+              facts: [{
+                statement: `${statement} It encrypts every receipt.`,
+                category: "behavior",
+                confidence: "high",
+                sensitivityFlag: false,
+                citationIndexes: [1],
+                reviewNotes: null,
+                productImportance: 5,
+                implementationBreadth: 3,
+                technicalDifficulty: 4,
+                distinctiveness: 4,
+              }],
+              highlights: [],
+              unresolvedQuestions: [],
+            }],
+          }
+        : {
+            assessments: [{
+              claimKey: prompt.subsystems[0]!.claims![0]!.claimKey,
+              supported: false,
+              issues: ["unsupported_detail"],
+            }],
+          };
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 29_000, outputTokens: 1_000, totalTokens: 30_000 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+    ]);
+    expect(synthesis[0]?.facts).toEqual([]);
+    expect(synthesis[0]?.unresolvedQuestions).toEqual(expect.arrayContaining([
+      "Entailment verification rejected fact 1: unsupported detail.",
+      expect.stringContaining(
+        "did not have enough reserved synthesis budget for both revision and independent re-critique",
+      ),
+    ]));
+    expect(prismaMock.generationRun.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it("admits optional refinement only with native-or-repair room for both calls", () => {
+    const tokenReserve = repositorySynthesisRevisionPairTokenReserve({
+      projectTitle: "Ledger Platform",
+      revisionRound: 1,
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        notebook: [{ index: 1, sourceExcerpt }],
+        rejectedClaims: [{
+          claimKey: "project_domain:payments#scope:fact:1",
+          kind: "fact",
+        }],
+      }],
+    });
+    const budget: StructuredGenerationBudget = {
+      limits: repositorySynthesisBudgetLimits(1),
+      usage: {
+        modelCalls: 2,
+        repairPasses: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 80_000 - tokenReserve,
+        unknownUsageCalls: 0,
+      },
+    };
+
+    expect(tokenReserve).toBeGreaterThan(20_000);
+    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_MODEL_CALLS).toBe(4);
+    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES).toBe(2);
+    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(true);
+    budget.usage.totalTokens += 1;
+    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
+    budget.usage.totalTokens -= 1;
+    budget.usage.modelCalls =
+      budget.limits.maxModelCalls -
+      REPOSITORY_SYNTHESIS_REVISION_PAIR_MODEL_CALLS +
+      1;
+    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
+    budget.usage.modelCalls = 2;
+    budget.usage.repairPasses =
+      budget.limits.maxRepairPasses -
+      REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES +
+      1;
+    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
   });
 
   it("reserves two bounded revisions and native synthesis headroom under one 80K cap", () => {

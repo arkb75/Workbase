@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/src/lib/prisma";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
 import {
+  allocateRepositorySynthesisClaimLimits,
   buildRepositorySynthesisBatches,
   deterministicSynthesisAnchorSubsystems,
   derivedRepositoryKnowledgeLifecycleFact,
@@ -22,6 +23,8 @@ import {
   repositorySynthesisCriticClaims,
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
+  repositorySynthesisBatchPromptBytes,
+  repositorySynthesisPromptNotebook,
   repositorySynthesisRevisionErrors,
   repositorySynthesisRevisionCriticClaims,
   repositorySynthesisRevisionEvidenceIndexes,
@@ -32,6 +35,7 @@ import {
   resolveRepositorySynthesisMode,
   repositorySynthesisSafetyGuidance,
   repositorySynthesisSchema,
+  runRepositorySynthesisPrimaryBarrier,
   runOrderedSynthesisBatches,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
@@ -600,41 +604,174 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
-  it("isolates oversized two-subsystem synthesis pairs without splitting a subsystem", () => {
-    const inputs = [
-      { id: "data", notebook: Array.from({ length: 9 }) },
-      { id: "surface", notebook: Array.from({ length: 6 }) },
-      { id: "intelligence", notebook: Array.from({ length: 6 }) },
-      { id: "quality", notebook: Array.from({ length: 3 }) },
-      { id: "integration", notebook: Array.from({ length: 1 }) },
-    ];
+  it("packs at most two synthesis scopes by projected bytes without splitting an oversized scope", () => {
+    const input = (subsystemKey: string, excerptLength: number) => ({
+      subsystemKey,
+      synthesisKey: `${subsystemKey}#scope`,
+      claimLimits: { maxFacts: 3, maxHighlights: 2 },
+      notebook: [{
+        ...entry(`src/${subsystemKey}.ts`),
+        evidenceMode: "semantic" as const,
+        semanticSignals: [`domain.${subsystemKey}`],
+        sourceExcerpt: "x".repeat(excerptLength),
+      }],
+    });
+    const first = input("first", 40);
+    const second = input("second", 40);
+    const oversized = input("oversized", 5_000);
+    const fourth = input("fourth", 40);
+    const fifth = input("fifth", 40);
+    const pairBytes = repositorySynthesisBatchPromptBytes([first, second]);
 
-    expect(buildRepositorySynthesisBatches(inputs).map((batch) =>
-      batch.map((entry) => entry.id)
-    )).toEqual([
-      ["data"],
-      ["surface"],
-      ["intelligence", "quality"],
-      ["integration"],
+    expect(buildRepositorySynthesisBatches(
+      [first, second, oversized, fourth, fifth],
+      pairBytes,
+    ).map((batch) => batch.map((candidate) => candidate.subsystemKey))).toEqual([
+      ["first", "second"],
+      ["oversized"],
+      ["fourth", "fifth"],
     ]);
-    expect(buildRepositorySynthesisBatches([
-      { id: "large-single", notebook: Array.from({ length: 20 }) },
-    ]).map((batch) => batch.map((entry) => entry.id))).toEqual([
-      ["large-single"],
+    expect(buildRepositorySynthesisBatches(
+      [first, second],
+      pairBytes - 1,
+    ).map((batch) => batch.map((candidate) => candidate.subsystemKey))).toEqual([
+      ["first"],
+      ["second"],
     ]);
-    expect(buildRepositorySynthesisBatches([
-      { id: "boundary-a", notebook: Array.from({ length: 6 }) },
-      { id: "boundary-b", notebook: Array.from({ length: 6 }) },
-      { id: "over-a", notebook: Array.from({ length: 7 }) },
-      { id: "over-b", notebook: Array.from({ length: 6 }) },
-    ]).map((batch) => batch.map((entry) => entry.id))).toEqual([
-      ["boundary-a", "boundary-b"],
-      ["over-a"],
-      ["over-b"],
-    ]);
-    expect(() => buildRepositorySynthesisBatches(inputs, 0)).toThrow(
-      "Repository synthesis batch notebook limit must be a positive integer.",
+    expect(() => buildRepositorySynthesisBatches([first], 0)).toThrow(
+      "Repository synthesis batch input-byte limit must be a positive integer.",
     );
+  });
+
+  it("projects only synthesis-relevant notebook fields with stable citation indexes", () => {
+    const notebook = [{
+      ...entry("src/payments.ts", "The service records an idempotency key."),
+      evidenceMode: "semantic" as const,
+      semanticStatus: "succeeded" as const,
+      semanticSignals: ["domain.payment_idempotency"],
+      sourceExcerpt: "10: await keys.insert(key);",
+    }];
+
+    expect(repositorySynthesisPromptNotebook(notebook)).toEqual([{
+      index: 1,
+      path: "src/payments.ts",
+      lineStart: 1,
+      lineEnd: 1,
+      statement: "The service records an idempotency key.",
+      category: "architecture",
+      confidence: "high",
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      semanticSignals: ["domain.payment_idempotency"],
+      sourceExcerpt: "10: await keys.insert(key);",
+    }]);
+    const projected = repositorySynthesisPromptNotebook(notebook)[0]!;
+    for (const durable of [
+      "sourceId", "repository", "commitSha", "blobSha", "changeType",
+      "semanticStatus", "evidenceMode",
+    ]) {
+      expect(projected).not.toHaveProperty(durable);
+    }
+  });
+
+  it("allocates a stable 30-claim target while retaining every scope Fact floor", () => {
+    const ten = allocateRepositorySynthesisClaimLimits(
+      Array.from({ length: 10 }, (_entry, index) => `scope-${index + 1}`),
+    );
+    expect(ten.map((entry) => entry.claimLimits)).toEqual([
+      ...Array.from({ length: 4 }, () => ({ maxFacts: 3, maxHighlights: 1 })),
+      ...Array.from({ length: 2 }, () => ({ maxFacts: 2, maxHighlights: 1 })),
+      ...Array.from({ length: 4 }, () => ({ maxFacts: 2, maxHighlights: 0 })),
+    ]);
+    expect(ten.reduce(
+      (total, entry) => total + entry.claimLimits.maxFacts + entry.claimLimits.maxHighlights,
+      0,
+    )).toBe(30);
+    expect(allocateRepositorySynthesisClaimLimits(["a", "b"]).map(
+      (entry) => entry.claimLimits
+    )).toEqual([
+      { maxFacts: 3, maxHighlights: 2 },
+      { maxFacts: 3, maxHighlights: 2 },
+    ]);
+    expect(allocateRepositorySynthesisClaimLimits(
+      Array.from({ length: 31 }, (_entry, index) => index),
+    ).every((entry) =>
+      entry.claimLimits.maxFacts === 1 && entry.claimLimits.maxHighlights === 0
+    )).toBe(true);
+  });
+
+  it("enforces the allocated per-subsystem claim limits structurally", () => {
+    const fact = {
+      statement: "The service records a supported repository operation.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const highlight = {
+      text: "Records a supported repository operation",
+      summary: "The service records a supported repository operation.",
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      visibility: "private" as const,
+      citationIndexes: [1],
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const inputs = [{
+      subsystemKey: "project_domain:service",
+      synthesisKey: "project_domain:service#scope",
+      notebook: [{ ...entry("src/service.ts"), evidenceMode: "semantic" as const }],
+      claimLimits: { maxFacts: 1, maxHighlights: 0 },
+    }];
+
+    expect(repositorySynthesisStructuralErrors({
+      subsystems: [{
+        subsystemKey: "project_domain:service#scope",
+        facts: [fact, fact],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    }, inputs)).toEqual([
+      "project_domain:service#scope must return between 1 and 1 Facts.",
+      "project_domain:service#scope must return no more than 0 Highlights.",
+    ]);
+  });
+
+  it("finishes every primary batch before starting sequential optional refinement", async () => {
+    const events: string[] = [];
+    let activeRefinements = 0;
+    let maximumActiveRefinements = 0;
+    const results = await runRepositorySynthesisPrimaryBarrier(
+      ["a", "b", "c", "d"],
+      async (batch) => {
+        events.push(`base:${batch}`);
+        return batch.toUpperCase();
+      },
+      async (base) => {
+        activeRefinements += 1;
+        maximumActiveRefinements = Math.max(maximumActiveRefinements, activeRefinements);
+        events.push(`refine:${base}`);
+        await Promise.resolve();
+        activeRefinements -= 1;
+        return base.toLowerCase();
+      },
+      2,
+    );
+
+    expect(events.slice(0, 4)).toEqual(["base:a", "base:b", "base:c", "base:d"]);
+    expect(events.slice(4)).toEqual(["refine:A", "refine:B", "refine:C", "refine:D"]);
+    expect(maximumActiveRefinements).toBe(1);
+    expect(results).toEqual(["a", "b", "c", "d"]);
   });
 
   it("applies compact rejected-claim patches while preserving accepted drafts", () => {

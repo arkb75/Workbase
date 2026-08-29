@@ -450,7 +450,9 @@ function tokenDensityFloor(value: string) {
   }, 0);
 }
 
-function estimatedInputTokenReserve(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
+export function estimateStructuredGenerationInputTokens(
+  input: Parameters<ConverseTextRuntime["converse"]>[0],
+) {
   const segments = [
     input.systemPrompt,
     input.userPrompt,
@@ -483,6 +485,44 @@ function estimatedInputTokenReserve(input: Parameters<ConverseTextRuntime["conve
   // below three bytes per token. Actual usage is still enforced after every
   // provider call because this remains an admission estimate, not a tokenizer.
   return Math.max(Math.ceil(promptBytes / 3), densityFloor) + 768;
+}
+
+const STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT =
+  "You repair structured model outputs. Return JSON only and match the provided schema exactly.";
+
+/**
+ * Conservatively price one possible schema-repair request. Its variable input
+ * contains both the full failed output and validation diagnostics; reserve up
+ * to the original output ceiling for each in addition to the exact fixed
+ * schema-aware repair prompt.
+ */
+export function estimateStructuredGenerationRepairTokens(input: {
+  schemaName: string;
+  schemaDescription: string;
+  jsonSchema: JsonSchemaObject;
+  maxTokens: number;
+  enablePromptCaching: boolean;
+}) {
+  const fixedInputTokens = estimateStructuredGenerationInputTokens({
+    systemPrompt: STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT,
+    userPrompt: buildSchemaAwareRepairPrompt({
+      schemaName: input.schemaName,
+      schemaDescription: input.schemaDescription,
+      jsonSchema: input.jsonSchema,
+      exampleOutput: undefined,
+      requiredFieldPaths: undefined,
+      repairMappings: undefined,
+      validationErrors: null,
+      originalOutput: "",
+    }),
+    maxTokens: input.maxTokens,
+    temperature: 0,
+    effort: "medium",
+    enablePromptCaching: input.enablePromptCaching,
+  });
+  const repairInputTokens = fixedInputTokens + input.maxTokens * 2;
+  return repairInputTokens * (input.enablePromptCaching ? 2 : 1) +
+    input.maxTokens;
 }
 
 function readTextFromContent(content: ContentBlock[] | undefined) {
@@ -980,7 +1020,7 @@ export class BedrockStructuredLlmClient {
             budget.limits.maxTotalTokens - budget.usage.totalTokens;
           const currentlyAvailableTokens =
             permanentlyAvailableTokens - reservations.totalTokens;
-          const inputTokenReserve = estimatedInputTokenReserve(request);
+          const inputTokenReserve = estimateStructuredGenerationInputTokens(request);
           // Bedrock reports cache reads/writes in the charged total in addition
           // to ordinary input and output tokens. Cacheable prompt tokens are a
           // subset of the request input, so one extra input-sized reserve is a
@@ -1073,7 +1113,7 @@ export class BedrockStructuredLlmClient {
       }
       const chargeConservativeUnknownUsage = (attemptCount = 1) => {
         if (!budget) return;
-        const baseInputTokens = estimatedInputTokenReserve(boundedRequest);
+        const baseInputTokens = estimateStructuredGenerationInputTokens(boundedRequest);
         const estimatedInputTokens = baseInputTokens *
           (
             this.config.provider === "bedrock" &&
@@ -1482,8 +1522,7 @@ export class BedrockStructuredLlmClient {
 
     try {
       repairResponse = await converse({
-        systemPrompt:
-          "You repair structured model outputs. Return JSON only and match the provided schema exactly.",
+        systemPrompt: STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT,
         userPrompt: buildSchemaAwareRepairPrompt({
           schemaName: params.schemaName,
           schemaDescription: params.schemaDescription,
