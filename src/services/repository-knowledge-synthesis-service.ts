@@ -1808,6 +1808,30 @@ export async function runOrderedSynthesisBatches<T, TResult>(
   return results;
 }
 
+export const REPOSITORY_SYNTHESIS_MAX_BATCH_NOTEBOOK_ENTRIES = 12;
+
+/**
+ * Keep the existing two-subsystem locality, but isolate a pair whose combined
+ * evidence is larger than the largest ordinary subsystem notebook. This
+ * reduces one oversized reasoning request into independent primary-path calls
+ * without splitting a subsystem or changing its citation indexes.
+ */
+export function buildRepositorySynthesisBatches<T extends { notebook: readonly unknown[] }>(
+  inputs: readonly T[],
+  maxNotebookEntries = REPOSITORY_SYNTHESIS_MAX_BATCH_NOTEBOOK_ENTRIES,
+) {
+  if (!Number.isInteger(maxNotebookEntries) || maxNotebookEntries < 1) {
+    throw new Error("Repository synthesis batch notebook limit must be a positive integer.");
+  }
+  return Array.from({ length: Math.ceil(inputs.length / 2) }, (_, index) =>
+    inputs.slice(index * 2, index * 2 + 2)
+  ).flatMap((pair) =>
+    pair.length > 1 && pair.reduce((total, entry) => total + entry.notebook.length, 0) > maxNotebookEntries
+      ? pair.map((entry) => [entry])
+      : [pair]
+  );
+}
+
 async function synthesizeSubsystemSet(input: {
   workItemId: string;
   refreshRunId: string;
@@ -2701,9 +2725,7 @@ export async function synthesizeRepositoryKnowledge(
       entry.synthesisKey,
       entry,
     ]));
-    const batches = Array.from({ length: Math.ceil(modelInputs.length / 2) }, (_, index) =>
-      modelInputs.slice(index * 2, index * 2 + 2),
-    );
+    const batches = buildRepositorySynthesisBatches(modelInputs);
     // Each batch gets synthesis plus an independent critic and one bounded
     // schema repair for each. The token ceiling is the hard repository-wide
     // bound; failed repair stops the main path instead of invoking fallback.

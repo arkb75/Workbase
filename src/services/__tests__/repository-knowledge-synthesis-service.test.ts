@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/src/lib/prisma";
 import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge-synthesis-service";
 import {
+  buildRepositorySynthesisBatches,
   deterministicSynthesisAnchorSubsystems,
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
@@ -67,7 +68,7 @@ function entry(path: string, statement = `${path} defines supported repository b
   };
 }
 
-describe("repository synthesis limit fallback", () => {
+describe("repository synthesis model-path limits", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
@@ -372,6 +373,43 @@ describe("repository synthesis limit fallback", () => {
     }, new Set(["project_domain:events#scope:fact:1"]))).toEqual([
       "Supported assessments must have no issues; unsupported assessments must name at least one issue.",
     ]);
+  });
+
+  it("isolates oversized two-subsystem synthesis pairs without splitting a subsystem", () => {
+    const inputs = [
+      { id: "data", notebook: Array.from({ length: 9 }) },
+      { id: "surface", notebook: Array.from({ length: 6 }) },
+      { id: "intelligence", notebook: Array.from({ length: 6 }) },
+      { id: "quality", notebook: Array.from({ length: 3 }) },
+      { id: "integration", notebook: Array.from({ length: 1 }) },
+    ];
+
+    expect(buildRepositorySynthesisBatches(inputs).map((batch) =>
+      batch.map((entry) => entry.id)
+    )).toEqual([
+      ["data"],
+      ["surface"],
+      ["intelligence", "quality"],
+      ["integration"],
+    ]);
+    expect(buildRepositorySynthesisBatches([
+      { id: "large-single", notebook: Array.from({ length: 20 }) },
+    ]).map((batch) => batch.map((entry) => entry.id))).toEqual([
+      ["large-single"],
+    ]);
+    expect(buildRepositorySynthesisBatches([
+      { id: "boundary-a", notebook: Array.from({ length: 6 }) },
+      { id: "boundary-b", notebook: Array.from({ length: 6 }) },
+      { id: "over-a", notebook: Array.from({ length: 7 }) },
+      { id: "over-b", notebook: Array.from({ length: 6 }) },
+    ]).map((batch) => batch.map((entry) => entry.id))).toEqual([
+      ["boundary-a", "boundary-b"],
+      ["over-a"],
+      ["over-b"],
+    ]);
+    expect(() => buildRepositorySynthesisBatches(inputs, 0)).toThrow(
+      "Repository synthesis batch notebook limit must be a positive integer.",
+    );
   });
 
   it("applies compact rejected-claim patches while preserving accepted drafts", () => {
