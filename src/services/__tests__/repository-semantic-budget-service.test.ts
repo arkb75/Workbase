@@ -848,7 +848,7 @@ describe("repository semantic task and budget", () => {
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
   });
 
-  it("degrades a valid batch member when any assigned capability has no supported finding", async () => {
+  it("keeps usable partial capability coverage successful and reports missing keys separately", async () => {
     generateStructuredMock.mockResolvedValueOnce({
       data: {
         files: Object.fromEntries(["src/incomplete.ts", "src/complete.ts"].map((_path, index) => [
@@ -911,10 +911,18 @@ describe("repository semantic task and budget", () => {
       budget,
     }]);
 
-    expect(analyses[0]).toMatchObject({ semanticStatus: "degraded" });
-    expect(analyses[0]?.unresolvedQuestions.join(" ")).toContain("required capabilities: retrieval_provenance");
+    expect(analyses[0]).toMatchObject({
+      semanticStatus: "succeeded",
+      semanticSource: "model",
+      facts: [expect.objectContaining({ subsystemKeys: ["ai_runtime"] })],
+    });
+    expect(analyses[0]?.unresolvedQuestions.join(" ")).not.toContain("retrieval_provenance");
     expect(analyses[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ missingCapabilityKeys: ["retrieval_provenance"] }),
+      expect.objectContaining({
+        status: "partial_capability_coverage",
+        rejectedFindings: 0,
+        missingCapabilityKeys: ["retrieval_provenance"],
+      }),
     ]));
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
   });

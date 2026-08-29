@@ -387,6 +387,71 @@ describe("repository-derived cartographer and coverage critic", () => {
     }
   });
 
+  it("builds a bounded follow-up plan when a first repair leaves true audit-depth gaps", () => {
+    const area = (key: string, label: string, salience: number) => ({
+      key,
+      label,
+      scopeKey: "example/marketplace",
+      salience,
+      files: Array.from({ length: 16 }, (_, index) => ({
+        id: `${label.toLowerCase()}-${index}`,
+        path: `src/${label.toLowerCase()}/workflow-${index}.ts`,
+        score: 16 - index,
+      })),
+    });
+    const product = area("project_domain:product", "Product", 100);
+    const founder = area("project_domain:founder", "Founder", 90);
+    const supported = (key: string, fileSnapshotId: string) => ({
+      ...candidate(key, fileSnapshotId),
+      statement: `${key} is supported by ${fileSnapshotId}.`,
+    });
+    const firstWaveReports = [{
+      inspectedFileSnapshotIds: [
+        "product-0", "product-1", "product-2",
+        "founder-0", "founder-1", "founder-2",
+      ],
+      candidates: [
+        supported(product.key, "product-0"),
+        supported(product.key, "product-1"),
+        supported(founder.key, "founder-0"),
+        supported(founder.key, "founder-1"),
+      ],
+    }];
+
+    const followUp = critiqueRepositoryCoverage({
+      manifest: [product, founder],
+      reports: firstWaveReports,
+      allowRepair: true,
+    });
+
+    expect(followUp.domains).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: product.key, targetSamples: 4, inspectedSamples: 3, status: "thin" }),
+      expect.objectContaining({ key: founder.key, targetSamples: 4, inspectedSamples: 3, status: "thin" }),
+    ]));
+    const selected = followUp.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+    expect(selected).toHaveLength(2);
+    expect(selected.some((id) => id.startsWith("product-"))).toBe(true);
+    expect(selected.some((id) => id.startsWith("founder-"))).toBe(true);
+    expect(selected.some((id) => firstWaveReports[0]!.inspectedFileSnapshotIds.includes(id))).toBe(false);
+
+    const completed = critiqueRepositoryCoverage({
+      manifest: [product, founder],
+      reports: [
+        ...firstWaveReports,
+        {
+          inspectedFileSnapshotIds: selected,
+          candidates: selected.map((id) => supported(
+            id.startsWith("product-") ? product.key : founder.key,
+            id,
+          )),
+        },
+      ],
+      allowRepair: false,
+    });
+    expect(completed.domains.every((domain) => domain.status === "covered")).toBe(true);
+    expect(completed.repairPackages).toEqual([]);
+  });
+
   it("bounds a failed broad-area repair to two funded micro-batches and leaves depth auditable", () => {
     const area = {
       key: "project_domain:catalog",
@@ -1618,6 +1683,14 @@ describe("repository-derived cartographer and coverage critic", () => {
     ]);
     expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
       .not.toContain("orders-alternative");
+
+    const sealed = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports,
+      allowRepair: false,
+    });
+    expect(sealed.domains[0]?.status).toBe("covered");
+    expect(sealed.repairPackages).toEqual([]);
 
     const successful = critiqueRepositoryCoverage({
       manifest: [area],

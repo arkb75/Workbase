@@ -34,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v36-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v37-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -48,6 +48,7 @@ const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_PACKAGES = 2;
 const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
+const MAX_SEMANTIC_REPAIR_WAVES = 2;
 const REPAIR_TOKEN_RESERVE = 16_000;
 const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
@@ -836,6 +837,28 @@ export function semanticOrchestrationUsage(input: {
   };
 }
 
+type SemanticModelBudgetUsage = Omit<RepositorySemanticBudgetUsage, "inputBytes">;
+
+export function aggregateSemanticModelBudgetUsage(
+  usages: SemanticModelBudgetUsage[],
+): SemanticModelBudgetUsage {
+  return usages.reduce<SemanticModelBudgetUsage>((total, usage) => ({
+    modelCalls: total.modelCalls + usage.modelCalls,
+    repairPasses: total.repairPasses + usage.repairPasses,
+    inputTokens: total.inputTokens + usage.inputTokens,
+    outputTokens: total.outputTokens + usage.outputTokens,
+    totalTokens: total.totalTokens + usage.totalTokens,
+    unknownUsageCalls: total.unknownUsageCalls + usage.unknownUsageCalls,
+  }), {
+    modelCalls: 0,
+    repairPasses: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    unknownUsageCalls: 0,
+  });
+}
+
 export function packSemanticBundleIndexes(input: {
   bundles: Array<{
     size: number;
@@ -980,17 +1003,37 @@ export function effectiveCapabilityReportsAfterRepair(input: {
   initialReports: CapabilityReport[];
   repairReports: CapabilityReport[];
   retriedFileSnapshotIds: string[];
+  filePathBySnapshotId?: ReadonlyMap<string, string>;
 }) {
   const retried = new Set(input.retriedFileSnapshotIds);
-  const initial = input.initialReports.map((report): CapabilityReport => ({
-    ...report,
-    inspectedFileSnapshotIds: report.inspectedFileSnapshotIds.filter((id) => !retried.has(id)),
-    retryFileSnapshotIds: (report.retryFileSnapshotIds ?? []).filter((id) => !retried.has(id)),
-    candidates: report.candidates.flatMap((candidate) => {
-      const evidence = candidate.evidence.filter((entry) => !retried.has(entry.fileSnapshotId));
-      return evidence.length ? [{ ...candidate, evidence }] : [];
-    }),
-  }));
+  const initial = input.initialReports.map((report): CapabilityReport => {
+    const reportRetryIds = report.retryFileSnapshotIds ?? [];
+    const retriedGapPrefixes = reportRetryIds
+      .filter((id) => retried.has(id))
+      .flatMap((id): string[] => {
+        const path = input.filePathBySnapshotId?.get(id);
+        return [
+          `Assigned semantic file ${id}`,
+          ...(path ? [`${path}:`] : []),
+        ];
+      });
+    return {
+      ...report,
+      inspectedFileSnapshotIds: report.inspectedFileSnapshotIds.filter((id) => !retried.has(id)),
+      retryFileSnapshotIds: reportRetryIds.filter((id) => !retried.has(id)),
+      gaps: report.gaps.filter((gap) => {
+        if (!semanticExecutionGapPattern.test(gap)) return true;
+        // Supersede only an execution gap that names the exact retried file.
+        // Report-level audit or persistence failures have no such prefix and
+        // must remain visible even when every tracked file retry succeeds.
+        return !retriedGapPrefixes.some((prefix) => gap.startsWith(prefix));
+      }),
+      candidates: report.candidates.flatMap((candidate) => {
+        const evidence = candidate.evidence.filter((entry) => !retried.has(entry.fileSnapshotId));
+        return evidence.length ? [{ ...candidate, evidence }] : [];
+      }),
+    };
+  });
   return [...initial, ...input.repairReports];
 }
 
@@ -1061,7 +1104,11 @@ export function preserveSettledCapabilityReports(
         retryFileSnapshotIds: [...packages[index]!.fileSnapshotIds],
         candidates: [],
         contradictions: [],
-        gaps: [`Semantic worker ${packages[index]!.id} failed: ${errorMessage(result.reason)}`],
+        gaps: packages[index]!.fileSnapshotIds.length
+          ? packages[index]!.fileSnapshotIds.map((fileSnapshotId) =>
+              `Assigned semantic file ${fileSnapshotId}: Semantic worker ${packages[index]!.id} failed: ${errorMessage(result.reason)}`
+            )
+          : [`Semantic worker ${packages[index]!.id} failed: ${errorMessage(result.reason)}`],
         tokenUsage: [],
         usage: { ...emptyUsage(), unknownUsageCalls: 1 },
         partial: true,
@@ -2378,24 +2425,23 @@ export function critiqueRepositoryCoverage(input: {
     }
     return [];
   });
-  const repairAreas = input.allowRepair
-    ? domains
-        .filter((domain) => domain.status !== "covered")
-        .map((domain) => ({
-          domain,
-          area: input.manifest.find((area) =>
-            area.key === domain.key && area.scopeKey === domain.scopeKey
-          )!,
-        }))
-        .filter(({ area }) => area.files.some((file) =>
-          !inspected.has(file.id) && isCoverageEvidencePath(area.key, file.path)
-        ))
-        .sort((left, right) =>
-          (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
-          Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
-          left.area.key.localeCompare(right.area.key)
-        )
-    : [];
+  if (!input.allowRepair) return { domains, gaps, repairPackages: [] };
+  const repairAreas = domains
+    .filter((domain) => domain.status !== "covered")
+    .map((domain) => ({
+      domain,
+      area: input.manifest.find((area) =>
+        area.key === domain.key && area.scopeKey === domain.scopeKey
+      )!,
+    }))
+    .filter(({ area }) => area.files.some((file) =>
+      !inspected.has(file.id) && isCoverageEvidencePath(area.key, file.path)
+    ))
+    .sort((left, right) =>
+      (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
+      Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
+      left.area.key.localeCompare(right.area.key)
+    );
   const repairRequests = repairAreas.map(({ domain, area }) => {
     const desired = Math.max(
       1,
@@ -2725,7 +2771,8 @@ async function runWorkPackage(input: {
       const target = input.targets.get(file.snapshot.sourceId);
       const staticAnalysis = parseAnalysis(file.analysis);
       if (!target || !file.blobSha || !staticAnalysis) {
-        gaps.push(`${file.path} could not be authorized or loaded from the static map.`);
+        gaps.push(`${file.path}: Could not be authorized or loaded from the static map.`);
+        retryFileSnapshotIds.add(file.id);
         continue;
       }
       const fileTask = buildFileSemanticTask({
@@ -2866,6 +2913,7 @@ async function runWorkPackage(input: {
   ];
   for (const [groupIndex, group] of pendingGroups.entries()) {
     let semanticAnalyses: RepositoryFileAnalysis[];
+    let groupFailureMessage: string | null = null;
     try {
       const semanticInputs = group.map((entry) => ({
         workItemId: input.workItemId,
@@ -2882,14 +2930,15 @@ async function runWorkPackage(input: {
         ? [await analyzeRepositoryFile(semanticInputs[0]!)]
         : await analyzeRepositoryFileBatch(semanticInputs);
     } catch (error) {
-      const message = errorMessage(error);
+      groupFailureMessage = errorMessage(error);
       semanticAnalyses = [];
-      gaps.push(`Semantic extraction group ${groupIndex + 1} failed before per-file extraction: ${message}`);
     }
     for (const [index, entry] of group.entries()) {
       const semantic = semanticAnalyses[index];
       if (!semantic) {
-        const message = "Semantic micro-batch returned no file result.";
+        const message = groupFailureMessage
+          ? `Semantic extraction group ${groupIndex + 1} failed before per-file extraction: ${groupFailureMessage}`
+          : "Semantic micro-batch returned no file result.";
         gaps.push(`${entry.file.path}: ${message}`);
         retryFileSnapshotIds.add(entry.file.id);
         await prisma.repositoryFileSnapshot.update({
@@ -2971,20 +3020,6 @@ async function runWorkPackage(input: {
     workPackageCapabilityKeys: input.workPackage.capabilityKeys,
     candidates,
   }));
-  for (const file of assignedFiles) {
-    const assignedKeys = fileRelevantCapabilityKeys({
-      workPackageCapabilityKeys: input.workPackage.capabilityKeys,
-      staticSubsystemKeys: file.staticSubsystemKeys,
-      path: file.path,
-    });
-    if (assignedKeys.some((key) => !candidates.some((candidate) =>
-      candidate.key === key && candidate.evidence.some((evidence) =>
-        evidence.fileSnapshotId === file.id
-      )
-    ))) {
-      retryFileSnapshotIds.add(file.id);
-    }
-  }
   const usage = input.sharedModelBudget
     ? { ...emptyUsage(), inputBytes: budget.inputBytes }
     : snapshotRepositorySemanticBudget(budget);
@@ -3145,69 +3180,107 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     allowRepair: true,
   });
   const initialWorkerUsage = snapshotStructuredGenerationBudget(workerModelBudget);
-  const repairTokenPool = semanticRepairTokenPool({
+  const filePathBySnapshotId = new Map(manifest.flatMap((area) =>
+    area.files.map((file) => [file.id, file.path] as const)
+  ));
+  const initialRepairTokenPool = semanticRepairTokenPool({
     maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
     plannerTokenCommitment,
     initialWorkerTokens: initialWorkerUsage.totalTokens,
   });
-  const repairGenerationLimits = initialCritique.repairPackages.map(
-    semanticWorkPackageGenerationLimits,
-  );
-  const repairModelBudget = createStructuredGenerationBudget({
-    maxModelCalls: repairGenerationLimits.reduce((total, value) => total + value.maxModelCalls, 0),
-    maxRepairPasses: repairGenerationLimits.reduce((total, value) => total + value.maxRepairPasses, 0),
-    maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
-    maxTotalTokens: repairTokenPool,
-  });
-  const repairPackages: SemanticWorkPackage[] = initialCritique.repairPackages.map((entry, index) => ({
-    ...entry,
-    id: stablePackageId(
-      `${refreshRunId}:repair`,
-      entry.capabilityKeys,
-      entry.fileSnapshotIds,
-      entry.singletonFileSnapshotIds,
-    ),
-    budget: {
-      scope: "shared_wave" as const,
-      maxWorkers: MAX_REPAIR_PACKAGES,
-      maxModelCalls: repairGenerationLimits[index]!.maxModelCalls,
-      maxInputBytes: 64 * 1024,
+  const repairWaves: Array<{
+    waveNumber: number;
+    tokenCeiling: number;
+    critique: RepositoryCoverageCritique;
+    packages: SemanticWorkPackage[];
+    usage: SemanticModelBudgetUsage;
+  }> = [];
+  const repairReports: CapabilityReport[] = [];
+  let effectiveReports = initialReports;
+  let nextRepairCritique = initialCritique;
+  for (let waveIndex = 0; waveIndex < MAX_SEMANTIC_REPAIR_WAVES; waveIndex += 1) {
+    const priorRepairUsage = aggregateSemanticModelBudgetUsage(
+      repairWaves.map((wave) => wave.usage),
+    );
+    const repairTokenPool = semanticRepairTokenPool({
+      maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+      plannerTokenCommitment,
+      initialWorkerTokens: initialWorkerUsage.totalTokens + priorRepairUsage.totalTokens,
+    });
+    if (!nextRepairCritique.repairPackages.length || repairTokenPool <= 0) break;
+    const repairGenerationLimits = nextRepairCritique.repairPackages.map(
+      semanticWorkPackageGenerationLimits,
+    );
+    const repairModelBudget = createStructuredGenerationBudget({
+      maxModelCalls: repairGenerationLimits.reduce((total, value) => total + value.maxModelCalls, 0),
+      maxRepairPasses: repairGenerationLimits.reduce((total, value) => total + value.maxRepairPasses, 0),
       maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
       maxTotalTokens: repairTokenPool,
-      maxRepairPasses: repairGenerationLimits[index]!.maxRepairPasses,
-    },
-  }));
-  const settledRepairReports = await Promise.allSettled(repairPackages.map((workPackage) => runWorkPackage({
-    rootRunId: root.id,
-    refreshRunId,
-    userId: run.workItem.userId,
-    workItemId: run.workItem.id,
-    targets,
-    workPackage,
-    sharedModelBudget: repairModelBudget,
-  })));
-  const repairReports = preserveSettledCapabilityReports(repairPackages, settledRepairReports);
+    });
+    const waveNumber = waveIndex + 1;
+    const wavePackages: SemanticWorkPackage[] = nextRepairCritique.repairPackages.map((entry, index) => ({
+      ...entry,
+      id: stablePackageId(
+        `${refreshRunId}:repair:${waveNumber}`,
+        entry.capabilityKeys,
+        entry.fileSnapshotIds,
+        entry.singletonFileSnapshotIds,
+      ),
+      budget: {
+        scope: "shared_wave" as const,
+        maxWorkers: MAX_REPAIR_PACKAGES,
+        maxModelCalls: repairGenerationLimits[index]!.maxModelCalls,
+        maxInputBytes: 64 * 1024,
+        maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+        maxTotalTokens: repairTokenPool,
+        maxRepairPasses: repairGenerationLimits[index]!.maxRepairPasses,
+      },
+    }));
+    const settledWaveReports = await Promise.allSettled(wavePackages.map((workPackage) => runWorkPackage({
+      rootRunId: root.id,
+      refreshRunId,
+      userId: run.workItem.userId,
+      workItemId: run.workItem.id,
+      targets,
+      workPackage,
+      sharedModelBudget: repairModelBudget,
+    })));
+    const waveReports = preserveSettledCapabilityReports(wavePackages, settledWaveReports);
+    const retriedFileSnapshotIds = Array.from(new Set(wavePackages.flatMap((entry) =>
+      entry.singletonFileSnapshotIds ?? []
+    )));
+    effectiveReports = effectiveCapabilityReportsAfterRepair({
+      initialReports: effectiveReports,
+      repairReports: waveReports,
+      retriedFileSnapshotIds,
+      filePathBySnapshotId,
+    });
+    repairReports.push(...waveReports);
+    repairWaves.push({
+      waveNumber,
+      tokenCeiling: repairTokenPool,
+      critique: nextRepairCritique,
+      packages: wavePackages,
+      usage: snapshotStructuredGenerationBudget(repairModelBudget),
+    });
+    nextRepairCritique = critiqueRepositoryCoverage({
+      manifest,
+      reports: effectiveReports,
+      allowRepair: true,
+    });
+  }
+  const repairPackages = repairWaves.flatMap((wave) => wave.packages);
   const finalReports = [...initialReports, ...repairReports];
-  const retriedFileSnapshotIds = Array.from(new Set(repairPackages.flatMap((entry) =>
-    entry.singletonFileSnapshotIds ?? []
-  )));
-  const effectiveReports = effectiveCapabilityReportsAfterRepair({
-    initialReports,
-    repairReports,
-    retriedFileSnapshotIds,
-  });
   const finalCritique = critiqueRepositoryCoverage({
     manifest,
     reports: effectiveReports,
     allowRepair: false,
   });
   const executionGaps = unresolvedSemanticExecutionGaps({
-    initialReports,
-    repairReports,
-    retriedFileSnapshotIds,
-    filePathBySnapshotId: new Map(manifest.flatMap((area) =>
-      area.files.map((file) => [file.id, file.path] as const)
-    )),
+    initialReports: effectiveReports,
+    repairReports: [],
+    retriedFileSnapshotIds: [],
+    filePathBySnapshotId,
   });
   const mappedScopes = new Set(manifest.flatMap((area) => area.scopeKey ? [area.scopeKey] : []));
   const missingScopeGaps = Array.from(targets.values()).flatMap((target) =>
@@ -3221,7 +3294,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     ...missingScopeGaps,
   ]));
   const packageCompletion = partitionCapabilityReports(finalReports);
-  const repairWorkerUsage = snapshotStructuredGenerationBudget(repairModelBudget);
+  const repairWorkerUsage = aggregateSemanticModelBudgetUsage(
+    repairWaves.map((wave) => wave.usage),
+  );
   const actualUsage = semanticOrchestrationUsage({
     inputBytes: finalReports.reduce((total, report) => total + report.usage.inputBytes, 0),
     planner: planned.usage,
@@ -3242,7 +3317,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       result: inputJson({
         ...packageCompletion,
         initialCritique,
-        repairWaveCount: repairPackages.length ? 1 : 0,
+        repairWaveCount: repairWaves.length,
+        repairWaves,
         finalCritique,
         remainingGaps,
         usage: actualUsage,
@@ -3256,7 +3332,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       result: inputJson({
         ...packageCompletion,
         initialCritique,
-        repairWaveCount: repairPackages.length ? 1 : 0,
+        repairWaveCount: repairWaves.length,
+        repairWaves,
         finalCritique,
         remainingGaps,
         usage: actualUsage,
@@ -3282,7 +3359,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         cartography: manifest,
         packages,
         repairPackages,
-        repairWaveCount: repairPackages.length ? 1 : 0,
+        repairWaveCount: repairWaves.length,
+        repairWaves,
         coverageCritique: finalCritique,
         reportCount: finalReports.length,
         remainingGaps,
@@ -3301,12 +3379,14 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
           initialWorkerTokenCeiling: workerTokenPool,
           workerBudgetScope: "shared_wave",
           minimumRepairTokenReserve,
-          repairTokenCeiling: repairTokenPool,
+          repairTokenCeiling: initialRepairTokenPool,
+          repairWaveTokenCeilings: repairWaves.map((wave) => wave.tokenCeiling),
           repairBudgetScope: "shared_wave",
         },
         waveUsage: {
           initialWorkers: initialWorkerUsage,
           repairWorkers: repairWorkerUsage,
+          repairWaves: repairWaves.map((wave) => wave.usage),
         },
         actual: actualUsage,
         actualPlanner: planned.usage,

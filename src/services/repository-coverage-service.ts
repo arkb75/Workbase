@@ -1541,12 +1541,8 @@ export async function analyzeRepositoryFileBatch(
     });
     const coveredCapabilityKeys = new Set(facts.flatMap((fact) => fact.subsystemKeys ?? []));
     const missingCapabilityKeys = entry.allowedCapabilityKeys.filter((key) => !coveredCapabilityKeys.has(key));
-    const capabilityCoverageComplete = entry.allowedCapabilityKeys.length
-      ? missingCapabilityKeys.length === 0
-      : facts.length > 0;
-    if (missingCapabilityKeys.length) {
-      rejected.push(`No valid supported finding covered required capabilities: ${missingCapabilityKeys.join(", ")}.`);
-    }
+    const hasUsableFacts = facts.length > 0;
+    const capabilityCoverageComplete = missingCapabilityKeys.length === 0;
     const analysis: RepositoryFileAnalysis = {
       path: entry.file.path,
       summary: parsedData.summary,
@@ -1567,11 +1563,19 @@ export async function analyzeRepositoryFileBatch(
       // usage exactly once so worker aggregation cannot multiply cost.
       tokenUsage: index === 0 && result.tokenUsage ? [result.tokenUsage] : [],
       analysisMode: "semantic",
-      semanticStatus: capabilityCoverageComplete ? "succeeded" : "degraded",
-      semanticSource: facts.length ? "model" : undefined,
+      // A valid supported finding makes this model result usable. Missing
+      // capability labels remain a coverage diagnostic for the repository
+      // audit; they are not a provider or extraction degradation and must not
+      // quarantine the facts that were established successfully.
+      semanticStatus: hasUsableFacts ? "succeeded" : "degraded",
+      semanticSource: hasUsableFacts ? "model" : undefined,
       semanticDiagnostics: [{
         lineRange: [entry.window.lineStart, entry.window.lineEnd],
-        status: capabilityCoverageComplete ? "success" : "partial_batch_member",
+        status: !hasUsableFacts
+          ? "no_supported_findings"
+          : capabilityCoverageComplete
+            ? "success"
+            : "partial_capability_coverage",
         generationRunId: result.generationRunId,
         transportMode: result.transportMode,
         attempts: result.attempts,

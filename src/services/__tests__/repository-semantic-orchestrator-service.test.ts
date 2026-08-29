@@ -4,6 +4,7 @@ import {
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
+  aggregateSemanticModelBudgetUsage,
   buildRepositorySemanticPlannerRequest,
   buildFileSemanticTask,
   capabilityCandidatesFromAnalysis,
@@ -107,6 +108,52 @@ describe("repository semantic orchestration guardrails", () => {
       plannerTokenCommitment: 10_000,
       initialWorkerTokens: 54_000,
     })).toBe(16_000);
+    expect(semanticRepairTokenPool({
+      maxTotalTokens: 80_000,
+      plannerTokenCommitment: 2_310,
+      initialWorkerTokens: 38_483 + 15_729,
+    })).toBe(23_478);
+    expect(semanticRepairTokenPool({
+      maxTotalTokens: 80_000,
+      plannerTokenCommitment: 10_000,
+      initialWorkerTokens: 80_000,
+    })).toBe(0);
+  });
+
+  it("aggregates bounded repair waves before admitting another wave", () => {
+    const repairUsage = aggregateSemanticModelBudgetUsage([
+      {
+        modelCalls: 4,
+        repairPasses: 0,
+        inputTokens: 8_737,
+        outputTokens: 2_262,
+        totalTokens: 15_729,
+        unknownUsageCalls: 0,
+      },
+      {
+        modelCalls: 2,
+        repairPasses: 1,
+        inputTokens: 4_000,
+        outputTokens: 1_500,
+        totalTokens: 5_500,
+        unknownUsageCalls: 1,
+      },
+    ]);
+    expect(repairUsage).toEqual({
+      modelCalls: 6,
+      repairPasses: 1,
+      inputTokens: 12_737,
+      outputTokens: 3_762,
+      totalTokens: 21_229,
+      unknownUsageCalls: 1,
+    });
+    const remaining = semanticRepairTokenPool({
+      maxTotalTokens: 80_000,
+      plannerTokenCommitment: 2_310,
+      initialWorkerTokens: 38_483 + repairUsage.totalTokens,
+    });
+    expect(remaining).toBe(17_978);
+    expect(2_310 + 38_483 + repairUsage.totalTokens + remaining).toBe(80_000);
   });
 
   it("counts shared semantic waves once in orchestration usage", () => {
@@ -755,11 +802,13 @@ describe("repository semantic orchestration guardrails", () => {
       [],
       false,
     );
+    const filePathBySnapshotId = new Map([["file-1", "src/orders/menu.ts"]]);
 
     const effective = effectiveCapabilityReportsAfterRepair({
       initialReports: [initial],
       repairReports: [repaired],
       retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId,
     });
     expect(effective.flatMap((entry) => entry.candidates.map((candidate) => candidate.statement))).toEqual([
       "The isolated retry establishes the implemented order workflow.",
@@ -769,6 +818,75 @@ describe("repository semantic orchestration guardrails", () => {
       repairReports: [repaired],
       retriedFileSnapshotIds: ["file-1"],
     })).toEqual([]);
+
+    const firstWaveFailed = report(
+      "repair-1",
+      "",
+      ["file-1"],
+      ["src/orders/menu.ts: Semantic analysis degraded."],
+      true,
+    );
+    const afterFirstWave = effectiveCapabilityReportsAfterRepair({
+      initialReports: [initial],
+      repairReports: [firstWaveFailed],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId,
+    });
+    const afterSecondWave = effectiveCapabilityReportsAfterRepair({
+      initialReports: afterFirstWave,
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId,
+    });
+    expect(afterSecondWave.flatMap((entry) => entry.gaps)).toEqual([]);
+    expect(afterSecondWave.flatMap((entry) => entry.candidates.map((candidate) => candidate.statement))).toEqual([
+      "The isolated retry establishes the implemented order workflow.",
+    ]);
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: afterSecondWave,
+      repairReports: [],
+      retriedFileSnapshotIds: [],
+      filePathBySnapshotId,
+    })).toEqual([]);
+
+    const partiallyRetried = effectiveCapabilityReportsAfterRepair({
+      initialReports: [{
+        ...initial,
+        inspectedFileSnapshotIds: ["file-1", "file-2"],
+        retryFileSnapshotIds: ["file-1", "file-2"],
+        gaps: [
+          "src/orders/menu.ts: Semantic analysis degraded.",
+          "src/orders/service.ts: Semantic analysis failed.",
+        ],
+      }],
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId: new Map([
+        ["file-1", "src/orders/menu.ts"],
+        ["file-2", "src/orders/service.ts"],
+      ]),
+    });
+    expect(partiallyRetried[0]).toMatchObject({
+      retryFileSnapshotIds: ["file-2"],
+      gaps: ["src/orders/service.ts: Semantic analysis failed."],
+    });
+
+    const reportLevelFailureRemains = effectiveCapabilityReportsAfterRepair({
+      initialReports: [{
+        ...initial,
+        retryFileSnapshotIds: ["file-1"],
+        gaps: [
+          "src/orders/menu.ts: Semantic analysis degraded.",
+          "Semantic worker audit persistence failed after extraction.",
+        ],
+      }],
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId: new Map([["file-1", "src/orders/menu.ts"]]),
+    });
+    expect(reportLevelFailureRemains.flatMap((entry) => entry.gaps)).toEqual([
+      "Semantic worker audit persistence failed after extraction.",
+    ]);
 
     const failedRepair = report(
       "failed-repair",
