@@ -200,6 +200,10 @@ describe("repository synthesis model main path", () => {
       "repository_architecture_synthesis",
       "repository_synthesis_entailment_critic",
     ]);
+    expect(generateStructuredMock.mock.calls[1]![0]).toMatchObject({
+      maxTokens: 4_000,
+      effort: "low",
+    });
     expect(synthesis).toEqual([
       expect.objectContaining({
         subsystemKey: "project_domain:payments",
