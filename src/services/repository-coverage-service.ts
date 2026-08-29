@@ -195,7 +195,7 @@ export function inferProjectDomainCapability(path: string) {
 }
 
 export const repositorySemanticFindingGuidance =
-  "Use user_capability only for an implemented end-user goal or state-changing workflow; query-parameter plumbing, component wiring, enums, logging, diagnostics, and helper behavior are ordinary behavior or configuration.";
+  "Use user_capability only when the cited handler or service lines execute an implemented end-user goal or state-changing workflow. Emit the file's primary executed action, mutation, or result before navigation, control visibility, empty-state copy, query-parameter plumbing, component wiring, logging, diagnostics, or helper behavior. A visible button or field proves an affordance, not an executed workflow; cite the action handler or mutation for the capability.";
 
 const semanticFindingKindOptions = [
   "behavior",
@@ -419,6 +419,8 @@ export interface RepositoryChunkAnalysis {
     technicalDifficulty: number;
     subsystemKeys?: string[];
     semanticSignals?: string[];
+    /** Exact numbered source lines retained for downstream entailment review. */
+    evidenceExcerpt?: string;
     evidenceMode?: "static" | "semantic" | "deterministic_fallback";
   }>;
   unresolvedQuestions: string[];
@@ -730,6 +732,26 @@ export function isPlannedDocumentationRange(input: {
   );
 }
 
+const MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS = 1_600;
+
+/** Preserve exact cited source fragments so later critics do not trust a model paraphrase as evidence. */
+export function semanticEvidenceExcerpt(
+  numberedContent: string,
+  lineStart: number,
+  lineEnd: number,
+) {
+  const excerpt = numberedContent.split("\n").filter((line) => {
+    const match = /^(\d+):/u.exec(line);
+    if (!match) return false;
+    const lineNumber = Number(match[1]);
+    return lineNumber >= lineStart && lineNumber <= lineEnd;
+  }).join("\n");
+  if (excerpt.length <= MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS) return excerpt;
+
+  const fragmentLength = Math.floor((MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS - 32) / 2);
+  return `${excerpt.slice(0, fragmentLength)}\n[... cited lines omitted ...]\n${excerpt.slice(-fragmentLength)}`;
+}
+
 async function analyzeChunk(input: {
   workItemId?: string;
   refreshRunId?: string;
@@ -893,6 +915,7 @@ async function analyzeChunk(input: {
       technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
       subsystemKeys: unique(finding.capabilityKeys, 6),
       semanticSignals: unique(finding.signalKeys ?? [], 12),
+      evidenceExcerpt: semanticEvidenceExcerpt(input.content, finding.lineStart, finding.lineEnd),
       evidenceMode: "semantic" as const,
     }];
   });
@@ -1483,6 +1506,11 @@ export async function analyzeRepositoryFileBatch(
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
         subsystemKeys: capabilityKeys,
         semanticSignals: unique(finding.signalKeys ?? [], 12),
+        evidenceExcerpt: semanticEvidenceExcerpt(
+          entry.window.content,
+          finding.lineStart,
+          finding.lineEnd,
+        ),
         evidenceMode: "semantic" as const,
         path: entry.file.path,
       }];

@@ -143,6 +143,7 @@ describe("repository synthesis limit fallback", () => {
     expect(repositoryHighlightSelectionGuidance).toContain("one cross-layer Highlight");
     expect(repositoryHighlightSelectionGuidance).toContain("every claimed stage has implementation evidence");
     expect(repositoryHighlightSelectionGuidance).toContain("do not emit duplicate layer-specific Highlights");
+    expect(repositoryHighlightSelectionGuidance).toContain("Never combine sibling entity workflows");
     expect(repositoryHighlightSelectionGuidance).toContain("two broadest distinct supported capabilities");
   });
 
@@ -153,6 +154,9 @@ describe("repository synthesis limit fallback", () => {
     }
     expect(repositoryUserFacingCapabilityGuidance).toContain("concrete user action or outcome");
     expect(repositoryUserFacingCapabilityGuidance).toContain("not a user-facing capability");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("action-handler or mutation evidence");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("one Fact per distinct supported user goal or entity");
+    expect(repositoryUserFacingCapabilityGuidance).toContain("Do not merge sibling entity workflows");
     expect(repositoryUserFacingCapabilityGuidance).toContain("distinct supported workflows");
     expect(repositoryUserFacingCapabilityGuidance).toContain("Navigation evidence proves");
     expect(repositoryUserFacingCapabilityGuidance).toContain("separately supported workflows");
@@ -172,8 +176,16 @@ describe("repository synthesis limit fallback", () => {
 
   it("deduplicates critic evidence per subsystem while preserving claim citation indexes", () => {
     const notebook = [
-      { ...entry("src/payments/store.ts", "The service persists a payment receipt."), evidenceMode: "semantic" as const },
-      { ...entry("src/payments/read.ts", "The service loads a payment receipt by identifier."), evidenceMode: "semantic" as const },
+      {
+        ...entry("src/payments/store.ts", "The service persists a payment receipt."),
+        sourceExcerpt: "12: await receipts.insert(receipt);",
+        evidenceMode: "semantic" as const,
+      },
+      {
+        ...entry("src/payments/read.ts", "The service loads a payment receipt by identifier."),
+        sourceExcerpt: "8: return receipts.find(receiptId);",
+        evidenceMode: "semantic" as const,
+      },
     ];
     const result = {
       subsystems: [{
@@ -222,8 +234,16 @@ describe("repository synthesis limit fallback", () => {
     expect(payload.subsystems).toEqual([expect.objectContaining({
       subsystemKey: "project_domain:payments#scope",
       notebook: [
-        expect.objectContaining({ index: 1, statement: "The service persists a payment receipt." }),
-        expect.objectContaining({ index: 2, statement: "The service loads a payment receipt by identifier." }),
+        expect.objectContaining({
+          index: 1,
+          statement: "The service persists a payment receipt.",
+          sourceExcerpt: "12: await receipts.insert(receipt);",
+        }),
+        expect.objectContaining({
+          index: 2,
+          statement: "The service loads a payment receipt by identifier.",
+          sourceExcerpt: "8: return receipts.find(receiptId);",
+        }),
       ],
       claims,
     })]);

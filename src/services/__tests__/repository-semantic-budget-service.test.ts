@@ -15,6 +15,7 @@ import {
   analyzeRepositoryFile,
   analyzeRepositoryFileBatch,
   createRepositorySemanticBudget,
+  repositorySemanticFindingGuidance,
   REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
 } from "@/src/services/repository-coverage-service";
 
@@ -51,6 +52,64 @@ describe("repository semantic task and budget", () => {
         transportMode: "bedrock_json_schema",
         attempts: [{ status: "success" }],
       };
+    });
+  });
+
+  it("prioritizes executed primary behavior over interface affordances", () => {
+    expect(repositorySemanticFindingGuidance).toContain("primary executed action, mutation, or result");
+    expect(repositorySemanticFindingGuidance).toContain("before navigation, control visibility, empty-state copy");
+    expect(repositorySemanticFindingGuidance).toContain("visible button or field proves an affordance");
+    expect(repositorySemanticFindingGuidance).toContain("cite the action handler or mutation");
+  });
+
+  it("retains the exact cited source lines with accepted semantic facts", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The handler removes a selected record.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The handler removes the selected record by identifier.",
+          kind: "user_capability",
+          capabilityKeys: ["product_surface"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 2,
+          lineEnd: 3,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/inventory",
+      commitSha: "e".repeat(40),
+      path: "src/ui/remove-record.ts",
+      content: [
+        "button.onClick(() => {",
+        "  const id = selectedRecordId();",
+        "  records.remove(id);",
+        "});",
+      ].join("\n"),
+      task: {
+        objective: "Identify the implemented record-removal action.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["The executed mutation and its identifier"],
+      },
+    });
+
+    expect(analysis.facts[0]).toMatchObject({
+      lineStart: 2,
+      lineEnd: 3,
+      evidenceExcerpt: "2:   const id = selectedRecordId();\n3:   records.remove(id);",
     });
   });
 
@@ -300,6 +359,9 @@ describe("repository semantic task and budget", () => {
     expect(analyses.map((analysis) => analysis.path)).toEqual(paths);
     expect(analyses.every((analysis) => analysis.semanticStatus === "succeeded")).toBe(true);
     expect(analyses.every((analysis) => analysis.facts[0]?.lineStart === 1 && analysis.facts[0]?.lineEnd === 1)).toBe(true);
+    expect(analyses.every((analysis) =>
+      analysis.facts[0]?.evidenceExcerpt === "1: export const operation = () => true;"
+    )).toBe(true);
     expect(analyses.every((analysis) => {
       const diagnostic = analysis.semanticDiagnostics?.[0];
       return Boolean(
@@ -328,6 +390,8 @@ describe("repository semantic task and budget", () => {
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
     expect(request.effort).toBe("low");
     expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.systemPrompt).toContain("primary executed action, mutation, or result");
+    expect(request.systemPrompt).toContain("visible button or field proves an affordance");
     expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
   });
 

@@ -178,6 +178,54 @@ describe("generalized repository knowledge evaluation", () => {
     expect(soloPilotPlanned.matchPatterns.join(" ")).toMatch(/in progress.*roadmap.*phase 2/iu);
   });
 
+  it("recovers grounded desktop UI phrasing without mapping unrelated UI-file claims", () => {
+    const sourceFixture = repositoryKnowledgeFixture("amazon-marketplace-analytics")!;
+    const uiPath = "src/main/ui/MainMenu.java";
+    const fixture: RepositoryKnowledgeFixture = {
+      ...sourceFixture,
+      files: sourceFixture.files.map((file) =>
+        file.path === uiPath
+          ? {
+              ...file,
+              content: [
+                "Desktop UI presents inventory analytics and forecast review.",
+                "Cached results are refreshed when the application starts.",
+              ].join("\n"),
+            }
+          : file
+      ),
+    };
+    const groundedRun = representativeRun(fixture);
+    groundedRun.items = [{
+      id: "grounded-desktop-ui",
+      kind: "highlight",
+      text: "Delivered a desktop UI for inventory analytics and forecast review.",
+      claimState: "implemented",
+      domain: "desktop",
+      evidence: [{ path: uiPath }],
+    }];
+
+    const grounded = evaluateRepositoryKnowledgeRun({ fixture, run: groundedRun });
+
+    expect(grounded.unsupportedItems).not.toContain("grounded-desktop-ui");
+    expect(grounded.recoveredCapabilityKeys).toContain("swing_ui");
+
+    const unrelatedRun = representativeRun(fixture);
+    unrelatedRun.items = [{
+      id: "unrelated-ui-file-claim",
+      kind: "fact",
+      text: "Cached results are refreshed when the application starts.",
+      claimState: "implemented",
+      domain: "desktop",
+      evidence: [{ path: uiPath }],
+    }];
+
+    const unrelated = evaluateRepositoryKnowledgeRun({ fixture, run: unrelatedRun });
+
+    expect(unrelated.unsupportedItems).not.toContain("unrelated-ui-file-claim");
+    expect(unrelated.recoveredCapabilityKeys).not.toContain("swing_ui");
+  });
+
   it("passes broad, grounded observations without exact-prose assertions", () => {
     const fixtures = repositoryKnowledgeFixtures.map(withRepresentativeContent);
     const runs = fixtures.map(representativeRun);

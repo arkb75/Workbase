@@ -35,6 +35,10 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 const statement =
   "The charge service records an idempotency key before publishing a payment receipt.";
 const path = "src/payments/charge-service.ts";
+const sourceExcerpt = [
+  "10: await idempotencyKeys.insert(key);",
+  "11: await receipts.publish(receipt);",
+].join("\n");
 
 function semanticAnalysis(): RepositoryFileAnalysis {
   return {
@@ -65,6 +69,7 @@ function semanticAnalysis(): RepositoryFileAnalysis {
       path,
       subsystemKeys: ["project_domain:payments"],
       semanticSignals: ["domain.payment_idempotency"],
+      evidenceExcerpt: sourceExcerpt,
       evidenceMode: "semantic",
     }],
   };
@@ -139,6 +144,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string }>;
+          notebook?: Array<{ sourceExcerpt?: string | null }>;
         }>;
       };
       const data = request.schemaName === "repository_architecture_synthesis"
@@ -204,6 +210,16 @@ describe("repository synthesis model main path", () => {
       maxTokens: 4_000,
       effort: "low",
     });
+    const synthesisPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
+    const criticPrompt = JSON.parse(generateStructuredMock.mock.calls[1]![0].userPrompt);
+    expect(synthesisPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
+    expect(criticPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
+    expect(generateStructuredMock.mock.calls[1]![0].systemPrompt).toContain(
+      "sourceExcerpt contains the exact bounded source fragments",
+    );
+    expect(generateStructuredMock.mock.calls[1]![0].systemPrompt).toContain(
+      "statement but not in sourceExcerpt",
+    );
     expect(synthesis).toEqual([
       expect.objectContaining({
         subsystemKey: "project_domain:payments",
