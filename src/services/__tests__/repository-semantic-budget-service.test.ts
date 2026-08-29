@@ -1012,7 +1012,7 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("recovers safe capability coverage from exact-line deterministic facts after structured extraction fails", async () => {
+  it("does not replace a model extraction failure with deterministic static facts", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("Bedrock temporarily unavailable"));
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
@@ -1040,25 +1040,18 @@ describe("repository semantic task and budget", () => {
       budget,
     });
 
-    expect(analysis.semanticStatus).toBe("degraded");
-    expect(analysis.semanticSource).toBe("deterministic_fallback");
+    expect(analysis.semanticStatus).toBe("failed");
+    expect(analysis.semanticSource).toBeUndefined();
     expect(analysis.unresolvedQuestions).toEqual(expect.arrayContaining([
-      expect.stringContaining("partial coverage"),
       expect.stringContaining("Bedrock temporarily unavailable"),
     ]));
-    expect(analysis.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        evidenceMode: "deterministic_fallback",
-        subsystemKeys: ["workflow_orchestration"],
-      }),
-    ]));
+    expect(analysis.facts).toEqual([]);
     expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "provider_error" }),
-      expect.objectContaining({ status: "deterministic_exact_line_fallback" }),
     ]));
   });
 
-  it("recovers review lifecycle semantics from decisions, restoration, invalidation, and revalidation patterns", async () => {
+  it("keeps rich static lifecycle evidence out of the model failure path", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
     const analysis = await analyzeRepositoryFile({
       repository: "workbase/demo",
@@ -1091,12 +1084,12 @@ describe("repository semantic task and budget", () => {
       },
     });
 
-    expect(analysis.semanticStatus).toBe("degraded");
-    expect(analysis.semanticSource).toBe("deterministic_fallback");
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/dispatches keep, edit-and-keep, revert, and retire/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/repository revalidation pass/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/restores validation state and exact Project Fact evidence relations/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/invalidates downstream dependents/);
+    expect(analysis.semanticStatus).toBe("failed");
+    expect(analysis.semanticSource).toBeUndefined();
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "provider_error" }),
+    ]));
   });
 
   it("does not mark lifecycle coverage complete from generic Prisma and symbol observations alone", async () => {

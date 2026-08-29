@@ -3,6 +3,7 @@ import { Prisma } from "@/src/generated/prisma/client";
 import { z } from "zod";
 import {
   resolveActiveTextModelIdentity,
+  resolveWorkbaseLlmProvider,
 } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
@@ -28,6 +29,7 @@ import {
   buildRepositoryDerivedCapabilityManifest,
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   repositorySemanticOrchestratorService,
+  resolveRepositorySemanticPlannerMode,
 } from "@/src/services/repository-semantic-orchestrator-service";
 import {
   isNewerKnowledgeRefreshGeneration,
@@ -35,7 +37,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v44-hybrid";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v45-hybrid";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -112,6 +114,18 @@ function assertKnowledgeRefreshCanExecute(runId: string, status: string) {
   }
 }
 
+function requiresModelSemanticMainPath() {
+  if (resolveWorkbaseLlmProvider() === "mock") return false;
+  try {
+    return resolveRepositorySemanticPlannerMode() === "model";
+  } catch {
+    // Invalid configuration must not opt a real provider into the degraded
+    // deterministic path. The strict resolver still supplies the terminal
+    // error; this classification ensures the refresh is marked failed.
+    return true;
+  }
+}
+
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -120,6 +134,14 @@ function coverageRecords(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)))
     : [];
+}
+
+function unresolvedSemanticCoverageRepositories(value: unknown) {
+  return coverageRecords(value).flatMap((entry) =>
+    entry.semanticCoverageStatus === "partial" || entry.semanticCoverageStatus === "failed"
+      ? [typeof entry.repository === "string" ? entry.repository : "the repository"]
+      : []
+  );
 }
 
 export function isKnowledgeRefreshPartial(input: { qualityStatus: unknown; coverage: unknown }) {
@@ -145,20 +167,10 @@ export function repositoryCapabilityPriority(input: {
   return input.observationCount >= 20 ? 3 : 1;
 }
 
-const generalizedCapabilityAliases: Record<string, string[]> = {
-  "repository_area:product_surface": ["product_surface", "review_ui"],
-  "repository_area:data_model": ["domain_data"],
-  "repository_area:integrations": ["ingestion_integrations"],
-  "repository_area:automation": ["workflow_orchestration"],
-  "repository_area:intelligence": ["ai_runtime", "retrieval_provenance"],
-  "repository_area:quality": ["tests_operations"],
-};
-
 function semanticAnalysisSupportsCapability(value: unknown, path: string, capabilityKey: string) {
   const analysis = rebaseCachedAnalysis(value, path);
   if (!analysis) return false;
-  const supportedKeys = new Set([capabilityKey, ...(generalizedCapabilityAliases[capabilityKey] ?? [])]);
-  return analysis.facts.some((fact) => fact.subsystemKeys?.some((key) => supportedKeys.has(key)));
+  return analysis.facts.some((fact) => fact.subsystemKeys?.includes(capabilityKey));
 }
 
 export function repositoryOrchestrationCoverageGaps(input: {
@@ -1052,6 +1064,10 @@ export async function repairKnowledgeCoverageGaps(runId: string) {
       select: { status: true, orchestration: true, warnings: true },
     });
     assertKnowledgeRefreshCanExecute(runId, after.status);
+    if (requiresModelSemanticMainPath()) {
+      await failKnowledgeRefresh(runId, error);
+      throw error;
+    }
     const gap = `Repository-derived semantic orchestration failed closed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown orchestration failure"}.`;
     await prisma.knowledgeRefreshRun.update({
       where: { id: runId },
@@ -1362,13 +1378,24 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       },
     });
   }
+  const unresolvedModelSemanticCoverage = requiresModelSemanticMainPath()
+    ? unresolvedSemanticCoverageRepositories(coverageByRepository)
+    : [];
+  const semanticFailureMessage = unresolvedModelSemanticCoverage.length
+    ? `Repository semantic analysis did not establish the required evidence for ${unresolvedModelSemanticCoverage.join(", ")}.`
+    : null;
+  const finishedAt = semanticFailureMessage ? new Date() : null;
   await prisma.knowledgeRefreshRun.update({
     where: { id: runId },
     data: {
-      status: "reconciling",
-      qualityStatus: coverageByRepository.some((entry) => entry.coverageStatus !== "complete") ? "degraded" : "verified",
+      status: semanticFailureMessage ? "failed" : "reconciling",
+      qualityStatus: semanticFailureMessage
+        ? "failed"
+        : coverageByRepository.some((entry) => entry.coverageStatus !== "complete") ? "degraded" : "verified",
       coverage: toInputJson(coverageByRepository),
-      completedHeads: toInputJson(run.targetHeads),
+      ...(!semanticFailureMessage ? { completedHeads: toInputJson(run.targetHeads) } : {}),
+      ...(finishedAt ? { finishedAt } : {}),
+      ...(semanticFailureMessage ? { error: toInputJson({ message: semanticFailureMessage }) } : {}),
       warnings: toInputJson({
         ...record(run.warnings),
         modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
@@ -1377,6 +1404,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       }),
     },
   });
+  if (semanticFailureMessage) throw new Error(semanticFailureMessage);
   return { runId, coverage: coverageByRepository };
 }
 
@@ -1390,9 +1418,25 @@ export async function completeKnowledgeRefresh(
 ) {
   const beforeCompletion = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
-    select: { progress: true },
+    select: { progress: true, coverage: true },
   });
   const finishedAt = new Date();
+  const unresolvedModelSemanticCoverage = requiresModelSemanticMainPath()
+    ? unresolvedSemanticCoverageRepositories(beforeCompletion.coverage)
+    : [];
+  if (unresolvedModelSemanticCoverage.length) {
+    const message = `Repository semantic analysis did not establish the required evidence for ${unresolvedModelSemanticCoverage.join(", ")}.`;
+    await prisma.knowledgeRefreshRun.updateMany({
+      where: { id: runId, status: "reconciling" },
+      data: {
+        status: "failed",
+        qualityStatus: "failed",
+        finishedAt,
+        error: toInputJson({ message }),
+      },
+    });
+    throw new Error(message);
+  }
   const completed = await prisma.knowledgeRefreshRun.updateMany({
     where: { id: runId, status: "reconciling" },
     data: {

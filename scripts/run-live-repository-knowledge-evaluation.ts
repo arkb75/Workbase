@@ -291,6 +291,8 @@ async function runRepository(input: {
           status: true,
           provider: true,
           modelId: true,
+          inputSummary: true,
+          parsedOutput: true,
           resultRefs: true,
           tokenUsage: true,
         },

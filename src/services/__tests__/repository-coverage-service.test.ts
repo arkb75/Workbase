@@ -465,7 +465,7 @@ describe("complete repository coverage", () => {
     expect(analysis.facts.some((fact) => fact.lineStart > 160)).toBe(true);
   });
 
-  it("marks coverage verified only from analyzed content observations", async () => {
+  it("keeps mock semantic extraction diagnostic-only and promotion-ineligible", async () => {
     const analysis = await analyzeRepositoryFile({
       repository: "workbase/demo",
       commitSha: "b".repeat(40),
@@ -474,12 +474,26 @@ describe("complete repository coverage", () => {
     });
     const matrix = buildCoverageMatrix([{ path: analysis.path, analysis }]);
 
+    expect(analysis).toMatchObject({
+      semanticStatus: "degraded",
+      semanticSource: "mock",
+    });
+    expect(analysis.unresolvedQuestions).toContain(
+      "Mock semantic extraction is diagnostic-only and cannot support knowledge promotion.",
+    );
     expect(matrix.find((target) => target.key === "retrieval_provenance")).toMatchObject({
-      status: "semantic_verified",
+      status: "static_mapped",
       paths: ["src/services/project-knowledge-retrieval-service.ts"],
-      modelSemanticPathCount: 1,
+      semanticPathCount: 0,
+      modelSemanticPathCount: 0,
       deterministicFallbackPathCount: 0,
     });
+    const mislabeledSucceeded = buildCoverageMatrix([{
+      path: analysis.path,
+      analysis: { ...analysis, semanticStatus: "succeeded" },
+    }]);
+    expect(mislabeledSucceeded.find((target) => target.key === "retrieval_provenance"))
+      .toMatchObject({ status: "static_mapped", semanticPathCount: 0, modelSemanticPathCount: 0 });
     expect(matrix.find((target) => target.key === "review_ui")?.status).toBe("not_applicable");
   });
 

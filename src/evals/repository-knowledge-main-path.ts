@@ -17,6 +17,8 @@ export interface RepositoryKnowledgeGenerationAuditRecord {
   status: string;
   provider: string;
   modelId: string;
+  inputSummary: unknown;
+  parsedOutput: unknown;
   resultRefs: unknown;
   tokenUsage: unknown;
 }
@@ -80,6 +82,47 @@ function requestIds(resultRefs: unknown) {
     : [];
 }
 
+type RepositorySynthesisGenerationPhase = "synthesis" | "entailment_critic";
+
+function repositorySynthesisGenerationPhase(
+  inputSummary: unknown,
+): RepositorySynthesisGenerationPhase | null {
+  const phase = record(inputSummary)?.phase;
+  return phase === "synthesis" || phase === "entailment_critic"
+    ? phase
+    : null;
+}
+
+function repositorySynthesisBatchKey(inputSummary: unknown) {
+  const summary = record(inputSummary);
+  const refreshRunId = typeof summary?.refreshRunId === "string"
+    ? summary.refreshRunId.trim()
+    : "";
+  const subsystemKeys = summary?.subsystemKeys;
+  if (!refreshRunId) return null;
+  if (!Array.isArray(subsystemKeys)) return null;
+  const normalized = Array.from(new Set(subsystemKeys.flatMap((value) =>
+    typeof value === "string" && value.trim() ? [value.trim()] : []
+  ))).sort();
+  return normalized.length ? JSON.stringify([refreshRunId, normalized]) : null;
+}
+
+function repositorySynthesisClaimCount(parsedOutput: unknown) {
+  const subsystems = record(parsedOutput)?.subsystems;
+  if (!Array.isArray(subsystems)) return null;
+  return subsystems.reduce((total, value) => {
+    const subsystem = record(value);
+    return total +
+      (Array.isArray(subsystem?.facts) ? subsystem.facts.length : 0) +
+      (Array.isArray(subsystem?.highlights) ? subsystem.highlights.length : 0);
+  }, 0);
+}
+
+function repositoryCriticAssessmentCount(parsedOutput: unknown) {
+  const assessments = record(parsedOutput)?.assessments;
+  return Array.isArray(assessments) ? assessments.length : null;
+}
+
 function expectedIdentityFor(
   kind: string,
   expected: Partial<Record<RepositoryKnowledgeModelGenerationKind, RepositoryKnowledgeExpectedModelIdentity>>,
@@ -105,6 +148,15 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   warnings: unknown;
 }) {
   const issues: string[] = [];
+  const capabilitySynthesisRuns = input.generationRuns.filter((run) =>
+    run.kind === "capability_synthesis"
+  );
+  const synthesisRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) === "synthesis"
+  );
+  const criticRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) === "entailment_critic"
+  );
   const requiredCounts = {
     semanticPlanning: input.generationRuns.filter((run) =>
       run.kind === "execution_routing"
@@ -112,9 +164,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     semanticExtraction: input.generationRuns.filter((run) =>
       run.kind === "semantic_extraction"
     ).length,
-    capabilitySynthesis: input.generationRuns.filter((run) =>
-      run.kind === "capability_synthesis"
-    ).length,
+    capabilitySynthesis: synthesisRuns.length,
+    entailmentCritic: criticRuns.length,
   };
   if (!requiredCounts.semanticPlanning) {
     issues.push("No audited semantic planning generation ran.");
@@ -124,6 +175,51 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   }
   if (!requiredCounts.capabilitySynthesis) {
     issues.push("No audited capability synthesis generation ran.");
+  }
+
+  const missingPhaseAttestation = capabilitySynthesisRuns.length -
+    synthesisRuns.length - criticRuns.length;
+  if (missingPhaseAttestation) {
+    issues.push(
+      `${missingPhaseAttestation} capability synthesis generation(s) have no valid synthesis-phase attestation.`,
+    );
+  }
+  const missingBatchAttestation = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) !== null &&
+    repositorySynthesisBatchKey(run.inputSummary) === null
+  ).length;
+  if (missingBatchAttestation) {
+    issues.push(
+      `${missingBatchAttestation} capability synthesis generation(s) have no valid subsystem-batch attestation.`,
+    );
+  }
+  const synthesisWithoutClaimAttestation = synthesisRuns.filter((run) =>
+    repositorySynthesisClaimCount(run.parsedOutput) === null
+  );
+  if (synthesisWithoutClaimAttestation.length) {
+    issues.push(
+      `${synthesisWithoutClaimAttestation.length} synthesis generation(s) do not attest their emitted claim count.`,
+    );
+  }
+  const claimfulSynthesisRuns = synthesisRuns.flatMap((run) => {
+    const claimCount = repositorySynthesisClaimCount(run.parsedOutput);
+    const batchKey = repositorySynthesisBatchKey(run.inputSummary);
+    return claimCount !== null && claimCount > 0 && batchKey
+      ? [{ run, claimCount, batchKey }]
+      : [];
+  });
+  const criticCoveredSynthesisRuns = claimfulSynthesisRuns.filter((synthesis) =>
+    criticRuns.some((critic) =>
+      critic.status === "success" &&
+      repositorySynthesisBatchKey(critic.inputSummary) === synthesis.batchKey &&
+      record(critic.inputSummary)?.claimCount === synthesis.claimCount &&
+      repositoryCriticAssessmentCount(critic.parsedOutput) === synthesis.claimCount
+    )
+  );
+  if (criticCoveredSynthesisRuns.length !== claimfulSynthesisRuns.length) {
+    issues.push(
+      `${claimfulSynthesisRuns.length - criticCoveredSynthesisRuns.length} claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch and claim count.`,
+    );
   }
 
   let schemaRepairRunCount = 0;
@@ -212,6 +308,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     issues,
     metrics: {
       ...requiredCounts,
+      claimfulSynthesis: claimfulSynthesisRuns.length,
+      criticCoveredSynthesis: criticCoveredSynthesisRuns.length,
       successfulGenerations: input.generationRuns.filter((run) => run.status === "success").length,
       totalGenerations: input.generationRuns.length,
       providerAttemptCount,

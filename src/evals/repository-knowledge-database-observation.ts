@@ -396,6 +396,8 @@ export async function repositoryKnowledgeObservationFromDatabase(
             status: true,
             provider: true,
             modelId: true,
+            inputSummary: true,
+            parsedOutput: true,
             resultRefs: true,
             tokenUsage: true,
             estimatedCostUsd: true,

@@ -34,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v31-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v32-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -55,6 +55,16 @@ const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const SEMANTIC_PLANNER_REPRESENTATIVES_PER_CAPABILITY = 1;
 
 const REPOSITORY_AREA_PREFIX = "repository_area:";
+
+export function resolveRepositorySemanticPlannerMode() {
+  const mode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "model";
+  if (mode !== "model" && mode !== "deterministic") {
+    throw new Error(
+      `WORKBASE_SEMANTIC_PLANNER_MODE must be "model" or "deterministic"; received ${JSON.stringify(mode)}.`,
+    );
+  }
+  return mode;
+}
 
 const repositoryAreaRules = [
   {
@@ -1568,6 +1578,74 @@ const semanticPresentationActionTokens = new Set([
   "manage", "management", "new", "remove", "search", "select", "show", "update",
 ]);
 
+// Flat projects often encode workflow boundaries in filenames rather than
+// directories. Use the filename suffix and subject stem directly instead of
+// maintaining a project- or framework-specific vocabulary of job titles.
+const semanticOperationalContainerTokens = new Set([
+  "adapter", "adapters", "agent", "agents", "client", "clients", "connector",
+  "connectors", "controller", "controllers", "core", "engine", "engines",
+  "handler", "handlers", "job", "jobs", "manager", "orchestrator", "provider",
+  "providers", "runtime", "runtimes", "service", "services", "worker", "workers",
+  "workflow", "workflows",
+]);
+
+const semanticOperationalScaffoldingTokens = new Set([
+  "abstract", "base", "common", "config", "constants", "default", "factory",
+  "helper", "helpers", "index", "interface", "interfaces", "main", "registry",
+  "shared", "src", "lib", "type", "types", "util", "utils",
+]);
+
+function semanticOperationalTokens(value: string) {
+  return value
+    .replace(/\.[^.]+$/, "")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .replace(/([a-z\d])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter(Boolean);
+}
+
+function isSemanticSamplingScaffoldingPath(path: string) {
+  const basename = path.replace(/\\/g, "/").split("/").at(-1) ?? "";
+  const tokens = semanticOperationalTokens(basename);
+  if (!tokens.length) return true;
+  return tokens.length === 1 &&
+    ["abstract", "base", "factory", "fake", "index", "init", "mock", "stub"].includes(tokens[0]!);
+}
+
+function semanticOperationalModuleProfile(path: string, layer: string) {
+  if (!["core", "service", "integration", "orchestration"].includes(layer)) {
+    return { role: "", module: "" };
+  }
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  const basenameTokens = semanticOperationalTokens(segments.at(-1) ?? "");
+  const meaningfulBasenameTokens = basenameTokens.filter((token) =>
+    !semanticOperationalScaffoldingTokens.has(token)
+  );
+  const role = (
+    meaningfulBasenameTokens.length > 1 ||
+    semanticOperationalContainerTokens.has(meaningfulBasenameTokens[0] ?? "")
+  )
+    ? meaningfulBasenameTokens.at(-1) ?? ""
+    : "";
+  const moduleTokens = role
+    ? meaningfulBasenameTokens.slice(0, -1)
+    : meaningfulBasenameTokens;
+  const parentModule = [...segments.slice(0, -1)]
+    .reverse()
+    .map((segment) => semanticOperationalTokens(segment).filter((token) =>
+      !semanticOperationalScaffoldingTokens.has(token) &&
+      !semanticOperationalContainerTokens.has(token)
+    ))
+    .find((tokens) => tokens.length)
+    ?.join("-") ?? "";
+  const moduleFamily = moduleTokens.join("-") || parentModule;
+  return {
+    role: role ? `role:${role}` : "",
+    module: moduleFamily ? `module:${moduleFamily}` : "",
+  };
+}
+
 function semanticPresentationSurfaceFamily(path: string, layer: string) {
   const normalizedPath = path.replace(/\\/g, "/");
   const isPresentationRoute = layer === "interface" &&
@@ -1615,6 +1693,7 @@ function semanticPresentationSurfaceFamily(path: string, layer: string) {
 function semanticPathProfile(path: string) {
   const layer = semanticImplementationLayer(path);
   const behavior = semanticBehaviorFamily(path);
+  const operational = semanticOperationalModuleProfile(path, layer);
   const normalized = path.replace(/\\/g, "/").toLowerCase();
   const segments = normalized.split("/").filter(Boolean);
   const accountEntryIndex = behavior === "boundary:account-entry"
@@ -1652,6 +1731,8 @@ function semanticPathProfile(path: string) {
     language: semanticLanguageFamily(path),
     entity: semanticEntityFamily(path, layer),
     surface: semanticPresentationSurfaceFamily(path, layer),
+    role: operational.role,
+    module: operational.module,
   };
 }
 
@@ -1691,10 +1772,7 @@ function diverseSemanticFiles(
   seedPaths: string[] = [],
   areaKey = "",
 ) {
-  const substantive = files.filter((file) => {
-    const basename = file.path.replace(/\\/g, "/").split("/").at(-1) ?? "";
-    return !/^(?:__init__|fake|mock|stub)(?:\.|$)/i.test(basename);
-  });
+  const substantive = files.filter((file) => !isSemanticSamplingScaffoldingPath(file.path));
   const viable = substantive.length >= target ? substantive : files;
   const candidates = semanticProductionCandidates(viable, areaKey, target);
   const ranked = [...candidates].sort((left, right) =>
@@ -1709,38 +1787,49 @@ function diverseSemanticFiles(
     languages: new Set(profiles.map((profile) => profile.language)),
     entities: new Set(profiles.map((profile) => profile.entity).filter(Boolean)),
     surfaces: new Set(profiles.map((profile) => profile.surface).filter(Boolean)),
+    roles: new Set(profiles.map((profile) => profile.role).filter(Boolean)),
+    modules: new Set(profiles.map((profile) => profile.module).filter(Boolean)),
     variants: new Set(profiles.map((profile) => profile.variant).filter(Boolean)),
   };
   while (selected.length < target) {
-    const next = ranked
-      .filter((file) => !selectedIds.has(file.id))
+    const remaining = ranked.filter((file) => !selectedIds.has(file.id));
+    const next = remaining
       .map((file) => {
         const profile = semanticPathProfile(file.path);
         const newBehavior = !covered.behaviors.has(profile.behavior);
+        const novelty = (
+          Number(newBehavior) * 16 +
+          Number(newBehavior) * semanticBehaviorImportance(profile.behavior) * 4 +
+          Number(!covered.layers.has(profile.layer)) * 4 +
+          Number(!covered.languages.has(profile.language)) * 2 +
+          Number(!newBehavior && Boolean(profile.role) && !covered.roles.has(profile.role)) * 0.25 +
+          Number(!newBehavior && Boolean(profile.module) && !covered.modules.has(profile.module)) +
+          Number(
+            !newBehavior &&
+            Boolean(profile.variant) &&
+            !covered.variants.has(profile.variant)
+          ) * 2 +
+          Number(
+            !newBehavior &&
+            Boolean(profile.surface) &&
+            !covered.surfaces.has(profile.surface)
+          ) * 3 +
+          Number(Boolean(profile.entity) && !covered.entities.has(profile.entity))
+        );
         return {
           file,
           profile,
           concreteEntityPriority: semanticConcreteEntityPriority(file.path, profile.entity),
-          novelty: (
-            Number(newBehavior) * 16 +
-            Number(newBehavior) * semanticBehaviorImportance(profile.behavior) * 4 +
-            Number(!covered.layers.has(profile.layer)) * 4 +
-            Number(!covered.languages.has(profile.language)) * 2 +
-            Number(
-              !newBehavior &&
-              Boolean(profile.variant) &&
-              !covered.variants.has(profile.variant)
-            ) * 2 +
-            Number(
-              !newBehavior &&
-              Boolean(profile.surface) &&
-              !covered.surfaces.has(profile.surface)
-            ) * 3 +
-            Number(Boolean(profile.entity) && !covered.entities.has(profile.entity))
-          ),
+          novelty,
+          // Salience and diversity contribute continuously. A no-novelty
+          // neighbor keeps half-weight score utility, while a genuinely
+          // different module must still carry enough salience to win.
+          utility: Math.max(0.5, novelty) * Math.log1p(Math.max(0, file.score)) +
+            semanticConcreteEntityPriority(file.path, profile.entity) * 0.5,
         };
       })
       .sort((left, right) =>
+        right.utility - left.utility ||
         right.novelty - left.novelty ||
         right.concreteEntityPriority - left.concreteEntityPriority ||
         right.file.score - left.file.score ||
@@ -1755,6 +1844,8 @@ function diverseSemanticFiles(
     if (next.profile.variant) covered.variants.add(next.profile.variant);
     if (next.profile.entity) covered.entities.add(next.profile.entity);
     if (next.profile.surface) covered.surfaces.add(next.profile.surface);
+    if (next.profile.role) covered.roles.add(next.profile.role);
+    if (next.profile.module) covered.modules.add(next.profile.module);
   }
   return selected;
 }
@@ -1998,6 +2089,8 @@ export function critiqueRepositoryCoverage(input: {
         .filter((entry) => entry.gain > 0)
         .sort((left, right) =>
           right.gain - left.gain ||
+          semanticConcreteEntityPriority(right.file.path, right.profile.entity) -
+            semanticConcreteEntityPriority(left.file.path, left.profile.entity) ||
           right.file.score - left.file.score ||
           left.file.path.localeCompare(right.file.path)
         )[0];
@@ -2267,7 +2360,7 @@ async function planWorkPackages(input: {
   manifest: CapabilityManifestArea[];
 }) {
   const fallback = defaultPackages({ refreshRunId: input.refreshRunId, manifest: input.manifest });
-  const plannerMode = process.env.WORKBASE_SEMANTIC_PLANNER_MODE ?? "model";
+  const plannerMode = resolveRepositorySemanticPlannerMode();
   if (resolveWorkbaseLlmProvider() === "mock" || plannerMode !== "model") {
     return { packages: fallback, generationRunId: null, fallbackUsed: true, usage: emptyUsage() };
   }
@@ -2294,13 +2387,10 @@ async function planWorkPackages(input: {
       fallbackUsed: false,
       usage: { inputBytes: 0, ...snapshotStructuredGenerationBudget(planBudget) },
     };
-  } catch {
-    return {
-      packages: fallback,
-      generationRunId: null,
-      fallbackUsed: true,
-      usage: { inputBytes: 0, ...snapshotStructuredGenerationBudget(planBudget) },
-    };
+  } catch (error) {
+    // Deterministic routing is an explicit mock/non-model mode only. A model
+    // provider or contract failure must remain a primary-path failure.
+    throw error;
   }
 }
 

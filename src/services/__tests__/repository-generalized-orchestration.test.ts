@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildRepositoryDerivedCapabilityManifest,
   buildRepositoryDerivedSemanticPlan,
   critiqueRepositoryCoverage,
   isImplementationEvidencePath,
   isRepositoryCartographyNoisePath,
+  resolveRepositorySemanticPlannerMode,
   semanticEvidenceUniverseFromFiles,
   semanticEvidenceUniverseFromManifest,
   semanticAuditTarget,
@@ -57,6 +58,16 @@ function candidate(key: string, fileSnapshotId: string): CapabilityCandidate {
 }
 
 describe("repository-derived cartographer and coverage critic", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("fails closed on an invalid semantic planner mode", () => {
+    vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "modle");
+
+    expect(() => resolveRepositorySemanticPlannerMode()).toThrow(
+      'WORKBASE_SEMANTIC_PLANNER_MODE must be "model" or "deterministic"',
+    );
+  });
+
   it("discovers product domains without admitting generated/tooling corpus noise", () => {
     const manifest = buildRepositoryDerivedCapabilityManifest({
       scopeKey: "example/diverse-project",
@@ -658,6 +669,188 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toEqual(["client", "implementation"]);
     expect(plan[0]?.fileSnapshotIds).not.toEqual(expect.arrayContaining(["panel", "adapter"]));
+  });
+
+  it("samples distinct workflow roles from a flat agent module", () => {
+    const area = {
+      key: "project_domain:document-intake",
+      label: "Document intake",
+      scopeKey: "example/automation-suite",
+      salience: 120,
+      files: [
+        { id: "metadata-extractor", path: "src/agents/intake/metadata_extractor.py", score: 100 },
+        { id: "requirement-extractor", path: "src/agents/intake/requirement_extractor.py", score: 99 },
+        { id: "document-generator", path: "src/agents/intake/document_generator.py", score: 70 },
+        { id: "vision-analyzer", path: "src/agents/intake/vision_analyzer.py", score: 60 },
+        { id: "response-reviewer", path: "src/agents/intake/response_reviewer.py", score: 50 },
+        { id: "response-reviser", path: "src/agents/intake/response_reviser.py", score: 40 },
+        { id: "conversation-state", path: "src/agents/intake/conversation_state.py", score: 30 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["document-generator", "metadata-extractor"]);
+    expect(plan[0]?.fileSnapshotIds).not.toContain("requirement-extractor");
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: plan[0]!.fileSnapshotIds,
+        candidates: plan[0]!.fileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "vision-analyzer",
+    ]);
+  });
+
+  it("preserves role-only basenames when no subject module is present", () => {
+    const area = {
+      key: "project_domain:job-control",
+      label: "Job control",
+      scopeKey: "example/worker-suite",
+      salience: 100,
+      files: [
+        { id: "executor", path: "src/agents/executor.py", score: 100 },
+        { id: "executor-helper", path: "src/agents/executor_helper.py", score: 99 },
+        { id: "dispatcher", path: "src/agents/dispatcher.py", score: 70 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["dispatcher", "executor"]);
+  });
+
+  it("derives modules from directories for generic role basenames", () => {
+    const area = {
+      key: "project_domain:operations",
+      label: "Operations",
+      scopeKey: "example/service-suite",
+      salience: 100,
+      files: [
+        { id: "billing", path: "src/billing/service.go", score: 100 },
+        { id: "billing-helper", path: "src/billing/service_helper.go", score: 99 },
+        { id: "notifications", path: "src/notifications/service.go", score: 70 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["billing", "notifications"]);
+  });
+
+  it("filters generic scaffolding before selecting provider implementations", () => {
+    const area = {
+      key: "repository_area:integrations",
+      label: "Integrations",
+      scopeKey: "example/runtime-gateway",
+      salience: 100,
+      files: [
+        { id: "base", path: "src/providers/base.py", score: 120 },
+        { id: "factory", path: "src/providers/factory.py", score: 110 },
+        { id: "index", path: "src/providers/index.ts", score: 100 },
+        { id: "abstract", path: "src/providers/abstract.py", score: 90 },
+        { id: "cloud-runtime", path: "src/providers/cloud_runtime.py", score: 60 },
+        { id: "local-runtime", path: "src/providers/local_runtime.py", score: 50 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["cloud-runtime", "local-runtime"]);
+  });
+
+  it("does not discard operational files whose names begin with scaffolding words", () => {
+    const area = {
+      key: "project_domain:operations",
+      label: "Operations",
+      scopeKey: "example/operational-prefixes",
+      salience: 100,
+      files: [
+        { id: "base", path: "src/base.ts", score: 120 },
+        { id: "factory", path: "src/factory.ts", score: 110 },
+        { id: "index", path: "src/index.ts", score: 105 },
+        { id: "index-documents", path: "src/index_documents.py", score: 100 },
+        { id: "factory-reset", path: "src/factory_reset_service.py", score: 99 },
+        { id: "base-pricing", path: "src/base_pricing_calculator.ts", score: 98 },
+      ],
+    };
+
+    const selected = buildRepositoryDerivedSemanticPlan({ manifest: [area] })
+      .flatMap((workPackage) => workPackage.fileSnapshotIds);
+    expect(selected).toHaveLength(2);
+    expect(selected.every((id) => ["index-documents", "factory-reset", "base-pricing"].includes(id)))
+      .toBe(true);
+  });
+
+  it("retains compound entrypoints made only from generic infrastructure words", () => {
+    const area = {
+      key: "project_domain:operations",
+      label: "Operations",
+      scopeKey: "example/generic-entrypoints",
+      salience: 100,
+      files: [
+        { id: "main-worker", path: "src/main_worker.py", score: 100 },
+        { id: "default-handler", path: "src/default_handler.ts", score: 99 },
+        { id: "registry-service", path: "src/registry_service.ts", score: 98 },
+      ],
+    };
+
+    const selected = buildRepositoryDerivedSemanticPlan({ manifest: [area] })
+      .flatMap((workPackage) => workPackage.fileSnapshotIds);
+    expect(selected).toHaveLength(2);
+    expect(selected.every((id) => area.files.some((file) => file.id === id))).toBe(true);
+  });
+
+  it("does not let low-salience novelty displace a strong implementation", () => {
+    const area = {
+      key: "project_domain:processing",
+      label: "Processing",
+      scopeKey: "example/processing-suite",
+      salience: 100,
+      files: [
+        { id: "primary-executor", path: "src/core/primary_executor.ts", score: 100 },
+        { id: "secondary-executor", path: "src/core/secondary_executor.ts", score: 99 },
+        { id: "minor-generator", path: "src/core/minor_generator.ts", score: 3 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["primary-executor", "secondary-executor"]);
+    expect(plan[0]?.fileSnapshotIds).not.toContain("minor-generator");
+  });
+
+  it("does not hide a distinct workflow behind a fixed score threshold", () => {
+    const area = {
+      key: "project_domain:processing",
+      label: "Processing",
+      scopeKey: "example/processing-threshold",
+      salience: 100,
+      files: [
+        { id: "primary-executor", path: "src/core/primary_executor.ts", score: 100 },
+        { id: "secondary-executor", path: "src/core/secondary_executor.ts", score: 99 },
+        { id: "document-generator", path: "src/core/document_generator.ts", score: 39 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["document-generator", "primary-executor"]);
+  });
+
+  it("uses arbitrary flat workflow stems without a role vocabulary", () => {
+    const area = {
+      key: "project_domain:processing",
+      label: "Processing",
+      scopeKey: "example/flat-workflows",
+      salience: 100,
+      files: [
+        { id: "ingest", path: "src/ingest.py", score: 100 },
+        { id: "ingest-helper", path: "src/ingest_helper.py", score: 99 },
+        { id: "reconcile", path: "src/reconcile.py", score: 40 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    expect(plan[0]?.fileSnapshotIds).toEqual(["ingest", "reconcile"]);
   });
 
   it("repairs a broad area that was inspected through only one runtime and layer", () => {

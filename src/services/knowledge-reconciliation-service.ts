@@ -23,7 +23,6 @@ import {
 } from "@/src/services/knowledge-embedding-service";
 import { promoteRepositoryCitations } from "@/src/services/repository-evidence-promotion-service";
 import {
-  isRepositoryAnalysisNoisePath,
   isRepositoryExecutableSourcePath,
 } from "@/src/services/repository-coverage-service";
 import {
@@ -489,52 +488,12 @@ export function shouldQuarantineSynthesizedCandidate(
   return !hasClauseLevelCorroboration;
 }
 
-function exactFallbackClaim(candidate: SynthesizedCandidate) {
-  if (candidate.statement !== undefined) {
-    if (candidate.text !== undefined || candidate.summary !== undefined) return null;
-    return normalizeWhitespace(candidate.statement).toLowerCase();
-  }
-  if (candidate.text === undefined || candidate.summary === undefined) return null;
-  const text = normalizeWhitespace(candidate.text).toLowerCase();
-  const summary = normalizeWhitespace(candidate.summary).toLowerCase();
-  return text === summary ? text : null;
-}
-
-/**
- * A synthesis-provider failure is not evidence that an exact semantic finding
- * is unsafe. Admit only a verbatim normalized passthrough: every citation must
- * be successful, executable, non-noise, non-sensitive semantic evidence with
- * at least medium confidence, and one cited statement must exactly equal the
- * candidate. Rewritten or composite fallbacks remain quarantined for review.
- */
-export function isExactSucceededSemanticFallback(input: {
-  candidate: SynthesizedCandidate;
-  sources?: SynthesizedCandidateSource[];
-}) {
-  const claim = exactFallbackClaim(input.candidate);
-  const sources = input.sources ?? [];
-  if (!claim || !sources.length) return false;
-  if (!sources.every((source) =>
-    source.evidenceMode === "semantic" &&
-    source.semanticStatus === "succeeded" &&
-    source.sensitivityFlag === false &&
-    (source.confidence === "medium" || source.confidence === "high") &&
-    !isRepositoryAnalysisNoisePath(source.path) &&
-    isRepositoryExecutableSourcePath(source.path)
-  )) return false;
-  return sources.some((source) =>
-    normalizeWhitespace(source.statement).toLowerCase() === claim
-  );
-}
-
 export function isSynthesizedCandidateUnsafe(input: {
   approvalEligible: boolean;
   candidate: SynthesizedCandidate;
   sources?: SynthesizedCandidateSource[];
 }) {
-  const exactSemanticFallback = !input.approvalEligible &&
-    isExactSucceededSemanticFallback(input);
-  return (!input.approvalEligible && !exactSemanticFallback) ||
+  return !input.approvalEligible ||
     shouldQuarantineSynthesizedCandidate(input.candidate, input.sources);
 }
 
@@ -1599,8 +1558,10 @@ export async function reconcileRepositoryKnowledge(runId: string) {
   });
   if (run.status !== "reconciling") throw new Error("Repository coverage must complete before reconciliation.");
   const targets = run.targetHeads as unknown as RepositoryTargetHead[];
-  const partialChanges = await prisma.knowledgeChange.count({ where: { refreshRunId: runId } });
-  const synthesis = await synthesizeRepositoryKnowledge(runId, { fallbackOnly: partialChanges > 0 });
+  // A retried reconciliation must replay the audited model synthesis. Existing
+  // partial changes are idempotent checkpoints, not permission to switch the
+  // primary path to deterministic synthesis.
+  const synthesis = await synthesizeRepositoryKnowledge(runId);
   const synthesisCoverageGaps = await persistSynthesisCoverageGaps(runId, synthesis);
   finishStage("synthesis");
   const allowCanonicalReplacement =

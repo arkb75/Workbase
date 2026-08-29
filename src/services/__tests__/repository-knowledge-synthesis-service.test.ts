@@ -12,11 +12,17 @@ import {
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   normalizeRepositoryHighlightText,
+  applyRepositorySynthesisCritic,
   repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
+  repositorySynthesisCriticClaims,
+  repositorySynthesisCriticPayload,
+  repositorySynthesisCriticValidationErrors,
+  repositorySynthesisStructuralErrors,
   repositoryUserFacingCapabilityGuidance,
   reusableSynthesisEvidenceFilters,
   requiredSemanticBaselineFacts,
+  resolveRepositorySynthesisMode,
   repositorySynthesisSafetyGuidance,
   repositorySynthesisSchema,
   runOrderedSynthesisBatches,
@@ -60,6 +66,28 @@ function entry(path: string, statement = `${path} defines supported repository b
 describe("repository synthesis limit fallback", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults synthesis to model mode and rejects mistyped modes", () => {
+    expect(resolveRepositorySynthesisMode(undefined)).toBe("model");
+    expect(resolveRepositorySynthesisMode("model")).toBe("model");
+    expect(resolveRepositorySynthesisMode("deterministic")).toBe("deterministic");
+    for (const invalid of ["", "fallback", "MODEL", "model "]) {
+      expect(() => resolveRepositorySynthesisMode(invalid)).toThrow(
+        "WORKBASE_REPOSITORY_SYNTHESIS_MODE must be exactly 'model' or 'deterministic'.",
+      );
+    }
+  });
+
+  it("fails before loading repository data when synthesis mode is invalid", async () => {
+    vi.stubEnv("WORKBASE_REPOSITORY_SYNTHESIS_MODE", "deterministic-fallback");
+    const loadRun = vi.spyOn(prisma.knowledgeRefreshRun, "findUniqueOrThrow");
+
+    await expect(synthesizeRepositoryKnowledge("refresh-1")).rejects.toThrow(
+      "WORKBASE_REPOSITORY_SYNTHESIS_MODE must be exactly 'model' or 'deterministic'.",
+    );
+    expect(loadRun).not.toHaveBeenCalled();
   });
 
   it("runs independent synthesis batches three at a time and returns input order", async () => {
@@ -140,6 +168,219 @@ describe("repository synthesis limit fallback", () => {
     expect(repositoryEvidenceBoundaryGuidance).toContain("cite the declaration for that relationship");
     expect(repositoryEvidenceBoundaryGuidance).toContain("A client or interface entry proves that layer only");
     expect(repositoryEvidenceBoundaryGuidance).toContain("server, service, storage, or model behavior");
+  });
+
+  it("deduplicates critic evidence per subsystem while preserving claim citation indexes", () => {
+    const notebook = [
+      { ...entry("src/payments/store.ts", "The service persists a payment receipt."), evidenceMode: "semantic" as const },
+      { ...entry("src/payments/read.ts", "The service loads a payment receipt by identifier."), evidenceMode: "semantic" as const },
+    ];
+    const result = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service persists a payment receipt.",
+          category: "behavior" as const,
+          confidence: "high" as const,
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 4,
+          implementationBreadth: 3,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        highlights: [{
+          text: "Built durable payment receipt storage",
+          summary: "The service persists payment receipts for later retrieval.",
+          confidence: "high" as const,
+          sensitivityFlag: false,
+          visibility: "private" as const,
+          citationIndexes: [1, 2],
+          productImportance: 4,
+          implementationBreadth: 4,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        unresolvedQuestions: [],
+      }],
+    };
+
+    const payload = repositorySynthesisCriticPayload(result, [{
+      subsystemKey: "project_domain:payments",
+      synthesisKey: "project_domain:payments#scope",
+      notebook,
+    }]);
+    const claims = repositorySynthesisCriticClaims(result);
+
+    expect(claims).toHaveLength(2);
+    expect(claims[0]).toMatchObject({
+      claimKey: "project_domain:payments#scope:fact:1",
+      citationIndexes: [1],
+    });
+    expect(claims[1]?.citationIndexes).toEqual([1, 2]);
+    expect(payload.subsystems).toEqual([expect.objectContaining({
+      subsystemKey: "project_domain:payments#scope",
+      notebook: [
+        expect.objectContaining({ index: 1, statement: "The service persists a payment receipt." }),
+        expect.objectContaining({ index: 2, statement: "The service loads a payment receipt by identifier." }),
+      ],
+      claims,
+    })]);
+    expect(payload.subsystems[0]?.claims[0]).not.toHaveProperty("citations");
+  });
+
+  it("fails closed on unsupported compound actions and broad qualifiers without rewriting citations", () => {
+    const fact = {
+      statement: "The service persists and encrypts every payment receipt.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const supportedFact = {
+      ...fact,
+      statement: "The service persists a payment receipt.",
+      citationIndexes: [2],
+    };
+    const highlight = {
+      text: "Built the complete payment lifecycle",
+      summary: "The workflow always handles every payment operation end to end.",
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      visibility: "private" as const,
+      citationIndexes: [3],
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    };
+    const result = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [fact, supportedFact],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    };
+    const filtered = applyRepositorySynthesisCritic(result, {
+      assessments: [
+        {
+          claimKey: "project_domain:payments#scope:fact:1",
+          supported: false,
+          issues: ["unsupported_compound_action"],
+          explanation: "The citation establishes persistence but not encryption.",
+        },
+        {
+          claimKey: "project_domain:payments#scope:fact:2",
+          supported: true,
+          issues: [],
+          explanation: "The cited statement directly establishes persistence.",
+        },
+        {
+          claimKey: "project_domain:payments#scope:highlight:1",
+          supported: false,
+          issues: ["unsupported_broad_qualifier"],
+          explanation: "The citation does not establish complete or universal behavior.",
+        },
+      ],
+    });
+
+    expect(filtered.subsystems[0]?.facts).toEqual([supportedFact]);
+    expect(filtered.subsystems[0]?.facts[0]?.citationIndexes).toEqual([2]);
+    expect(filtered.subsystems[0]?.highlights).toEqual([]);
+    expect(filtered.subsystems[0]?.unresolvedQuestions).toEqual(expect.arrayContaining([
+      "Entailment verification rejected fact 1: unsupported compound action.",
+      "Entailment verification rejected highlight 1: unsupported broad qualifier.",
+    ]));
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "project_domain:payments",
+      notebook: [1, 2, 3].map((index) => ({
+        ...entry(`src/payments/step-${index}.ts`),
+        evidenceMode: "semantic" as const,
+      })),
+      coverageGaps: [],
+      result: filtered.subsystems[0]!,
+      tokenUsage: null,
+    });
+    expect(finalized.coverageGaps).toEqual(expect.arrayContaining([
+      "Entailment verification rejected fact 1: unsupported compound action.",
+      "Entailment verification rejected highlight 1: unsupported broad qualifier.",
+    ]));
+  });
+
+  it("rejects a claim when its critic verdict is missing or structurally contradictory", () => {
+    const fact = {
+      statement: "The worker publishes a receipt event.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const result = {
+      subsystems: [{
+        subsystemKey: "project_domain:events#scope",
+        facts: [fact],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    };
+
+    expect(applyRepositorySynthesisCritic(result, { assessments: [] }).subsystems[0]?.facts).toEqual([]);
+    expect(repositorySynthesisCriticValidationErrors({
+      assessments: [{
+        claimKey: "project_domain:events#scope:fact:1",
+        supported: true,
+        issues: ["unsupported_detail"],
+        explanation: "Contradictory verdict.",
+      }],
+    }, new Set(["project_domain:events#scope:fact:1"]))).toEqual([
+      "Supported assessments must have no issues; unsupported assessments must name at least one issue.",
+    ]);
+  });
+
+  it("requires synthesis citations to stay within the semantic notebook", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:exports#scope",
+        facts: [{
+          statement: "The exporter writes a signed archive.",
+          category: "behavior" as const,
+          confidence: "high" as const,
+          sensitivityFlag: false,
+          citationIndexes: [2],
+          reviewNotes: null,
+          productImportance: 4,
+          implementationBreadth: 3,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    };
+    const input = [{
+      subsystemKey: "project_domain:exports",
+      synthesisKey: "project_domain:exports#scope",
+      notebook: [{
+        ...entry("src/export/archive.ts", "The exporter writes an archive."),
+        evidenceMode: "semantic" as const,
+      }],
+    }];
+
+    expect(repositorySynthesisStructuralErrors(synthesis, input)).toEqual([
+      "Every claim in project_domain:exports#scope must cite only indexes present in that subsystem's notebook.",
+    ]);
   });
 
   it("normalizes provider title overshoot without rejecting the supported synthesis", () => {
@@ -653,6 +894,42 @@ describe("repository synthesis limit fallback", () => {
       approvalEligible: false,
       highlights: [],
     });
+  });
+
+  it("does not prepend deterministic baselines to a model synthesis result", () => {
+    const notebook = [
+      {
+        ...entry("src/workflows/job-runner.ts", "The runner resumes a checkpointed job."),
+        semanticSignals: ["workflow_orchestration.shared_refresh_owner_recovery"],
+      },
+      {
+        ...entry("src/workflows/job-policy.ts", "The policy bounds automatic retry."),
+        semanticSignals: ["workflow_orchestration.reconciliation_retry_boundary"],
+      },
+    ];
+    expect(requiredSemanticBaselineFacts("workflow_orchestration", notebook)).not.toEqual([]);
+    const modelFact = {
+      statement: "The workflow resumes checkpointed jobs under a bounded retry policy.",
+      category: "architecture" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1, 2],
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+      reviewNotes: null,
+    };
+
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      subsystemKey: "workflow_orchestration",
+      notebook,
+      coverageGaps: [],
+      result: { facts: [modelFact], highlights: [], unresolvedQuestions: [] },
+      tokenUsage: null,
+    });
+
+    expect(finalized.facts).toEqual([modelFact]);
   });
 
   it("turns synthesis fallback into a repository-scoped coverage gap", () => {
@@ -1173,6 +1450,8 @@ describe("repository synthesis limit fallback", () => {
     const result = fallbackSubsystemSynthesis("workflow_orchestration", notebook);
 
     expect(modelEligibleSynthesisNotebook(notebook)).toEqual([]);
+    const semantic = { ...entry("src/workflows/run.ts"), evidenceMode: "semantic" as const };
+    expect(modelEligibleSynthesisNotebook([entry("unknown.ts"), semantic])).toEqual([semantic]);
     expect(result.facts[0]?.statement).toContain("defines durable workflow entrypoints");
     expect(result.highlights).toEqual([]);
   });
@@ -1365,6 +1644,16 @@ describe("repository synthesis limit fallback", () => {
         ],
       }),
     ]);
+
+    vi.stubEnv("WORKBASE_REPOSITORY_SYNTHESIS_MODE", "deterministic");
+    const explicitDeterministic = await synthesizeRepositoryKnowledge("refresh-1");
+    expect(explicitDeterministic).toEqual([
+      expect.objectContaining({
+        subsystemKey: "project_domain:payments",
+        approvalEligible: false,
+        facts: [expect.objectContaining({ statement, citationIndexes: [1] })],
+      }),
+    ]);
   });
 
   it("never injects Workbase product memory into another repository", () => {
@@ -1467,8 +1756,7 @@ describe("repository synthesis limit fallback", () => {
       }),
     ]);
 
-    // This is the merge used after model synthesis: the model cannot erase a
-    // supported required facet merely by returning one generic broad fact.
+    // Explicit deterministic mode can still recover every supported facet.
     expect(requiredSemanticBaselineFacts("workflow_orchestration", notebook))
       .toEqual(result.facts);
 

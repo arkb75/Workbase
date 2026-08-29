@@ -4,7 +4,6 @@ import {
   allowsCanonicalKnowledgeReplacement,
   highlightReconciliationCasWhere,
   hasPromotedReconciliationEvidence,
-  isExactSucceededSemanticFallback,
   isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
   isRetryableKnowledgeRefreshTransactionError,
@@ -42,14 +41,14 @@ describe("repository knowledge auto-apply policy", () => {
     )).toBe(false);
   });
 
-  it("does not quarantine a supported deterministic fallback merely because model synthesis failed", () => {
+  it("keeps content safety independent from synthesis-path approval", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       confidence: "medium",
       sensitivityFlag: false,
     })).toBe(false);
   });
 
-  it("admits only exact succeeded semantic fallbacks after synthesis failure", () => {
+  it("keeps exact deterministic synthesis review-only even when its semantic citation succeeded", () => {
     const source = {
       path: "src/retry.ts",
       statement: "The service performs a bounded retry.",
@@ -67,7 +66,7 @@ describe("repository knowledge auto-apply policy", () => {
         sensitivityFlag: false,
       },
       sources: [source],
-    })).toBe(false);
+    })).toBe(true);
     expect(isSynthesizedCandidateUnsafe({
       approvalEligible: false,
       candidate: {
@@ -79,7 +78,7 @@ describe("repository knowledge auto-apply policy", () => {
     })).toBe(true);
   });
 
-  it("requires every fallback citation to be safe executable semantic evidence", () => {
+  it("does not restore deterministic auto-approval through otherwise safe extra citations", () => {
     const candidate = {
       statement: "The service performs a bounded retry.",
       confidence: "high",
@@ -94,7 +93,8 @@ describe("repository knowledge auto-apply policy", () => {
       sensitivityFlag: false,
     };
 
-    expect(isExactSucceededSemanticFallback({
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: false,
       candidate,
       sources: [source, {
         ...source,
@@ -110,10 +110,6 @@ describe("repository knowledge auto-apply policy", () => {
       { ...source, path: "README.md" },
       { ...source, path: "vendor/generated-client.ts" },
     ]) {
-      expect(isExactSucceededSemanticFallback({
-        candidate,
-        sources: [source, unsafeSource],
-      })).toBe(false);
       expect(isSynthesizedCandidateUnsafe({
         approvalEligible: false,
         candidate,
@@ -122,7 +118,7 @@ describe("repository knowledge auto-apply policy", () => {
     }
   });
 
-  it("requires fallback Highlight text and summary to preserve the same exact finding", () => {
+  it("keeps deterministic Highlights review-only even when text and summary preserve the finding", () => {
     const source = {
       path: "src/retry.ts",
       statement: "The service performs a bounded retry.",
@@ -142,7 +138,7 @@ describe("repository knowledge auto-apply policy", () => {
       approvalEligible: false,
       candidate: exact,
       sources: [source],
-    })).toBe(false);
+    })).toBe(true);
     expect(isSynthesizedCandidateUnsafe({
       approvalEligible: false,
       candidate: { ...exact, summary: "The service retries providers and guarantees recovery." },
