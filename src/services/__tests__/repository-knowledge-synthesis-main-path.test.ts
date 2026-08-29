@@ -27,6 +27,7 @@ vi.mock("@/src/services/bedrock-runtime", () => ({
 }));
 
 import {
+  repositoryEvidenceBoundaryGuidance,
   repositorySynthesisBudgetLimits,
   synthesizeRepositoryKnowledge,
 } from "@/src/services/repository-knowledge-synthesis-service";
@@ -399,11 +400,28 @@ describe("repository synthesis model main path", () => {
       revisionContract: "rejected_claim_patch_v1",
     }));
     const revisionPrompt = JSON.parse(generateStructuredMock.mock.calls[2]![0].userPrompt);
+    expect(revisionPrompt).toMatchObject({
+      revisionRound: 1,
+      isFinalRevisionRound: false,
+    });
     expect(revisionPrompt.subsystems[0].rejectedClaims).toHaveLength(1);
     expect(revisionPrompt.subsystems[0].notebook).toEqual([
       expect.objectContaining({ index: 1, sourceExcerpt }),
     ]);
     expect(revisionPrompt.subsystems[0]).not.toHaveProperty("priorSynthesis");
+    const revisionSystemPrompt = generateStructuredMock.mock.calls[2]![0].systemPrompt;
+    expect(revisionSystemPrompt).toContain(
+      repositoryEvidenceBoundaryGuidance,
+    );
+    expect(revisionSystemPrompt).toContain(
+      "A narrower scope is valid when exact source excerpts explicitly and fully support it.",
+    );
+    expect(revisionSystemPrompt).toContain(
+      "Mere quantifier substitution without an explicitly scoped, fully supported claim",
+    );
+    expect(revisionSystemPrompt).not.toContain(
+      "changing all or three to both or two",
+    );
     expect(generateStructuredMock.mock.calls[1]![0].maxTokens).toBe(2_000);
     expect(generateStructuredMock.mock.calls[2]![0].maxTokens).toBe(4_000);
     expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
@@ -574,6 +592,14 @@ describe("repository synthesis model main path", () => {
     const secondRevisionPrompt = JSON.parse(
       generateStructuredMock.mock.calls[4]![0].userPrompt,
     );
+    expect(firstRevisionPrompt).toMatchObject({
+      revisionRound: 1,
+      isFinalRevisionRound: false,
+    });
+    expect(secondRevisionPrompt).toMatchObject({
+      revisionRound: 2,
+      isFinalRevisionRound: true,
+    });
     expect(firstRevisionPrompt.subsystems[0].rejectedClaims.map(
       (claim: { claimKey: string }) => claim.claimKey,
     )).toEqual([expect.stringMatching(/:fact:2$/u)]);
@@ -589,6 +615,12 @@ describe("repository synthesis model main path", () => {
         sourceExcerpt: "20: metrics.recordLatency(elapsedMs);",
       }),
     ]);
+    expect(generateStructuredMock.mock.calls[4]![0].systemPrompt).toContain(
+      repositoryEvidenceBoundaryGuidance,
+    );
+    expect(generateStructuredMock.mock.calls[4]![0].systemPrompt).toMatch(
+      /final bounded revision round[\s\S]*(?:replacement to null|return null)/iu,
+    );
     expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
       usage: { modelCalls: 6, totalTokens: 900 },
     });
@@ -701,8 +733,13 @@ describe("repository synthesis model main path", () => {
     expect(revisionRound).toBe(2);
     expect(synthesis[0]?.facts).toEqual([]);
     expect(synthesis[0]?.coverageGaps).toEqual([
-      "Entailment verification rejected fact 1: unsupported detail.",
+      expect.stringMatching(
+        /^Repository acme\/ledger-platform produced no supported Project Facts for project_domain:payments/u,
+      ),
     ]);
+    expect(synthesis[0]?.unresolvedQuestions).toContain(
+      "Entailment verification rejected fact 1: unsupported detail.",
+    );
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
     );

@@ -260,7 +260,7 @@ describe("repository synthesis model-path limits", () => {
     expect(payload.subsystems[0]?.claims[0]).not.toHaveProperty("citations");
   });
 
-  it("fails closed on unsupported compound actions and broad qualifiers without rewriting citations", () => {
+  it("keeps terminal critic rejections diagnostic when a supported claim survives", () => {
     const fact = {
       statement: "The service persists and encrypts every payment receipt.",
       category: "behavior" as const,
@@ -326,6 +326,8 @@ describe("repository synthesis model-path limits", () => {
       "Entailment verification rejected highlight 1: unsupported broad qualifier.",
     ]));
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Workbase",
       subsystemKey: "project_domain:payments",
       notebook: [1, 2, 3].map((index) => ({
         ...entry(`src/payments/step-${index}.ts`),
@@ -335,10 +337,231 @@ describe("repository synthesis model-path limits", () => {
       result: filtered.subsystems[0]!,
       tokenUsage: null,
     });
-    expect(finalized.coverageGaps).toEqual(expect.arrayContaining([
+    expect(finalized.coverageGaps).toEqual([]);
+    expect(finalized.unresolvedQuestions).toEqual(expect.arrayContaining([
       "Entailment verification rejected fact 1: unsupported compound action.",
       "Entailment verification rejected highlight 1: unsupported broad qualifier.",
     ]));
+  });
+
+  it("turns terminal critic rejection into one repository-scoped gap when no claim survives", () => {
+    const fact = {
+      statement: "The service persists and encrypts every payment receipt.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const highlight = {
+      text: "Built the complete payment lifecycle",
+      summary: "The workflow always handles every payment operation end to end.",
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      visibility: "private" as const,
+      citationIndexes: [2],
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    };
+    const filtered = applyRepositorySynthesisCritic({
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [fact],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    }, {
+      assessments: [
+        {
+          claimKey: "project_domain:payments#scope:fact:1",
+          supported: false,
+          issues: ["unsupported_compound_action"],
+        },
+        {
+          claimKey: "project_domain:payments#scope:highlight:1",
+          supported: false,
+          issues: ["unsupported_broad_qualifier"],
+        },
+      ],
+    });
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Workbase",
+      subsystemKey: "project_domain:payments",
+      notebook: [1, 2].map((index) => ({
+        ...entry(`src/payments/step-${index}.ts`),
+        evidenceMode: "semantic" as const,
+      })),
+      coverageGaps: [],
+      result: filtered.subsystems[0]!,
+      tokenUsage: null,
+    });
+
+    expect(finalized.facts).toEqual([]);
+    expect(finalized.highlights).toEqual([]);
+    expect(finalized.unresolvedQuestions).toEqual(expect.arrayContaining([
+      "Entailment verification rejected fact 1: unsupported compound action.",
+      "Entailment verification rejected highlight 1: unsupported broad qualifier.",
+    ]));
+    expect(finalized.coverageGaps).toHaveLength(1);
+    expect(finalized.coverageGaps[0]).toMatch(/^Repository arkb75\/Workbase /u);
+    expect(finalized.coverageGaps[0]).toMatch(
+      /no supported Project Facts for project_domain:payments/iu,
+    );
+
+    const absentFactFinalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/payments",
+      subsystemKey: "project_domain:payments",
+      notebook: [1, 2].map((index) => ({
+        ...entry(`src/payments/step-${index}.ts`),
+        repository: "example/payments",
+        evidenceMode: "semantic" as const,
+      })),
+      coverageGaps: [],
+      result: { facts: [], highlights: [highlight], unresolvedQuestions: [] },
+      tokenUsage: null,
+    });
+    expect(absentFactFinalized.highlights).toEqual([highlight]);
+    expect(absentFactFinalized.coverageGaps).toEqual([
+      expect.stringMatching(
+        /^Repository example\/payments produced no supported Project Facts for project_domain:payments/u,
+      ),
+    ]);
+  });
+
+  it("reports a repository-scoped gap when model synthesis returns no Project Facts", () => {
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/empty",
+      subsystemKey: "project_domain:empty",
+      notebook: [{
+        ...entry("src/empty/service.ts"),
+        repository: "example/empty",
+        evidenceMode: "semantic" as const,
+      }],
+      coverageGaps: [],
+      result: { facts: [], highlights: [], unresolvedQuestions: [] },
+      tokenUsage: null,
+    });
+
+    expect(finalized.facts).toEqual([]);
+    expect(finalized.highlights).toEqual([]);
+    expect(finalized.coverageGaps).toHaveLength(1);
+    expect(finalized.coverageGaps[0]).toMatch(/^Repository example\/empty /u);
+    expect(finalized.coverageGaps[0]).toMatch(
+      /no supported Project Facts for project_domain:empty/iu,
+    );
+    expect(finalized.unresolvedQuestions).toEqual(finalized.coverageGaps);
+  });
+
+  it("retains source scope after anchor-only evidence is removed from the model notebook", () => {
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-worker",
+      repository: "example/worker",
+      subsystemKey: "workflow_orchestration",
+      notebook: [],
+      coverageGaps: [
+        "Repository example/worker had no semantic notebook evidence for workflow_orchestration; deterministic anchors were not eligible for model synthesis.",
+      ],
+      result: {
+        facts: [],
+        highlights: [],
+        unresolvedQuestions: [],
+        approvalEligible: false,
+      },
+      tokenUsage: null,
+    });
+
+    expect(finalized).toMatchObject({
+      sourceId: "source-worker",
+      repository: "example/worker",
+      subsystemKey: "workflow_orchestration",
+      notebook: [],
+      approvalEligible: false,
+    });
+    expect(finalized.coverageGaps).toEqual(expect.arrayContaining([
+      expect.stringContaining("no semantic notebook evidence"),
+      expect.stringContaining("no supported Project Facts"),
+    ]));
+  });
+
+  it("does not let a surviving Highlight certify coverage without a supported Project Fact", () => {
+    const fact = {
+      statement: "The service encrypts every payment receipt.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const highlight = {
+      text: "Built payment receipt persistence",
+      summary: "The service persists payment receipts for later retrieval.",
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      visibility: "private" as const,
+      citationIndexes: [2],
+      productImportance: 5,
+      implementationBreadth: 4,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    };
+    const filtered = applyRepositorySynthesisCritic({
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [fact],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    }, {
+      assessments: [
+        {
+          claimKey: "project_domain:payments#scope:fact:1",
+          supported: false,
+          issues: ["unsupported_broad_qualifier"],
+        },
+        {
+          claimKey: "project_domain:payments#scope:highlight:1",
+          supported: true,
+          issues: [],
+        },
+      ],
+    });
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/payments",
+      subsystemKey: "project_domain:payments",
+      notebook: [1, 2].map((index) => ({
+        ...entry(`src/payments/step-${index}.ts`),
+        repository: "example/payments",
+        evidenceMode: "semantic" as const,
+      })),
+      coverageGaps: [],
+      result: filtered.subsystems[0]!,
+      tokenUsage: null,
+    });
+
+    expect(finalized.facts).toEqual([]);
+    expect(finalized.highlights).toEqual([highlight]);
+    expect(finalized.unresolvedQuestions).toContain(
+      "Entailment verification rejected fact 1: unsupported broad qualifier.",
+    );
+    expect(finalized.coverageGaps).toHaveLength(1);
+    expect(finalized.coverageGaps[0]).toMatch(/^Repository example\/payments /u);
+    expect(finalized.coverageGaps[0]).toMatch(
+      /no supported Project Facts for project_domain:payments/iu,
+    );
   });
 
   it("rejects a claim when its critic verdict is missing or structurally contradictory", () => {
@@ -632,6 +855,172 @@ describe("repository synthesis model-path limits", () => {
     )).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it("keeps null revision removals diagnostic and gaps only an emptied subsystem", () => {
+    const unsupportedFact = {
+      statement: "The inventory service encrypts every stored record.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const supportedFact = {
+      ...unsupportedFact,
+      statement: "The inventory service stores an inventory record.",
+      citationIndexes: [2],
+    };
+    const notebook = [
+      {
+        ...entry("src/inventory/encryption.ts"),
+        repository: "example/inventory",
+        evidenceMode: "semantic" as const,
+      },
+      {
+        ...entry("src/inventory/store.ts"),
+        repository: "example/inventory",
+        evidenceMode: "semantic" as const,
+      },
+    ];
+    const critic = {
+      assessments: [
+        {
+          claimKey: "project_domain:inventory#scope:fact:1",
+          supported: false,
+          issues: ["unsupported_broad_qualifier" as const],
+        },
+        {
+          claimKey: "project_domain:inventory#scope:fact:2",
+          supported: true,
+          issues: [],
+        },
+      ],
+    };
+    const removal = {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: null,
+      }],
+      highlightRevisions: [],
+    };
+    const withSibling = applyRepositorySynthesisRevision({
+      subsystems: [{
+        subsystemKey: "project_domain:inventory#scope",
+        facts: [unsupportedFact, supportedFact],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    }, removal, critic);
+    const finalizedWithSibling = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/inventory",
+      subsystemKey: "project_domain:inventory",
+      notebook,
+      coverageGaps: [],
+      result: withSibling.subsystems[0]!,
+      tokenUsage: null,
+    });
+
+    expect(finalizedWithSibling.facts).toEqual([supportedFact]);
+    expect(finalizedWithSibling.coverageGaps).toEqual([]);
+    expect(finalizedWithSibling.unresolvedQuestions).toContain(
+      "Entailment verification rejected fact 1: unsupported broad qualifier.",
+    );
+
+    const lastClaimCritic = { assessments: [critic.assessments[0]!] };
+    const withoutSibling = applyRepositorySynthesisRevision({
+      subsystems: [{
+        subsystemKey: "project_domain:inventory#scope",
+        facts: [unsupportedFact],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    }, removal, lastClaimCritic);
+    const finalizedWithoutSibling = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/inventory",
+      subsystemKey: "project_domain:inventory",
+      notebook,
+      coverageGaps: [],
+      result: withoutSibling.subsystems[0]!,
+      tokenUsage: null,
+    });
+
+    expect(finalizedWithoutSibling.facts).toEqual([]);
+    expect(finalizedWithoutSibling.highlights).toEqual([]);
+    expect(finalizedWithoutSibling.unresolvedQuestions).toContain(
+      "Entailment verification rejected fact 1: unsupported broad qualifier.",
+    );
+    expect(finalizedWithoutSibling.coverageGaps).toHaveLength(1);
+    expect(finalizedWithoutSibling.coverageGaps[0]).toMatch(
+      /^Repository example\/inventory /u,
+    );
+    expect(finalizedWithoutSibling.coverageGaps[0]).toMatch(
+      /no supported Project Facts for project_domain:inventory/iu,
+    );
+  });
+
+  it("keeps distinct null-removal diagnostics when claim indexes shift across rounds", () => {
+    const rejectedFact = (statement: string) => ({
+      statement,
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    });
+    const firstRound = applyRepositorySynthesisRevision({
+      subsystems: [{
+        subsystemKey: "project_domain:inventory#scope",
+        facts: [
+          rejectedFact("The service encrypts every record."),
+          rejectedFact("The service validates every record."),
+        ],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    }, {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: null,
+      }],
+      highlightRevisions: [],
+    }, {
+      assessments: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        supported: false,
+        issues: ["unsupported_broad_qualifier"],
+      }],
+    }, 1);
+
+    const secondRound = applyRepositorySynthesisRevision(firstRound, {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: null,
+      }],
+      highlightRevisions: [],
+    }, {
+      assessments: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        supported: false,
+        issues: ["unsupported_broad_qualifier"],
+      }],
+    }, 2);
+
+    expect(secondRound.subsystems[0]?.facts).toEqual([]);
+    expect(secondRound.subsystems[0]?.unresolvedQuestions).toEqual([
+      "Entailment verification rejected fact 1 in revision round 1: unsupported broad qualifier.",
+      "Entailment verification rejected fact 1 in revision round 2: unsupported broad qualifier.",
+    ]);
+  });
+
   it("requires synthesis citations to stay within the semantic notebook", () => {
     const synthesis = {
       subsystems: [{
@@ -753,6 +1142,8 @@ describe("repository synthesis model-path limits", () => {
     const statement = "The payment workflow records idempotency before publishing a receipt.";
     const longTitle = `Implemented an idempotent payment workflow ${"with durable receipt publication and bounded retry coordination ".repeat(6)}`;
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Workbase",
       subsystemKey: "project_domain:payments",
       notebook: [{
         ...entry("src/payments/charge-service.ts", statement),
@@ -1150,6 +1541,8 @@ describe("repository synthesis model-path limits", () => {
       },
     ];
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Workbase",
       subsystemKey: "project_domain:auth",
       notebook,
       coverageGaps: [],
@@ -1205,6 +1598,8 @@ describe("repository synthesis model-path limits", () => {
     };
 
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Workbase",
       subsystemKey: "workflow_orchestration",
       notebook,
       coverageGaps: [],
@@ -1219,6 +1614,8 @@ describe("repository synthesis model-path limits", () => {
     const statement =
       "The application combines signed-session rotation with scoped authorization for protected project data.";
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "acme/ledger-platform",
       subsystemKey: "project_domain:auth",
       notebook: [{
         ...entry("src/auth/session-service.ts", statement),
@@ -1979,6 +2376,8 @@ describe("repository synthesis model-path limits", () => {
       .not.toMatch(/Workbase|career artifacts|Work Items/u);
 
     const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "arkb75/Resume",
       subsystemKey: "product_surface",
       notebook,
       coverageGaps: [],

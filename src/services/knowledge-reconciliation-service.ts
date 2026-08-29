@@ -379,6 +379,84 @@ export function applySynthesisCoverageGapsToRefreshState(input: {
   };
 }
 
+export function synthesisCoverageLedgerGapUpdates(input: {
+  synthesis: Array<Pick<
+    SynthesizedKnowledge,
+    "sourceId" | "repository" | "subsystemKey" | "coverageGaps" | "notebook"
+  >>;
+  ledgers: Array<{
+    id: string;
+    capabilityKey: string;
+    gaps: unknown;
+    sourceId: string;
+  }>;
+}) {
+  const gapsBySourceCapability = new Map<string, string[]>();
+  for (const subsystem of input.synthesis) {
+    if (!subsystem.coverageGaps.length) continue;
+    const key = JSON.stringify([subsystem.sourceId, subsystem.subsystemKey]);
+    gapsBySourceCapability.set(key, Array.from(new Set([
+      ...(gapsBySourceCapability.get(key) ?? []),
+      ...subsystem.coverageGaps,
+    ])));
+  }
+  return input.ledgers.flatMap((ledger) => {
+    const coverageGaps = gapsBySourceCapability.get(
+      JSON.stringify([ledger.sourceId, ledger.capabilityKey]),
+    );
+    if (!coverageGaps?.length) return [];
+    return [{
+      id: ledger.id,
+      gaps: Array.from(new Set([
+        ...stringArray(ledger.gaps),
+        ...coverageGaps,
+      ])),
+    }];
+  });
+}
+
+export function synthesisReconciliationScopeKey(
+  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">,
+) {
+  return JSON.stringify([
+    subsystem.sourceId,
+    subsystem.subsystemKey,
+  ]);
+}
+
+export function synthesisCandidateReconciliationKey(
+  kind: "fact" | "highlight",
+  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">,
+  index: number,
+) {
+  return JSON.stringify([
+    subsystem.sourceId,
+    subsystem.subsystemKey,
+    kind,
+    index,
+  ]);
+}
+
+export function synthesisProducedEntityLedgerWhere(
+  runId: string,
+  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">,
+): Prisma.RepositoryCapabilityLedgerWhereInput {
+  return {
+    refreshRunId: runId,
+    capabilityKey: subsystem.subsystemKey,
+    snapshot: { sourceId: subsystem.sourceId },
+  };
+}
+
+export function synthesisProducedEntityBuckets(
+  synthesis: Array<Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">>,
+) {
+  return new Map(synthesis.map((subsystem) => [
+    synthesisReconciliationScopeKey(subsystem),
+    { projectFactIds: [] as string[], highlightIds: [] as string[] },
+  ]));
+}
+
 async function persistSynthesisCoverageGaps(
   runId: string,
   synthesis: SynthesizedKnowledge[],
@@ -404,19 +482,29 @@ async function persistSynthesisCoverageGaps(
           refreshRunId: runId,
           capabilityKey: { in: Array.from(gapsBySubsystem.keys()) },
         },
-        select: { id: true, capabilityKey: true, gaps: true },
+        select: {
+          id: true,
+          capabilityKey: true,
+          gaps: true,
+          snapshot: { select: { sourceId: true } },
+        },
       }),
     ]);
-    for (const ledger of ledgers) {
-      const subsystemGaps = gapsBySubsystem.get(ledger.capabilityKey) ?? [];
+    const ledgerUpdates = synthesisCoverageLedgerGapUpdates({
+      synthesis,
+      ledgers: ledgers.map((ledger) => ({
+        id: ledger.id,
+        capabilityKey: ledger.capabilityKey,
+        gaps: ledger.gaps,
+        sourceId: ledger.snapshot.sourceId,
+      })),
+    });
+    for (const ledger of ledgerUpdates) {
       await tx.repositoryCapabilityLedger.update({
         where: { id: ledger.id },
         data: {
           status: "partial",
-          gaps: toInputJson(Array.from(new Set([
-            ...stringArray(ledger.gaps),
-            ...subsystemGaps,
-          ]))),
+          gaps: toInputJson(ledger.gaps),
         },
       });
     }
@@ -1587,7 +1675,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
       const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
       return {
-        key: `fact:${subsystem.subsystemKey}:${index}`,
+        key: synthesisCandidateReconciliationKey("fact", subsystem, index),
         subsystem,
         candidate,
         evidenceIds,
@@ -1608,7 +1696,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       const citedEntries = candidate.citationIndexes.flatMap((index) => subsystem.notebook[index - 1] ? [subsystem.notebook[index - 1]!] : []);
       const validationHeads = Object.fromEntries(citedEntries.map((entry) => [entry.sourceId, entry.commitSha]));
       return {
-        key: `highlight:${subsystem.subsystemKey}:${index}`,
+        key: synthesisCandidateReconciliationKey("highlight", subsystem, index),
         subsystem,
         candidate,
         evidenceIds,
@@ -1644,14 +1732,11 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     existingHighlights,
   });
   finishStage("batchedRevalidation");
-  const producedBySubsystem = new Map(synthesis.map((subsystem) => [
-    subsystem.subsystemKey,
-    { projectFactIds: [] as string[], highlightIds: [] as string[] },
-  ]));
+  const producedByScope = synthesisProducedEntityBuckets(synthesis);
   for (const entry of preparedFacts) {
     const batchedId = batchedRevalidations.appliedFactIdsByKey.get(entry.key);
     if (batchedId) {
-      producedBySubsystem.get(entry.subsystem.subsystemKey)?.projectFactIds.push(batchedId);
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.projectFactIds.push(batchedId);
       continue;
     }
     // A lost row-level CAS means a user or newer writer changed the matched
@@ -1666,13 +1751,13 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       enqueueEmbedding,
     });
     if (factId) {
-      producedBySubsystem.get(entry.subsystem.subsystemKey)?.projectFactIds.push(factId);
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.projectFactIds.push(factId);
     }
   }
   for (const entry of preparedHighlights) {
     const batchedId = batchedRevalidations.appliedHighlightIdsByKey.get(entry.key);
     if (batchedId) {
-      producedBySubsystem.get(entry.subsystem.subsystemKey)?.highlightIds.push(batchedId);
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(batchedId);
       continue;
     }
     if (batchedRevalidations.matchedKeys.has(entry.key)) continue;
@@ -1684,21 +1769,21 @@ export async function reconcileRepositoryKnowledge(runId: string) {
       enqueueEmbedding,
     });
     if (highlightId) {
-      producedBySubsystem.get(entry.subsystem.subsystemKey)?.highlightIds.push(highlightId);
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(highlightId);
     }
   }
   finishStage("knowledgeApplication");
   const results = synthesis.map((subsystem) => ({
-    subsystemKey: subsystem.subsystemKey,
-    produced: producedBySubsystem.get(subsystem.subsystemKey) ?? {
+    subsystem,
+    produced: producedByScope.get(synthesisReconciliationScopeKey(subsystem)) ?? {
       projectFactIds: [],
       highlightIds: [],
     },
   }));
   await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
-    for (const { subsystemKey, produced } of results) {
+    for (const { subsystem, produced } of results) {
       await tx.repositoryCapabilityLedger.updateMany({
-        where: { refreshRunId: runId, capabilityKey: subsystemKey },
+        where: synthesisProducedEntityLedgerWhere(runId, subsystem),
         data: { producedEntityRefs: toInputJson(produced) },
       });
     }

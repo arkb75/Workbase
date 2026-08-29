@@ -14,6 +14,11 @@ import {
   repositoryHighlightPublicDisposition,
   runBoundedKnowledgeEmbeddingTasks,
   shouldQuarantineSynthesizedCandidate,
+  synthesisCandidateReconciliationKey,
+  synthesisCoverageLedgerGapUpdates,
+  synthesisProducedEntityBuckets,
+  synthesisProducedEntityLedgerWhere,
+  synthesisReconciliationScopeKey,
 } from "@/src/services/knowledge-reconciliation-service";
 
 describe("repository knowledge auto-apply policy", () => {
@@ -473,6 +478,70 @@ describe("repository knowledge auto-apply policy", () => {
     expect(state.warnings).toMatchObject({
       existingWarning: true,
       synthesisCoverageGaps: [expect.stringContaining("owner/repo-b")],
+    });
+  });
+
+  it("applies an anchor-only synthesis gap only to the matching repository capability ledger", () => {
+    const gap = "Repository owner/repo-b produced no supported Project Facts for data_model during repository synthesis.";
+
+    expect(synthesisCoverageLedgerGapUpdates({
+      synthesis: [{
+        sourceId: "source-b",
+        repository: "owner/repo-b",
+        subsystemKey: "data_model",
+        coverageGaps: [gap],
+        notebook: [],
+      }],
+      ledgers: [{
+        id: "ledger-a",
+        capabilityKey: "data_model",
+        gaps: ["Existing repository A gap."],
+        sourceId: "source-a",
+      }, {
+        id: "ledger-b",
+        capabilityKey: "data_model",
+        gaps: ["Existing repository B gap."],
+        sourceId: "source-b",
+      }],
+    })).toEqual([{
+      id: "ledger-b",
+      gaps: ["Existing repository B gap.", gap],
+    }]);
+  });
+
+  it("keeps same-capability candidates, production buckets, and ledger writes source-scoped", () => {
+    const repositoryA = {
+      sourceId: "source-a",
+      repository: "owner/repo-a",
+      subsystemKey: "data_model",
+    };
+    const repositoryB = {
+      sourceId: "source-b",
+      repository: "owner/repo-b",
+      subsystemKey: "data_model",
+    };
+
+    expect(synthesisReconciliationScopeKey(repositoryA)).not.toBe(
+      synthesisReconciliationScopeKey(repositoryB),
+    );
+    expect(synthesisCandidateReconciliationKey("fact", repositoryA, 0)).not.toBe(
+      synthesisCandidateReconciliationKey("fact", repositoryB, 0),
+    );
+    const buckets = synthesisProducedEntityBuckets([repositoryA, repositoryB]);
+    buckets.get(synthesisReconciliationScopeKey(repositoryA))?.projectFactIds.push("fact-a");
+    expect(buckets.size).toBe(2);
+    expect(buckets.get(synthesisReconciliationScopeKey(repositoryA))).toEqual({
+      projectFactIds: ["fact-a"],
+      highlightIds: [],
+    });
+    expect(buckets.get(synthesisReconciliationScopeKey(repositoryB))).toEqual({
+      projectFactIds: [],
+      highlightIds: [],
+    });
+    expect(synthesisProducedEntityLedgerWhere("refresh-1", repositoryB)).toEqual({
+      refreshRunId: "refresh-1",
+      capabilityKey: "data_model",
+      snapshot: { sourceId: "source-b" },
     });
   });
 });

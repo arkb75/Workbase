@@ -35,6 +35,8 @@ function knowledge(input: {
   blobSha?: string;
 }): SynthesizedKnowledge {
   return {
+    sourceId: "source-1",
+    repository: "example/project",
     subsystemKey: input.subsystemKey,
     facts: [],
     highlights: [{
