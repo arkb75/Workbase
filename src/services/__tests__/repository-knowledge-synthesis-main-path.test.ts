@@ -220,6 +220,9 @@ describe("repository synthesis model main path", () => {
     expect(generateStructuredMock.mock.calls[1]![0].systemPrompt).toContain(
       "statement but not in sourceExcerpt",
     );
+    expect(generateStructuredMock.mock.calls[0]![0].systemPrompt).toContain(
+      "sourceExcerpt contains the exact bounded source fragments",
+    );
     expect(synthesis).toEqual([
       expect.objectContaining({
         subsystemKey: "project_domain:payments",
@@ -268,9 +271,120 @@ describe("repository synthesis model main path", () => {
     });
   });
 
-  it("reserves synthesis and critic calls plus one repair each under one 80K cap", () => {
+  it("revises rejected drafts once and re-runs the independent source critic", async () => {
+    const revisedStatement =
+      "The charge service records an idempotency key before publishing a payment receipt.";
+    let criticRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [{
+              statement: `${revisedStatement} It encrypts every receipt.`,
+              category: "behavior",
+              confidence: "high",
+              sensitivityFlag: false,
+              citationIndexes: [1],
+              reviewNotes: null,
+              productImportance: 5,
+              implementationBreadth: 3,
+              technicalDifficulty: 4,
+              distinctiveness: 4,
+            }],
+            highlights: [],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_architecture_synthesis_revision") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [{
+              statement: revisedStatement,
+              category: "behavior",
+              confidence: "high",
+              sensitivityFlag: false,
+              citationIndexes: [1],
+              reviewNotes: null,
+              productImportance: 5,
+              implementationBreadth: 3,
+              technicalDifficulty: 4,
+              distinctiveness: 4,
+            }],
+            highlights: [],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else {
+        criticRound += 1;
+        data = {
+          assessments: [{
+            claimKey: prompt.subsystems[0]!.claims![0]!.claimKey,
+            supported: criticRound === 2,
+            issues: criticRound === 1 ? ["unsupported_detail"] : [],
+          }],
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_architecture_synthesis_revision",
+      "repository_synthesis_entailment_critic",
+    ]);
+    expect(synthesis[0]?.facts).toEqual([
+      expect.objectContaining({ statement: revisedStatement }),
+    ]);
+    expect(synthesis[0]?.coverageGaps).toEqual([]);
+    const summaries = prismaMock.generationRun.upsert.mock.calls.map(([input]) =>
+      input.create.inputSummary
+    );
+    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+      ["synthesis", 0],
+      ["entailment_critic", 0],
+      ["synthesis", 1],
+      ["entailment_critic", 1],
+    ]);
+    expect(summaries[2]).toEqual(expect.objectContaining({ rejectedClaimCount: 1 }));
+    expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
+      usage: { modelCalls: 4, totalTokens: 600 },
+    });
+  });
+
+  it("reserves one bounded revision and two schema repairs per batch under one 80K cap", () => {
     expect(repositorySynthesisBudgetLimits(3)).toEqual({
-      maxModelCalls: 12,
+      maxModelCalls: 18,
       maxRepairPasses: 6,
       maxOutputTokens: 8_000,
       maxTotalTokens: 80_000,

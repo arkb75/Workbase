@@ -77,6 +77,9 @@ describe("structured generation audit usage", () => {
       kind: "semantic_extraction",
       idempotencyKey: "semantic:retry",
       inputSummary: { path: "src/service.ts" },
+      resultAttestation: (result) => ({
+        answerDigest: result.data.answer === "ok" ? "verified" : "invalid",
+      }),
       execute: async () => structuredResult({
         inputTokens: 50,
         outputTokens: 10,
@@ -115,6 +118,7 @@ describe("structured generation audit usage", () => {
       unknownUsageAttempts: 0,
       usageComplete: true,
       knownEstimatedCostUsd: 0.00105,
+      resultAttestation: { answerDigest: "verified" },
     }));
   });
 

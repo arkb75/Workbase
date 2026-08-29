@@ -195,7 +195,7 @@ export function inferProjectDomainCapability(path: string) {
 }
 
 export const repositorySemanticFindingGuidance =
-  "Use user_capability only when the cited handler or service lines execute an implemented end-user goal or state-changing workflow. Emit the file's primary executed action, mutation, or result before navigation, control visibility, empty-state copy, query-parameter plumbing, component wiring, logging, diagnostics, or helper behavior. A visible button or field proves an affordance, not an executed workflow; cite the action handler or mutation for the capability.";
+  "Use user_capability only when the cited handler or service lines execute an implemented end-user goal or state-changing workflow. Emit the file's primary executed action, mutation, or result before navigation, control visibility, empty-state copy, query-parameter plumbing, component wiring, logging, diagnostics, or helper behavior. Prefer domain mutations such as create, update, or delete over generic load, save, back-navigation, or display-state controls. A visible button or field proves an affordance, not an executed workflow; cite the action handler or mutation for the capability.";
 
 const semanticFindingKindOptions = [
   "behavior",

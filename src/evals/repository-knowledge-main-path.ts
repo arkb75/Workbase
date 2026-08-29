@@ -99,12 +99,22 @@ function repositorySynthesisBatchKey(inputSummary: unknown) {
     ? summary.refreshRunId.trim()
     : "";
   const subsystemKeys = summary?.subsystemKeys;
+  const revisionRound = summary?.revisionRound === undefined
+    ? 0
+    : typeof summary.revisionRound === "number" &&
+        Number.isInteger(summary.revisionRound) &&
+        summary.revisionRound >= 0
+    ? summary.revisionRound
+    : null;
   if (!refreshRunId) return null;
   if (!Array.isArray(subsystemKeys)) return null;
+  if (revisionRound === null) return null;
   const normalized = Array.from(new Set(subsystemKeys.flatMap((value) =>
     typeof value === "string" && value.trim() ? [value.trim()] : []
   ))).sort();
-  return normalized.length ? JSON.stringify([refreshRunId, normalized]) : null;
+  return normalized.length
+    ? JSON.stringify([refreshRunId, normalized, revisionRound])
+    : null;
 }
 
 function repositorySynthesisClaimCount(parsedOutput: unknown) {
@@ -118,9 +128,52 @@ function repositorySynthesisClaimCount(parsedOutput: unknown) {
   }, 0);
 }
 
-function repositoryCriticAssessmentCount(parsedOutput: unknown) {
+function repositorySynthesisClaimKeys(parsedOutput: unknown) {
+  const subsystems = record(parsedOutput)?.subsystems;
+  if (!Array.isArray(subsystems)) return null;
+  const keys: string[] = [];
+  for (const value of subsystems) {
+    const subsystem = record(value);
+    const subsystemKey = typeof subsystem?.subsystemKey === "string"
+      ? subsystem.subsystemKey.trim()
+      : "";
+    if (!subsystemKey || !Array.isArray(subsystem?.facts) || !Array.isArray(subsystem?.highlights)) {
+      return null;
+    }
+    subsystem.facts.forEach((_claim, index) =>
+      keys.push(`${subsystemKey}:fact:${index + 1}`)
+    );
+    subsystem.highlights.forEach((_claim, index) =>
+      keys.push(`${subsystemKey}:highlight:${index + 1}`)
+    );
+  }
+  return keys;
+}
+
+function repositoryCriticAssessmentKeys(parsedOutput: unknown) {
   const assessments = record(parsedOutput)?.assessments;
-  return Array.isArray(assessments) ? assessments.length : null;
+  if (!Array.isArray(assessments)) return null;
+  const keys = assessments.flatMap((assessment) => {
+    const claimKey = record(assessment)?.claimKey;
+    return typeof claimKey === "string" && claimKey.trim()
+      ? [claimKey.trim()]
+      : [];
+  });
+  return keys.length === assessments.length ? keys : null;
+}
+
+function repositorySynthesisClaimContentDigest(resultRefs: unknown) {
+  const digest = record(record(resultRefs)?.resultAttestation)?.claimContentDigest;
+  return typeof digest === "string" && /^[a-f0-9]{64}$/u.test(digest)
+    ? digest
+    : null;
+}
+
+function sameUniqueKeys(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length &&
+    new Set(left).size === left.length &&
+    new Set(right).size === right.length &&
+    left.every((key) => right.includes(key));
 }
 
 function expectedIdentityFor(
@@ -194,7 +247,12 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     );
   }
   const synthesisWithoutClaimAttestation = synthesisRuns.filter((run) =>
-    repositorySynthesisClaimCount(run.parsedOutput) === null
+    repositorySynthesisClaimCount(run.parsedOutput) === null ||
+    repositorySynthesisClaimKeys(run.parsedOutput) === null ||
+    (
+      (repositorySynthesisClaimCount(run.parsedOutput) ?? 0) > 0 &&
+      repositorySynthesisClaimContentDigest(run.resultRefs) === null
+    )
   );
   if (synthesisWithoutClaimAttestation.length) {
     issues.push(
@@ -203,9 +261,11 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   }
   const claimfulSynthesisRuns = synthesisRuns.flatMap((run) => {
     const claimCount = repositorySynthesisClaimCount(run.parsedOutput);
+    const claimKeys = repositorySynthesisClaimKeys(run.parsedOutput);
     const batchKey = repositorySynthesisBatchKey(run.inputSummary);
-    return claimCount !== null && claimCount > 0 && batchKey
-      ? [{ run, claimCount, batchKey }]
+    const claimContentDigest = repositorySynthesisClaimContentDigest(run.resultRefs);
+    return claimCount !== null && claimCount > 0 && claimKeys && batchKey && claimContentDigest
+      ? [{ run, claimCount, claimKeys, batchKey, claimContentDigest }]
       : [];
   });
   const criticCoveredSynthesisRuns = claimfulSynthesisRuns.filter((synthesis) =>
@@ -213,12 +273,16 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       critic.status === "success" &&
       repositorySynthesisBatchKey(critic.inputSummary) === synthesis.batchKey &&
       record(critic.inputSummary)?.claimCount === synthesis.claimCount &&
-      repositoryCriticAssessmentCount(critic.parsedOutput) === synthesis.claimCount
+      record(critic.inputSummary)?.claimContentDigest === synthesis.claimContentDigest &&
+      (() => {
+        const criticKeys = repositoryCriticAssessmentKeys(critic.parsedOutput);
+        return criticKeys !== null && sameUniqueKeys(synthesis.claimKeys, criticKeys);
+      })()
     )
   );
   if (criticCoveredSynthesisRuns.length !== claimfulSynthesisRuns.length) {
     issues.push(
-      `${claimfulSynthesisRuns.length - criticCoveredSynthesisRuns.length} claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch and claim count.`,
+      `${claimfulSynthesisRuns.length - criticCoveredSynthesisRuns.length} claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.`,
     );
   }
 

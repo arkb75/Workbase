@@ -58,6 +58,8 @@ describe("repository semantic task and budget", () => {
   it("prioritizes executed primary behavior over interface affordances", () => {
     expect(repositorySemanticFindingGuidance).toContain("primary executed action, mutation, or result");
     expect(repositorySemanticFindingGuidance).toContain("before navigation, control visibility, empty-state copy");
+    expect(repositorySemanticFindingGuidance).toContain("Prefer domain mutations such as create, update, or delete");
+    expect(repositorySemanticFindingGuidance).toContain("generic load, save, back-navigation");
     expect(repositorySemanticFindingGuidance).toContain("visible button or field proves an affordance");
     expect(repositorySemanticFindingGuidance).toContain("cite the action handler or mutation");
   });

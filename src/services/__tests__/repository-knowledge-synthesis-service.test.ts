@@ -13,11 +13,14 @@ import {
   modelEligibleSynthesisNotebook,
   normalizeRepositoryHighlightText,
   applyRepositorySynthesisCritic,
+  applyRepositorySynthesisRevision,
+  rejectedRepositorySynthesisClaimKeys,
   repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
   repositorySynthesisCriticClaims,
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
+  repositorySynthesisRevisionErrors,
   repositorySynthesisStructuralErrors,
   repositoryUserFacingCapabilityGuidance,
   reusableSynthesisEvidenceFilters,
@@ -363,6 +366,183 @@ describe("repository synthesis limit fallback", () => {
     }, new Set(["project_domain:events#scope:fact:1"]))).toEqual([
       "Supported assessments must have no issues; unsupported assessments must name at least one issue.",
     ]);
+  });
+
+  it("revises only rejected claim slots and preserves accepted drafts", () => {
+    const fact = (statement: string, citationIndexes = [1]) => ({
+      statement,
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes,
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    });
+    const highlight = (text: string, citationIndexes = [1]) => ({
+      text,
+      summary: text,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      visibility: "private" as const,
+      citationIndexes,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    });
+    const prior = {
+      subsystems: [{
+        subsystemKey: "project_domain:inventory#scope",
+        facts: [
+          fact("The screen removes and encrypts an inventory record.", [1, 2]),
+          fact("The store writes an inventory record."),
+        ],
+        highlights: [highlight("Built the complete inventory lifecycle", [1, 2])],
+        unresolvedQuestions: [],
+      }],
+    };
+    const critic = {
+      assessments: [
+        {
+          claimKey: "project_domain:inventory#scope:fact:1",
+          supported: false,
+          issues: ["unsupported_compound_action" as const],
+        },
+        {
+          claimKey: "project_domain:inventory#scope:fact:2",
+          supported: true,
+          issues: [],
+        },
+        {
+          claimKey: "project_domain:inventory#scope:highlight:1",
+          supported: false,
+          issues: ["unsupported_broad_qualifier" as const],
+        },
+      ],
+    };
+    const rejected = rejectedRepositorySynthesisClaimKeys(critic);
+    const revision = {
+      subsystems: [{
+        ...prior.subsystems[0]!,
+        facts: [
+          fact("The screen removes an inventory record.", [1, 2]),
+          prior.subsystems[0]!.facts[1]!,
+        ],
+        highlights: [highlight("Built inventory record removal", [1, 2])],
+      }],
+    };
+    const notebook = [
+      {
+        ...entry("src/inventory/remove.ts", "The screen removes an inventory record."),
+        repository: "example/inventory",
+        sourceExcerpt: "12: records.remove(recordId);",
+        evidenceMode: "semantic" as const,
+      },
+      {
+        ...entry("src/inventory/store.ts", "The store contains inventory records."),
+        repository: "example/inventory",
+        sourceExcerpt: "8: const records = new Map();",
+        evidenceMode: "semantic" as const,
+      },
+    ];
+    const inputs = [{
+      subsystemKey: "project_domain:inventory",
+      synthesisKey: "project_domain:inventory#scope",
+      notebook,
+    }];
+
+    expect(rejected).toEqual(new Set([
+      "project_domain:inventory#scope:fact:1",
+      "project_domain:inventory#scope:highlight:1",
+    ]));
+    expect(repositorySynthesisRevisionErrors(revision, prior, rejected, inputs)).toEqual([]);
+    const merged = applyRepositorySynthesisRevision(prior, revision, rejected);
+    expect(merged.subsystems[0]?.facts.map((candidate) => candidate.statement)).toEqual([
+      "The screen removes an inventory record.",
+      "The store writes an inventory record.",
+    ]);
+    expect(merged.subsystems[0]?.highlights[0]?.text).toBe("Built inventory record removal");
+    const acceptedTamper = {
+      subsystems: [{
+        ...revision.subsystems[0]!,
+        facts: [
+          revision.subsystems[0]!.facts[0]!,
+          fact("A refiner attempted to change this accepted claim."),
+        ],
+      }],
+    };
+    expect(repositorySynthesisRevisionErrors(acceptedTamper, prior, rejected, inputs)).toEqual([
+      "Keep accepted claims unchanged: project_domain:inventory#scope:fact:2.",
+    ]);
+    const questionTamper = {
+      subsystems: [{
+        ...revision.subsystems[0]!,
+        unresolvedQuestions: ["A refiner-added question."],
+      }],
+    };
+    expect(repositorySynthesisRevisionErrors(questionTamper, prior, rejected, inputs)).toEqual([
+      "Revision for project_domain:inventory#scope must preserve unresolved questions.",
+    ]);
+    const cosmeticRevision = {
+      subsystems: [{
+        ...prior.subsystems[0]!,
+        facts: [
+          { ...prior.subsystems[0]!.facts[0]!, productImportance: 5 },
+          prior.subsystems[0]!.facts[1]!,
+        ],
+        highlights: [{
+          ...prior.subsystems[0]!.highlights[0]!,
+          distinctiveness: 4,
+        }],
+      }],
+    };
+    expect(repositorySynthesisRevisionErrors(cosmeticRevision, prior, rejected, inputs)).toEqual([
+      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    ]);
+    const citationPermutation = {
+      subsystems: [{
+        ...prior.subsystems[0]!,
+        facts: [
+          { ...prior.subsystems[0]!.facts[0]!, citationIndexes: [2, 1] },
+          prior.subsystems[0]!.facts[1]!,
+        ],
+        highlights: [{
+          ...prior.subsystems[0]!.highlights[0]!,
+          citationIndexes: [2, 1],
+        }],
+      }],
+    };
+    expect(repositorySynthesisRevisionErrors(citationPermutation, prior, rejected, inputs)).toEqual([
+      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    ]);
+    expect(repositorySynthesisRevisionErrors(prior, prior, rejected, inputs)).toEqual([
+      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    ]);
+  });
+
+  it("requires a revision to preserve subsystem order", () => {
+    const subsystem = (subsystemKey: string) => ({
+      subsystemKey,
+      facts: [],
+      highlights: [],
+      unresolvedQuestions: [],
+    });
+    const prior = {
+      subsystems: [subsystem("project_domain:first#scope"), subsystem("project_domain:second#scope")],
+    };
+    const revision = { subsystems: [...prior.subsystems].reverse() };
+    const inputs = prior.subsystems.map((candidate) => ({
+      subsystemKey: candidate.subsystemKey,
+      synthesisKey: candidate.subsystemKey,
+      notebook: [],
+    }));
+
+    expect(repositorySynthesisRevisionErrors(revision, prior, new Set(), inputs)).toContain(
+      "Revision must preserve subsystem order.",
+    );
   });
 
   it("requires synthesis citations to stay within the semantic notebook", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { repositorySynthesisClaimContentDigest } from "@/src/domain/repository-synthesis-attestation";
 import {
   evaluateRepositoryKnowledgeMainPath,
   type RepositoryKnowledgeGenerationAuditRecord,
@@ -52,21 +53,66 @@ function generation(
   };
 }
 
-function entailmentCritic(
-  claimCount: number,
+function claimKeys(parsedOutput: unknown) {
+  const subsystems = (parsedOutput as {
+    subsystems: Array<{
+      subsystemKey: string;
+      facts: unknown[];
+      highlights: unknown[];
+    }>;
+  }).subsystems;
+  return subsystems.flatMap((subsystem) => [
+    ...subsystem.facts.map((_claim, index) =>
+      `${subsystem.subsystemKey}:fact:${index + 1}`
+    ),
+    ...subsystem.highlights.map((_claim, index) =>
+      `${subsystem.subsystemKey}:highlight:${index + 1}`
+    ),
+  ]);
+}
+
+function synthesisGeneration(
+  parsedOutput: unknown,
   overrides: Partial<RepositoryKnowledgeGenerationAuditRecord> = {},
 ) {
+  const claimContentDigest = repositorySynthesisClaimContentDigest(parsedOutput);
+  if (!claimContentDigest) throw new Error("Test synthesis must contain attestable claims.");
+  return generation("capability_synthesis", "synthesis-model", {
+    parsedOutput,
+    resultRefs: {
+      configuredModelId: "synthesis-model",
+      requestIds: ["request-capability_synthesis"],
+      usageComplete: true,
+      failedProviderAttempts: [],
+      providerAttemptCount: 1,
+      transportMode: "json_schema",
+      resultAttestation: { claimContentDigest },
+    },
+    ...overrides,
+  });
+}
+
+function entailmentCritic(
+  parsedSynthesis: unknown,
+  revisionRound = 0,
+  overrides: Partial<RepositoryKnowledgeGenerationAuditRecord> = {},
+) {
+  const expectedClaimKeys = claimKeys(parsedSynthesis);
+  const claimContentDigest = repositorySynthesisClaimContentDigest(parsedSynthesis);
+  if (!claimContentDigest) throw new Error("Test critic must receive attestable claims.");
   return generation("capability_synthesis", "synthesis-model", {
     id: "generation-capability-synthesis-critic",
     inputSummary: {
       phase: "entailment_critic",
       refreshRunId: "refresh-1",
       subsystemKeys: ["project_domain:payments#scope"],
-      claimCount,
+      claimCount: expectedClaimKeys.length,
+      claimContentDigest,
+      revisionRound,
     },
     parsedOutput: {
-      assessments: Array.from({ length: claimCount }, (_, index) => ({
-        claimKey: `project_domain:payments#scope:fact:${index + 1}`,
+      assessments: expectedClaimKeys.map((claimKey) => ({
+        claimKey,
         supported: true,
         issues: [],
       })),
@@ -77,20 +123,22 @@ function entailmentCritic(
 
 describe("repository knowledge main-path integrity", () => {
   it("accepts successful attributed model extraction and synthesis", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
         generation("execution_routing", "routing-model"),
         generation("semantic_extraction", "semantic-model"),
-        generation("capability_synthesis", "synthesis-model", {
-          parsedOutput: {
-            subsystems: [{
-              subsystemKey: "project_domain:payments#scope",
-              facts: [{ statement: "The payment service persists receipts." }],
-              highlights: [],
-            }],
-          },
-        }),
-        entailmentCritic(1),
+        synthesisGeneration(synthesis),
+        entailmentCritic(synthesis),
       ],
       expectedIdentities,
       coverage: [{
@@ -127,20 +175,36 @@ describe("repository knowledge main-path integrity", () => {
   });
 
   it("rejects claim-emitting synthesis without a matching successful entailment critic", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [{
+          text: "Built receipt storage",
+          summary: "The service persists payment receipts.",
+          citationIndexes: [1],
+        }],
+      }],
+    };
+    const staleSynthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
         generation("execution_routing", "routing-model"),
         generation("semantic_extraction", "semantic-model"),
-        generation("capability_synthesis", "synthesis-model", {
-          parsedOutput: {
-            subsystems: [{
-              subsystemKey: "project_domain:payments#scope",
-              facts: [{ statement: "The payment service persists receipts." }],
-              highlights: [{ text: "Built receipt storage" }],
-            }],
-          },
-        }),
-        entailmentCritic(1),
+        synthesisGeneration(synthesis),
+        entailmentCritic(staleSynthesis),
       ],
       expectedIdentities,
       coverage: null,
@@ -153,7 +217,7 @@ describe("repository knowledge main-path integrity", () => {
 
     expect(result.passed).toBe(false);
     expect(result.issues).toContain(
-      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch and claim count.",
+      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
     );
     expect(result.metrics).toMatchObject({
       claimfulSynthesis: 1,
@@ -162,20 +226,22 @@ describe("repository knowledge main-path integrity", () => {
   });
 
   it("rejects a critic whose persisted assessments do not cover every synthesized claim", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [
         generation("execution_routing", "routing-model"),
         generation("semantic_extraction", "semantic-model"),
-        generation("capability_synthesis", "synthesis-model", {
-          parsedOutput: {
-            subsystems: [{
-              subsystemKey: "project_domain:payments#scope",
-              facts: [{ statement: "The payment service persists receipts." }],
-              highlights: [],
-            }],
-          },
-        }),
-        entailmentCritic(1, { parsedOutput: { assessments: [] } }),
+        synthesisGeneration(synthesis),
+        entailmentCritic(synthesis, 0, { parsedOutput: { assessments: [] } }),
       ],
       expectedIdentities,
       coverage: null,
@@ -188,8 +254,197 @@ describe("repository knowledge main-path integrity", () => {
 
     expect(result.passed).toBe(false);
     expect(result.issues).toContain(
-      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch and claim count.",
+      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
     );
+  });
+
+  it("rejects a stale critic with the same round, count, and keys but different claim content", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1, 2],
+        }],
+        highlights: [],
+      }],
+    };
+    const staleSynthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service retrieves receipts.",
+          citationIndexes: [1, 3],
+        }],
+        highlights: [],
+      }],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(synthesis),
+        entailmentCritic(staleSynthesis),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.metrics).toMatchObject({
+      claimfulSynthesis: 1,
+      criticCoveredSynthesis: 0,
+    });
+  });
+
+  it("rejects same-count critic attestations with wrong or duplicate claim keys", () => {
+    const invalidAssessmentKeys = [
+      [
+        "project_domain:payments#scope:fact:1",
+        "project_domain:payments#scope:highlight:1",
+      ],
+      [
+        "project_domain:payments#scope:fact:1",
+        "project_domain:payments#scope:fact:1",
+      ],
+    ];
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          {
+            statement: "The payment service persists receipts.",
+            citationIndexes: [1],
+          },
+          {
+            statement: "The payment service retrieves receipts.",
+            citationIndexes: [2],
+          },
+        ],
+        highlights: [],
+      }],
+    };
+    for (const claimKeys of invalidAssessmentKeys) {
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(synthesis),
+          entailmentCritic(synthesis, 0, {
+            parsedOutput: {
+              assessments: claimKeys.map((claimKey) => ({
+                claimKey,
+                supported: true,
+                issues: [],
+              })),
+            },
+          }),
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.metrics).toMatchObject({
+        claimfulSynthesis: 1,
+        criticCoveredSynthesis: 0,
+      });
+    }
+  });
+
+  it("accepts a revised synthesis only when its critic attests the same revision round", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(synthesis, {
+          inputSummary: {
+            phase: "synthesis",
+            refreshRunId: "refresh-1",
+            subsystemKeys: ["project_domain:payments#scope"],
+            revisionRound: 1,
+          },
+        }),
+        entailmentCritic(synthesis, 1),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.metrics).toMatchObject({
+      claimfulSynthesis: 1,
+      criticCoveredSynthesis: 1,
+    });
+  });
+
+  it("rejects a critic that only covers another synthesis revision round", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(synthesis, {
+          inputSummary: {
+            phase: "synthesis",
+            refreshRunId: "refresh-1",
+            subsystemKeys: ["project_domain:payments#scope"],
+            revisionRound: 1,
+          },
+        }),
+        entailmentCritic(synthesis),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
+    );
+    expect(result.metrics).toMatchObject({
+      claimfulSynthesis: 1,
+      criticCoveredSynthesis: 0,
+    });
   });
 
   it("rejects legacy capability synthesis rows without phase attestation", () => {

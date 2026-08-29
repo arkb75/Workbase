@@ -628,6 +628,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
   idempotencyKey?: string;
   profile?: TextModelProfile;
   inputSummary: unknown;
+  resultAttestation?: (result: TResult) => Record<string, unknown>;
   execute: () => Promise<TResult>;
 }): Promise<TResult & { generationRunId: string | null }> {
   const startedAt = Date.now();
@@ -666,6 +667,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
 
   try {
     const result = await input.execute();
+    const resultAttestation = input.resultAttestation?.(result);
     if (run) {
       const cumulativeUsage = cumulativeAuditUsage({
         priorTokenUsage: run.tokenUsage,
@@ -719,6 +721,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             auditEvidenceTruncated: evidence.truncated,
             usageComplete: auditUsage.usageComplete,
             knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
+            ...(resultAttestation ? { resultAttestation } : {}),
           }),
         },
       });
