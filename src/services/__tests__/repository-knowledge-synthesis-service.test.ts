@@ -21,6 +21,7 @@ import {
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
   repositorySynthesisRevisionErrors,
+  repositorySynthesisRevisionEvidenceIndexes,
   repositorySynthesisStructuralErrors,
   repositoryUserFacingCapabilityGuidance,
   reusableSynthesisEvidenceFilters,
@@ -187,6 +188,11 @@ describe("repository synthesis limit fallback", () => {
       {
         ...entry("src/payments/read.ts", "The service loads a payment receipt by identifier."),
         sourceExcerpt: "8: return receipts.find(receiptId);",
+        evidenceMode: "semantic" as const,
+      },
+      {
+        ...entry("src/payments/admin.ts", "The admin service lists audit records."),
+        sourceExcerpt: "5: return auditRecords.list();",
         evidenceMode: "semantic" as const,
       },
     ];
@@ -368,7 +374,7 @@ describe("repository synthesis limit fallback", () => {
     ]);
   });
 
-  it("revises only rejected claim slots and preserves accepted drafts", () => {
+  it("applies compact rejected-claim patches while preserving accepted drafts", () => {
     const fact = (statement: string, citationIndexes = [1]) => ({
       statement,
       category: "behavior" as const,
@@ -423,15 +429,14 @@ describe("repository synthesis limit fallback", () => {
         },
       ],
     };
-    const rejected = rejectedRepositorySynthesisClaimKeys(critic);
     const revision = {
-      subsystems: [{
-        ...prior.subsystems[0]!,
-        facts: [
-          fact("The screen removes an inventory record.", [1, 2]),
-          prior.subsystems[0]!.facts[1]!,
-        ],
-        highlights: [highlight("Built inventory record removal", [1, 2])],
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: fact("The screen removes an inventory record.", [1, 2]),
+      }],
+      highlightRevisions: [{
+        claimKey: "project_domain:inventory#scope:highlight:1",
+        replacement: highlight("Built inventory record removal", [1, 2]),
       }],
     };
     const notebook = [
@@ -454,95 +459,139 @@ describe("repository synthesis limit fallback", () => {
       notebook,
     }];
 
-    expect(rejected).toEqual(new Set([
+    expect(rejectedRepositorySynthesisClaimKeys(critic)).toEqual(new Set([
       "project_domain:inventory#scope:fact:1",
       "project_domain:inventory#scope:highlight:1",
     ]));
-    expect(repositorySynthesisRevisionErrors(revision, prior, rejected, inputs)).toEqual([]);
-    const merged = applyRepositorySynthesisRevision(prior, revision, rejected);
+    expect(repositorySynthesisRevisionErrors(revision, prior, critic, inputs)).toEqual([]);
+    const merged = applyRepositorySynthesisRevision(prior, revision);
     expect(merged.subsystems[0]?.facts.map((candidate) => candidate.statement)).toEqual([
       "The screen removes an inventory record.",
       "The store writes an inventory record.",
     ]);
     expect(merged.subsystems[0]?.highlights[0]?.text).toBe("Built inventory record removal");
-    const acceptedTamper = {
-      subsystems: [{
-        ...revision.subsystems[0]!,
-        facts: [
-          revision.subsystems[0]!.facts[0]!,
-          fact("A refiner attempted to change this accepted claim."),
-        ],
-      }],
-    };
-    expect(repositorySynthesisRevisionErrors(acceptedTamper, prior, rejected, inputs)).toEqual([
-      "Keep accepted claims unchanged: project_domain:inventory#scope:fact:2.",
-    ]);
-    const questionTamper = {
-      subsystems: [{
-        ...revision.subsystems[0]!,
-        unresolvedQuestions: ["A refiner-added question."],
-      }],
-    };
-    expect(repositorySynthesisRevisionErrors(questionTamper, prior, rejected, inputs)).toEqual([
-      "Revision for project_domain:inventory#scope must preserve unresolved questions.",
-    ]);
+    expect(merged.subsystems[0]?.facts[1]).toBe(prior.subsystems[0]?.facts[1]);
     const cosmeticRevision = {
-      subsystems: [{
-        ...prior.subsystems[0]!,
-        facts: [
-          { ...prior.subsystems[0]!.facts[0]!, productImportance: 5 },
-          prior.subsystems[0]!.facts[1]!,
-        ],
-        highlights: [{
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: { ...prior.subsystems[0]!.facts[0]!, productImportance: 5 },
+      }],
+      highlightRevisions: [{
+        claimKey: "project_domain:inventory#scope:highlight:1",
+        replacement: {
           ...prior.subsystems[0]!.highlights[0]!,
           distinctiveness: 4,
-        }],
+        },
       }],
     };
-    expect(repositorySynthesisRevisionErrors(cosmeticRevision, prior, rejected, inputs)).toEqual([
-      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    expect(repositorySynthesisRevisionErrors(cosmeticRevision, prior, critic, inputs)).toEqual([
+      "Substantively revise each rejected claim or return null: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
     ]);
     const citationPermutation = {
-      subsystems: [{
-        ...prior.subsystems[0]!,
-        facts: [
-          { ...prior.subsystems[0]!.facts[0]!, citationIndexes: [2, 1] },
-          prior.subsystems[0]!.facts[1]!,
-        ],
-        highlights: [{
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: { ...prior.subsystems[0]!.facts[0]!, citationIndexes: [2, 1] },
+      }],
+      highlightRevisions: [{
+        claimKey: "project_domain:inventory#scope:highlight:1",
+        replacement: {
           ...prior.subsystems[0]!.highlights[0]!,
           citationIndexes: [2, 1],
-        }],
+        },
       }],
     };
-    expect(repositorySynthesisRevisionErrors(citationPermutation, prior, rejected, inputs)).toEqual([
-      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    expect(repositorySynthesisRevisionErrors(citationPermutation, prior, critic, inputs)).toEqual([
+      "Substantively revise each rejected claim or return null: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
     ]);
-    expect(repositorySynthesisRevisionErrors(prior, prior, rejected, inputs)).toEqual([
-      "Revise every rejected claim: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
-    ]);
-  });
-
-  it("requires a revision to preserve subsystem order", () => {
-    const subsystem = (subsystemKey: string) => ({
-      subsystemKey,
-      facts: [],
-      highlights: [],
-      unresolvedQuestions: [],
-    });
-    const prior = {
-      subsystems: [subsystem("project_domain:first#scope"), subsystem("project_domain:second#scope")],
+    const citationOnlyRevision = {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: { ...prior.subsystems[0]!.facts[0]!, citationIndexes: [1] },
+      }],
+      highlightRevisions: [{
+        claimKey: "project_domain:inventory#scope:highlight:1",
+        replacement: { ...prior.subsystems[0]!.highlights[0]!, citationIndexes: [1] },
+      }],
     };
-    const revision = { subsystems: [...prior.subsystems].reverse() };
-    const inputs = prior.subsystems.map((candidate) => ({
-      subsystemKey: candidate.subsystemKey,
-      synthesisKey: candidate.subsystemKey,
-      notebook: [],
-    }));
+    expect(repositorySynthesisRevisionErrors(citationOnlyRevision, prior, critic, inputs)).toEqual([
+      "Substantively revise each rejected claim or return null: project_domain:inventory#scope:fact:1, project_domain:inventory#scope:highlight:1.",
+    ]);
+    const removal = {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: null,
+      }],
+      highlightRevisions: [{
+        claimKey: "project_domain:inventory#scope:highlight:1",
+        replacement: null,
+      }],
+    };
+    expect(repositorySynthesisRevisionErrors(removal, prior, critic, inputs)).toEqual([]);
+    const removed = applyRepositorySynthesisRevision(prior, removal);
+    expect(removed.subsystems[0]?.facts).toEqual([prior.subsystems[0]!.facts[1]]);
+    expect(removed.subsystems[0]?.highlights).toEqual([]);
 
-    expect(repositorySynthesisRevisionErrors(revision, prior, new Set(), inputs)).toContain(
-      "Revision must preserve subsystem order.",
+    const citationMismatchCritic = {
+      assessments: critic.assessments.map((assessment) =>
+        assessment.claimKey.endsWith(":fact:1")
+          ? { ...assessment, issues: ["citation_mismatch" as const] }
+          : { ...assessment, supported: true, issues: [] }
+      ),
+    };
+    const citationRepair = {
+      factRevisions: [{
+        claimKey: "project_domain:inventory#scope:fact:1",
+        replacement: { ...prior.subsystems[0]!.facts[0]!, citationIndexes: [1] },
+      }],
+      highlightRevisions: [],
+    };
+    expect(repositorySynthesisRevisionErrors(
+      citationRepair,
+      prior,
+      citationMismatchCritic,
+      inputs,
+    )).toEqual([]);
+
+    expect(repositorySynthesisRevisionErrors({
+      factRevisions: [...revision.factRevisions, ...revision.factRevisions],
+      highlightRevisions: revision.highlightRevisions,
+    }, prior, critic, inputs)).toContain(
+      "Return exactly one same-kind patch for every rejected claimKey and no other keys.",
     );
+    expect(repositorySynthesisRevisionErrors({
+      factRevisions: [],
+      highlightRevisions: [
+        {
+          claimKey: "project_domain:inventory#scope:fact:1",
+          replacement: prior.subsystems[0]!.highlights[0]!,
+        },
+        revision.highlightRevisions[0]!,
+      ],
+    }, prior, critic, inputs)).toContain(
+      "Patch project_domain:inventory#scope:fact:1 does not match its original claim kind.",
+    );
+    expect(repositorySynthesisRevisionErrors({
+      ...revision,
+      factRevisions: [{
+        ...revision.factRevisions[0]!,
+        replacement: {
+          ...revision.factRevisions[0]!.replacement!,
+          citationIndexes: [3],
+        },
+      }],
+    }, prior, critic, inputs)).toContain(
+      "Patch project_domain:inventory#scope:fact:1 cites an index outside its supplied revision evidence.",
+    );
+    expect(repositorySynthesisRevisionEvidenceIndexes(
+      prior.subsystems[0]!,
+      critic,
+      8,
+    )).toEqual([1, 2]);
+    expect(repositorySynthesisRevisionEvidenceIndexes(
+      prior.subsystems[0]!,
+      citationMismatchCritic,
+      8,
+    )).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("requires synthesis citations to stay within the semantic notebook", () => {

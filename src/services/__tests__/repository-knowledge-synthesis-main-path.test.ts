@@ -56,22 +56,40 @@ function semanticAnalysis(): RepositoryFileAnalysis {
     analysisMode: "semantic",
     semanticStatus: "succeeded",
     semanticSource: "model",
-    facts: [{
-      statement,
-      category: "behavior",
-      confidence: "high",
-      sensitivityFlag: false,
-      lineStart: 10,
-      lineEnd: 18,
-      productImportance: 5,
-      implementationBreadth: 3,
-      technicalDifficulty: 4,
-      path,
-      subsystemKeys: ["project_domain:payments"],
-      semanticSignals: ["domain.payment_idempotency"],
-      evidenceExcerpt: sourceExcerpt,
-      evidenceMode: "semantic",
-    }],
+    facts: [
+      {
+        statement,
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart: 10,
+        lineEnd: 18,
+        productImportance: 5,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        path,
+        subsystemKeys: ["project_domain:payments"],
+        semanticSignals: ["domain.payment_idempotency"],
+        evidenceExcerpt: sourceExcerpt,
+        evidenceMode: "semantic",
+      },
+      {
+        statement: "The charge service records request latency for diagnostics.",
+        category: "behavior",
+        confidence: "high",
+        sensitivityFlag: false,
+        lineStart: 20,
+        lineEnd: 22,
+        productImportance: 1,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+        path,
+        subsystemKeys: ["project_domain:payments"],
+        semanticSignals: [],
+        evidenceExcerpt: "20: metrics.recordLatency(elapsedMs);",
+        evidenceMode: "semantic",
+      },
+    ],
   };
 }
 
@@ -207,7 +225,7 @@ describe("repository synthesis model main path", () => {
       "repository_synthesis_entailment_critic",
     ]);
     expect(generateStructuredMock.mock.calls[1]![0]).toMatchObject({
-      maxTokens: 4_000,
+      maxTokens: 2_000,
       effort: "low",
     });
     const synthesisPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
@@ -288,6 +306,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -312,11 +331,11 @@ describe("repository synthesis model main path", () => {
             unresolvedQuestions: [],
           }],
         };
-      } else if (request.schemaName === "repository_architecture_synthesis_revision") {
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         data = {
-          subsystems: [{
-            subsystemKey,
-            facts: [{
+          factRevisions: [{
+            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
+            replacement: {
               statement: revisedStatement,
               category: "behavior",
               confidence: "high",
@@ -327,10 +346,9 @@ describe("repository synthesis model main path", () => {
               implementationBreadth: 3,
               technicalDifficulty: 4,
               distinctiveness: 4,
-            }],
-            highlights: [],
-            unresolvedQuestions: [],
+            },
           }],
+          highlightRevisions: [],
         };
       } else {
         criticRound += 1;
@@ -360,7 +378,7 @@ describe("repository synthesis model main path", () => {
     expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
       "repository_architecture_synthesis",
       "repository_synthesis_entailment_critic",
-      "repository_architecture_synthesis_revision",
+      "repository_synthesis_claim_revisions",
       "repository_synthesis_entailment_critic",
     ]);
     expect(synthesis[0]?.facts).toEqual([
@@ -376,10 +394,33 @@ describe("repository synthesis model main path", () => {
       ["synthesis", 1],
       ["entailment_critic", 1],
     ]);
-    expect(summaries[2]).toEqual(expect.objectContaining({ rejectedClaimCount: 1 }));
+    expect(summaries[2]).toEqual(expect.objectContaining({
+      rejectedClaimCount: 1,
+      revisionContract: "rejected_claim_patch_v1",
+    }));
+    const revisionPrompt = JSON.parse(generateStructuredMock.mock.calls[2]![0].userPrompt);
+    expect(revisionPrompt.subsystems[0].rejectedClaims).toHaveLength(1);
+    expect(revisionPrompt.subsystems[0].notebook).toEqual([
+      expect.objectContaining({ index: 1, sourceExcerpt }),
+    ]);
+    expect(revisionPrompt.subsystems[0]).not.toHaveProperty("priorSynthesis");
+    expect(generateStructuredMock.mock.calls[1]![0].maxTokens).toBe(2_000);
+    expect(generateStructuredMock.mock.calls[2]![0].maxTokens).toBe(4_000);
     expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
       usage: { modelCalls: 4, totalTokens: 600 },
     });
+    const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0].data;
+    expect(persistedRevision.parsedOutput).toEqual(expect.objectContaining({
+      subsystems: [expect.objectContaining({
+        facts: [expect.objectContaining({ statement: revisedStatement })],
+      })],
+    }));
+    expect(persistedRevision.parsedOutput).not.toHaveProperty("factRevisions");
+    expect(persistedRevision.resultRefs).toEqual(expect.objectContaining({
+      resultAttestation: expect.objectContaining({
+        claimContentDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+    }));
   });
 
   it("reserves one bounded revision and two schema repairs per batch under one 80K cap", () => {
