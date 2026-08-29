@@ -197,6 +197,9 @@ export function inferProjectDomainCapability(path: string) {
 export const repositorySemanticFindingGuidance =
   "Use user_capability only when the cited handler or service lines execute an implemented end-user goal or state-changing workflow. Emit the file's primary executed action, mutation, or result before navigation, control visibility, empty-state copy, query-parameter plumbing, component wiring, logging, diagnostics, or helper behavior. Prefer domain mutations such as create, update, or delete over generic load, save, back-navigation, or display-state controls. A visible button or field proves an affordance, not an executed workflow; cite the action handler or mutation for the capability.";
 
+export const repositorySemanticSensitivityGuidance =
+  "Set sensitivityFlag true when the finding or cited lines disclose concrete secret, credential, token, or key material; private personal or customer data; an exploitable weakness; or an operational control detail whose disclosure creates a concrete risk. A [REDACTED] placeholder means protected material was removed and must always be marked sensitive. When uncertain whether cited material is protected or creates a concrete disclosure risk, set sensitivityFlag true. Ordinary authentication, authorization, validation, signed-token or session handling, encryption, and cookie behavior are not sensitive merely because they are security-related when no protected detail is disclosed.";
+
 const semanticFindingKindOptions = [
   "behavior",
   "data_flow",
@@ -752,6 +755,13 @@ export function semanticEvidenceExcerpt(
   return `${excerpt.slice(0, fragmentLength)}\n[... cited lines omitted ...]\n${excerpt.slice(-fragmentLength)}`;
 }
 
+function semanticFindingSensitivityFlag(
+  modelFlag: boolean,
+  evidenceExcerpt: string,
+) {
+  return modelFlag || /\[REDACTED(?: [^\]\r\n]+)?\]/iu.test(evidenceExcerpt);
+}
+
 async function analyzeChunk(input: {
   workItemId?: string;
   refreshRunId?: string;
@@ -821,7 +831,8 @@ async function analyzeChunk(input: {
         "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
         "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
-        "Use stable snake_case subsystem keys and mark security-sensitive findings as sensitive.",
+        "Use stable snake_case subsystem keys.",
+        repositorySemanticSensitivityGuidance,
         "Assign each finding only to the capabilityKeys it directly supports; do not copy every file-level subsystem key onto every finding.",
         "signalKeys are stable implementation facets, not freeform tags. Use only supplied allowedSemanticSignalKeys and attach every one directly established by the cited lines.",
         "Follow the supplied research task: answer its objective and questions, target its expected outputs, and use only its allowed capability keys.",
@@ -903,11 +914,19 @@ async function analyzeChunk(input: {
         : finding.kind === "configuration"
           ? "configuration"
           : "behavior";
+    const evidenceExcerpt = semanticEvidenceExcerpt(
+      input.content,
+      finding.lineStart,
+      finding.lineEnd,
+    );
     return [{
       statement: finding.statement,
       category,
       confidence: finding.confidence,
-      sensitivityFlag: finding.sensitivityFlag,
+      sensitivityFlag: semanticFindingSensitivityFlag(
+        finding.sensitivityFlag,
+        evidenceExcerpt,
+      ),
       lineStart: finding.lineStart,
       lineEnd: finding.lineEnd,
       productImportance: finding.kind === "user_capability" ? 4 : 3,
@@ -915,7 +934,7 @@ async function analyzeChunk(input: {
       technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
       subsystemKeys: unique(finding.capabilityKeys, 6),
       semanticSignals: unique(finding.signalKeys ?? [], 12),
-      evidenceExcerpt: semanticEvidenceExcerpt(input.content, finding.lineStart, finding.lineEnd),
+      evidenceExcerpt,
       evidenceMode: "semantic" as const,
     }];
   });
@@ -1325,6 +1344,7 @@ export async function analyzeRepositoryFileBatch(
           "Analyze each file independently. Never transfer a fact, path, line number, or capability key between files.",
           "Describe implemented behavior, data flow, invariants, integrations, configuration, and user-facing capabilities only when that file's supplied lines support them.",
           repositorySemanticFindingGuidance,
+          repositorySemanticSensitivityGuidance,
           "Keep each finding atomic and directly entailed by its cited lines. Do not add a second action, ordering claim, success or failure outcome, metric, or type relationship unless those same lines establish it explicitly.",
           "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
           "Return at most three decisive findings and two concrete unresolved questions per file.",
@@ -1494,11 +1514,19 @@ export async function analyzeRepositoryFileBatch(
           : finding.kind === "configuration"
             ? "configuration"
             : "behavior";
+      const evidenceExcerpt = semanticEvidenceExcerpt(
+        entry.window.content,
+        finding.lineStart,
+        finding.lineEnd,
+      );
       return [{
         statement: finding.statement,
         category,
         confidence: finding.confidence,
-        sensitivityFlag: finding.sensitivityFlag,
+        sensitivityFlag: semanticFindingSensitivityFlag(
+          finding.sensitivityFlag,
+          evidenceExcerpt,
+        ),
         lineStart: finding.lineStart,
         lineEnd: finding.lineEnd,
         productImportance: finding.kind === "user_capability" ? 4 : 3,
@@ -1506,11 +1534,7 @@ export async function analyzeRepositoryFileBatch(
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
         subsystemKeys: capabilityKeys,
         semanticSignals: unique(finding.signalKeys ?? [], 12),
-        evidenceExcerpt: semanticEvidenceExcerpt(
-          entry.window.content,
-          finding.lineStart,
-          finding.lineEnd,
-        ),
+        evidenceExcerpt,
         evidenceMode: "semantic" as const,
         path: entry.file.path,
       }];

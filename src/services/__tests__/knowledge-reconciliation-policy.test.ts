@@ -156,6 +156,27 @@ describe("repository knowledge auto-apply policy", () => {
     expect(shouldQuarantineSynthesizedCandidate({ confidence: "high", sensitivityFlag: true })).toBe(true);
   });
 
+  it("does not let synthesis clear sensitivity from a cited source", () => {
+    const candidate = {
+      statement: "The runtime reads a configured service credential.",
+      confidence: "high",
+      sensitivityFlag: false,
+    };
+    const sensitiveSource = {
+      path: "src/runtime/config.ts",
+      statement: candidate.statement,
+      semanticStatus: "succeeded" as const,
+      sensitivityFlag: true,
+    };
+
+    expect(shouldQuarantineSynthesizedCandidate(candidate, [sensitiveSource])).toBe(true);
+    expect(isSynthesizedCandidateUnsafe({
+      approvalEligible: true,
+      candidate,
+      sources: [sensitiveSource],
+    })).toBe(true);
+  });
+
   it("quarantines candidates whose cited semantic extraction degraded", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       statement: "The service defines a bounded retry loop.",

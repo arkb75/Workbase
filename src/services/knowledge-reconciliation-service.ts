@@ -548,6 +548,9 @@ export function shouldQuarantineSynthesizedCandidate(
   sources: SynthesizedCandidateSource[] = [],
 ) {
   if (candidate.sensitivityFlag || candidate.confidence === "low") return true;
+  // Sensitivity is monotonic across synthesis. A later model may narrow a
+  // claim, but it cannot clear the protection attached to any cited source.
+  if (sources.some((source) => source.sensitivityFlag === true)) return true;
   if (sources.some((source) => source.semanticStatus === "degraded")) return true;
   const claim = normalizeWhitespace([
     candidate.statement ?? "",

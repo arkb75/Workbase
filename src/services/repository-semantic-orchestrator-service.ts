@@ -34,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v35-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v36-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -2172,12 +2172,68 @@ export function critiqueRepositoryCoverage(input: {
         if (representative) missingBranchVariantFileIds.push(representative.id);
       }
     }
-    const idealProfiles = diverseSemanticFiles(
+    const supportedCandidatesForArea = allCandidates.filter((candidate) =>
+      candidate.key === area.key && candidate.evidence.some((evidence) => {
+        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
+        const path = pathByFileId.get(evidence.fileSnapshotId);
+        return path ? isCoverageEvidencePath(area.key, path) : false;
+      })
+    );
+    const supportedCandidateStatements = new Set(supportedCandidatesForArea
+      .map((candidate) => candidate.statement.trim().toLowerCase().replace(/\s+/g, " ")));
+    const supportedFileIds = new Set(supportedCandidatesForArea
+      .flatMap((candidate) => candidate.evidence)
+      .filter((evidence) => {
+        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
+        const path = pathByFileId.get(evidence.fileSnapshotId);
+        return path ? isCoverageEvidencePath(area.key, path) : false;
+      })
+      .map((evidence) => evidence.fileSnapshotId));
+    const idealFiles = diverseSemanticFiles(
       evidenceFiles,
       targetSamples,
       [],
       area.key,
-    ).map((file) => semanticPathProfile(file.path));
+    );
+    const idealProfiles = idealFiles.map((file) => semanticPathProfile(file.path));
+    const supportedBehaviorFamilies = new Set(
+      evidenceFiles
+        .filter((file) => supportedFileIds.has(file.id))
+        .map((file) => semanticPathProfile(file.path).behavior),
+    );
+    // Application core is the structural catch-all for important executable
+    // behavior that does not form a stable directory-derived product domain.
+    // Inventory every named, language-neutral boundary such as identity,
+    // account entry, collaboration, and analytics/reporting before the
+    // bounded ideal sample is chosen. Preserve one highest-scoring
+    // representative per family as an evidence obligation: unrelated file
+    // salience and neighboring routes must not make an inventoried boundary
+    // disappear.
+    const inventoriedBoundaryBehaviorFiles = new Map<
+      string,
+      CapabilityManifestArea["files"][number]
+    >();
+    if (
+      area.key === `${REPOSITORY_AREA_PREFIX}application_core` &&
+      targetSamples >= 4
+    ) {
+      for (const file of [...evidenceFiles].sort((left, right) =>
+        right.score - left.score ||
+        left.path.localeCompare(right.path) ||
+        left.id.localeCompare(right.id)
+      )) {
+        const behavior = semanticPathProfile(file.path).behavior;
+        if (behavior.startsWith("boundary:") && !inventoriedBoundaryBehaviorFiles.has(behavior)) {
+          inventoriedBoundaryBehaviorFiles.set(behavior, file);
+        }
+      }
+    }
+    const requiredBoundaryBehaviorFiles = new Map(
+      Array.from(inventoriedBoundaryBehaviorFiles).slice(0, MAX_REPAIR_FILES),
+    );
+    const missingBoundaryBehaviors = Array.from(requiredBoundaryBehaviorFiles)
+      .filter(([behavior]) => !supportedBehaviorFamilies.has(behavior))
+      .map(([behavior, file]) => ({ behavior, file }));
     const shouldRequireDiversity =
       targetSamples > 1 &&
       implementationFiles.length > 0 &&
@@ -2249,22 +2305,6 @@ export function critiqueRepositoryCoverage(input: {
         if (value && value !== "unknown") simulatedValues.get(entry.dimension)?.add(value);
       }
     }
-    const supportedCandidateStatements = new Set(allCandidates.filter((candidate) =>
-      candidate.key === area.key && candidate.evidence.some((evidence) => {
-        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
-        const path = pathByFileId.get(evidence.fileSnapshotId);
-        return path ? isCoverageEvidencePath(area.key, path) : false;
-      })
-    ).map((candidate) => candidate.statement.trim().toLowerCase().replace(/\s+/g, " ")));
-    const supportedFileIds = new Set(allCandidates
-      .filter((candidate) => candidate.key === area.key)
-      .flatMap((candidate) => candidate.evidence)
-      .filter((evidence) => {
-        if (!areaFileIds.has(evidence.fileSnapshotId)) return false;
-        const path = pathByFileId.get(evidence.fileSnapshotId);
-        return path ? isCoverageEvidencePath(area.key, path) : false;
-      })
-      .map((evidence) => evidence.fileSnapshotId));
     const supportedCandidates = supportedCandidateStatements.size;
     // A very broad area is not semantically covered merely because two of its
     // many files produced findings. Match its six-sample audit depth with six
@@ -2272,6 +2312,18 @@ export function critiqueRepositoryCoverage(input: {
     // exactly the remaining capacity after the two-file first pass.
     const requiredSupportedCandidates = targetSamples >= 5 ? targetSamples : targetSamples >= 4 ? 2 : 1;
     const requiredSupportedFiles = targetSamples >= 5 ? targetSamples : 1;
+    const diversityGapDescriptions = [
+      ...diversityDimensions.map((entry) =>
+        `${entry.inspected}/${entry.required} ${entry.label}`
+      ),
+      ...missingBoundaryBehaviors.map(({ behavior }) => {
+        const label = behavior
+          .slice("boundary:".length)
+          .replace(/[-_]+/g, " ");
+        return `missing ${label} behavior family`;
+      }),
+    ];
+    const diversityGapCount = diversityGapDescriptions.length;
     return {
       key: area.key,
       label: area.label,
@@ -2282,12 +2334,11 @@ export function critiqueRepositoryCoverage(input: {
       supportedCandidates,
       requiredSupportedCandidates,
       missingBranchVariants: missingBranchVariantFileIds.length,
-      diversityGaps: diversityDimensions.length,
-      diversityGapDescriptions: diversityDimensions.map((entry) =>
-        `${entry.inspected}/${entry.required} ${entry.label}`
-      ),
+      diversityGaps: diversityGapCount,
+      diversityGapDescriptions,
       priorityAuditFileIds: Array.from(new Set([
         ...missingBranchVariantFileIds,
+        ...missingBoundaryBehaviors.map(({ file }) => file.id),
         ...diversityRepairFileIds,
       ])),
       supportedFileCount: supportedFileIds.size,
@@ -2298,7 +2349,7 @@ export function critiqueRepositoryCoverage(input: {
             supportedFileIds.size < requiredSupportedFiles ||
             inspectedSamples < targetSamples ||
             missingBranchVariantFileIds.length > 0 ||
-            diversityDimensions.length > 0
+            diversityGapCount > 0
           ? "thin" as const
           : "covered" as const,
     };

@@ -361,8 +361,9 @@ describe("repository-derived cartographer and coverage critic", () => {
       status: "thin",
     });
     expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual([
-      "repository",
       "onboarding",
+      "session",
+      "analytics",
     ]);
   });
 
@@ -547,6 +548,152 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toEqual(["register", "session"]);
     expect(plan[0]?.fileSnapshotIds).not.toContain("login");
+  });
+
+  it("repairs an unrepresented named boundary in broad application core", () => {
+    const area = {
+      key: "repository_area:application_core",
+      label: "Application core",
+      scopeKey: "example/general-service",
+      salience: 240,
+      files: [
+        { id: "identity", path: "src/auth/session-handler.ts", score: 100 },
+        { id: "account-entry", path: "src/account-registration-service.ts", score: 95 },
+        { id: "membership", path: "src/team-membership-service.ts", score: 90 },
+        { id: "analytics", path: "src/services/usage-analytics.ts", score: 85 },
+        { id: "orders", path: "src/api/orders/route.ts", score: 80 },
+        ...Array.from({ length: 11 }, (_, index) => ({
+          id: `generic-${index}`,
+          path: `src/services/module-${index}-service.ts`,
+          score: 70 - index,
+        })),
+      ],
+    };
+    const inspectedFileSnapshotIds = [
+      "identity",
+      "account-entry",
+      "membership",
+      "orders",
+    ];
+    const firstPass = [{
+      inspectedFileSnapshotIds,
+      candidates: inspectedFileSnapshotIds.map((id) => ({
+        ...candidate(area.key, id),
+        statement: `${id} supports a distinct implemented behavior.`,
+      })),
+    }];
+
+    expect(semanticAuditTarget(area)).toBe(4);
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: firstPass,
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    );
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      targetSamples: 4,
+      inspectedSamples: 4,
+      diversityGaps: 1,
+      diversityGapDescriptions: [
+        "missing analytics reporting behavior family",
+      ],
+      status: "thin",
+    }));
+    expect(repairedIds).toEqual(["analytics"]);
+    expect(repairedIds).not.toEqual(expect.arrayContaining([
+      "generic-0",
+      "generic-1",
+    ]));
+
+    const finalCritique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [
+        ...firstPass,
+        {
+          inspectedFileSnapshotIds: ["analytics"],
+          candidates: [candidate(area.key, "analytics")],
+        },
+      ],
+      allowRepair: false,
+    });
+    expect(finalCritique.domains[0]).toEqual(expect.objectContaining({
+      diversityGaps: 0,
+      status: "covered",
+    }));
+
+    const unsupportedBoundaryCritique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [
+        ...firstPass,
+        {
+          inspectedFileSnapshotIds: ["analytics"],
+          candidates: [],
+        },
+      ],
+      allowRepair: false,
+    });
+    expect(unsupportedBoundaryCritique.domains[0]).toEqual(expect.objectContaining({
+      diversityGaps: 1,
+      diversityGapDescriptions: [
+        "missing analytics reporting behavior family",
+      ],
+      status: "thin",
+    }));
+  });
+
+  it("requires a low-scoring named boundary outside the bounded ideal sample", () => {
+    const area = {
+      key: "repository_area:application_core",
+      label: "Application core",
+      scopeKey: "example/broad-runtime",
+      salience: 240,
+      files: [
+        { id: "service", path: "src/services/order-service.ts", score: 1_000 },
+        { id: "interface", path: "src/api/orders/route.ts", score: 900 },
+        { id: "persistence", path: "src/data/order-repository.ts", score: 800 },
+        { id: "integration", path: "src/integrations/payment-provider.ts", score: 700 },
+        { id: "analytics-current", path: "src/analytics/current-report.ts", score: 2 },
+        { id: "analytics-legacy", path: "src/analytics/legacy-report.ts", score: 1 },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `helper-${index}`,
+          path: `src/modules/module-${index}.ts`,
+          score: 100 - index,
+        })),
+      ],
+    };
+    const inspectedFileSnapshotIds = [
+      "service",
+      "interface",
+      "persistence",
+      "integration",
+    ];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} supports a distinct implemented behavior.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    );
+
+    expect(semanticAuditTarget(area)).toBe(4);
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      diversityGapDescriptions: [
+        "missing analytics reporting behavior family",
+      ],
+      status: "thin",
+    }));
+    expect(repairedIds).toContain("analytics-current");
+    expect(repairedIds).not.toContain("analytics-legacy");
   });
 
   it("repairs a new product workflow before a second onboarding variant", () => {

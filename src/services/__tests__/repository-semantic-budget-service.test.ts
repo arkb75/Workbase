@@ -115,6 +115,138 @@ describe("repository semantic task and budget", () => {
     });
   });
 
+  it("forces redacted cited ranges sensitive while leaving ordinary authentication unflagged", async () => {
+    const response = (statement: string) => ({
+      data: {
+        summary: statement,
+        subsystemKeys: ["security_boundary"],
+        findings: [{
+          statement,
+          kind: "behavior",
+          capabilityKeys: ["security_boundary"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+    generateStructuredMock
+      .mockResolvedValueOnce(response("The configuration contains service credential material."))
+      .mockResolvedValueOnce(response("The handler verifies a signed session cookie before continuing."));
+    const task = {
+      objective: "Identify the implemented security boundary.",
+      capabilityKeys: ["security_boundary"],
+      questions: [],
+      expectedOutputs: ["An exact-line supported finding"],
+    };
+
+    const redacted = await analyzeRepositoryFile({
+      repository: "example/security",
+      commitSha: "f".repeat(40),
+      path: "src/runtime/config.ts",
+      content: "const serviceToken = '[REDACTED API TOKEN]';",
+      task,
+    });
+    const ordinaryAuthentication = await analyzeRepositoryFile({
+      repository: "example/security",
+      commitSha: "f".repeat(40),
+      path: "src/auth/session.ts",
+      content: "export const readSession = (cookie) => verifySignedCookie(cookie);",
+      task,
+    });
+
+    expect(redacted.facts[0]).toMatchObject({
+      sensitivityFlag: true,
+      evidenceExcerpt: "1: const serviceToken = '[REDACTED API TOKEN]';",
+    });
+    expect(ordinaryAuthentication.facts[0]?.sensitivityFlag).toBe(false);
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain(
+      "When uncertain whether cited material is protected",
+    );
+  });
+
+  it("forces redacted cited ranges sensitive in semantic micro-batches", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The configuration contains credential material.",
+            subsystemKeys: ["security_boundary"],
+            findings: [{
+              statement: "The configuration contains credential material.",
+              kind: "configuration",
+              capabilityKeys: ["security_boundary"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The handler verifies a signed session cookie.",
+            subsystemKeys: ["security_boundary"],
+            findings: [{
+              statement: "The handler verifies a signed session cookie.",
+              kind: "behavior",
+              capabilityKeys: ["security_boundary"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+    const task = {
+      objective: "Identify the implemented security boundary.",
+      capabilityKeys: ["security_boundary"],
+      questions: [],
+      expectedOutputs: ["An exact-line supported finding"],
+    };
+
+    const [redacted, ordinaryAuthentication] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/security",
+        commitSha: "f".repeat(40),
+        path: "src/runtime/config.ts",
+        content: "const serviceToken = '[REDACTED API TOKEN]';",
+        task,
+      },
+      {
+        repository: "example/security",
+        commitSha: "f".repeat(40),
+        path: "src/auth/session.ts",
+        content: "export const readSession = (cookie) => verifySignedCookie(cookie);",
+        task,
+      },
+    ]);
+
+    expect(redacted?.facts[0]?.sensitivityFlag).toBe(true);
+    expect(ordinaryAuthentication?.facts[0]?.sensitivityFlag).toBe(false);
+  });
+
   it("rejects planned documentation findings in single-file semantic extraction", async () => {
     generateStructuredMock.mockResolvedValueOnce({
       data: {
@@ -394,6 +526,8 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("query-parameter plumbing");
     expect(request.systemPrompt).toContain("primary executed action, mutation, or result");
     expect(request.systemPrompt).toContain("visible button or field proves an affordance");
+    expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
+    expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
     expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
   });
 
@@ -951,6 +1085,8 @@ describe("repository semantic task and budget", () => {
     expect(request.maxTokens).toBe(777);
     expect(request.budget).toBe(budget.model);
     expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
+    expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
     expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
