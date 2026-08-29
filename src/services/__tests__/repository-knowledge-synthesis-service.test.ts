@@ -274,19 +274,16 @@ describe("repository synthesis limit fallback", () => {
           claimKey: "project_domain:payments#scope:fact:1",
           supported: false,
           issues: ["unsupported_compound_action"],
-          explanation: "The citation establishes persistence but not encryption.",
         },
         {
           claimKey: "project_domain:payments#scope:fact:2",
           supported: true,
           issues: [],
-          explanation: "The cited statement directly establishes persistence.",
         },
         {
           claimKey: "project_domain:payments#scope:highlight:1",
           supported: false,
           issues: ["unsupported_broad_qualifier"],
-          explanation: "The citation does not establish complete or universal behavior.",
         },
       ],
     });
@@ -342,7 +339,6 @@ describe("repository synthesis limit fallback", () => {
         claimKey: "project_domain:events#scope:fact:1",
         supported: true,
         issues: ["unsupported_detail"],
-        explanation: "Contradictory verdict.",
       }],
     }, new Set(["project_domain:events#scope:fact:1"]))).toEqual([
       "Supported assessments must have no issues; unsupported assessments must name at least one issue.",

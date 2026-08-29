@@ -166,7 +166,6 @@ describe("repository synthesis model main path", () => {
               claimKey: prompt.subsystems[0]!.claims![0]!.claimKey,
               supported: true,
               issues: [],
-              explanation: "The cited notebook entry explicitly entails the claim.",
             }],
           };
       expect(request.extraValidation?.(data as never) ?? []).toEqual([]);

@@ -69,7 +69,6 @@ function entailmentCritic(
         claimKey: `project_domain:payments#scope:fact:${index + 1}`,
         supported: true,
         issues: [],
-        explanation: "The cited evidence entails the claim.",
       })),
     },
     ...overrides,

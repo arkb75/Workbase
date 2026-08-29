@@ -171,7 +171,6 @@ export const repositorySynthesisCriticSchema = z.object({
     claimKey: z.string().trim().min(3).max(180),
     supported: z.boolean(),
     issues: z.array(z.enum(synthesisCriticIssues)).max(4),
-    explanation: z.string().trim().min(2).max(400),
   })).max(10),
 });
 
@@ -186,7 +185,7 @@ const repositorySynthesisCriticJsonSchema: JsonSchemaObject = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["claimKey", "supported", "issues", "explanation"],
+        required: ["claimKey", "supported", "issues"],
         properties: {
           claimKey: { type: "string", minLength: 3, maxLength: 180 },
           supported: { type: "boolean" },
@@ -195,7 +194,6 @@ const repositorySynthesisCriticJsonSchema: JsonSchemaObject = {
             maxItems: 4,
             items: { type: "string", enum: [...synthesisCriticIssues] },
           },
-          explanation: { type: "string", minLength: 2, maxLength: 400 },
         },
       },
     },
@@ -1648,7 +1646,7 @@ async function synthesizeSubsystemSet(input: {
           "A path, symbol name, UI label, or documentation-only statement does not by itself prove implemented behavior.",
           "Assess both text and summary for each Highlight. If either contains an unsupported material clause, reject the whole Highlight.",
           "Use unsupported_compound_action for a missing action in a multi-action claim and unsupported_broad_qualifier for an unproven scope or certainty qualifier.",
-          "Do not rewrite claims. Return exactly one verdict for every claimKey.",
+          "Do not explain or rewrite claims. Return only claimKey, supported, and issues, with exactly one verdict for every claimKey.",
         ].join(" "),
         userPrompt: JSON.stringify(criticPayload),
         schema: repositorySynthesisCriticSchema,
