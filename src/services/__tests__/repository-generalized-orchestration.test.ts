@@ -1379,6 +1379,84 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.repairPackages).toEqual([]);
   });
 
+  it("retries an exact degraded model-selected file even after its domain is covered", () => {
+    const area = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/commerce",
+      salience: 80,
+      files: [
+        { id: "orders-menu", path: "src/orders/menu.ts", score: 30 },
+        { id: "orders-service", path: "src/orders/service.ts", score: 20 },
+        { id: "orders-alternative", path: "src/orders/alternative.ts", score: 10 },
+      ],
+    };
+    const reports = [{
+      inspectedFileSnapshotIds: ["orders-menu", "orders-service"],
+      retryFileSnapshotIds: ["orders-menu"],
+      candidates: [
+        candidate(area.key, "orders-service"),
+      ],
+    }];
+
+    const critique = critiqueRepositoryCoverage({ manifest: [area], reports, allowRepair: true });
+
+    expect(critique.domains[0]?.status).toBe("covered");
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "orders-menu",
+    ]);
+    expect(critique.repairPackages[0]?.singletonFileSnapshotIds).toEqual([
+      "orders-menu",
+    ]);
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .not.toContain("orders-alternative");
+
+    const successful = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{ ...reports[0], retryFileSnapshotIds: [] }],
+      allowRepair: true,
+    });
+    expect(successful.repairPackages).toEqual([]);
+  });
+
+  it("prioritizes exact model retries before generic breadth under the repair ceiling", () => {
+    const retryArea = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/large",
+      salience: 1,
+      files: [
+        { id: "degraded-orders", path: "src/orders/menu.ts", score: 1 },
+        { id: "covered-orders", path: "src/orders/service.ts", score: 2 },
+      ],
+    };
+    const uncoveredAreas = Array.from({ length: 6 }, (_, index) => ({
+      key: `project_domain:uncovered-${index}`,
+      label: `Uncovered ${index}`,
+      scopeKey: "example/large",
+      salience: 100 - index,
+      files: [{
+        id: `uncovered-${index}`,
+        path: `src/uncovered-${index}/service.ts`,
+        score: 20 - index,
+      }],
+    }));
+    const critique = critiqueRepositoryCoverage({
+      manifest: [retryArea, ...uncoveredAreas],
+      reports: [{
+        inspectedFileSnapshotIds: ["degraded-orders", "covered-orders"],
+        retryFileSnapshotIds: ["degraded-orders"],
+        candidates: [candidate(retryArea.key, "covered-orders")],
+      }],
+      allowRepair: true,
+    });
+    const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(selected).toHaveLength(6);
+    expect(selected[0]).toBe("degraded-orders");
+    expect(new Set(selected.filter((id) => id.startsWith("uncovered-"))).size).toBe(5);
+  });
+
   it("shares two bounded repair batches across unresolved domains", () => {
     const manifest = Array.from({ length: 6 }, (_, index) => ({
       key: `project_domain:domain-${index}`,

@@ -9,6 +9,7 @@ import {
   capabilityCandidatesFromAnalysis,
   compactRepositorySemanticPlannerInput,
   createRepositorySemanticPlannerBudget,
+  effectiveCapabilityReportsAfterRepair,
   enforceMandatoryCoverage,
   immutableSemanticCacheWhere,
   missingAssignedFileCandidateGaps,
@@ -24,6 +25,8 @@ import {
   semanticPlannerTokenCommitment,
   semanticRepairTokenPool,
   semanticSignalKeysForFile,
+  semanticWorkPackageModelCallCount,
+  unresolvedSemanticExecutionGaps,
   type CapabilityManifestArea,
   type CapabilityReport,
   type SemanticWorkPackage,
@@ -696,9 +699,103 @@ describe("repository semantic orchestration guardrails", () => {
     expect(reports[1]).toMatchObject({
       packageId: "failed",
       inspectedFileSnapshotIds: [],
+      retryFileSnapshotIds: ["file-2"],
       partial: true,
       gaps: [expect.stringContaining("provider unavailable")],
     });
+  });
+
+  it("uses the latest exact-file repair for final evidence and execution gaps", () => {
+    const usage = {
+      inputBytes: 100,
+      modelCalls: 1,
+      repairPasses: 0,
+      inputTokens: 20,
+      outputTokens: 10,
+      totalTokens: 30,
+      unknownUsageCalls: 0,
+    };
+    const report = (
+      packageId: string,
+      statement: string,
+      retryFileSnapshotIds: string[],
+      gaps: string[],
+      partial: boolean,
+    ): CapabilityReport => ({
+      packageId,
+      inspectedFileSnapshotIds: ["file-1"],
+      retryFileSnapshotIds,
+      candidates: statement ? [{
+        key: "project_domain:orders",
+        statement,
+        kind: "behavior",
+        evidence: [{ fileSnapshotId: "file-1", lineStart: 1, lineEnd: 2 }],
+        confidence: "high",
+        supportedQualifiers: [],
+        unresolved: [],
+      }] : [],
+      contradictions: [],
+      gaps,
+      tokenUsage: [],
+      usage,
+      partial,
+    });
+    const initial = report(
+      "initial",
+      "The partial batch produced an obsolete observation.",
+      ["file-1"],
+      ["src/orders/menu.ts: Semantic analysis degraded."],
+      true,
+    );
+    const repaired = report(
+      "repair",
+      "The isolated retry establishes the implemented order workflow.",
+      [],
+      [],
+      false,
+    );
+
+    const effective = effectiveCapabilityReportsAfterRepair({
+      initialReports: [initial],
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+    });
+    expect(effective.flatMap((entry) => entry.candidates.map((candidate) => candidate.statement))).toEqual([
+      "The isolated retry establishes the implemented order workflow.",
+    ]);
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: [initial],
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+    })).toEqual([]);
+
+    const failedRepair = report(
+      "failed-repair",
+      "",
+      ["file-1"],
+      ["src/orders/menu.ts: Semantic analysis failed."],
+      true,
+    );
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: [initial],
+      repairReports: [failedRepair],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId: new Map([["file-1", "src/orders/menu.ts"]]),
+    })).toEqual(expect.arrayContaining([
+      "src/orders/menu.ts: Semantic analysis degraded.",
+      "src/orders/menu.ts: Semantic analysis failed.",
+      "src/orders/menu.ts: Semantic model retry did not establish complete assigned capability coverage.",
+    ]));
+  });
+
+  it("budgets isolated retries separately from remaining micro-batched files", () => {
+    expect(semanticWorkPackageModelCallCount({
+      fileSnapshotIds: ["retry", "ordinary-a", "ordinary-b"],
+      singletonFileSnapshotIds: ["retry"],
+    })).toBe(2);
+    expect(semanticWorkPackageModelCallCount({
+      fileSnapshotIds: ["ordinary-a", "ordinary-b", "ordinary-c", "ordinary-d"],
+    })).toBe(1);
   });
 
   it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {
