@@ -232,16 +232,17 @@ describe("repository synthesis model main path", () => {
     expect(generateStructuredMock.mock.calls[1]![0]).toMatchObject({
       maxTokens: 2_000,
       effort: "low",
+      enablePromptCaching: false,
     });
     const synthesisPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
     const criticPrompt = JSON.parse(generateStructuredMock.mock.calls[1]![0].userPrompt);
     expect(synthesisPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
-    expect(criticPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
+    expect(criticPrompt.subsystems[0].notebook[0]).toEqual({
+      index: 1,
+      sourceExcerpt,
+    });
     expect(generateStructuredMock.mock.calls[1]![0].systemPrompt).toContain(
-      "sourceExcerpt contains the exact bounded source fragments",
-    );
-    expect(generateStructuredMock.mock.calls[1]![0].systemPrompt).toContain(
-      "statement but not in sourceExcerpt",
+      "Each supplied sourceExcerpt contains the exact bounded source fragment",
     );
     expect(generateStructuredMock.mock.calls[0]![0].systemPrompt).toContain(
       "sourceExcerpt contains the exact bounded source fragments",
@@ -419,9 +420,10 @@ describe("repository synthesis model main path", () => {
       isFinalRevisionRound: false,
     });
     expect(revisionPrompt.subsystems[0].rejectedClaims).toHaveLength(1);
-    expect(revisionPrompt.subsystems[0].notebook).toEqual([
-      expect.objectContaining({ index: 1, sourceExcerpt }),
-    ]);
+    expect(revisionPrompt.subsystems[0].notebook).toEqual([{
+      index: 1,
+      sourceExcerpt,
+    }]);
     expect(revisionPrompt.subsystems[0]).not.toHaveProperty("priorSynthesis");
     const revisionSystemPrompt = generateStructuredMock.mock.calls[2]![0].systemPrompt;
     expect(revisionSystemPrompt).toContain(
@@ -742,18 +744,17 @@ describe("repository synthesis model main path", () => {
     expect(firstRevisionPrompt.subsystems[0].rejectedClaims.map(
       (claim: { claimKey: string }) => claim.claimKey,
     )).toEqual([expect.stringMatching(/:fact:2$/u)]);
-    expect(firstRevisionPrompt.subsystems[0].notebook).toEqual([
-      expect.objectContaining({ index: 1, sourceExcerpt }),
-    ]);
+    expect(firstRevisionPrompt.subsystems[0].notebook).toEqual([{
+      index: 1,
+      sourceExcerpt,
+    }]);
     expect(secondRevisionPrompt.subsystems[0].rejectedClaims.map(
       (claim: { claimKey: string }) => claim.claimKey,
     )).toEqual([expect.stringMatching(/:fact:2$/u)]);
-    expect(secondRevisionPrompt.subsystems[0].notebook).toEqual([
-      expect.objectContaining({
-        index: 1,
-        sourceExcerpt,
-      }),
-    ]);
+    expect(secondRevisionPrompt.subsystems[0].notebook).toEqual([{
+      index: 1,
+      sourceExcerpt,
+    }]);
     expect(generateStructuredMock.mock.calls[4]![0].systemPrompt).toContain(
       repositoryEvidenceBoundaryGuidance,
     );

@@ -192,6 +192,39 @@ describe("BedrockStructuredLlmClient", () => {
     expect(result.data).toEqual({ ok: true });
     expect(result.transportMode).toBe("bedrock_json_schema");
     expect(calls[0]?.structuredOutput?.mode).toBe("bedrock_json_schema");
+    expect(calls[0]?.enablePromptCaching).toBe(true);
+  });
+
+  it("propagates an explicit prompt-caching opt-out through native, text, and repair calls", async () => {
+    const { client, calls } = makeClient([
+      { text: "not valid native json" },
+      { text: "not valid text json" },
+      { text: '{"ok":true}' },
+    ]);
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      enablePromptCaching: false,
+      transportPreference: ["bedrock_json_schema", "text_repair_fallback"],
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(calls.map((call) => call.structuredOutput?.mode ?? "text")).toEqual([
+      "bedrock_json_schema",
+      "text",
+      "text",
+    ]);
+    expect(calls.map((call) => call.enablePromptCaching)).toEqual([
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("retains the provider request ID in durable structured usage evidence", async () => {
@@ -626,8 +659,11 @@ describe("BedrockStructuredLlmClient", () => {
     expect(budget.usage.totalTokens).toBe(2_700);
   });
 
-  it("reserves cache accounting for Bedrock but not OpenRouter", async () => {
-    const run = async (provider: "bedrock" | "openrouter") => {
+  it("reserves cache accounting only for cache-enabled Bedrock calls", async () => {
+    const run = async (
+      provider: "bedrock" | "openrouter",
+      enablePromptCaching?: boolean,
+    ) => {
       const runtime: ConverseTextRuntime = {
         async converse() {
           return {
@@ -657,15 +693,19 @@ describe("BedrockStructuredLlmClient", () => {
         jsonSchema,
         maxTokens: 512,
         transportPreference: ["bedrock_json_schema"],
+        enablePromptCaching,
         budget,
       });
       return budget.usage;
     };
 
     const bedrockUsage = await run("bedrock");
+    const uncachedBedrockUsage = await run("bedrock", false);
     const openRouterUsage = await run("openrouter");
     expect(bedrockUsage.inputTokens).toBe(openRouterUsage.inputTokens * 2);
+    expect(uncachedBedrockUsage.inputTokens).toBe(openRouterUsage.inputTokens);
     expect(bedrockUsage.outputTokens).toBe(openRouterUsage.outputTokens);
+    expect(uncachedBedrockUsage.outputTokens).toBe(openRouterUsage.outputTokens);
   });
 
   it("uses charged cache tokens to safely bound a waiting Bedrock call", async () => {

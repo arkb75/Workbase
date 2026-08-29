@@ -97,7 +97,7 @@ describe("repository synthesis model-path limits", () => {
     expect(loadRun).not.toHaveBeenCalled();
   });
 
-  it("runs independent synthesis batches three at a time and returns input order", async () => {
+  it("finishes each bounded synthesis wave before admitting the next and returns input order", async () => {
     const started: number[] = [];
     const releases = new Map<number, () => void>();
     let active = 0;
@@ -117,12 +117,14 @@ describe("repository synthesis model-path limits", () => {
     await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
     expect(maximumActive).toBe(3);
     releases.get(1)!();
-    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
     releases.get(2)!();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(started).toEqual([0, 1, 2]);
+    releases.get(0)!();
     await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3, 4]));
     releases.get(4)!();
     releases.get(3)!();
-    releases.get(0)!();
 
     await expect(execution).resolves.toEqual([
       "batch-0",
@@ -246,16 +248,14 @@ describe("repository synthesis model-path limits", () => {
     expect(payload.subsystems).toEqual([expect.objectContaining({
       subsystemKey: "project_domain:payments#scope",
       notebook: [
-        expect.objectContaining({
+        {
           index: 1,
-          statement: "The service persists a payment receipt.",
           sourceExcerpt: "12: await receipts.insert(receipt);",
-        }),
-        expect.objectContaining({
+        },
+        {
           index: 2,
-          statement: "The service loads a payment receipt by identifier.",
           sourceExcerpt: "8: return receipts.find(receiptId);",
-        }),
+        },
       ],
       claims,
     })]);

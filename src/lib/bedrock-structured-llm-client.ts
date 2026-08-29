@@ -910,12 +910,14 @@ export class BedrockStructuredLlmClient {
     maxTokens: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
+    enablePromptCaching?: boolean;
     budget?: StructuredGenerationBudget;
     extraValidation?: (value: T) => string[];
     signal?: AbortSignal;
   }) {
     const temperature = params.temperature ?? 0;
     const effort = params.effort ?? "high";
+    const enablePromptCaching = params.enablePromptCaching ?? true;
     const transportPreference =
       params.transportPreference ??
       this.config.defaultTransportPreference ??
@@ -1225,7 +1227,7 @@ export class BedrockStructuredLlmClient {
           maxTokens: params.maxTokens,
           temperature,
           effort,
-          enablePromptCaching: true,
+          enablePromptCaching,
           signal: params.signal,
           structuredOutput: {
             mode,
@@ -1395,7 +1397,7 @@ export class BedrockStructuredLlmClient {
           maxTokens: params.maxTokens,
           temperature,
           effort,
-          enablePromptCaching: true,
+          enablePromptCaching,
           signal: params.signal,
         }, "generation");
       } catch (error) {
@@ -1495,7 +1497,7 @@ export class BedrockStructuredLlmClient {
         maxTokens: params.maxTokens,
         temperature: 0,
         effort: "medium",
-        enablePromptCaching: true,
+        enablePromptCaching,
         signal: params.signal,
       }, "repair");
     } catch (error) {
