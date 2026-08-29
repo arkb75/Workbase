@@ -403,6 +403,112 @@ describe("repository knowledge main-path integrity", () => {
     });
   });
 
+  it("requires an exact successful round-two critic attestation", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [{
+          text: "Built durable receipt storage",
+          summary: "The payment service persists receipts for later retrieval.",
+          citationIndexes: [1],
+        }],
+      }],
+    };
+    const synthesisRun = synthesisGeneration(synthesis, {
+      inputSummary: {
+        phase: "synthesis",
+        refreshRunId: "refresh-1",
+        subsystemKeys: ["project_domain:payments#scope"],
+        revisionRound: 2,
+      },
+    });
+    const matchingCritic = entailmentCritic(synthesis, 2);
+    const evaluate = (critic: RepositoryKnowledgeGenerationAuditRecord) =>
+      evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisRun,
+          critic,
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+    const accepted = evaluate(matchingCritic);
+    expect(accepted.passed).toBe(true);
+    expect(accepted.metrics).toMatchObject({
+      claimfulSynthesis: 1,
+      criticCoveredSynthesis: 1,
+    });
+
+    const criticSummary = matchingCritic.inputSummary as Record<string, unknown>;
+    const mismatches: RepositoryKnowledgeGenerationAuditRecord[] = [
+      {
+        ...matchingCritic,
+        inputSummary: {
+          ...criticSummary,
+          subsystemKeys: ["project_domain:refunds#scope"],
+        },
+      },
+      {
+        ...matchingCritic,
+        inputSummary: {
+          ...criticSummary,
+          claimCount: 1,
+        },
+      },
+      {
+        ...matchingCritic,
+        parsedOutput: {
+          assessments: [
+            {
+              claimKey: "project_domain:payments#scope:fact:1",
+              supported: true,
+              issues: [],
+            },
+            {
+              claimKey: "project_domain:payments#scope:fact:1",
+              supported: true,
+              issues: [],
+            },
+          ],
+        },
+      },
+      {
+        ...matchingCritic,
+        inputSummary: {
+          ...criticSummary,
+          claimContentDigest: "0".repeat(64),
+        },
+      },
+      {
+        ...matchingCritic,
+        status: "provider_error",
+      },
+    ];
+    for (const mismatch of mismatches) {
+      const rejected = evaluate(mismatch);
+      expect(rejected.passed).toBe(false);
+      expect(rejected.issues).toContain(
+        "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
+      );
+      expect(rejected.metrics).toMatchObject({
+        claimfulSynthesis: 1,
+        criticCoveredSynthesis: 0,
+      });
+    }
+  });
+
   it("rejects a critic that only covers another synthesis revision round", () => {
     const synthesis = {
       subsystems: [{

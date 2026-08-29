@@ -423,9 +423,302 @@ describe("repository synthesis model main path", () => {
     }));
   });
 
-  it("reserves one bounded revision and two schema repairs per batch under one 80K cap", () => {
+  it("repairs a newly discovered rejection in one bounded second revision", async () => {
+    const latencyStatement =
+      "The charge service records request latency for diagnostics.";
+    const correctedPaymentStatement =
+      "The charge service records an idempotency key before publishing a payment receipt.";
+    let criticRound = 0;
+    let revisionRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = (factStatement: string, citationIndexes: number[]) => ({
+        statement: factStatement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes,
+        reviewNotes: null,
+        productImportance: 4,
+        implementationBreadth: 2,
+        technicalDifficulty: 2,
+        distinctiveness: 2,
+      });
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [
+              fact(
+                `${latencyStatement} It exports every measurement to an external dashboard.`,
+                [2],
+              ),
+              fact(`${correctedPaymentStatement} It encrypts every receipt.`, [1]),
+            ],
+            highlights: [],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        revisionRound += 1;
+        const rejectedClaimKey = prompt.subsystems[0]!.rejectedClaims![0]!.claimKey;
+        data = {
+          factRevisions: [{
+            claimKey: rejectedClaimKey,
+            replacement: revisionRound === 1
+              ? fact(correctedPaymentStatement, [1])
+              : fact(latencyStatement, [2]),
+          }],
+          highlightRevisions: [],
+        };
+      } else {
+        const claims = prompt.subsystems[0]!.claims!;
+        const assessmentByKey = new Map<string, {
+          supported: boolean;
+          issues: string[];
+        }>();
+        if (criticRound === 0) {
+          assessmentByKey.set(`${subsystemKey}:fact:1`, {
+            supported: true,
+            issues: [],
+          });
+          assessmentByKey.set(`${subsystemKey}:fact:2`, {
+            supported: false,
+            issues: ["unsupported_detail"],
+          });
+        } else if (criticRound === 1) {
+          assessmentByKey.set(`${subsystemKey}:fact:1`, {
+            supported: false,
+            issues: ["unsupported_detail"],
+          });
+          assessmentByKey.set(`${subsystemKey}:fact:2`, {
+            supported: true,
+            issues: [],
+          });
+        } else {
+          claims.forEach((claim) => assessmentByKey.set(claim.claimKey, {
+            supported: true,
+            issues: [],
+          }));
+        }
+        data = {
+          assessments: claims.map((claim) => ({
+            claimKey: claim.claimKey,
+            ...assessmentByKey.get(claim.claimKey)!,
+          })),
+        };
+        criticRound += 1;
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_claim_revisions",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_claim_revisions",
+      "repository_synthesis_entailment_critic",
+    ]);
+    expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual([
+      latencyStatement,
+      correctedPaymentStatement,
+    ]);
+    expect(synthesis[0]?.coverageGaps).toEqual([]);
+    const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
+      request.create.inputSummary
+    );
+    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+      ["synthesis", 0],
+      ["entailment_critic", 0],
+      ["synthesis", 1],
+      ["entailment_critic", 1],
+      ["synthesis", 2],
+      ["entailment_critic", 2],
+    ]);
+    expect(summaries[4]).toEqual(expect.objectContaining({
+      rejectedClaimCount: 1,
+      revisionContract: "rejected_claim_patch_v1",
+    }));
+    const firstRevisionPrompt = JSON.parse(
+      generateStructuredMock.mock.calls[2]![0].userPrompt,
+    );
+    const secondRevisionPrompt = JSON.parse(
+      generateStructuredMock.mock.calls[4]![0].userPrompt,
+    );
+    expect(firstRevisionPrompt.subsystems[0].rejectedClaims.map(
+      (claim: { claimKey: string }) => claim.claimKey,
+    )).toEqual([expect.stringMatching(/:fact:2$/u)]);
+    expect(firstRevisionPrompt.subsystems[0].notebook).toEqual([
+      expect.objectContaining({ index: 1, sourceExcerpt }),
+    ]);
+    expect(secondRevisionPrompt.subsystems[0].rejectedClaims.map(
+      (claim: { claimKey: string }) => claim.claimKey,
+    )).toEqual([expect.stringMatching(/:fact:1$/u)]);
+    expect(secondRevisionPrompt.subsystems[0].notebook).toEqual([
+      expect.objectContaining({
+        index: 2,
+        sourceExcerpt: "20: metrics.recordLatency(elapsedMs);",
+      }),
+    ]);
+    expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
+      usage: { modelCalls: 6, totalTokens: 900 },
+    });
+    const persistedSecondRevision = prismaMock.generationRun.update.mock.calls[4]![0].data;
+    expect(persistedSecondRevision.parsedOutput).toEqual(expect.objectContaining({
+      subsystems: [expect.objectContaining({
+        facts: [
+          expect.objectContaining({ statement: latencyStatement }),
+          expect.objectContaining({ statement: correctedPaymentStatement }),
+        ],
+      })],
+    }));
+    expect(persistedSecondRevision.resultRefs).toEqual(expect.objectContaining({
+      resultAttestation: expect.objectContaining({
+        claimContentDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+    }));
+  });
+
+  it("fails closed after the second critic without starting a third revision", async () => {
+    const firstRevisionStatement =
+      "The charge service records an idempotency key before publishing a payment receipt and encrypts receipts.";
+    const secondRevisionStatement =
+      "The charge service records an idempotency key before publishing a payment receipt.";
+    let revisionRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = (factStatement: string) => ({
+        statement: factStatement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 5,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      });
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(`${statement} It encrypts every receipt.`)],
+            highlights: [],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        revisionRound += 1;
+        data = {
+          factRevisions: [{
+            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
+            replacement: fact(
+              revisionRound === 1
+                ? firstRevisionStatement
+                : secondRevisionStatement,
+            ),
+          }],
+          highlightRevisions: [],
+        };
+      } else {
+        data = {
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: false,
+            issues: ["unsupported_detail"],
+          })),
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_claim_revisions",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_claim_revisions",
+      "repository_synthesis_entailment_critic",
+    ]);
+    expect(revisionRound).toBe(2);
+    expect(synthesis[0]?.facts).toEqual([]);
+    expect(synthesis[0]?.coverageGaps).toEqual([
+      "Entailment verification rejected fact 1: unsupported detail.",
+    ]);
+    const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
+      request.create.inputSummary
+    );
+    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+      ["synthesis", 0],
+      ["entailment_critic", 0],
+      ["synthesis", 1],
+      ["entailment_critic", 1],
+      ["synthesis", 2],
+      ["entailment_critic", 2],
+    ]);
+  });
+
+  it("reserves two bounded revisions and two schema repairs per batch under one 80K cap", () => {
     expect(repositorySynthesisBudgetLimits(3)).toEqual({
-      maxModelCalls: 18,
+      maxModelCalls: 24,
       maxRepairPasses: 6,
       maxOutputTokens: 8_000,
       maxTotalTokens: 80_000,
