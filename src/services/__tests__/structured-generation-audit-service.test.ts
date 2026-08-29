@@ -26,7 +26,10 @@ vi.mock("@/src/lib/llm-config", () => ({
   resolveActiveTextModelIdentity: () => activeIdentityMock.value,
 }));
 
-import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
+import {
+  EXACT_PARSED_OUTPUT_MAX_BYTES,
+  runAuditedStructuredGeneration,
+} from "@/src/services/structured-generation-audit-service";
 
 const modelId = "us.anthropic.claude-sonnet-4-6-v1:0";
 
@@ -51,6 +54,68 @@ describe("structured generation audit usage", () => {
       modelId,
     };
     prismaMock.generationRun.update.mockResolvedValue({});
+  });
+
+  it("persists an opted-in bounded projection losslessly", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-exact",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    });
+    const longSummary = "x".repeat(700);
+    const result = {
+      ...structuredResult(null),
+      parsedOutput: { summary: longSummary },
+    };
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:exact",
+      inputSummary: { phase: "synthesis" },
+      exactParsedOutput: (generation) => generation.parsedOutput,
+      execute: async () => result,
+    });
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:sanitized",
+      inputSummary: { phase: "synthesis" },
+      execute: async () => result,
+    });
+
+    expect(prismaMock.generationRun.update.mock.calls[0]![0].data.parsedOutput)
+      .toEqual({ summary: longSummary });
+    expect(prismaMock.generationRun.update.mock.calls[1]![0].data.parsedOutput)
+      .toEqual({
+        summary: `${"x".repeat(512)}…[truncated 188 chars]`,
+      });
+  });
+
+  it("fails closed when an exact projection exceeds its UTF-8 byte cap", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-oversized",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    });
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:oversized",
+      inputSummary: { phase: "synthesis" },
+      exactParsedOutput: (generation) => generation.parsedOutput,
+      execute: async () => ({
+        ...structuredResult(null),
+        parsedOutput: { summary: "x".repeat(EXACT_PARSED_OUTPUT_MAX_BYTES) },
+      }),
+    })).rejects.toThrow(
+      `exceeds ${EXACT_PARSED_OUTPUT_MAX_BYTES} UTF-8 bytes`,
+    );
   });
 
   it("aggregates token usage and cost when a durable idempotency key is retried", async () => {

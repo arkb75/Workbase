@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { repositorySynthesisClaimContentDigest } from "@/src/domain/repository-synthesis-attestation";
+import {
+  repositorySynthesisClaimContentDigest,
+  repositorySynthesisCriticClaimContentDigest,
+} from "@/src/domain/repository-synthesis-attestation";
 
 function synthesis(input: {
   statement?: string;
@@ -66,9 +69,47 @@ describe("repository synthesis claim attestation", () => {
     }))).not.toBe(baseline);
   });
 
+  it("gives an explicit full claim set the same digest as its synthesis payload", () => {
+    const payload = synthesis({});
+    expect(repositorySynthesisCriticClaimContentDigest([
+      {
+        claimKey: "project_domain:payments#scope:fact:1",
+        kind: "fact",
+        claim: {
+          statement: payload.subsystems[0]!.facts[0]!.statement,
+        },
+        citationIndexes: [2, 1],
+      },
+      {
+        claimKey: "project_domain:payments#scope:highlight:1",
+        kind: "highlight",
+        claim: {
+          text: payload.subsystems[0]!.highlights[0]!.text,
+          summary: payload.subsystems[0]!.highlights[0]!.summary,
+        },
+        citationIndexes: [1, 2],
+      },
+    ])).toBe(repositorySynthesisClaimContentDigest(payload));
+  });
+
   it("fails closed for malformed claim payloads", () => {
     expect(repositorySynthesisClaimContentDigest({
       subsystems: [{ subsystemKey: "scope", facts: [{}], highlights: [] }],
     })).toBeNull();
+    expect(repositorySynthesisCriticClaimContentDigest([])).toBeNull();
+    expect(repositorySynthesisCriticClaimContentDigest([
+      {
+        claimKey: "scope:fact:1",
+        kind: "fact",
+        claim: { statement: "A supported statement." },
+        citationIndexes: [1],
+      },
+      {
+        claimKey: "scope:fact:1",
+        kind: "fact",
+        claim: { statement: "A duplicate-key statement." },
+        citationIndexes: [2],
+      },
+    ])).toBeNull();
   });
 });

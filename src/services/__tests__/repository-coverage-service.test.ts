@@ -509,6 +509,133 @@ describe("complete repository coverage", () => {
     expect(analysis.facts.some((fact) => fact.statement.includes("automated tests"))).toBe(false);
   });
 
+  it("does not promote comment-only integration references into static architecture facts", async () => {
+    const [setup, blockComment, pythonComment, htmlComment] = await analyzeRepositoryFiles([
+      {
+        repository: "arkb75/InsightUBC",
+        commitSha: "c".repeat(40),
+        path: "frontend/src/setupTests.js",
+        content: [
+          "// jest-dom adds custom matchers for asserting on DOM nodes.",
+          "// learn more: https://github.com/testing-library/jest-dom",
+          "import '@testing-library/jest-dom';",
+        ].join("\n"),
+      },
+      {
+        repository: "example/comments",
+        commitSha: "c".repeat(40),
+        path: "src/client.ts",
+        content: [
+          "/*",
+          "Example: https://github.com/example/client",
+          "fetch('https://github.com/example/client')",
+          " */",
+          "export const enabled = true;",
+        ].join("\n"),
+      },
+      {
+        repository: "example/comments",
+        commitSha: "c".repeat(40),
+        path: "src/client.py",
+        content: "# requests.get('https://github.com/example/client')\nenabled = True",
+      },
+      {
+        repository: "example/comments",
+        commitSha: "c".repeat(40),
+        path: "public/index.html",
+        content: "<!-- OAuth docs: https://github.com/example/client -->",
+      },
+    ]);
+
+    expect(setup).toMatchObject({
+      dependencies: ["@testing-library/jest-dom"],
+      architectureSignals: [],
+    });
+    expect(setup?.facts.some((fact) => fact.statement.includes("GitHub integration"))).toBe(false);
+    expect(blockComment?.architectureSignals).toEqual([]);
+    expect(pythonComment?.architectureSignals).toEqual([]);
+    expect(htmlComment?.architectureSignals).toEqual([]);
+  });
+
+  it("does not compose cross-line static behavior from comment-only clauses", async () => {
+    const [analysis] = await analyzeRepositoryFiles([{
+      repository: "example/comments",
+      commitSha: "c".repeat(40),
+      path: "src/retry-policy.ts",
+      content: [
+        "// maxRetries = 3",
+        "// timeout = 5_000",
+        "// await invalidateHighlightDependents(input.id)",
+        "/*",
+        "await invalidateEvidenceDependents(input.id)",
+        "*/",
+        "export const enabled = true;",
+      ].join("\n"),
+    }]);
+
+    expect(analysis?.facts.some((fact) => fact.statement.includes("bounds retry behavior"))).toBe(false);
+    expect(analysis?.facts.some((fact) => fact.statement.includes("invalidates downstream dependents"))).toBe(false);
+  });
+
+  it("retains static signals from imports, code and configuration values, and executable behavior", async () => {
+    const [importedClient, codeString, configuration, inlineCode, preprocessor, retryPolicy, invalidation] = await analyzeRepositoryFiles([
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "src/github-client.ts",
+        content: "import { Octokit } from 'octokit';\nexport class GitHubClient {}",
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "src/config.py",
+        content: "DOCS_URL = 'https://github.com/example/client'",
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "config/provider.yaml",
+        content: "provider: github",
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "src/client.ts",
+        content: "export async function load() { return fetch(endpoint); } // GitHub API",
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "include/provider.h",
+        content: '#define OAUTH_URL "https://github.com/example/client"',
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "src/retry-policy.ts",
+        content: "const maxRetries = 3;\nconst timeout = 5_000;",
+      },
+      {
+        repository: "example/integrations",
+        commitSha: "d".repeat(40),
+        path: "src/invalidation.ts",
+        content: "await invalidateHighlightDependents(input.id);",
+      },
+    ]);
+
+    expect(importedClient).toMatchObject({
+      dependencies: ["octokit"],
+      symbols: ["GitHubClient"],
+      architectureSignals: expect.arrayContaining(["GitHub integration"]),
+    });
+    expect(codeString?.architectureSignals).toContain("GitHub integration");
+    expect(configuration?.architectureSignals).toContain("GitHub integration");
+    expect(inlineCode?.architectureSignals).toContain("external integration");
+    expect(preprocessor?.architectureSignals).toContain("GitHub integration");
+    expect(retryPolicy?.facts.some((fact) => fact.statement.includes("bounds retry behavior"))).toBe(true);
+    expect(invalidation?.facts.some((fact) => fact.statement.includes("invalidates downstream dependents"))).toBe(true);
+  });
+
   it("preserves project-specific architecture areas instead of collapsing every service into one module", async () => {
     const analyses = await analyzeRepositoryFiles([
       {

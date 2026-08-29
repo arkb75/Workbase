@@ -12,6 +12,7 @@ import {
   isWorkbaseRepositoryIdentity,
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
+  mergeRepositorySynthesisCriticAfterRevision,
   normalizeRepositoryHighlightText,
   applyRepositorySynthesisCritic,
   applyRepositorySynthesisRevision,
@@ -22,6 +23,7 @@ import {
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
   repositorySynthesisRevisionErrors,
+  repositorySynthesisRevisionCriticClaims,
   repositorySynthesisRevisionEvidenceIndexes,
   repositorySynthesisStructuralErrors,
   repositoryUserFacingCapabilityGuidance,
@@ -1019,6 +1021,118 @@ describe("repository synthesis model-path limits", () => {
       "Entailment verification rejected fact 1 in revision round 1: unsupported broad qualifier.",
       "Entailment verification rejected fact 1 in revision round 2: unsupported broad qualifier.",
     ]);
+  });
+
+  it("rekeys retained and changed verdicts after an earlier null removal", () => {
+    const fact = (statement: string, citationIndexes: number[]) => ({
+      statement,
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes,
+      reviewNotes: null,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    });
+    const subsystemKey = "project_domain:inventory#scope";
+    const prior = {
+      subsystems: [{
+        subsystemKey,
+        facts: [
+          fact("The service stores an inventory record.", [1]),
+          fact("The service encrypts every inventory record.", [2]),
+          fact("The service validates and publishes each record.", [3]),
+        ],
+        highlights: [],
+        unresolvedQuestions: [],
+      }],
+    };
+    const priorCritic = {
+      assessments: [
+        {
+          claimKey: subsystemKey + ":fact:1",
+          supported: true,
+          issues: [],
+        },
+        {
+          claimKey: subsystemKey + ":fact:2",
+          supported: false,
+          issues: ["unsupported_broad_qualifier" as const],
+        },
+        {
+          claimKey: subsystemKey + ":fact:3",
+          supported: false,
+          issues: ["unsupported_compound_action" as const],
+        },
+      ],
+    };
+    const replacement = fact("The service validates an inventory record.", [3]);
+    const revision = {
+      factRevisions: [
+        {
+          claimKey: subsystemKey + ":fact:2",
+          replacement: null,
+        },
+        {
+          claimKey: subsystemKey + ":fact:3",
+          replacement,
+        },
+      ],
+      highlightRevisions: [],
+    };
+
+    expect(repositorySynthesisRevisionCriticClaims(prior, revision)).toEqual([
+      {
+        claimKey: subsystemKey + ":fact:3",
+        kind: "fact",
+        claim: { statement: replacement.statement },
+        citationIndexes: [3],
+      },
+    ]);
+    const merged = applyRepositorySynthesisRevision(
+      prior,
+      revision,
+      priorCritic,
+      1,
+    );
+    const cumulativeCritic = mergeRepositorySynthesisCriticAfterRevision(
+      prior,
+      priorCritic,
+      revision,
+      {
+        assessments: [{
+          claimKey: subsystemKey + ":fact:3",
+          supported: false,
+          issues: ["unsupported_detail"],
+        }],
+      },
+    );
+
+    expect(merged.subsystems[0]?.facts).toEqual([
+      prior.subsystems[0]!.facts[0],
+      replacement,
+    ]);
+    expect(cumulativeCritic.assessments).toEqual([
+      {
+        claimKey: subsystemKey + ":fact:1",
+        supported: true,
+        issues: [],
+      },
+      {
+        claimKey: subsystemKey + ":fact:2",
+        supported: false,
+        issues: ["unsupported_detail"],
+      },
+    ]);
+    expect(rejectedRepositorySynthesisClaimKeys(cumulativeCritic)).toEqual(
+      new Set([subsystemKey + ":fact:2"]),
+    );
+    expect(
+      applyRepositorySynthesisCritic(merged, cumulativeCritic)
+        .subsystems[0]?.facts,
+    ).toEqual([prior.subsystems[0]!.facts[0]]);
   });
 
   it("requires synthesis citations to stay within the semantic notebook", () => {

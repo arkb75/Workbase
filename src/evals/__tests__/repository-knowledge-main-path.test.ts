@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { repositorySynthesisClaimContentDigest } from "@/src/domain/repository-synthesis-attestation";
+import {
+  repositorySynthesisClaimContentDigest,
+  repositorySynthesisCriticClaimContentDigest,
+} from "@/src/domain/repository-synthesis-attestation";
 import {
   evaluateRepositoryKnowledgeMainPath,
   type RepositoryKnowledgeGenerationAuditRecord,
@@ -121,6 +124,141 @@ function entailmentCritic(
   });
 }
 
+function entailmentCriticRejecting(
+  parsedSynthesis: unknown,
+  rejectedClaimKeys: readonly string[],
+  revisionRound = 0,
+) {
+  const rejected = new Set(rejectedClaimKeys);
+  return entailmentCritic(parsedSynthesis, revisionRound, {
+    parsedOutput: {
+      assessments: claimKeys(parsedSynthesis).map((claimKey) => ({
+        claimKey,
+        supported: !rejected.has(claimKey),
+        issues: rejected.has(claimKey) ? ["unsupported_detail"] : [],
+      })),
+    },
+  });
+}
+
+type DeltaCriticClaim = {
+  claimKey: string;
+  kind: "fact" | "highlight";
+  claim: { statement: string } | { text: string; summary: string };
+  citationIndexes: number[];
+};
+
+type RevisionPatch = {
+  factRevisions: Array<{
+    claimKey: string;
+    replacement: Record<string, unknown> | null;
+  }>;
+  highlightRevisions: Array<{
+    claimKey: string;
+    replacement: Record<string, unknown> | null;
+  }>;
+};
+
+function deltaRevisionGeneration(
+  priorSynthesis: unknown,
+  revisedSynthesis: unknown,
+  revisionPatch: RevisionPatch,
+  criticClaims: DeltaCriticClaim[],
+  revisionRound = 1,
+) {
+  const claimContentDigest =
+    repositorySynthesisClaimContentDigest(revisedSynthesis);
+  const priorClaimContentDigest =
+    repositorySynthesisClaimContentDigest(priorSynthesis);
+  const criticClaimContentDigest =
+    repositorySynthesisCriticClaimContentDigest(criticClaims);
+  if (!claimContentDigest || !priorClaimContentDigest) {
+    throw new Error("Test revision must contain attestable repository payloads.");
+  }
+  if (
+    !revisedSynthesis ||
+    typeof revisedSynthesis !== "object" ||
+    Array.isArray(revisedSynthesis)
+  ) {
+    throw new Error("Test revision must be an object payload.");
+  }
+  const auditedRevisionPatch = [
+    ...revisionPatch.factRevisions.map((entry) => ({
+      claimKey: entry.claimKey,
+      kind: "fact" as const,
+      replacement: entry.replacement === null
+        ? null
+        : structuredClone(entry.replacement),
+    })),
+    ...revisionPatch.highlightRevisions.map((entry) => ({
+      claimKey: entry.claimKey,
+      kind: "highlight" as const,
+      replacement: entry.replacement === null
+        ? null
+        : structuredClone(entry.replacement),
+    })),
+  ];
+  return synthesisGeneration({
+    ...revisedSynthesis,
+    revisionPatch: auditedRevisionPatch,
+  }, {
+    id: "generation-capability-synthesis-revision-" + revisionRound,
+    inputSummary: {
+      phase: "synthesis",
+      refreshRunId: "refresh-1",
+      subsystemKeys: ["project_domain:payments#scope"],
+      revisionRound,
+      revisionContract: "rejected_claim_patch_v2_delta_critic",
+    },
+    resultRefs: {
+      configuredModelId: "synthesis-model",
+      requestIds: ["request-capability_synthesis-revision-" + revisionRound],
+      usageComplete: true,
+      failedProviderAttempts: [],
+      providerAttemptCount: 1,
+      transportMode: "json_schema",
+      resultAttestation: {
+        claimContentDigest,
+        priorClaimContentDigest,
+        criticScope: "changed_claims",
+        criticClaimCount: criticClaims.length,
+        criticClaimKeys: criticClaims.map((claim) => claim.claimKey),
+        criticClaimContentDigest,
+      },
+    },
+  });
+}
+
+function deltaEntailmentCritic(
+  criticClaims: DeltaCriticClaim[],
+  revisionRound = 1,
+) {
+  const claimContentDigest =
+    repositorySynthesisCriticClaimContentDigest(criticClaims);
+  if (!claimContentDigest) {
+    throw new Error("Test delta critic must receive at least one claim.");
+  }
+  return generation("capability_synthesis", "synthesis-model", {
+    id: "generation-capability-synthesis-delta-critic-" + revisionRound,
+    inputSummary: {
+      phase: "entailment_critic",
+      refreshRunId: "refresh-1",
+      subsystemKeys: ["project_domain:payments#scope"],
+      claimCount: criticClaims.length,
+      claimContentDigest,
+      revisionRound,
+      criticScope: "changed_claims",
+    },
+    parsedOutput: {
+      assessments: criticClaims.map((claim) => ({
+        claimKey: claim.claimKey,
+        supported: true,
+        issues: [],
+      })),
+    },
+  });
+}
+
 describe("repository knowledge main-path integrity", () => {
   it("accepts successful attributed model extraction and synthesis", () => {
     const synthesis = {
@@ -172,6 +310,740 @@ describe("repository knowledge main-path integrity", () => {
         budgetExhausted: false,
       },
     });
+  });
+
+  it("rejects a revision round that masquerades as a full synthesis", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          { statement: "The service records request latency.", citationIndexes: [2] },
+          { statement: "The service persists payment receipts.", citationIndexes: [1] },
+        ],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [initial.subsystems[0]!.facts[0]],
+        highlights: [],
+      }],
+    };
+    const revision = synthesisGeneration(revised, {
+      id: "generation-capability-synthesis-revision-1",
+      inputSummary: {
+        phase: "synthesis",
+        refreshRunId: "refresh-1",
+        subsystemKeys: ["project_domain:payments#scope"],
+        revisionRound: 1,
+      },
+    });
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCritic(initial),
+        revision,
+        entailmentCritic(revised, 1),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
+  });
+
+  it("rejects synthesis content that differs from its persisted attestation", () => {
+    const attested = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service persists payment receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const synthesis = synthesisGeneration(attested);
+    synthesis.parsedOutput = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service deletes every customer account.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesis,
+        entailmentCritic(attested),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 synthesis generation(s) do not attest their emitted claim count.",
+    );
+  });
+
+  it("rejects duplicate or mislabeled synthesis subsystem batches", () => {
+    const synthesisA = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{ statement: "The service persists receipts.", citationIndexes: [1] }],
+        highlights: [],
+      }],
+    };
+    const changedA = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{ statement: "The service deletes receipts.", citationIndexes: [1] }],
+        highlights: [],
+      }],
+    };
+    for (const secondSubsystemKeys of [
+      ["project_domain:payments#scope"],
+      ["project_domain:orders#scope"],
+    ]) {
+      const second = synthesisGeneration(changedA, {
+        id: "generation-capability-synthesis-second",
+        inputSummary: {
+          phase: "synthesis",
+          refreshRunId: "refresh-1",
+          subsystemKeys: secondSubsystemKeys,
+          revisionRound: 0,
+        },
+      });
+      const secondCritic = entailmentCritic(changedA);
+      secondCritic.inputSummary = {
+        ...(secondCritic.inputSummary as Record<string, unknown>),
+        subsystemKeys: secondSubsystemKeys,
+      };
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(synthesisA),
+          entailmentCritic(synthesisA),
+          second,
+          secondCritic,
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(false);
+    }
+  });
+
+  it("rejects revision-only metadata on an initial synthesis", () => {
+    const parsedOutput = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{ statement: "The service persists receipts.", citationIndexes: [1] }],
+        highlights: [],
+      }],
+    };
+    for (const mutation of ["contract", "scope", "patch"] as const) {
+      const synthesis = synthesisGeneration(parsedOutput);
+      if (mutation === "contract") {
+        synthesis.inputSummary = {
+          ...(synthesis.inputSummary as Record<string, unknown>),
+          revisionContract: "rejected_claim_patch_v2_delta_critic",
+        };
+      } else if (mutation === "scope") {
+        const refs = synthesis.resultRefs as {
+          resultAttestation: Record<string, unknown>;
+        };
+        refs.resultAttestation.criticScope = "changed_claims";
+      } else {
+        synthesis.parsedOutput = { ...parsedOutput, revisionPatch: [] };
+      }
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesis,
+          entailmentCritic(parsedOutput),
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.issues).toContain(
+        "1 initial synthesis generation(s) declare revision-only metadata.",
+      );
+    }
+  });
+
+  it("accepts a chained revision critic that verifies only changed claims", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          {
+            statement: "The service records request latency.",
+            citationIndexes: [2],
+          },
+          {
+            statement: "The service encrypts every receipt.",
+            citationIndexes: [1],
+          },
+          {
+            statement: "The service publishes a payment receipt.",
+            citationIndexes: [1],
+          },
+        ],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          initial.subsystems[0]!.facts[0],
+          {
+            statement: "The service records an idempotency key.",
+            citationIndexes: [1],
+          },
+          initial.subsystems[0]!.facts[2],
+        ],
+        highlights: [],
+      }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: "project_domain:payments#scope:fact:2",
+      kind: "fact",
+      claim: { statement: revised.subsystems[0]!.facts[1]!.statement },
+      citationIndexes: [1],
+    }];
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{
+        claimKey: changedClaims[0]!.claimKey,
+        replacement: revised.subsystems[0]!.facts[1]!,
+      }],
+      highlightRevisions: [],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [changedClaims[0]!.claimKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          revisionPatch,
+          changedClaims,
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.metrics).toMatchObject({
+      capabilitySynthesis: 2,
+      entailmentCritic: 2,
+      claimfulSynthesis: 2,
+      criticCoveredSynthesis: 2,
+    });
+  });
+
+  it("re-keys a later revision after an earlier positional removal", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          { statement: "The service encrypts every receipt.", citationIndexes: [1] },
+          { statement: "The service records request latency.", citationIndexes: [2] },
+          { statement: "The service publishes every receipt.", citationIndexes: [1] },
+        ],
+        highlights: [],
+      }],
+    };
+    const firstReplacement = {
+      statement: "The service publishes a payment receipt.",
+      citationIndexes: [1],
+    };
+    const firstRevision = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [initial.subsystems[0]!.facts[1], firstReplacement],
+        highlights: [],
+      }],
+    };
+    const firstChangedClaims: DeltaCriticClaim[] = [{
+      claimKey: "project_domain:payments#scope:fact:3",
+      kind: "fact",
+      claim: { statement: firstReplacement.statement },
+      citationIndexes: [1],
+    }];
+    const firstPatch: RevisionPatch = {
+      factRevisions: [
+        {
+          claimKey: "project_domain:payments#scope:fact:1",
+          replacement: null,
+        },
+        {
+          claimKey: "project_domain:payments#scope:fact:3",
+          replacement: firstReplacement,
+        },
+      ],
+      highlightRevisions: [],
+    };
+    const firstCritic = deltaEntailmentCritic(firstChangedClaims, 1);
+    firstCritic.parsedOutput = {
+      assessments: [{
+        claimKey: firstChangedClaims[0]!.claimKey,
+        supported: false,
+        issues: ["unsupported_detail"],
+      }],
+    };
+    const finalReplacement = {
+      statement: "The service records an idempotency key.",
+      citationIndexes: [1],
+    };
+    const finalRevision = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [firstRevision.subsystems[0]!.facts[0], finalReplacement],
+        highlights: [],
+      }],
+    };
+
+    for (const [secondPatchKey, expectedPass] of [
+      ["project_domain:payments#scope:fact:2", true],
+      ["project_domain:payments#scope:fact:3", false],
+    ] as const) {
+      const secondChangedClaims: DeltaCriticClaim[] = [{
+        claimKey: secondPatchKey,
+        kind: "fact",
+        claim: { statement: finalReplacement.statement },
+        citationIndexes: [1],
+      }];
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(initial),
+          entailmentCriticRejecting(initial, [
+            "project_domain:payments#scope:fact:1",
+            "project_domain:payments#scope:fact:3",
+          ]),
+          deltaRevisionGeneration(
+            initial,
+            firstRevision,
+            firstPatch,
+            firstChangedClaims,
+            1,
+          ),
+          firstCritic,
+          deltaRevisionGeneration(
+            firstRevision,
+            finalRevision,
+            {
+              factRevisions: [{
+                claimKey: secondPatchKey,
+                replacement: finalReplacement,
+              }],
+              highlightRevisions: [],
+            },
+            secondChangedClaims,
+            2,
+          ),
+          deltaEntailmentCritic(secondChangedClaims, 2),
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(expectedPass);
+      if (!expectedPass) {
+        expect(result.issues).toContain(
+          "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+        );
+      }
+    }
+  });
+
+  it("rejects a missing or mismatched changed-claim critic", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service encrypts every receipt.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service records an idempotency key.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: "project_domain:payments#scope:fact:1",
+      kind: "fact",
+      claim: { statement: revised.subsystems[0]!.facts[0]!.statement },
+      citationIndexes: [1],
+    }];
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{
+        claimKey: changedClaims[0]!.claimKey,
+        replacement: revised.subsystems[0]!.facts[0]!,
+      }],
+      highlightRevisions: [],
+    };
+    const revision = deltaRevisionGeneration(
+      initial,
+      revised,
+      revisionPatch,
+      changedClaims,
+    );
+    const mismatchedCritic = deltaEntailmentCritic(changedClaims);
+    mismatchedCritic.inputSummary = {
+      ...(mismatchedCritic.inputSummary as Record<string, unknown>),
+      claimContentDigest: "0".repeat(64),
+    };
+    const malformedCritic = deltaEntailmentCritic(changedClaims);
+    malformedCritic.parsedOutput = {
+      assessments: [{
+        claimKey: changedClaims[0]!.claimKey,
+        supported: false,
+        issues: ["invented_issue"],
+      }],
+    };
+    const baseRuns = [
+      generation("execution_routing", "routing-model"),
+      generation("semantic_extraction", "semantic-model"),
+      synthesisGeneration(initial),
+      entailmentCriticRejecting(initial, [changedClaims[0]!.claimKey]),
+      revision,
+    ];
+    for (const criticRuns of [[], [mismatchedCritic], [malformedCritic]]) {
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [...baseRuns, ...criticRuns],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.metrics).toMatchObject({
+        claimfulSynthesis: 2,
+        criticCoveredSynthesis: 1,
+      });
+      expect(result.issues).toContain(
+        "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
+      );
+    }
+  });
+
+  it("rejects a revision whose replacement differs from its delta critic payload", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service encrypts every receipt.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service records an idempotency key.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const claimKey = "project_domain:payments#scope:fact:1";
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{
+        claimKey,
+        replacement: revised.subsystems[0]!.facts[0]!,
+      }],
+      highlightRevisions: [],
+    };
+    const mismatchedCriticClaims: DeltaCriticClaim[] = [{
+      claimKey,
+      kind: "fact",
+      claim: { statement: "The service stores payment receipts." },
+      citationIndexes: [1],
+    }];
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [claimKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          revisionPatch,
+          mismatchedCriticClaims,
+        ),
+        deltaEntailmentCritic(mismatchedCriticClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.metrics).toMatchObject({
+      claimfulSynthesis: 2,
+      criticCoveredSynthesis: 1,
+    });
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
+  });
+
+  it("rejects an all-null revision that removes a supported claim", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          {
+            statement: "The service records request latency.",
+            citationIndexes: [2],
+          },
+          {
+            statement: "The service encrypts every receipt.",
+            citationIndexes: [1],
+          },
+        ],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [initial.subsystems[0]!.facts[0]],
+        highlights: [],
+      }],
+    };
+    const removedClaimKey = "project_domain:payments#scope:fact:2";
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{ claimKey: removedClaimKey, replacement: null }],
+      highlightRevisions: [],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCritic(initial),
+        deltaRevisionGeneration(initial, revised, revisionPatch, []),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.metrics).toMatchObject({
+      capabilitySynthesis: 2,
+      entailmentCritic: 1,
+      claimfulSynthesis: 2,
+      criticCoveredSynthesis: 1,
+    });
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
+  });
+
+  it("accepts an authorized all-null revision without an empty critic call", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [
+          {
+            statement: "The service records request latency.",
+            citationIndexes: [2],
+          },
+          {
+            statement: "The service encrypts every receipt.",
+            citationIndexes: [1],
+          },
+        ],
+        highlights: [],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [initial.subsystems[0]!.facts[0]],
+        highlights: [],
+      }],
+    };
+    const removedClaimKey = "project_domain:payments#scope:fact:2";
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{ claimKey: removedClaimKey, replacement: null }],
+      highlightRevisions: [],
+    };
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [removedClaimKey]),
+        deltaRevisionGeneration(initial, revised, revisionPatch, []),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.metrics).toMatchObject({
+      capabilitySynthesis: 2,
+      entailmentCritic: 1,
+      claimfulSynthesis: 2,
+      criticCoveredSynthesis: 2,
+    });
+  });
+
+  it("rejects a delta revision whose prior-payload chain is not attested", () => {
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: "project_domain:payments#scope:fact:1",
+      kind: "fact",
+      claim: { statement: "The service stores payment receipts." },
+      citationIndexes: [1],
+    }];
+    const revised = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service stores payment receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const revisionPatch: RevisionPatch = {
+      factRevisions: [{
+        claimKey: changedClaims[0]!.claimKey,
+        replacement: revised.subsystems[0]!.facts[0]!,
+      }],
+      highlightRevisions: [],
+    };
+    const revision = deltaRevisionGeneration(
+      initial,
+      revised,
+      revisionPatch,
+      changedClaims,
+    );
+    const refs = revision.resultRefs as {
+      resultAttestation: Record<string, unknown>;
+    };
+    refs.resultAttestation.priorClaimContentDigest = "0".repeat(64);
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [changedClaims[0]!.claimKey]),
+        revision,
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.metrics).toMatchObject({
+      claimfulSynthesis: 2,
+      criticCoveredSynthesis: 1,
+    });
+    expect(result.issues).toContain(
+      "1 claim-emitting synthesis generation(s) lack a successful entailment critic for the same subsystem batch, revision round, and exact claim payload.",
+    );
   });
 
   it("rejects claim-emitting synthesis without a matching successful entailment critic", () => {
@@ -362,7 +1234,7 @@ describe("repository knowledge main-path integrity", () => {
     }
   });
 
-  it("accepts a revised synthesis only when its critic attests the same revision round", () => {
+  it("accepts an initial synthesis only when its critic attests the same revision round", () => {
     const synthesis = {
       subsystems: [{
         subsystemKey: "project_domain:payments#scope",
@@ -382,10 +1254,10 @@ describe("repository knowledge main-path integrity", () => {
             phase: "synthesis",
             refreshRunId: "refresh-1",
             subsystemKeys: ["project_domain:payments#scope"],
-            revisionRound: 1,
+            revisionRound: 0,
           },
         }),
-        entailmentCritic(synthesis, 1),
+        entailmentCritic(synthesis, 0),
       ],
       expectedIdentities,
       coverage: null,
@@ -403,7 +1275,7 @@ describe("repository knowledge main-path integrity", () => {
     });
   });
 
-  it("requires an exact successful round-two critic attestation", () => {
+  it("requires an exact successful critic attestation", () => {
     const synthesis = {
       subsystems: [{
         subsystemKey: "project_domain:payments#scope",
@@ -423,10 +1295,10 @@ describe("repository knowledge main-path integrity", () => {
         phase: "synthesis",
         refreshRunId: "refresh-1",
         subsystemKeys: ["project_domain:payments#scope"],
-        revisionRound: 2,
+        revisionRound: 0,
       },
     });
-    const matchingCritic = entailmentCritic(synthesis, 2);
+    const matchingCritic = entailmentCritic(synthesis, 0);
     const evaluate = (critic: RepositoryKnowledgeGenerationAuditRecord) =>
       evaluateRepositoryKnowledgeMainPath({
         generationRuns: [
@@ -593,7 +1465,13 @@ describe("repository knowledge main-path integrity", () => {
       generationRuns: [
         generation("execution_routing", "routing-model"),
         repairedExtraction,
-        generation("capability_synthesis", "synthesis-model"),
+        synthesisGeneration({
+          subsystems: [{
+            subsystemKey: "project_domain:payments#scope",
+            facts: [],
+            highlights: [],
+          }],
+        }),
       ],
       expectedIdentities,
       coverage: null,

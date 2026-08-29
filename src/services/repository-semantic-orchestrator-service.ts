@@ -34,7 +34,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v34-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v35-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -139,8 +139,33 @@ const repositoryCartographyNoiseSegments = new Set([
   "node_modules", "test-results", "vendor",
 ]);
 
+/**
+ * Conventional test bootstrap files configure a runner or install matchers;
+ * they do not by themselves establish product behavior. Keep the predicate
+ * deliberately name- and test-tree-bound so ordinary setup/bootstrap
+ * implementations remain strict semantic evidence.
+ */
+function isRepositoryTestBootstrapPath(path: string) {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const basename = normalized.split("/").at(-1) ?? "";
+  const sourceExtension = "(?:[jt]sx?|[cm][jt]s|py|rb)";
+  const conventionalBootstrap = new RegExp(
+    `^(?:setup(?:tests?|[-_]tests?)|tests?[._-]?setup|(?:jest|vitest|mocha|jasmine|karma)[._-]setup|global[._-]?(?:test[._-]?)?(?:setup|teardown))\\.${sourceExtension}$`,
+    "i",
+  );
+  if (conventionalBootstrap.test(basename)) return true;
+  if (!/(?:^|\/)(?:__tests__|tests?|specs?|e2e)(?:\/|$)/i.test(normalized)) {
+    return false;
+  }
+  return new RegExp(
+    `^(?:setup|bootstrap|environment|global[._-]?(?:setup|teardown))\\.${sourceExtension}$`,
+    "i",
+  ).test(basename);
+}
+
 export function isRepositoryCartographyNoisePath(path: string) {
   if (isRepositoryAnalysisNoisePath(path)) return true;
+  if (isRepositoryTestBootstrapPath(path)) return true;
   const segments = path.replace(/\\/g, "/").split("/").filter(Boolean).map((segment) => segment.toLowerCase());
   if (segments.at(-1) === ".ds_store") return true;
   if (segments.some((segment) => repositoryCartographyNoiseSegments.has(segment))) return true;

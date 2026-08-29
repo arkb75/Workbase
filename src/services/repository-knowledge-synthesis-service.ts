@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ProjectFactCategory, ProjectKnowledgeCitation } from "@/src/domain/project-chat";
-import { repositorySynthesisClaimContentDigest } from "@/src/domain/repository-synthesis-attestation";
+import {
+  repositorySynthesisClaimContentDigest,
+  repositorySynthesisCriticClaimContentDigest,
+} from "@/src/domain/repository-synthesis-attestation";
 import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
 import { prisma } from "@/src/lib/prisma";
 import { normalizeWhitespace } from "@/src/lib/utils";
@@ -1418,7 +1421,7 @@ export function repositorySynthesisBudgetLimits(batchCount: number) {
     // ceiling is unchanged and remains the hard cost bound.
     maxModelCalls: batchCount * 8,
     maxRepairPasses: batchCount * 2,
-    maxOutputTokens: 8_000,
+    maxOutputTokens: 10_000,
     maxTotalTokens: 80_000,
   };
 }
@@ -1510,16 +1513,45 @@ export function repositorySynthesisCriticClaims(
   return claims;
 }
 
+function repositorySynthesisAuditProjection(
+  value: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
+) {
+  return {
+    subsystems: value.subsystems.map((subsystem) => ({
+      subsystemKey: subsystem.subsystemKey,
+      facts: subsystem.facts.map((fact) => ({
+        statement: fact.statement,
+        citationIndexes: [...fact.citationIndexes],
+      })),
+      highlights: subsystem.highlights.map((highlight) => ({
+        text: highlight.text,
+        summary: highlight.summary,
+        citationIndexes: [...highlight.citationIndexes],
+      })),
+    })),
+  };
+}
+
 export function repositorySynthesisCriticPayload(
   value: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
   inputs: readonly SynthesisSubsystemInput[],
 ) {
-  const claims = repositorySynthesisCriticClaims(value);
+  return repositorySynthesisCriticPayloadForClaims(
+    repositorySynthesisCriticClaims(value),
+    inputs,
+  );
+}
+
+export function repositorySynthesisCriticPayloadForClaims(
+  claims: readonly RepositorySynthesisCriticClaim[],
+  inputs: readonly SynthesisSubsystemInput[],
+) {
   return {
     subsystems: inputs.map((input) => {
       const subsystemKey = input.synthesisKey ?? input.subsystemKey;
       const subsystemClaims = claims.filter((claim) =>
-        claim.claimKey.startsWith(`${subsystemKey}:`)
+        claim.claimKey.startsWith(subsystemKey + ":fact:") ||
+        claim.claimKey.startsWith(subsystemKey + ":highlight:")
       );
       const citedIndexes = new Set(
         subsystemClaims.flatMap((claim) => claim.citationIndexes),
@@ -1542,6 +1574,126 @@ export function repositorySynthesisCriticPayload(
       };
     }),
   };
+}
+
+export function repositorySynthesisRevisionCriticClaims(
+  prior: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
+  revision: RepositorySynthesisRevision,
+) {
+  const slots = new Map<string, "fact" | "highlight">();
+  for (const subsystem of prior.subsystems) {
+    subsystem.facts.forEach((_claim, index) =>
+      slots.set(
+        synthesisClaimKey(subsystem.subsystemKey, "fact", index),
+        "fact",
+      )
+    );
+    subsystem.highlights.forEach((_claim, index) =>
+      slots.set(
+        synthesisClaimKey(subsystem.subsystemKey, "highlight", index),
+        "highlight",
+      )
+    );
+  }
+  const candidates = [
+    ...revision.factRevisions.map((candidate) => ({
+      ...candidate,
+      kind: "fact" as const,
+    })),
+    ...revision.highlightRevisions.map((candidate) => ({
+      ...candidate,
+      kind: "highlight" as const,
+    })),
+  ];
+  return candidates.flatMap((candidate): RepositorySynthesisCriticClaim[] => {
+    if (!candidate.replacement) return [];
+    if (slots.get(candidate.claimKey) !== candidate.kind) {
+      throw new Error(
+        "Revision critic claim " + candidate.claimKey +
+        " has no matching prior claim.",
+      );
+    }
+    return [{
+      claimKey: candidate.claimKey,
+      kind: candidate.kind,
+      claim: candidate.kind === "fact"
+        ? { statement: candidate.replacement.statement }
+        : {
+            text: candidate.replacement.text,
+            summary: candidate.replacement.summary,
+          },
+      citationIndexes: candidate.replacement.citationIndexes,
+    }];
+  });
+}
+
+/**
+ * Carries forward accepted verdicts without re-spending model budget, while
+ * re-keying them after honest null removals shift positional claim indexes.
+ */
+export function mergeRepositorySynthesisCriticAfterRevision(
+  prior: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
+  priorCritic: RepositorySynthesisCriticResult,
+  revision: RepositorySynthesisRevision,
+  revisionCritic: RepositorySynthesisCriticResult,
+): RepositorySynthesisCriticResult {
+  const priorAssessments = new Map(priorCritic.assessments.map((assessment) => [
+    assessment.claimKey,
+    assessment,
+  ]));
+  const revisionAssessments = new Map(
+    revisionCritic.assessments.map((assessment) => [
+      assessment.claimKey,
+      assessment,
+    ]),
+  );
+  const factRevisions = new Map(revision.factRevisions.map((candidate) => [
+    candidate.claimKey,
+    candidate.replacement,
+  ]));
+  const highlightRevisions = new Map(revision.highlightRevisions.map((candidate) => [
+    candidate.claimKey,
+    candidate.replacement,
+  ]));
+  const assessments: RepositorySynthesisCriticResult["assessments"] = [];
+  for (const subsystem of prior.subsystems) {
+    const append = (
+      kind: "fact" | "highlight",
+      claims: readonly unknown[],
+      revisions: ReadonlyMap<string, unknown>,
+    ) => {
+      let nextIndex = 0;
+      claims.forEach((_claim, index) => {
+        const priorClaimKey = synthesisClaimKey(
+          subsystem.subsystemKey,
+          kind,
+          index,
+        );
+        const revised = revisions.has(priorClaimKey);
+        if (revised && revisions.get(priorClaimKey) == null) return;
+        const assessment = revised
+          ? revisionAssessments.get(priorClaimKey)
+          : priorAssessments.get(priorClaimKey);
+        if (!assessment) {
+          throw new Error(
+            "Missing entailment verdict for retained claim " + priorClaimKey + ".",
+          );
+        }
+        assessments.push({
+          ...assessment,
+          claimKey: synthesisClaimKey(
+            subsystem.subsystemKey,
+            kind,
+            nextIndex,
+          ),
+        });
+        nextIndex += 1;
+      });
+    };
+    append("fact", subsystem.facts, factRevisions);
+    append("highlight", subsystem.highlights, highlightRevisions);
+  }
+  return { assessments };
 }
 
 export function repositorySynthesisCriticValidationErrors(
@@ -1907,7 +2059,9 @@ async function synthesizeSubsystemSet(input: {
         }
         return { claimContentDigest };
       },
-      execute: () => getStructuredLlmClient("deep_synthesis").generateStructured({
+      exactParsedOutput: (generation) => generation.parsedOutput,
+      execute: async () => {
+        const generated = await getStructuredLlmClient("deep_synthesis").generateStructured({
         systemPrompt: [
           "You reduce bounded, commit-pinned repository-domain notebooks into durable technical Project Facts and only genuinely career-relevant Highlights.",
           "Return exactly one result for every supplied subsystemKey and copy each key exactly.",
@@ -1938,13 +2092,13 @@ async function synthesizeSubsystemSet(input: {
         schemaName: "repository_architecture_synthesis",
         schemaDescription: "One supported Project Fact and Highlight synthesis for every supplied architecture subsystem.",
         jsonSchema: repositorySynthesisJsonSchema,
-        // Two subsystems can legitimately return several 500–1,000 character
-        // records plus schema overhead. A 3.5K ceiling repeatedly truncated valid
-        // long-form model responses into unparsable JSON and unnecessarily forced the
-        // deterministic recovery path.
-        maxTokens: 8_000,
+        // Two dense subsystems can legitimately spend substantial adaptive
+        // reasoning before returning several bounded records. Keep enough
+        // per-call headroom to finish native JSON without changing the hard
+        // repository-wide token ceiling.
+        maxTokens: 10_000,
         temperature: 0,
-        effort: "high",
+        effort: "medium",
         // Native JSON Schema is the main path on the configured providers. A
         // single bounded schema-repair pass is enough; replaying the same full
         // synthesis through strict tool use consumed budget without improving
@@ -1954,7 +2108,12 @@ async function synthesizeSubsystemSet(input: {
         budget: input.budget,
         extraValidation: (value) =>
           repositorySynthesisStructuralErrors(value, input.subsystems),
-      }),
+        });
+        return {
+          ...generated,
+          parsedOutput: repositorySynthesisAuditProjection(generated.data),
+        };
+      },
     });
     const subsystemKeys = input.subsystems.map((entry) =>
       entry.synthesisKey ?? entry.subsystemKey
@@ -1962,12 +2121,18 @@ async function synthesizeSubsystemSet(input: {
     const runCritic = async (
       data: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
       revisionRound: number,
+      scopedClaims?: readonly RepositorySynthesisCriticClaim[],
     ) => {
-      const criticPayload = repositorySynthesisCriticPayload(data, input.subsystems);
-      const claims = criticPayload.subsystems.flatMap((subsystem) => subsystem.claims);
+      const claims = scopedClaims ?? repositorySynthesisCriticClaims(data);
       if (!claims.length) return null;
+      const criticPayload = repositorySynthesisCriticPayloadForClaims(
+        claims,
+        input.subsystems,
+      );
       const expectedClaimKeys = new Set(claims.map((claim) => claim.claimKey));
-      const claimContentDigest = repositorySynthesisClaimContentDigest(data);
+      const claimContentDigest = scopedClaims
+        ? repositorySynthesisCriticClaimContentDigest(claims)
+        : repositorySynthesisClaimContentDigest(data);
       if (!claimContentDigest) {
         throw new Error("Repository critic input could not be attested.");
       }
@@ -1983,6 +2148,7 @@ async function synthesizeSubsystemSet(input: {
           subsystemKeys,
           claimCount: claims.length,
           claimContentDigest,
+          criticScope: scopedClaims ? "changed_claims" : "full_payload",
         },
         execute: () => getStructuredLlmClient("deep_synthesis").generateStructured({
           systemPrompt: [
@@ -2096,6 +2262,10 @@ async function synthesizeSubsystemSet(input: {
             }]
           : [];
       });
+      const priorClaimContentDigest = repositorySynthesisClaimContentDigest(priorData);
+      if (!priorClaimContentDigest) {
+        throw new Error("Prior repository synthesis could not be attested.");
+      }
 
       const revision = await runAuditedStructuredGeneration({
         workItemId: input.workItemId,
@@ -2108,7 +2278,7 @@ async function synthesizeSubsystemSet(input: {
           refreshRunId: input.refreshRunId,
           subsystemKeys,
           rejectedClaimCount: rejectedClaimKeys.size,
-          revisionContract: "rejected_claim_patch_v1",
+          revisionContract: "rejected_claim_patch_v2_delta_critic",
           notebookEntries: input.subsystems.reduce((total, entry) => total + entry.notebook.length, 0),
         },
         resultAttestation: (generation) => {
@@ -2116,8 +2286,20 @@ async function synthesizeSubsystemSet(input: {
           if (!claimContentDigest) {
             throw new Error("Repository synthesis revision could not be attested.");
           }
-          return { claimContentDigest };
+          const criticClaimContentDigest =
+            repositorySynthesisCriticClaimContentDigest(generation.criticClaims);
+          return {
+            claimContentDigest,
+            priorClaimContentDigest,
+            criticScope: "changed_claims",
+            criticClaimCount: generation.criticClaims.length,
+            criticClaimKeys: generation.criticClaims
+              .map((claim) => claim.claimKey)
+              .sort(),
+            criticClaimContentDigest,
+          };
         },
+        exactParsedOutput: (generation) => generation.parsedOutput,
         execute: async () => {
           const generated = await getStructuredLlmClient("deep_synthesis").generateStructured({
             systemPrompt: [
@@ -2167,21 +2349,73 @@ async function synthesizeSubsystemSet(input: {
             priorCritic,
             revisionRound,
           );
+          const criticClaims = repositorySynthesisRevisionCriticClaims(
+            priorData,
+            generated.data,
+          );
+          const auditedRevisionPatch = structuredClone([
+            ...generated.data.factRevisions.map((candidate) => ({
+              claimKey: candidate.claimKey,
+              kind: "fact" as const,
+              replacement: candidate.replacement
+                ? {
+                    statement: candidate.replacement.statement,
+                    citationIndexes: candidate.replacement.citationIndexes,
+                  }
+                : null,
+            })),
+            ...generated.data.highlightRevisions.map((candidate) => ({
+              claimKey: candidate.claimKey,
+              kind: "highlight" as const,
+              replacement: candidate.replacement
+                ? {
+                    text: candidate.replacement.text,
+                    summary: candidate.replacement.summary,
+                    citationIndexes: candidate.replacement.citationIndexes,
+                  }
+                : null,
+            })),
+          ]);
           return {
             ...generated,
             data: merged,
-            parsedOutput: merged,
+            parsedOutput: {
+              ...repositorySynthesisAuditProjection(merged),
+              revisionPatch: auditedRevisionPatch,
+            },
+            criticClaims,
+            revisionPatch: generated.data,
           };
         },
       });
       currentData = revision.data;
       tokenUsage.push(revision.tokenUsage);
-      const nextCritique = await runCritic(currentData, revisionRound);
+      if (!revision.criticClaims.length) {
+        return { data: currentData, tokenUsage };
+      }
+      const nextCritique = await runCritic(
+        currentData,
+        revisionRound,
+        revision.criticClaims,
+      );
       if (!nextCritique) {
         return { data: currentData, tokenUsage };
       }
-      currentCritique = nextCritique;
-      tokenUsage.push(currentCritique.critic.tokenUsage);
+      tokenUsage.push(nextCritique.critic.tokenUsage);
+      const cumulativeCritic = mergeRepositorySynthesisCriticAfterRevision(
+        priorData,
+        priorCritic,
+        revision.revisionPatch,
+        nextCritique.critic.data,
+      );
+      currentCritique = {
+        ...nextCritique,
+        critic: {
+          ...nextCritique.critic,
+          data: cumulativeCritic,
+          parsedOutput: cumulativeCritic,
+        },
+      };
     }
 
     return {

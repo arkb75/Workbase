@@ -111,6 +111,67 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(inferProjectDomainCapability("fixture/search/demo.py")).toBeNull();
   });
 
+  it("keeps conventional test bootstraps out of semantic cartography without relaxing implementation failures", () => {
+    const files = [
+      mappedFile("app", "frontend/example/src/App.js", 5),
+      mappedFile("insights", "frontend/example/src/components/Insights.js", 5),
+      mappedFile("datasets", "frontend/example/src/components/ListDataset.js", 5),
+      mappedFile("runtime-setup", "frontend/example/src/setup.js", 5),
+      mappedFile("cra-test-setup", "frontend/example/src/setupTests.js", 8),
+      mappedFile("vitest-setup", "vitest.setup.ts", 8),
+      mappedFile("tree-test-bootstrap", "tests/bootstrap.ts", 8),
+    ];
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "owner/example",
+      files,
+    });
+    const mappedPaths = manifest.flatMap((area) =>
+      area.files.map((file) => file.path)
+    );
+
+    expect(mappedPaths).toContain("frontend/example/src/setup.js");
+    expect(mappedPaths).not.toEqual(expect.arrayContaining([
+      "frontend/example/src/setupTests.js",
+      "vitest.setup.ts",
+      "tests/bootstrap.ts",
+    ]));
+    expect(semanticEvidenceUniverseFromFiles(files).fileSnapshotIds).toEqual(
+      expect.arrayContaining(["app", "insights", "datasets", "runtime-setup"]),
+    );
+    expect(semanticEvidenceUniverseFromFiles(files).fileSnapshotIds).not.toEqual(
+      expect.arrayContaining(["cra-test-setup", "vitest-setup", "tree-test-bootstrap"]),
+    );
+    expect(isRepositoryCartographyNoisePath("frontend/example/src/setupTests.js")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("frontend/example/src/setup-tests.ts")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("test/setup.ts")).toBe(true);
+    expect(isRepositoryCartographyNoisePath("src/setup.ts")).toBe(false);
+    expect(isRepositoryCartographyNoisePath("src/setup.test.ts")).toBe(false);
+    expect(isRepositoryCartographyNoisePath("src/setup.spec.ts")).toBe(false);
+    expect(isRepositoryCartographyNoisePath("scripts/bootstrap.ts")).toBe(false);
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest });
+    const selected = plan.flatMap((entry) => entry.fileSnapshotIds);
+    expect(selected).not.toEqual(expect.arrayContaining([
+      "cra-test-setup",
+      "vitest-setup",
+      "tree-test-bootstrap",
+    ]));
+
+    const failedImplementationId = selected[0]!;
+    const supportedImplementationId = selected[1]!;
+    const critique = critiqueRepositoryCoverage({
+      manifest,
+      reports: [{
+        inspectedFileSnapshotIds: selected,
+        retryFileSnapshotIds: [failedImplementationId],
+        candidates: [candidate("repository_area:product_surface", supportedImplementationId)],
+      }],
+      allowRepair: true,
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .toContain(failedImplementationId);
+  });
+
   it("starts large domains with two diverse samples and leaves depth to bounded repair", () => {
     const area = {
       key: "project_domain:feed",

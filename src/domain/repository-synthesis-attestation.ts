@@ -19,6 +19,54 @@ function normalizedCitationIndexes(value: unknown) {
   return Array.from(new Set(value as number[])).sort((left, right) => left - right);
 }
 
+function digestNormalizedClaims(claims: Array<Record<string, unknown>>) {
+  claims.sort((left, right) =>
+    String(left.claimKey).localeCompare(String(right.claimKey))
+  );
+  return createHash("sha256").update(JSON.stringify(claims)).digest("hex");
+}
+
+/** Hashes an explicit, stable-keyed subset sent to a revision critic. */
+export function repositorySynthesisCriticClaimContentDigest(value: unknown) {
+  if (!Array.isArray(value) || !value.length) return null;
+  const claims: Array<Record<string, unknown>> = [];
+  const claimKeys = new Set<string>();
+  for (const candidate of value) {
+    const data = record(candidate);
+    const claimKey = typeof data?.claimKey === "string" ? data.claimKey.trim() : "";
+    const kind = data?.kind;
+    const claim = record(data?.claim);
+    const citationIndexes = normalizedCitationIndexes(data?.citationIndexes);
+    const keyParts = claimKey.split(":");
+    const claimPosition = Number(keyParts.at(-1));
+    if (
+      !claimKey ||
+      claimKeys.has(claimKey) ||
+      (kind !== "fact" && kind !== "highlight") ||
+      !citationIndexes ||
+      keyParts.at(-2) !== kind ||
+      !Number.isInteger(claimPosition) ||
+      claimPosition < 1
+    ) {
+      return null;
+    }
+    claimKeys.add(claimKey);
+    if (kind === "fact") {
+      const statement = typeof claim?.statement === "string"
+        ? claim.statement.trim()
+        : "";
+      if (!statement) return null;
+      claims.push({ claimKey, kind, statement, citationIndexes });
+      continue;
+    }
+    const text = typeof claim?.text === "string" ? claim.text.trim() : "";
+    const summary = typeof claim?.summary === "string" ? claim.summary.trim() : "";
+    if (!text || !summary) return null;
+    claims.push({ claimKey, kind, text, summary, citationIndexes });
+  }
+  return digestNormalizedClaims(claims);
+}
+
 /**
  * Hashes exactly the claim fields assessed by the repository entailment critic.
  * Array presentation order is irrelevant; positional claim keys and citation
@@ -71,8 +119,5 @@ export function repositorySynthesisClaimContentDigest(value: unknown) {
       });
     }
   }
-  claims.sort((left, right) =>
-    String(left.claimKey).localeCompare(String(right.claimKey))
-  );
-  return createHash("sha256").update(JSON.stringify(claims)).digest("hex");
+  return digestNormalizedClaims(claims);
 }

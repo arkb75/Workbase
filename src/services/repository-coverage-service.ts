@@ -1579,6 +1579,77 @@ function pythonModuleDependency(value: string) {
   return `${leadingDots === 1 ? "./" : "../".repeat(leadingDots - 1)}${modulePath}`;
 }
 
+function repositoryStaticCommentSyntax(path: string) {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const basename = normalized.split("/").at(-1) ?? "";
+  const extension = basename.split(".").at(-1) ?? "";
+  const linePrefixes: string[] = [];
+  const blockPairs: Array<readonly [string, string]> = [];
+  const supportsSlashComments = /^(?:[cm]?[jt]sx?|c|cc|cpp|cxx|h|hh|hpp|hxx|cs|dart|go|groovy|java|kt|kts|php|prisma|proto|rs|scala|swift)$/u.test(extension);
+  if (supportsSlashComments) {
+    linePrefixes.push("//");
+    blockPairs.push(["/*", "*/"]);
+  }
+  if (/^(?:svelte|vue)$/u.test(extension)) {
+    linePrefixes.push("//");
+    blockPairs.push(["/*", "*/"]);
+  }
+  const supportsHashComments = /^(?:bash|conf|env|fish|gql|graphql|ini|php|py|rb|sh|toml|ya?ml|zsh)$/u.test(extension) || /^(?:dockerfile|makefile)$/u.test(basename);
+  if (supportsHashComments) linePrefixes.push("#");
+  if (/^(?:hs|lua|sql)$/u.test(extension)) linePrefixes.push("--");
+  if (/^(?:css|less|scss|sql)$/u.test(extension)) blockPairs.push(["/*", "*/"]);
+  if (/^(?:htm|html|svg|svelte|vue|xml)$/u.test(extension)) blockPairs.push(["<!--", "-->"]);
+  if (extension === "lua") blockPairs.push(["--[[", "]]"]);
+  if (extension === "ini") linePrefixes.push(";");
+  return { blockPairs, linePrefixes };
+}
+
+/**
+ * Preserve line numbers while removing only files' unmistakable comment-only
+ * lines from static behavior detection. Original lines still drive imports,
+ * dependencies, symbols, configuration, and documentation parsing.
+ */
+function maskCommentOnlyStaticSignalLines(path: string, lines: string[]) {
+  const syntax = repositoryStaticCommentSyntax(path);
+  if (!syntax.blockPairs.length && !syntax.linePrefixes.length) return lines;
+  let blockEnd: string | null = null;
+
+  return lines.map((sourceLine) => {
+    let remaining = sourceLine.trimStart();
+    let sawComment = false;
+    while (remaining) {
+      if (blockEnd) {
+        sawComment = true;
+        const closingIndex = remaining.indexOf(blockEnd);
+        if (closingIndex < 0) return "";
+        remaining = remaining.slice(closingIndex + blockEnd.length).trimStart();
+        blockEnd = null;
+        continue;
+      }
+      const blockPair = syntax.blockPairs.find(([start]) => remaining.startsWith(start));
+      if (blockPair) {
+        sawComment = true;
+        const [start, end] = blockPair;
+        const closingIndex = remaining.indexOf(end, start.length);
+        if (closingIndex < 0) {
+          blockEnd = end;
+          return "";
+        }
+        remaining = remaining.slice(closingIndex + end.length).trimStart();
+        continue;
+      }
+      const linePrefix = syntax.linePrefixes.find((prefix) => remaining.startsWith(prefix));
+      if (linePrefix) {
+        // Shebangs are executable directives, and C-family preprocessor lines
+        // never receive hash-comment syntax from the language map above.
+        return linePrefix === "#" && remaining.startsWith("#!") ? sourceLine : "";
+      }
+      return sourceLine;
+    }
+    return sawComment ? "" : sourceLine;
+  });
+}
+
 /** Extract imports across the language families supported by repository sync. */
 function sourceDependenciesForLine(input: {
   path: string;
@@ -1652,6 +1723,7 @@ export async function analyzeRepositoryFiles(input: Array<{
   }
   return input.map((file) => {
     const lines = file.content.split("\n");
+    const staticSignalLines = maskCommentOnlyStaticSignalLines(file.path, lines);
     const fileSubsystemKeys = inferSubsystemsFromPath(file.path);
     const dependencies: string[] = [];
     const symbols: string[] = [];
@@ -1734,8 +1806,9 @@ export async function analyzeRepositoryFiles(input: Array<{
         { pattern: /@(?:Get|Post|Put|Patch|Delete)Mapping\b|\b(?:router|app)\.(?:get|post|put|patch|delete)\s*\(/i, label: "request endpoint", statement: `${file.path} exposes a request-handling endpoint.`, category: "behavior", breadth: 4 },
         { pattern: /(?:cache|memoize|ttl|expiresAt)/i, label: "cache behavior", statement: `${file.path} contains cache or expiry behavior.`, category: "architecture", breadth: 3 },
       ];
+      const staticSignalLine = staticSignalLines[index] ?? "";
       for (const signal of signals) {
-        if (!signal.pattern.test(line)) continue;
+        if (!signal.pattern.test(staticSignalLine)) continue;
         architectureSignals.push(signal.label);
         addFact(signal.statement, signal.category, lineNumber, signal.breadth);
       }
@@ -1754,7 +1827,7 @@ export async function analyzeRepositoryFiles(input: Array<{
       breadth: number;
       productImportance?: number;
     }) => {
-      const matchedLines = input.patterns.map((pattern) => lines.findIndex((line) => pattern.test(line)));
+      const matchedLines = input.patterns.map((pattern) => staticSignalLines.findIndex((line) => pattern.test(line)));
       if (matchedLines.some((line) => line < 0)) return;
       const lineStart = Math.min(...matchedLines) + 1;
       const lineEnd = Math.max(...matchedLines) + 1;
@@ -1768,10 +1841,10 @@ export async function analyzeRepositoryFiles(input: Array<{
       breadth: number;
       productImportance?: number;
     }) => {
-      const scopeStart = lines.findIndex((line) => input.startPattern.test(line));
+      const scopeStart = staticSignalLines.findIndex((line) => input.startPattern.test(line));
       if (scopeStart < 0) return;
       const matchedLines = input.patterns.map((pattern) =>
-        lines.findIndex((line, index) => index >= scopeStart && pattern.test(line))
+        staticSignalLines.findIndex((line, index) => index >= scopeStart && pattern.test(line))
       );
       if (matchedLines.some((line) => line < 0)) return;
       const lineEnd = Math.max(scopeStart, ...matchedLines) + 1;
@@ -2003,7 +2076,7 @@ export async function analyzeRepositoryFiles(input: Array<{
         productImportance: 5,
       });
     }
-    const highlightInvalidation = lines.findIndex((line) => /await\s+invalidateHighlightDependents\s*\(/.test(line));
+    const highlightInvalidation = staticSignalLines.findIndex((line) => /await\s+invalidateHighlightDependents\s*\(/.test(line));
     if (highlightInvalidation >= 0) {
       addFact(
         `${file.path} invalidates downstream dependents after a supporting Highlight changes.`,
@@ -2014,7 +2087,7 @@ export async function analyzeRepositoryFiles(input: Array<{
         5,
       );
     }
-    const evidenceInvalidation = lines.findIndex((line) => /await\s+invalidateEvidenceDependents\s*\(/.test(line));
+    const evidenceInvalidation = staticSignalLines.findIndex((line) => /await\s+invalidateEvidenceDependents\s*\(/.test(line));
     if (evidenceInvalidation >= 0) {
       addFact(
         `${file.path} invalidates downstream dependents after supporting Evidence changes.`,
