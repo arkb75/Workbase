@@ -241,8 +241,36 @@ describe("generalized repository knowledge evaluation", () => {
 
     const soloPilotPlanned = repositoryKnowledgeFixture("solopilot-agent-documents")!
       .expectedCapabilities.find((capability) => capability.key === "prd_export")!;
-    expect(soloPilotPlanned.evidencePathPatterns).toEqual(["(?:^|/)README\\.md$"]);
+    expect(soloPilotPlanned.evidencePathPatterns).toEqual(["^README\\.md$"]);
     expect(soloPilotPlanned.matchPatterns.join(" ")).toMatch(/in progress.*roadmap.*phase 2/iu);
+  });
+
+  it("anchors artifact generation to the production service rather than its mock", () => {
+    const capability = repositoryKnowledgeFixture("workbase-project-knowledge")!
+      .expectedCapabilities.find((candidate) => candidate.key === "artifact_generation")!;
+    const matches = (path: string) => capability.evidencePathPatterns.some((pattern) =>
+      new RegExp(pattern, "iu").test(path)
+    );
+
+    expect(matches("src/services/artifact-generation-service.ts")).toBe(true);
+    expect(matches("src/services/mock-artifact-generation-service.ts")).toBe(false);
+  });
+
+  it("uses only the repository-root README as planned-feature evidence", () => {
+    const plannedCapabilities = repositoryKnowledgeFixtures.flatMap((fixture) =>
+      fixture.expectedCapabilities.filter((capability) =>
+        capability.implementationState === "planned" &&
+        capability.evidencePathPatterns.some((pattern) => /readme/iu.test(pattern))
+      )
+    );
+
+    for (const capability of plannedCapabilities) {
+      const matches = (path: string) => capability.evidencePathPatterns.some((pattern) =>
+        new RegExp(pattern, "iu").test(path)
+      );
+      expect(matches("README.md")).toBe(true);
+      expect(matches("packages/example/README.md")).toBe(false);
+    }
   });
 
   it.each([
@@ -338,6 +366,110 @@ describe("generalized repository knowledge evaluation", () => {
 
     expect(report.unsupportedItems).toEqual([]);
     expect(report.recoveredCapabilityKeys).toContain(testCase.expectedKey);
+  });
+
+  it.each([
+    {
+      name: "proposal PDF phrasing across a full grounded claim",
+      fixtureId: "solopilot-agent-documents",
+      expectedKey: "proposal_pdf_generation",
+      domain: "proposals",
+      path: "doc-service/lambda/src/template-handler.js",
+      text: "The document-generation service renders a proposal template and returns the result as a PDF buffer.",
+    },
+    {
+      name: "pending reply amendment before approval",
+      fixtureId: "solopilot-agent-documents",
+      expectedKey: "human_review",
+      domain: "quality",
+      path: "src/agents/email_intake/api/lambda_api.py",
+      text: "The handler amends a pending reply and then invokes the approval flow.",
+    },
+    {
+      name: "HTTP dataset and query API",
+      fixtureId: "insightubc-dataset-platform",
+      expectedKey: "rest_api",
+      domain: "experience",
+      path: "src/rest/Server.ts",
+      text: "The HTTP API handles dataset creation and query execution.",
+    },
+    {
+      name: "forecast result names Prophet",
+      fixtureId: "amazon-marketplace-analytics",
+      expectedKey: "prophet_forecast",
+      domain: "forecasting",
+      path: "ml_service/forecast_service.py",
+      text: "The forecast API returns prediction rows and identifies the model as Prophet.",
+    },
+  ])("recognizes order-independent grounded concepts: $name", (testCase) => {
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture(testCase.fixtureId)!,
+      testCase.path,
+      testCase.text,
+    );
+    const run = runWithSingleGroundedItem({
+      fixture,
+      id: `concept-${testCase.expectedKey}`,
+      text: testCase.text,
+      domain: testCase.domain,
+      path: testCase.path,
+      content: testCase.text,
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toEqual([]);
+    expect(report.recoveredCapabilityKeys).toContain(testCase.expectedKey);
+  });
+
+  it.each([
+    {
+      fixtureId: "solopilot-agent-documents",
+      excludedKey: "proposal_pdf_generation",
+      domain: "proposals",
+      path: "doc-service/lambda/src/template-handler.js",
+      text: "The document service renders an HTML wireframe preview.",
+    },
+    {
+      fixtureId: "solopilot-agent-documents",
+      excludedKey: "human_review",
+      domain: "quality",
+      path: "src/agents/email_intake/api/lambda_api.py",
+      text: "A pending wireframe requires design approval before editing.",
+    },
+    {
+      fixtureId: "insightubc-dataset-platform",
+      excludedKey: "rest_api",
+      domain: "experience",
+      path: "src/rest/Server.ts",
+      text: "The HTTP health endpoint reports service status.",
+    },
+    {
+      fixtureId: "amazon-marketplace-analytics",
+      excludedKey: "prophet_forecast",
+      domain: "forecasting",
+      path: "ml_service/forecast_service.py",
+      text: "The forecast service computes a moving-average projection.",
+    },
+  ])("does not recover a capability when one required concept is absent: $excludedKey", (testCase) => {
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture(testCase.fixtureId)!,
+      testCase.path,
+      testCase.text,
+    );
+    const run = runWithSingleGroundedItem({
+      fixture,
+      id: `missing-concept-${testCase.excludedKey}`,
+      text: testCase.text,
+      domain: testCase.domain,
+      path: testCase.path,
+      content: testCase.text,
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toEqual([]);
+    expect(report.recoveredCapabilityKeys).not.toContain(testCase.excludedKey);
   });
 
   it.each([

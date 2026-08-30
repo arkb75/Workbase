@@ -2,7 +2,7 @@ export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
 /** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
 export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
-  "repository-knowledge-evaluator-v2" as const;
+  "repository-knowledge-evaluator-v3" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
