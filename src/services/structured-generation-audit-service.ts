@@ -610,7 +610,9 @@ function structuredGenerationFailureMessage(input: {
   error: unknown;
 }) {
   if (input.error instanceof StructuredGenerationBudgetError) {
-    return `Structured generation stopped before dispatch: ${input.error.code}.`;
+    return isStructuredGenerationAdmissionFailure(input.error)
+      ? `Structured generation stopped before dispatch: ${input.error.code}.`
+      : `Structured generation stopped after provider dispatch: ${input.error.code}.`;
   }
   if (input.structured) {
     return `Structured generation failed closed: ${input.structured.status}.`;

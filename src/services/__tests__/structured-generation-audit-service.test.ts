@@ -939,12 +939,17 @@ describe("structured generation audit usage", () => {
           "token_budget_exhausted",
           "The request did not fit before dispatch.",
           {
-            modelCalls: 0,
+            modelCalls: 6,
             repairPasses: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
+            inputTokens: 48_000,
+            outputTokens: 12_000,
+            totalTokens: 60_000,
             unknownUsageCalls: 0,
+          },
+          {
+            providerAttemptCount: 0,
+            unknownUsageAttempts: 0,
+            tokenUsage: null,
           },
         );
       },
@@ -952,12 +957,15 @@ describe("structured generation audit usage", () => {
 
     const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
     expect(data.estimatedCostUsd).toBe(0);
+    expect(data.tokenUsage).toBe(Prisma.JsonNull);
     expect(data.resultRefs).toEqual(expect.objectContaining({
       auditAttemptCount: 0,
+      providerAttemptCount: 0,
       unknownUsageAttempts: 0,
       usageComplete: true,
       admissionFailure: true,
       budgetCode: "token_budget_exhausted",
+      message: "Structured generation stopped before dispatch: token_budget_exhausted.",
     }));
   });
 
@@ -984,12 +992,21 @@ describe("structured generation audit usage", () => {
           "token_budget_exhausted",
           "The provider response crossed the cumulative token ceiling.",
           {
-            modelCalls: 1,
+            modelCalls: 6,
             repairPasses: 0,
-            inputTokens: 120,
-            outputTokens: 30,
-            totalTokens: 150,
+            inputTokens: 48_120,
+            outputTokens: 12_030,
+            totalTokens: 60_150,
             unknownUsageCalls: 0,
+          },
+          {
+            providerAttemptCount: 1,
+            unknownUsageAttempts: 0,
+            tokenUsage: {
+              inputTokens: 120,
+              outputTokens: 30,
+              totalTokens: 150,
+            },
           },
         );
       },
@@ -1020,6 +1037,7 @@ describe("structured generation audit usage", () => {
       knownEstimatedCostUsd: null,
       admissionFailure: false,
       budgetCode: "token_budget_exhausted",
+      message: "Structured generation stopped after provider dispatch: token_budget_exhausted.",
     }));
   });
 

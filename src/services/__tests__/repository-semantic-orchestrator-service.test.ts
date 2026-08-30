@@ -19,6 +19,7 @@ import {
   packSemanticBundleIndexes,
   partitionCapabilityReports,
   preserveSettledCapabilityReports,
+  requiresSingletonSemanticRetry,
   reusableCurrentSnapshotSemanticAnalysis,
   reusableSemanticAnalysis,
   semanticCoverageAssignmentGaps,
@@ -872,13 +873,16 @@ describe("repository semantic orchestration guardrails", () => {
       usage,
       partial,
     });
-    const initial = report(
-      "initial",
-      "The partial batch produced an obsolete observation.",
-      ["file-1"],
-      ["src/orders/menu.ts: Semantic analysis degraded."],
-      true,
-    );
+    const initial = {
+      ...report(
+        "initial",
+        "The partial batch produced an obsolete observation.",
+        ["file-1"],
+        ["src/orders/menu.ts: Semantic analysis degraded."],
+        true,
+      ),
+      singletonRetryFileSnapshotIds: ["file-1"],
+    };
     const repaired = report(
       "repair",
       "The isolated retry establishes the implemented order workflow.",
@@ -897,6 +901,7 @@ describe("repository semantic orchestration guardrails", () => {
     expect(effective.flatMap((entry) => entry.candidates.map((candidate) => candidate.statement))).toEqual([
       "The isolated retry establishes the implemented order workflow.",
     ]);
+    expect(effective[0]?.singletonRetryFileSnapshotIds).toEqual([]);
     expect(unresolvedSemanticExecutionGaps({
       initialReports: [initial],
       repairReports: [repaired],
@@ -1028,6 +1033,43 @@ describe("repository semantic orchestration guardrails", () => {
       maxModelCalls: 3,
       maxRepairPasses: 0,
     });
+  });
+
+  it("isolates file-local semantic failures without splitting request-wide failures", () => {
+    const analysis = (status: string) => ({
+      semanticDiagnostics: [{ status }],
+    });
+
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("malformed_batch_member"),
+      groupSize: 4,
+      wasSingleton: false,
+    })).toBe(true);
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("no_supported_findings"),
+      groupSize: 4,
+      wasSingleton: false,
+    })).toBe(true);
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("provider_error"),
+      groupSize: 4,
+      wasSingleton: false,
+    })).toBe(false);
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("token_budget_exhausted"),
+      groupSize: 4,
+      wasSingleton: false,
+    })).toBe(false);
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("provider_error"),
+      groupSize: 1,
+      wasSingleton: false,
+    })).toBe(true);
+    expect(requiresSingletonSemanticRetry({
+      analysis: analysis("provider_error"),
+      groupSize: 4,
+      wasSingleton: true,
+    })).toBe(true);
   });
 
   it("keeps eight ordinary repair files within two four-file primary calls", () => {

@@ -16,7 +16,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
-export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v15-hybrid";
+export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v16-hybrid";
 export const REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES = 4 * 1024;
 
 export const BASE_COVERAGE_TARGETS = [

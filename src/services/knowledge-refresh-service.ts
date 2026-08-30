@@ -137,10 +137,11 @@ function coverageRecords(value: unknown) {
 }
 
 function unresolvedSemanticCoverageRepositories(value: unknown) {
+  const acceptedStatuses = new Set(["complete", "not_required", "coverage_limited"]);
   return coverageRecords(value).flatMap((entry) =>
-    entry.semanticCoverageStatus === "partial" || entry.semanticCoverageStatus === "failed"
-      ? [typeof entry.repository === "string" ? entry.repository : "the repository"]
-      : []
+    acceptedStatuses.has(String(entry.semanticCoverageStatus ?? ""))
+      ? []
+      : [typeof entry.repository === "string" ? entry.repository : "the repository"]
   );
 }
 
@@ -1113,6 +1114,9 @@ export async function finalizeKnowledgeCoverage(runId: string) {
   const orchestrationGaps = Array.isArray(orchestrationRecord.remainingGaps)
     ? (orchestrationRecord.remainingGaps as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
+  const orchestrationCapacityLimitations = Array.isArray(orchestrationRecord.capacityLimitations)
+    ? (orchestrationRecord.capacityLimitations as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
   const persistedCartography = coverageRecords(orchestrationRecord.cartography);
   const persistedCritique = coverageRecords(record(orchestrationRecord.coverageCritique).domains);
   const semanticWorkers = await prisma.agentRun.findMany({
@@ -1177,7 +1181,10 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           const critique = persistedCritique.find((domain) =>
             domain.key === area.key && domain.scopeKey === repository
           );
-          const criticStatus = critique?.status === "covered" || critique?.status === "thin" || critique?.status === "missing"
+          const criticStatus = critique?.status === "covered" ||
+              critique?.status === "coverage_limited" ||
+              critique?.status === "thin" ||
+              critique?.status === "missing"
             ? critique.status
             : semanticPathCount > 0 ? "covered" : "missing";
           return [{
@@ -1218,19 +1225,41 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       filePaths: snapshot.files.map((file) => file.path),
       remainingGaps: orchestrationGaps,
     });
-    const coverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
-      ...(("criticStatus" in area ? area.criticStatus !== "covered" : area.semanticPathCount === 0)
+    const scopedCapacityLimitations = repositoryOrchestrationCoverageGaps({
+      repository,
+      repositories,
+      filePaths: snapshot.files.map((file) => file.path),
+      remainingGaps: orchestrationCapacityLimitations,
+    });
+    const limitedAreas = requiredAreas.filter((area) =>
+      "criticStatus" in area && area.criticStatus === "coverage_limited"
+    );
+    const blockingCoverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
+      ...(("criticStatus" in area
+          ? area.criticStatus !== "covered" && area.criticStatus !== "coverage_limited"
+          : area.semanticPathCount === 0)
         ? [`${area.label} does not meet its repository-derived semantic sample and implementation-evidence target.`]
         : []),
     ]), ...unresolvedSemanticDegradations.map((entry) => entry.message), ...scopedOrchestrationGaps]));
+    const coverageGaps = Array.from(new Set([
+      ...blockingCoverageGaps,
+      ...limitedAreas.map((area) =>
+        `${area.label} reached the bounded semantic-analysis capacity after establishing the required evidence floor.`
+      ),
+      ...scopedCapacityLimitations,
+    ]));
     const semanticPaths = analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length;
-    const semanticCoverageStatus = requiredAreas.length === 0 && unresolvedSemanticDegradations.length === 0 && scopedOrchestrationGaps.length === 0
+    const semanticCoverageStatus = requiredAreas.length === 0 && blockingCoverageGaps.length === 0 && limitedAreas.length === 0
       ? "not_required"
-      : coverageGaps.length === 0
-        ? "complete"
-        : semanticPaths > 0
+      : blockingCoverageGaps.length > 0
+        ? semanticPaths > 0
           ? "partial"
-          : "failed";
+          : "failed"
+        : limitedAreas.length > 0 || scopedCapacityLimitations.length > 0
+          ? "coverage_limited"
+          : coverageGaps.length === 0
+        ? "complete"
+        : "partial";
     const coverageStatus = semanticCoverageStatus === "complete" || semanticCoverageStatus === "not_required"
       ? "complete"
       : semanticCoverageStatus === "failed"
@@ -1400,6 +1429,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         ...record(run.warnings),
         modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         semanticOrchestrationGaps: orchestrationGaps,
+        semanticCapacityLimitations: orchestrationCapacityLimitations,
         ...currentKnowledgeRefreshPolicyMetadata(),
       }),
     },

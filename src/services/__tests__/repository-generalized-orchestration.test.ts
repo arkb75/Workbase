@@ -10,6 +10,7 @@ import {
   semanticEvidenceUniverseFromManifest,
   semanticAuditTarget,
   semanticSampleTarget,
+  semanticWorkPackageModelCallCount,
   type CapabilityCandidate,
   type RepositoryCartographyFile,
 } from "@/src/services/repository-semantic-orchestrator-service";
@@ -566,7 +567,7 @@ describe("repository-derived cartographer and coverage critic", () => {
         path: `src/core/file-${index}.ts`,
         score: 31 - index,
       })),
-    })).toBe(8);
+    })).toBe(4);
   });
 
   it("audits broad product domains deeply without requiring one fact per sampled file", () => {
@@ -599,6 +600,67 @@ describe("repository-derived cartographer and coverage critic", () => {
       requiredSupportedFiles: 8,
       status: "covered",
     });
+  });
+
+  it("separates clean bounded coverage from execution failure or weak evidence", () => {
+    const area = {
+      key: "project_domain:email-intake",
+      label: "Email intake",
+      scopeKey: "example/proposal-system",
+      files: Array.from({ length: 31 }, (_, index) => ({
+        id: `email-${index}`,
+        path: `src/email-intake/operation-${index}.ts`,
+        score: 31 - index,
+      })),
+    };
+    const inspectedFileSnapshotIds = area.files.slice(0, 11).map((file) => file.id);
+    const supportedCandidates = inspectedFileSnapshotIds.slice(0, 8).map((fileId, index) => ({
+      ...candidate(area.key, fileId),
+      statement: `Email intake operation ${index} is implemented.`,
+    }));
+    const limited = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{ inspectedFileSnapshotIds, candidates: supportedCandidates }],
+      allowRepair: false,
+      capacityLimited: true,
+    });
+
+    expect(limited.domains[0]).toMatchObject({
+      targetSamples: 14,
+      inspectedSamples: 11,
+      supportedCandidates: 8,
+      requiredSupportedFiles: 8,
+      status: "coverage_limited",
+    });
+    expect(limited.gaps).toEqual([]);
+    expect(limited.capacityLimitations).toEqual([
+      expect.stringContaining("11 of 14 desired samples"),
+    ]);
+
+    const failedRetry = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        retryFileSnapshotIds: [inspectedFileSnapshotIds[0]!],
+        candidates: supportedCandidates,
+      }],
+      allowRepair: false,
+      capacityLimited: true,
+    });
+    expect(failedRetry.domains[0]?.status).toBe("thin");
+    expect(failedRetry.capacityLimitations).toEqual([]);
+
+    const weakEvidence = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: supportedCandidates.slice(0, 7),
+      }],
+      allowRepair: false,
+      capacityLimited: true,
+    });
+    expect(weakEvidence.domains[0]?.status).toBe("thin");
+    expect(weakEvidence.capacityLimitations).toEqual([]);
   });
 
   it("uses broad-domain top-up slots for runtime operations before maintenance artifacts", () => {
@@ -2096,6 +2158,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     const reports = [{
       inspectedFileSnapshotIds: ["orders-menu", "orders-service"],
       retryFileSnapshotIds: ["orders-menu"],
+      singletonRetryFileSnapshotIds: ["orders-menu"],
       candidates: [
         candidate(area.key, "orders-service"),
       ],
@@ -2127,6 +2190,44 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: true,
     });
     expect(successful.repairPackages).toEqual([]);
+  });
+
+  it("retries a request-wide four-file failure as one bounded micro-batch", () => {
+    const area = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/batch-retry",
+      salience: 80,
+      files: Array.from({ length: 4 }, (_, index) => ({
+        id: `orders-${index}`,
+        path: `src/orders/workflow-${index}.ts`,
+        score: 20 - index,
+      })),
+    };
+    const retryFileSnapshotIds = area.files.map((file) => file.id);
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: retryFileSnapshotIds,
+        retryFileSnapshotIds,
+        candidates: area.files.map((file, index) => ({
+          ...candidate(area.key, file.id),
+          statement: `The implementation supports order workflow ${index + 1}.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.repairPackages).toHaveLength(1);
+    expect(critique.repairPackages[0]?.fileSnapshotIds).toEqual(
+      retryFileSnapshotIds,
+    );
+    expect(critique.repairPackages[0]?.retryFileSnapshotIds).toEqual(
+      retryFileSnapshotIds,
+    );
+    expect(critique.repairPackages[0]?.singletonFileSnapshotIds ?? []).toEqual([]);
+    expect(semanticWorkPackageModelCallCount(critique.repairPackages[0]!))
+      .toBe(1);
   });
 
   it("caps new repair breadth against every assigned semantic file", () => {
@@ -2279,6 +2380,7 @@ describe("repository-derived cartographer and coverage critic", () => {
       reports: [{
         inspectedFileSnapshotIds: ["orders-0", "orders-1"],
         retryFileSnapshotIds: ["orders-0"],
+        singletonRetryFileSnapshotIds: ["orders-0"],
         candidates: [{
           ...candidate(area.key, "orders-1"),
           statement: "The service implements the currently supported order workflow.",

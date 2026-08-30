@@ -57,6 +57,17 @@ export interface StructuredGenerationBudget {
   usage: StructuredGenerationBudgetUsage;
 }
 
+/**
+ * Usage attributable to one generateStructured operation. A budget can be
+ * shared by many operations, so its cumulative snapshot cannot establish
+ * whether the operation that raised an error dispatched a provider request.
+ */
+export interface StructuredGenerationOperationUsage {
+  providerAttemptCount: number;
+  unknownUsageAttempts: number;
+  tokenUsage: JsonValue | null;
+}
+
 type StructuredGenerationBudgetReservations = {
   modelCalls: number;
   totalTokens: number;
@@ -123,6 +134,7 @@ export class StructuredGenerationBudgetError extends Error {
       | "token_budget_exhausted",
     message: string,
     public readonly usage: StructuredGenerationBudgetUsage,
+    public readonly operationUsage?: StructuredGenerationOperationUsage,
   ) {
     super(message);
     this.name = "StructuredGenerationBudgetError";
@@ -972,6 +984,7 @@ export class BedrockStructuredLlmClient {
     let reportedCostUsd = 0;
     let hasReportedCost = false;
     let unknownUsageAttempts = 0;
+    let operationProviderAttemptCount = 0;
     const tokenUsageSnapshot = (): JsonValue | null => {
       if (!observedTokenUsage.length && !unknownUsageAttempts) return null;
       // Preserve the existing single-call shape for callers that inspect raw
@@ -984,6 +997,20 @@ export class BedrockStructuredLlmClient {
         unknownUsageAttempts,
       } as JsonValue;
     };
+    const budgetError = (
+      code: StructuredGenerationBudgetError["code"],
+      message: string,
+      budget: StructuredGenerationBudget,
+    ) => new StructuredGenerationBudgetError(
+      code,
+      message,
+      snapshotStructuredGenerationBudget(budget),
+      {
+        providerAttemptCount: operationProviderAttemptCount,
+        unknownUsageAttempts,
+        tokenUsage: tokenUsageSnapshot(),
+      },
+    );
     const converse = async (
       request: Parameters<ConverseTextRuntime["converse"]>[0],
       phase: StructuredGenerationPhase,
@@ -1001,10 +1028,10 @@ export class BedrockStructuredLlmClient {
               budget.limits.maxModelCalls
           ) {
             if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
-              throw new StructuredGenerationBudgetError(
+              throw budgetError(
                 "model_call_budget_exhausted",
                 `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
-                snapshotStructuredGenerationBudget(budget),
+                budget,
               );
             }
             await waitForStructuredGenerationBudgetReservation(
@@ -1014,10 +1041,10 @@ export class BedrockStructuredLlmClient {
             continue;
           }
           if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
-            throw new StructuredGenerationBudgetError(
+            throw budgetError(
               "repair_budget_exhausted",
               `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
-              snapshotStructuredGenerationBudget(budget),
+              budget,
             );
           }
           const permanentlyAvailableTokens =
@@ -1046,10 +1073,10 @@ export class BedrockStructuredLlmClient {
               cacheTokenReserve,
           );
           if (permittedOutputTokens < 1) {
-            throw new StructuredGenerationBudgetError(
+            throw budgetError(
               "token_budget_exhausted",
               `The structured-generation token budget is exhausted before another bounded request can start.`,
-              snapshotStructuredGenerationBudget(budget),
+              budget,
             );
           }
           const requestTokenReservation =
@@ -1062,10 +1089,10 @@ export class BedrockStructuredLlmClient {
               );
               continue;
             }
-            throw new StructuredGenerationBudgetError(
+            throw budgetError(
               "token_budget_exhausted",
               `The structured-generation token budget cannot admit another bounded request.`,
-              snapshotStructuredGenerationBudget(budget),
+              budget,
             );
           }
           budget.usage.modelCalls += 1;
@@ -1129,6 +1156,7 @@ export class BedrockStructuredLlmClient {
           (estimatedInputTokens + estimatedOutputTokens) * attemptCount;
       };
       let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
+      operationProviderAttemptCount += 1;
       try {
         response = await (
           phase === "repair" && this.repairRuntime
@@ -1139,6 +1167,7 @@ export class BedrockStructuredLlmClient {
         try {
           if (isCallerCancellation(error, params.signal)) throw error;
           const providerAttemptCount = providerErrorAttemptCount(error);
+          operationProviderAttemptCount += providerAttemptCount - 1;
           if (budget && providerAttemptCount > 1) {
             budget.usage.modelCalls += providerAttemptCount - 1;
           }
@@ -1201,6 +1230,7 @@ export class BedrockStructuredLlmClient {
         const providerAttemptCount = providerAttemptCountIn(
           response.tokenUsage,
         );
+        operationProviderAttemptCount += providerAttemptCount - 1;
         if (budget && providerAttemptCount > 1) {
           budget.usage.modelCalls += providerAttemptCount - 1;
         }
@@ -1235,10 +1265,10 @@ export class BedrockStructuredLlmClient {
         budget.usage.outputTokens += outputTokens;
         budget.usage.totalTokens += totalTokens;
         if (budget.usage.totalTokens > budget.limits.maxTotalTokens) {
-          throw new StructuredGenerationBudgetError(
+          throw budgetError(
             "token_budget_exhausted",
             `The provider reported ${budget.usage.totalTokens} cumulative tokens, exceeding the ${budget.limits.maxTotalTokens}-token budget.`,
-            snapshotStructuredGenerationBudget(budget),
+            budget,
           );
         }
         return response;

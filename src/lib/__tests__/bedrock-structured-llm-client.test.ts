@@ -6,7 +6,6 @@ import {
   AwsBedrockConverseRuntime,
   BedrockStructuredLlmClient,
   createStructuredGenerationBudget,
-  StructuredGenerationBudgetError,
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 import { OpenRouterRequestError } from "@/src/lib/openrouter-client";
@@ -499,7 +498,17 @@ describe("BedrockStructuredLlmClient", () => {
       jsonSchema,
       maxTokens: 512,
       budget,
-    })).rejects.toBeInstanceOf(StructuredGenerationBudgetError);
+    })).rejects.toMatchObject({
+      operationUsage: {
+        providerAttemptCount: 1,
+        unknownUsageAttempts: 0,
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+        },
+      },
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.maxProviderAttempts).toBe(1);
@@ -893,7 +902,60 @@ describe("BedrockStructuredLlmClient", () => {
       jsonSchema,
       maxTokens: 512,
       budget,
-    })).rejects.toMatchObject({ code: "token_budget_exhausted" });
+    })).rejects.toMatchObject({
+      code: "token_budget_exhausted",
+      operationUsage: {
+        providerAttemptCount: 0,
+        unknownUsageAttempts: 0,
+        tokenUsage: null,
+      },
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("separates a charged operation from the shared budget when a response crosses the ceiling", async () => {
+    const { client, calls } = makeClient([{
+      structuredData: { ok: true },
+      tokenUsage: {
+        inputTokens: 9_000,
+        outputTokens: 2_000,
+        totalTokens: 11_000,
+      },
+    }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 2,
+      maxRepairPasses: 0,
+      maxOutputTokens: 128,
+      maxTotalTokens: 10_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    })).rejects.toMatchObject({
+      code: "token_budget_exhausted",
+      usage: {
+        modelCalls: 1,
+        totalTokens: 11_000,
+      },
+      operationUsage: {
+        providerAttemptCount: 1,
+        unknownUsageAttempts: 0,
+        tokenUsage: {
+          inputTokens: 9_000,
+          outputTokens: 2_000,
+          totalTokens: 11_000,
+        },
+      },
+    });
+
     expect(calls).toHaveLength(1);
   });
 

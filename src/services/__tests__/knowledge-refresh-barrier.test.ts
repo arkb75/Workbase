@@ -133,6 +133,74 @@ function degradedSemanticRefreshRun() {
   };
 }
 
+function coverageLimitedRefreshRun() {
+  const semantic = analysis({
+    mode: "semantic",
+    status: "succeeded",
+    subsystemKeys: ["project_domain:email-intake"],
+  });
+  const staticAnalysis = analysis({
+    mode: "static",
+    subsystemKeys: ["project_domain:email-intake"],
+  });
+  return {
+    id: "refresh-limited",
+    workItemId: "work-item-1",
+    targetHeads: [{
+      sourceId: "source-1",
+      repository: "owner/proposal-system",
+      branch: "main",
+      commitSha: "d".repeat(40),
+      treeSha: "e".repeat(40),
+      committedAt: null,
+      resolvedAt: new Date().toISOString(),
+    }],
+    warnings: null,
+    orchestration: {
+      cartography: [{
+        key: "project_domain:email-intake",
+        label: "Email intake",
+        scopeKey: "owner/proposal-system",
+        salience: 80,
+        files: [{ id: "email-service", path: "src/email/service.ts", score: 30 }],
+      }],
+      coverageCritique: {
+        domains: [{
+          key: "project_domain:email-intake",
+          label: "Email intake",
+          scopeKey: "owner/proposal-system",
+          totalFiles: 31,
+          targetSamples: 14,
+          inspectedSamples: 11,
+          supportedCandidates: 8,
+          requiredSupportedCandidates: 8,
+          status: "coverage_limited",
+        }],
+      },
+      remainingGaps: [],
+      capacityLimitations: [
+        "Email intake in owner/proposal-system reached the 32-file semantic-analysis capacity after 11 of 14 desired samples.",
+      ],
+    },
+    snapshots: [{
+      id: "snapshot-1",
+      sourceId: "source-1",
+      commitSha: "d".repeat(40),
+      files: [{
+        id: "email-service",
+        path: "src/email/service.ts",
+        disposition: "analyzed",
+        analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
+        analysis: { ...staticAnalysis, path: "src/email/service.ts" },
+        semanticStatus: "succeeded",
+        semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+        semanticRefreshRunId: "refresh-limited",
+        semanticAnalysis: { ...semantic, path: "src/email/service.ts" },
+      }],
+    }],
+  };
+}
+
 describe("latest-commit freshness barrier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -640,6 +708,68 @@ describe("latest-commit freshness barrier", () => {
     expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "refresh-1", status: "reconciling" },
       data: expect.objectContaining({ status: "failed", qualityStatus: "failed" }),
+    }));
+  });
+
+  it("continues a clean capacity-limited model refresh as degraded useful knowledge", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "model");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(
+      coverageLimitedRefreshRun(),
+    );
+
+    const result = await finalizeKnowledgeCoverage("refresh-limited");
+
+    expect(result.coverage).toEqual([
+      expect.objectContaining({
+        repository: "owner/proposal-system",
+        coverageStatus: "partial",
+        semanticCoverageStatus: "coverage_limited",
+        capabilityCoverageStatus: "partial",
+        coverageGaps: expect.arrayContaining([
+          expect.stringContaining("bounded semantic-analysis capacity"),
+          expect.stringContaining("32-file semantic-analysis capacity"),
+        ]),
+        targets: [expect.objectContaining({
+          key: "project_domain:email-intake",
+          criticStatus: "coverage_limited",
+        })],
+      }),
+    ]);
+    expect(prismaMock.repositorySnapshot.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ coverageComplete: false }),
+    }));
+    expect(prismaMock.knowledgeRefreshRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "reconciling",
+        qualityStatus: "degraded",
+        completedHeads: expect.any(Array),
+      }),
+    }));
+  });
+
+  it("allows a persisted capacity-limited model refresh through terminal completion", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "model");
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow
+      .mockResolvedValueOnce({
+        progress: null,
+        coverage: [{
+          repository: "owner/proposal-system",
+          coverageStatus: "partial",
+          semanticCoverageStatus: "coverage_limited",
+        }],
+      })
+      .mockResolvedValueOnce({ status: "completed" });
+    prismaMock.knowledgeRefreshRun.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(completeKnowledgeRefresh("refresh-limited")).resolves.toMatchObject({
+      status: "completed",
+    });
+
+    expect(prismaMock.knowledgeRefreshRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "refresh-limited", status: "reconciling" },
+      data: expect.objectContaining({ status: "completed" }),
     }));
   });
 
