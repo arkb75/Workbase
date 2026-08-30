@@ -20,6 +20,7 @@ import {
   modelEligibleSynthesisNotebook,
   mergeRepositorySynthesisCriticAfterRevision,
   normalizeRepositoryHighlightText,
+  projectRepositorySynthesisClaimBudget,
   applyRepositorySynthesisCritic,
   applyRepositorySynthesisRevision,
   rejectedRepositorySynthesisClaimKeys,
@@ -115,13 +116,13 @@ describe("repository operation communities", () => {
     expect(repositoryOperationCommunityBudgetLimits(0)).toEqual({
       maxModelCalls: 0,
       maxRepairPasses: 0,
-      maxOutputTokens: 2_500,
+      maxOutputTokens: 1_000,
       maxTotalTokens: 0,
     });
     expect(repositoryOperationCommunityBudgetLimits(3)).toEqual({
       maxModelCalls: 3,
       maxRepairPasses: 0,
-      maxOutputTokens: 2_500,
+      maxOutputTokens: 1_000,
       maxTotalTokens: 36_000,
     });
 
@@ -135,12 +136,15 @@ describe("repository operation communities", () => {
     }
   });
 
-  it("admits only broad product and discovered domain scopes", () => {
+  it("admits broad product, runtime, and discovered domain scopes", () => {
     expect(isRepositoryOperationCommunityScope("project_domain:orders")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:product_surface")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:intelligence")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:automation")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:application_core")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(false);
+    expect(isRepositoryOperationCommunityScope("repository_area:integrations")).toBe(false);
     expect(isRepositoryOperationCommunityScope("repository_area:quality")).toBe(false);
-    expect(isRepositoryOperationCommunityScope("repository_area:application_core")).toBe(false);
   });
 
   it("requires seven observations and concrete path diversity for structural scopes", () => {
@@ -167,6 +171,10 @@ describe("repository operation communities", () => {
     )).toBe(false);
     expect(isRepositoryOperationCommunityCandidate(
       "repository_area:product_surface",
+      multiplePaths,
+    )).toBe(true);
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:intelligence",
       multiplePaths,
     )).toBe(true);
     expect(isRepositoryOperationCommunityCandidate(
@@ -1449,6 +1457,54 @@ describe("repository synthesis model-path limits", () => {
       "project_domain:service#scope must return between 1 and 1 Facts.",
       "project_domain:service#scope must return no more than 0 Highlights.",
     ]);
+  });
+
+  it("projects provider output onto dynamic claim limits without separating a Highlight from its Fact", () => {
+    const fact = (statement: string, productImportance: number) => ({
+      statement,
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance,
+      implementationBreadth: productImportance,
+      technicalDifficulty: productImportance,
+      distinctiveness: productImportance,
+    });
+    const low = fact("The service exposes a routine status endpoint.", 2);
+    const promoted = fact("The service coordinates a durable payment workflow.", 4);
+    const highestUnpromoted = fact("The service performs a complex internal migration.", 5);
+    const highlight = {
+      text: "Coordinates durable payments",
+      summary: promoted.statement,
+      confidence: promoted.confidence,
+      sensitivityFlag: promoted.sensitivityFlag,
+      visibility: "private" as const,
+      citationIndexes: promoted.citationIndexes,
+      productImportance: promoted.productImportance,
+      implementationBreadth: promoted.implementationBreadth,
+      technicalDifficulty: promoted.technicalDifficulty,
+      distinctiveness: promoted.distinctiveness,
+    };
+    const inputs = [{
+      subsystemKey: "project_domain:payments",
+      synthesisKey: "project_domain:payments#scope",
+      notebook: [{ ...entry("src/payments.ts"), evidenceMode: "semantic" as const }],
+      claimLimits: { maxFacts: 1, maxHighlights: 1 },
+    }];
+    const projected = projectRepositorySynthesisClaimBudget({
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [low, highestUnpromoted, promoted],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    }, inputs);
+
+    expect(projected.subsystems[0]?.facts).toEqual([promoted]);
+    expect(projected.subsystems[0]?.highlights).toEqual([highlight]);
+    expect(repositorySynthesisStructuralErrors(projected, inputs)).toEqual([]);
   });
 
   it("requires each Highlight to promote one emitted Fact without broadening it", () => {

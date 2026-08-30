@@ -223,7 +223,8 @@ function deltaRevisionGeneration(
   options?: {
     revisionContract?:
       | "rejected_claim_patch_v2_delta_critic"
-      | "rejected_claim_patch_v3_server_slots";
+      | "rejected_claim_patch_v3_server_slots"
+      | "empty_fact_floor_patch_v1_server_slots";
     revisionEvidenceIndexesBySubsystem?: Array<{
       subsystemKey: string;
       citationIndexes: number[];
@@ -276,7 +277,9 @@ function deltaRevisionGeneration(
         options?.revisionContract ??
         "rejected_claim_patch_v2_delta_critic",
       ...(options?.revisionContract ===
-          "rejected_claim_patch_v3_server_slots"
+          "rejected_claim_patch_v3_server_slots" ||
+          options?.revisionContract ===
+          "empty_fact_floor_patch_v1_server_slots"
         ? {
             revisionEvidenceIndexesBySubsystem:
               options.revisionEvidenceIndexesBySubsystem ?? [{
@@ -1470,6 +1473,89 @@ describe("repository knowledge main-path integrity", () => {
 
       expect(result.passed).toBe(expectedPass);
     }
+  });
+
+  it("accepts one critiqued Fact-floor repair and drops its dependent Highlight", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const factKey = `${subsystemKey}:fact:1`;
+    const highlightKey = `${subsystemKey}:highlight:1`;
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 4,
+    };
+    const initialFact = {
+      statement: "The service encrypts every receipt.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    };
+    const initial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [initialFact],
+        highlights: [{
+          text: "Receipt encryption",
+          summary: initialFact.statement,
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotion,
+        }],
+      }],
+    };
+    const revisedFact = {
+      ...initialFact,
+      statement: "The service encrypts payment receipts.",
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey,
+        facts: [revisedFact],
+        highlights: [],
+      }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: factKey,
+      kind: "fact",
+      claim: { statement: revisedFact.statement },
+      citationIndexes: [1],
+    }];
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [factKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          {
+            factRevisions: [{ claimKey: factKey, replacement: revisedFact }],
+            highlightRevisions: [{ claimKey: highlightKey, replacement: null }],
+          },
+          changedClaims,
+          1,
+          {
+            revisionContract: "empty_fact_floor_patch_v1_server_slots",
+          },
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
   });
 
   it("replays full promotion binding and permits a null cascade after ambiguity", () => {

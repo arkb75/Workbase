@@ -735,6 +735,28 @@ describe("complete repository coverage", () => {
     expect(window?.content).toContain("1100: export function persistCitationProvenance");
   });
 
+  it("uses the file responsibility stem when a broad task would otherwise keep early helpers", () => {
+    const lines = Array.from({ length: 1_400 }, (_, index) =>
+      index < 300 && index % 8 === 0
+        ? `export function genericHelper${index}() { return ${index}; }`
+        : `const value${index} = ${index};`,
+    );
+    lines[1_249] = "export async function synthesizeRepositoryKnowledge() { return verifiedFacts; }";
+    const [window] = selectSemanticWindows(lines.join("\n"), 1_200, {
+      path: "src/services/repository-knowledge-synthesis-service.ts",
+      task: {
+        objective: "Inspect this broad runtime area.",
+        capabilityKeys: ["repository_area:intelligence"],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+
+    expect(window?.content).toContain(
+      "1250: export async function synthesizeRepositoryKnowledge",
+    );
+  });
+
   it("gives semantic credit only to capability keys supported by semantic findings", () => {
     const matrix = buildCoverageMatrix([{
       path: "src/services/multi-purpose.ts",

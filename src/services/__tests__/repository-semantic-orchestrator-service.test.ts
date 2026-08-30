@@ -30,9 +30,11 @@ import {
   semanticPlannerTokenCommitment,
   semanticRepairTokenPool,
   semanticRepairWaveDecision,
+  semanticSupportedFileFloor,
   semanticSignalKeysForFile,
   semanticWorkPackageGenerationLimits,
   semanticWorkPackageModelCallCount,
+  updateSemanticRepairCapacityDebt,
   unresolvedSemanticExecutionGaps,
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   type CapabilityManifestArea,
@@ -44,7 +46,7 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 describe("repository semantic orchestration guardrails", () => {
   it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v47-hybrid");
+      .toBe("repository-orchestration-v53-hybrid");
   });
 
   const paths: Record<string, string> = {
@@ -108,6 +110,18 @@ describe("repository semantic orchestration guardrails", () => {
     })).toBe(80_000);
   });
 
+  it("requires broad evidence across most sampled files without requiring every sample to yield a claim", () => {
+    expect(semanticSupportedFileFloor(0)).toBe(0);
+    expect(semanticSupportedFileFloor(4)).toBe(1);
+    expect(semanticSupportedFileFloor(5)).toBe(4);
+    expect(semanticSupportedFileFloor(6)).toBe(5);
+    expect(semanticSupportedFileFloor(8)).toBe(6);
+    expect(semanticSupportedFileFloor(14)).toBe(8);
+    expect(() => semanticSupportedFileFloor(2.5)).toThrow(
+      "Semantic target samples must be a non-negative integer.",
+    );
+  });
+
   it("carries unused initial-wave capacity into the model repair pool", () => {
     expect(semanticRepairTokenPool({
       maxTotalTokens: 80_000,
@@ -167,7 +181,7 @@ describe("repository semantic orchestration guardrails", () => {
     expect(2_310 + 38_483 + repairUsage.totalTokens + remaining).toBe(80_000);
   });
 
-  it("admits at most three repair waves, stops early, and deducts prior usage", () => {
+  it("admits at most four repair waves, stops early, and deducts prior usage", () => {
     const usage = (totalTokens: number) => ({
       modelCalls: 1,
       repairPasses: 0,
@@ -199,7 +213,9 @@ describe("repository semantic orchestration guardrails", () => {
       .toEqual({ shouldRun: true, tokenPool: 35_000, modelCallPool: 7 });
     expect(decision(2, true, [usage(10_000), usage(15_000)]))
       .toEqual({ shouldRun: true, tokenPool: 20_000, modelCallPool: 6 });
-    expect(decision(3, true, [])).toEqual({
+    expect(decision(3, true, [usage(10_000), usage(15_000), usage(5_000)]))
+      .toEqual({ shouldRun: true, tokenPool: 15_000, modelCallPool: 5 });
+    expect(decision(4, true, [])).toEqual({
       shouldRun: false,
       tokenPool: 45_000,
       modelCallPool: 8,
@@ -290,6 +306,16 @@ describe("repository semantic orchestration guardrails", () => {
       capacityLimitedFileSnapshotIds: ["reviewer"],
       remainingTokens: 6_000,
     });
+  });
+
+  it("reconsiders deferred capacity debt and clears it when a later wave admits the file", () => {
+    const debt = updateSemanticRepairCapacityDebt({
+      currentFileSnapshotIds: ["deferred", "still-deferred"],
+      admittedPackages: [{ fileSnapshotIds: ["deferred", "newly-admitted"] }],
+      omittedFileSnapshotIds: ["still-deferred", "newly-deferred"],
+    });
+
+    expect([...debt].sort()).toEqual(["newly-deferred", "still-deferred"]);
   });
 
   it("counts shared semantic waves once in orchestration usage", () => {

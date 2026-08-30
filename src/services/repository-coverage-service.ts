@@ -611,6 +611,7 @@ function chunkByLines(content: string) {
 }
 
 export interface RepositorySemanticWindowHints {
+  path?: string;
   task?: RepositorySemanticTask;
   staticAnalysis?: Pick<RepositoryFileAnalysis, "facts" | "subsystemKeys">;
 }
@@ -618,7 +619,7 @@ export interface RepositorySemanticWindowHints {
 const semanticHintStopWords = new Set([
   "about", "after", "against", "assigned", "before", "capability", "determine", "expected", "finding",
   "from", "implemented", "into", "objective", "output", "project", "question", "repository", "supported",
-  "that", "their", "these", "this", "through", "what", "when", "where", "which", "with",
+  "service", "services", "that", "their", "these", "this", "through", "what", "when", "where", "which", "with",
 ]);
 
 function semanticHintTokens(value: string) {
@@ -627,6 +628,20 @@ function semanticHintTokens(value: string) {
     .toLowerCase()
     .split(/[^a-z\d]+/)
     .filter((token) => token.length >= 4 && !semanticHintStopWords.has(token));
+}
+
+function semanticHintMatchesLine(lowerLine: string, token: string) {
+  if (lowerLine.includes(token)) return true;
+  const stem = token.replace(
+    /(?:ators?|isers?|izers?|ments?|tions?|sions?|ings?|ers?|ors?|sis)$/,
+    "",
+  );
+  if (stem.length >= 5 && lowerLine.includes(stem)) return true;
+  // Noun/verb pairs such as reconciliation/reconcile and synthesis/synthesize
+  // do not share a reliable English suffix. A six-character prefix is still
+  // specific enough for long repository identifiers and is used only as a
+  // routing hint; exact cited lines remain the evidence authority.
+  return token.length >= 8 && lowerLine.includes(token.slice(0, 6));
 }
 
 /**
@@ -649,6 +664,7 @@ export function selectSemanticWindows(
   if (totalBytes <= semanticByteLimit) return chunkByLines(content);
   const taskCapabilityKeys = unique(hints.task?.capabilityKeys ?? [], 20);
   const taskText = [
+    hints.path ?? "",
     ...taskCapabilityKeys,
     ...(hints.task?.semanticSignalKeys ?? []),
     hints.task?.objective ?? "",
@@ -662,7 +678,9 @@ export function selectSemanticWindows(
   const scoredLines = lines.map((line, index) => {
     const normalized = line.trim();
     const lower = line.toLowerCase();
-    const matchingTaskTokens = taskTokens.filter((token) => lower.includes(token));
+    const matchingTaskTokens = taskTokens.filter((token) =>
+      semanticHintMatchesLine(lower, token)
+    );
     return {
       index,
       score: (signalPattern.test(line) ? 4 : 0)
@@ -678,6 +696,32 @@ export function selectSemanticWindows(
     if (existing) existing.score = Math.max(existing.score, score);
     else prioritizedCenters.push({ index, score });
   };
+
+  // A broad assigned area such as `repository_area:intelligence` may cover
+  // dozens of large services. The file's own responsibility stem is the most
+  // specific repository-derived routing hint available without inventing a
+  // product taxonomy. Reserve one entrypoint that matches the most basename
+  // tokens before generic/static anchors consume the bounded window.
+  const basename = hints.path?.replace(/\\/g, "/").split("/").at(-1) ?? "";
+  const pathTokens = semanticHintTokens(basename);
+  const responsibilityEntrypoint = scoredLines
+    .map((entry) => ({
+      entry,
+      matches: pathTokens.filter((token) =>
+        semanticHintMatchesLine(entry.lower, token)
+      ).length,
+    }))
+    .filter(({ entry, matches }) =>
+      matches > 0 && entrypointPattern.test(lines[entry.index]?.trim() ?? "")
+    )
+    .sort((left, right) =>
+      right.matches - left.matches ||
+      right.entry.score - left.entry.score ||
+      left.entry.index - right.entry.index
+    )[0];
+  if (responsibilityEntrypoint) {
+    addCenter(responsibilityEntrypoint.entry.index, 240 + responsibilityEntrypoint.matches);
+  }
 
   // Ensure each assigned capability gets a decisive exact-line anchor when
   // the exhaustive static pass has already located one.
@@ -695,7 +739,9 @@ export function selectSemanticWindows(
     }
     const tokens = capabilityTokens.get(capabilityKey) ?? [];
     const bestLine = scoredLines
-      .filter((entry) => tokens.some((token) => entry.lower.includes(token)))
+      .filter((entry) => tokens.some((token) =>
+        semanticHintMatchesLine(entry.lower, token)
+      ))
       .sort((left, right) => right.score - left.score || left.index - right.index)[0];
     if (bestLine) addCenter(bestLine.index, 140 + bestLine.score);
   }
@@ -1246,6 +1292,7 @@ export async function analyzeRepositoryFile(input: {
   const chunks = mockExtraction
     ? chunkByLines(input.content)
     : selectSemanticWindows(input.content, 8 * 1024, {
+        path: input.path,
         task: input.task,
         staticAnalysis: input.staticAnalysis,
       });
@@ -1411,6 +1458,7 @@ export async function analyzeRepositoryFileBatch(
     // the smaller prompt leaves room for native structured output and one
     // provider schema-repair pass on the primary model path.
     const window = selectSemanticWindows(file.content, REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES, {
+      path: file.path,
       task: file.task,
       staticAnalysis: file.staticAnalysis,
     })[0] ?? { lineStart: 1, lineEnd: 1, content: "1: " };

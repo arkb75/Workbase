@@ -907,13 +907,13 @@ describe("repository-derived cartographer and coverage critic", () => {
       expect.objectContaining({
         key: intelligence.key,
         supportedFileCount: 4,
-        requiredSupportedFiles: 8,
+        requiredSupportedFiles: 6,
         status: "thin",
       }),
       expect.objectContaining({
         key: applicationCore.key,
         supportedFileCount: 5,
-        requiredSupportedFiles: 8,
+        requiredSupportedFiles: 6,
         status: "thin",
       }),
     ]));
@@ -1409,6 +1409,74 @@ describe("repository-derived cartographer and coverage critic", () => {
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toEqual(["client", "implementation"]);
     expect(plan[0]?.fileSnapshotIds).not.toEqual(expect.arrayContaining(["panel", "adapter"]));
+  });
+
+  it("keeps runtime services ahead of schema history in non-data structural areas", () => {
+    const area = {
+      key: "repository_area:intelligence",
+      label: "Search, retrieval, and model intelligence",
+      scopeKey: "example/knowledge-runtime",
+      salience: 120,
+      files: [
+        { id: "migration", path: "prisma/migrations/20260101_chat/migration.sql", score: 200 },
+        { id: "schema", path: "prisma/schema.prisma", score: 190 },
+        { id: "synthesis", path: "src/services/knowledge-synthesis-service.ts", score: 80 },
+        { id: "review", path: "src/services/knowledge-review-service.ts", score: 70 },
+        { id: "chat", path: "src/services/project-chat-agent-service.ts", score: 60 },
+      ],
+    };
+
+    const selected = buildRepositoryDerivedSemanticPlan({ manifest: [area] })
+      .flatMap((workPackage) => workPackage.fileSnapshotIds);
+    expect(selected).toHaveLength(2);
+    expect(selected.every((id) => ["synthesis", "review", "chat"].includes(id)))
+      .toBe(true);
+  });
+
+  it("does not let overlapping UI or schema findings satisfy a broad runtime audit", () => {
+    const runtimeFiles = Array.from({ length: 8 }, (_, index) => ({
+      id: `runtime-${index}`,
+      path: `src/services/operation-${index}-service.ts`,
+      score: 80 - index,
+    }));
+    const overlappingFiles = [
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `screen-${index}`,
+        path: `components/Screen${index}.tsx`,
+        score: 200 - index,
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `migration-${index}`,
+        path: `db/migrations/${index}-change.sql`,
+        score: 180 - index,
+      })),
+    ];
+    const area = {
+      key: "repository_area:intelligence",
+      label: "Search, retrieval, and model intelligence",
+      scopeKey: "example/runtime-audit",
+      salience: 500,
+      files: [...runtimeFiles, ...overlappingFiles],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: overlappingFiles.slice(0, 8).map((file) => ({
+        inspectedFileSnapshotIds: [file.id],
+        candidates: [candidate(area.key, file.id)],
+      })),
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toEqual(expect.objectContaining({
+      totalFiles: 8,
+      targetSamples: 8,
+      inspectedSamples: 0,
+      supportedCandidates: 0,
+      status: "missing",
+    }));
+    expect(new Set(critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    ))).toEqual(new Set(runtimeFiles.map((file) => file.id)));
   });
 
   it("samples distinct workflow roles from a flat agent module", () => {
@@ -2229,7 +2297,7 @@ describe("repository-derived cartographer and coverage critic", () => {
       targetSamples: 8,
       requiredSupportedCandidates: 8,
       supportedFileCount: 2,
-      requiredSupportedFiles: 8,
+      requiredSupportedFiles: 6,
       status: "thin",
     });
     expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
@@ -2729,7 +2797,7 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: true,
       selectedFileSnapshotIds: [
         "retry-selected",
-        ...Array.from({ length: 31 }, (_, index) => `assigned-${index}`),
+        ...Array.from({ length: 35 }, (_, index) => `assigned-${index}`),
       ],
     });
 
