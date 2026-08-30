@@ -26,6 +26,7 @@ import {
   classifyRepositoryPathForKnowledgeSync,
   GitHubRepositoryExplorationError,
   githubRepositoryExplorationService,
+  redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
 const commitSha = "a".repeat(40);
@@ -63,6 +64,132 @@ async function startSession() {
     sourceId: "source-1",
   });
 }
+
+describe("redactRepositorySecrets", () => {
+  it("does not treat TypeScript token annotations as assigned secrets", () => {
+    const source = [
+      "function parse(token: string, value: unknown) {",
+      "  const token: string = Object.keys(value as object)[0];",
+      "  let accessToken: TokenKind;",
+      "  let authToken: auth.Token;",
+      "  let refreshToken: Readonly<Record<string, string>>;",
+      "  let privateKey: () => string;",
+      "  let token: 'access' | 'refresh';",
+      "  type Operator = { token: 'MAX' };",
+      "  type MixedOperator = { token: 'MAX' | string };",
+      "}",
+    ].join("\n");
+
+    expect(redactRepositorySecrets(source)).toEqual({
+      content: source,
+      categories: [],
+    });
+  });
+
+  it("preserves semicolonless annotations in multiline parameters and type blocks", () => {
+    const source = [
+      "function calculate(",
+      "  values: number[],",
+      "  token: string",
+      ") {",
+      "  return values.length;",
+      "}",
+      "interface LexerState {",
+      "  token: string",
+      "  accessToken: TokenKind",
+      "}",
+      "type ParserState =",
+      "{",
+      "  authToken: auth.Token",
+      "}",
+    ].join("\n");
+
+    expect(redactRepositorySecrets(source)).toEqual({
+      content: source,
+      categories: [],
+    });
+  });
+
+  it("still redacts concrete secret literals on typed and object properties", () => {
+    const result = redactRepositorySecrets([
+      "const token: string = 'plain-secret-value';",
+      "const password: String = new String('wrapped-secret-value');",
+      "const accessToken: Buffer = Buffer.from('buffered-secret-value');",
+      "const authToken: string = /* configured value */ ('parenthesized-secret-value');",
+      "const apiKey: number = 123456789;",
+      "const config = { apiKey: 'another-secret-value' };",
+    ].join("\n"));
+
+    expect(result.content).toBe([
+      "const token: [REDACTED]",
+      "const password: [REDACTED]",
+      "const accessToken: [REDACTED]",
+      "const authToken: [REDACTED]",
+      "const apiKey: [REDACTED]",
+      "const config = { apiKey: [REDACTED]",
+    ].join("\n"));
+    expect(result.categories).toEqual(["assigned_secret"]);
+  });
+
+  it("redacts concrete typed initializers continued onto following lines", () => {
+    const result = redactRepositorySecrets([
+      "const token: string =",
+      "  'plain-secret-value';",
+      "const apiKey: number =",
+      "  1234_5678;",
+      "const password: string = /* configured",
+      "  outside source control */",
+      "  'another-secret-value';",
+    ].join("\n"));
+
+    expect(result.content).toBe([
+      "const token: string =",
+      "[REDACTED]",
+      "const apiKey: number =",
+      "[REDACTED]",
+      "const password: string = /* configured",
+      "  outside source control */",
+      "[REDACTED]",
+    ].join("\n"));
+    expect(result.categories).toEqual(["assigned_secret"]);
+  });
+
+  it("ends typed-initializer continuation before an unrelated statement", () => {
+    const source = [
+      "const token: string =",
+      "  resolveToken()",
+      "const title = 'Visible project title';",
+    ].join("\n");
+
+    expect(redactRepositorySecrets(source)).toEqual({
+      content: source,
+      categories: [],
+    });
+  });
+
+  it("does not mistake object literals inside calls for parameter annotations", () => {
+    const result = redactRepositorySecrets([
+      "configure({",
+      "  token: 'plain-secret-value',",
+      "  password: 'another-secret-value'",
+      "});",
+      "configure(",
+      "  { token: 'second-secret-value' }",
+      ");",
+    ].join("\n"));
+
+    expect(result.content).toBe([
+      "configure({",
+      "  token: [REDACTED]",
+      "  password: [REDACTED]",
+      "});",
+      "configure(",
+      "  { token: [REDACTED]",
+      ");",
+    ].join("\n"));
+    expect(result.categories).toEqual(["assigned_secret"]);
+  });
+});
 
 describe("githubRepositoryExplorationService", () => {
   beforeEach(() => {

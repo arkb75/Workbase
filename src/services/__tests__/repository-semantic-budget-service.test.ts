@@ -116,6 +116,103 @@ describe("repository semantic task and budget", () => {
     });
   });
 
+  it("accepts a contiguous exact range from a CRLF repository file", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The handler validates and stores the submitted record.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The handler validates the submitted record before storing it.",
+          kind: "behavior",
+          capabilityKeys: ["product_surface"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 2,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/windows-project",
+      commitSha: "c".repeat(40),
+      path: "src/record-handler.ts",
+      content: "validate(record);\r\nstore(record);",
+      task: {
+        objective: "Identify the implemented record flow.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["The exact validated operation"],
+      },
+    });
+
+    expect(analysis.facts).toEqual([
+      expect.objectContaining({ lineStart: 1, lineEnd: 2 }),
+    ]);
+    expect(analysis.unresolvedQuestions.join(" ")).not.toContain("were not supplied");
+  });
+
+  it("rejects a citation that crosses lines omitted from a sparse semantic notebook", async () => {
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as { lineRange: [number, number] };
+      return {
+        data: {
+          summary: "The module exposes many repository operations.",
+          subsystemKeys: ["product_surface"],
+          findings: [{
+            statement: "The module exposes the operations represented across the selected range.",
+            kind: "user_capability",
+            capabilityKeys: ["product_surface"],
+            signalKeys: [],
+            confidence: "high",
+            sensitivityFlag: false,
+            lineStart: prompt.lineRange[0],
+            lineEnd: prompt.lineRange[1],
+          }],
+          unresolvedQuestions: [],
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: null,
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const content = Array.from({ length: 320 }, (_, index) =>
+      `export const operation${index} = () => "${"implementation".repeat(5)}";`
+    ).join("\n");
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/general-project",
+      commitSha: "a".repeat(40),
+      path: "src/operations.ts",
+      content,
+      task: {
+        objective: "Identify implemented project operations.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["Exact-line supported operations"],
+      },
+    });
+
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.architectureSignals).toEqual([]);
+    expect(analysis.userFacingCapabilities).toEqual([]);
+    expect(analysis.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
+  });
+
   it("forces redacted cited ranges sensitive while leaving ordinary authentication unflagged", async () => {
     const response = (statement: string) => ({
       data: {
@@ -541,6 +638,90 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
     expect(request.transportPreference).toEqual(["json_schema"]);
     expect(request.enablePromptCaching).toBe(false);
+  });
+
+  it("isolates a sparse cross-gap citation without discarding a valid batch sibling", async () => {
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        files: Array<{ fileKey: string; lineRange: [number, number] }>;
+      };
+      const invalidRange = prompt.files[0]!.lineRange;
+      const validRange = prompt.files[1]!.lineRange;
+      return {
+        data: {
+          files: {
+            "file-1": {
+              summary: "The large module exposes many operations.",
+              subsystemKeys: ["product_surface"],
+              findings: [{
+                statement: "The large module exposes operations across the selected range.",
+                kind: "user_capability",
+                capabilityKeys: ["product_surface"],
+                signalKeys: [],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: invalidRange[0],
+                lineEnd: invalidRange[1],
+              }],
+              unresolvedQuestions: [],
+            },
+            "file-2": {
+              summary: "The focused module exposes one operation.",
+              subsystemKeys: ["product_surface"],
+              findings: [{
+                statement: "The focused module exports the implemented operation.",
+                kind: "user_capability",
+                capabilityKeys: ["product_surface"],
+                signalKeys: [],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: validRange[0],
+                lineEnd: validRange[0],
+              }],
+              unresolvedQuestions: [],
+            },
+          },
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: null,
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const largeContent = Array.from({ length: 320 }, (_, index) =>
+      `export const operation${index} = () => "${"implementation".repeat(5)}";`
+    ).join("\n");
+    const task = {
+      objective: "Identify implemented project operations.",
+      capabilityKeys: ["product_surface"],
+      questions: [],
+      expectedOutputs: ["Exact-line supported operations"],
+    };
+
+    const [invalid, valid] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/many-operations.ts",
+        content: largeContent,
+        task,
+      },
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/focused-operation.ts",
+        content: "export const operation = () => true;",
+        task,
+      },
+    ]);
+
+    expect(invalid?.facts).toEqual([]);
+    expect(invalid?.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
+    expect(valid?.facts).toHaveLength(1);
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
   });
 
   it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {

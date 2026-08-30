@@ -409,6 +409,58 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls[3]?.userPrompt).toContain("<example_output>");
   });
 
+  it("preserves the configured repair runtime when no same-profile policy is requested", async () => {
+    const primaryCalls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const repairCalls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const primaryRuntime: ConverseTextRuntime = {
+      async converse(input) {
+        primaryCalls.push(input);
+        return {
+          text: "not valid json",
+          structuredData: null,
+          tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        };
+      },
+    };
+    const repairRuntime: ConverseTextRuntime = {
+      async converse(input) {
+        repairCalls.push(input);
+        return {
+          text: '{"ok":true}',
+          structuredData: null,
+          tokenUsage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(
+      primaryRuntime,
+      {
+        provider: "openrouter",
+        region: null,
+        modelId: "openai/gpt-5.6-luna",
+      },
+      repairRuntime,
+    );
+
+    const result = await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(primaryCalls).toHaveLength(1);
+    expect(repairCalls).toHaveLength(1);
+    expect(primaryCalls[0]?.structuredOutput?.mode).toBe("json_schema");
+    expect(repairCalls[0]?.structuredOutput).toBeUndefined();
+  });
+
   it("fails safely after schema-aware repair also fails", async () => {
     const { client } = makeClient([
       { text: "not valid json" },

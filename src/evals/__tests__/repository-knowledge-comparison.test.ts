@@ -128,6 +128,12 @@ describe("repository knowledge report comparison", () => {
       comparedFixtureCount: 2,
       candidateOnlyFixtureIds: ["gamma"],
       baselineOnlyFixtureIds: [],
+      evaluatorPolicyCompatibility: {
+        baseline: null,
+        candidate: null,
+        compatible: true,
+        diagnostic: expect.stringContaining("legacy compatibility"),
+      },
     });
     expect(result.comparisons[0]!.aggregateOperations).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -138,6 +144,87 @@ describe("repository knowledge report comparison", () => {
         status: "within_tolerance",
       }),
     ]));
+  });
+
+  it("rejects explicitly different evaluator policies and accepts equal policies", () => {
+    const baseline = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    const candidate = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    Object.assign(baseline, {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v1",
+    });
+    Object.assign(candidate, {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v2",
+    });
+
+    const mismatch = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(mismatch.passed).toBe(false);
+    expect(mismatch.comparisons[0]).toMatchObject({
+      evaluatorPolicyCompatibility: {
+        baseline: "repository-knowledge-evaluator-v1",
+        candidate: "repository-knowledge-evaluator-v2",
+        compatible: false,
+        diagnostic: "Candidate and baseline declare different evaluator policy versions.",
+      },
+      regressions: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "suite",
+          metric: "evaluatorPolicyVersion",
+        }),
+      ]),
+    });
+
+    Object.assign(baseline, {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v2",
+    });
+    const compatible = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(compatible.passed).toBe(true);
+    expect(compatible.comparisons[0]!.evaluatorPolicyCompatibility).toEqual({
+      baseline: "repository-knowledge-evaluator-v2",
+      candidate: "repository-knowledge-evaluator-v2",
+      compatible: true,
+      diagnostic: null,
+    });
+  });
+
+  it("derives nested evaluator policy attestations and rejects inconsistent reports", () => {
+    const baseline = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    const candidate = evaluatorReport([{ fixtureId: "alpha", score: 0.8 }]);
+    Object.assign(baseline.aggregate, {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v2",
+    });
+    Object.assign(candidate.reports[0], {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v2",
+    });
+
+    const compatible = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(compatible.candidate.evaluatorPolicyVersion).toBe(
+      "repository-knowledge-evaluator-v2",
+    );
+    expect(compatible.comparisons[0]!.evaluatorPolicyCompatibility).toMatchObject({
+      baseline: "repository-knowledge-evaluator-v2",
+      candidate: "repository-knowledge-evaluator-v2",
+      compatible: true,
+    });
+
+    Object.assign(candidate, {
+      evaluatorPolicyVersion: "repository-knowledge-evaluator-v1",
+    });
+    expect(() => compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    })).toThrow(/evaluator policy declarations disagree/u);
   });
 
   it("fails on missing fixtures, pass downgrades, quality drops, and excessive operations", () => {

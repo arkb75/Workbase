@@ -18,6 +18,7 @@ import { runAuditedStructuredGeneration } from "@/src/services/structured-genera
 export const REPOSITORY_FILE_CHUNK_BYTES = 24 * 1024;
 export const REPOSITORY_COVERAGE_POLICY_VERSION = "repository-coverage-v16-hybrid";
 export const REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES = 4 * 1024;
+export const REPOSITORY_SEMANTIC_MAX_CITATION_BYTES = 8 * 1024;
 
 export const BASE_COVERAGE_TARGETS = [
   { key: "product_surface", label: "Product surface" },
@@ -720,6 +721,13 @@ function mockAnalysis(path: string, lineStart: number, lineEnd: number, capabili
 }
 
 /** Reject model findings cited from explicitly future-facing documentation. */
+function parseNumberedSourceLine(line: string) {
+  const match = /^(\d+): ?/u.exec(line);
+  return match
+    ? { number: Number(match[1]), text: line.slice(match[0].length) }
+    : null;
+}
+
 export function isPlannedDocumentationRange(input: {
   path: string;
   numberedContent: string;
@@ -728,8 +736,8 @@ export function isPlannedDocumentationRange(input: {
 }) {
   if (!isRepositoryDocumentationPath(input.path)) return false;
   const lines = input.numberedContent.split("\n").flatMap((line) => {
-    const match = /^(\d+):\s?(.*)$/u.exec(line);
-    return match ? [{ number: Number(match[1]), text: match[2] ?? "" }] : [];
+    const parsed = parseNumberedSourceLine(line);
+    return parsed ? [parsed] : [];
   });
   const selected = lines.filter((line) => line.number >= input.lineStart && line.number <= input.lineEnd);
   const precedingHeading = lines
@@ -741,6 +749,29 @@ export function isPlannedDocumentationRange(input: {
 }
 
 const MAX_SEMANTIC_EVIDENCE_EXCERPT_CHARS = 1_600;
+
+function inspectSemanticEvidenceRange(
+  numberedContent: string,
+  lineStart: number,
+  lineEnd: number,
+) {
+  const selected = numberedContent.split("\n").flatMap((line) => {
+    const parsed = parseNumberedSourceLine(line);
+    if (!parsed) return [];
+    return parsed.number >= lineStart && parsed.number <= lineEnd
+      ? [{ lineNumber: parsed.number, source: parsed.text }]
+      : [];
+  });
+  const expectedLineCount = lineEnd - lineStart + 1;
+  const complete = expectedLineCount > 0 &&
+    selected.length === expectedLineCount &&
+    selected.every((line, index) => line.lineNumber === lineStart + index);
+  const sourceExcerpt = selected.map((line) => line.source).join("\n");
+  return {
+    complete,
+    byteLength: Buffer.byteLength(sourceExcerpt, "utf8"),
+  };
+}
 
 /** Preserve exact cited source fragments so later critics do not trust a model paraphrase as evidence. */
 export function semanticEvidenceExcerpt(
@@ -835,6 +866,7 @@ async function analyzeChunk(input: {
         repositorySemanticFindingGuidance,
         "Keep each finding atomic and directly entailed by its cited lines. Do not add a second action, ordering claim, success or failure outcome, metric, or type relationship unless those same lines establish it explicitly.",
         "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
+        `Cite the smallest contiguous range whose every line is supplied; never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
         "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
         "Use stable snake_case subsystem keys.",
@@ -908,6 +940,19 @@ async function analyzeChunk(input: {
       rejected.push(`Rejected out-of-window finding at ${finding.lineStart}-${finding.lineEnd}.`);
       return [];
     }
+    const evidenceRange = inspectSemanticEvidenceRange(
+      input.content,
+      finding.lineStart,
+      finding.lineEnd,
+    );
+    if (!evidenceRange.complete) {
+      rejected.push(`Rejected finding whose range ${finding.lineStart}-${finding.lineEnd} spans source lines that were not supplied.`);
+      return [];
+    }
+    if (evidenceRange.byteLength > REPOSITORY_SEMANTIC_MAX_CITATION_BYTES) {
+      rejected.push(`Rejected oversized evidence finding at ${finding.lineStart}-${finding.lineEnd} (${evidenceRange.byteLength} bytes).`);
+      return [];
+    }
     if (isPlannedDocumentationRange({
       path: input.path,
       numberedContent: input.content,
@@ -956,8 +1001,12 @@ async function analyzeChunk(input: {
       responsibilities: findings.map((finding) => finding.statement),
       symbols: [],
       dependencies: [],
-      architectureSignals: unique(result.data.findings.map((finding) => finding.kind.replace(/_/g, " ")), 30),
-      userFacingCapabilities: unique(result.data.findings.filter((finding) => finding.kind === "user_capability").map((finding) => finding.statement), 30),
+      architectureSignals: unique(findings.flatMap((finding) =>
+        finding.semanticKind ? [finding.semanticKind.replace(/_/g, " ")] : []
+      ), 30),
+      userFacingCapabilities: unique(findings.filter((finding) =>
+        finding.semanticKind === "user_capability"
+      ).map((finding) => finding.statement), 30),
       facts: findings,
       unresolvedQuestions: unique([...result.data.unresolvedQuestions, ...rejected], 30),
     },
@@ -1359,6 +1408,7 @@ export async function analyzeRepositoryFileBatch(
           repositorySemanticSensitivityGuidance,
           "Keep each finding atomic and directly entailed by its cited lines. Do not add a second action, ordering claim, success or failure outcome, metric, or type relationship unless those same lines establish it explicitly.",
           "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
+          `Cite the smallest contiguous range whose every line is supplied; never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
           "Return at most three decisive findings and two concrete unresolved questions per file.",
           "Assign each finding only to that file's allowed capability keys and follow its research task.",
           "signalKeys are stable implementation facets. Use only that file's allowedSemanticSignalKeys and attach every supplied signal directly established by the cited lines.",
@@ -1511,6 +1561,19 @@ export async function analyzeRepositoryFileBatch(
         !suppliedLines.has(finding.lineEnd)
       ) {
         rejected.push(`Rejected out-of-window finding at ${finding.lineStart}-${finding.lineEnd}.`);
+        return [];
+      }
+      const evidenceRange = inspectSemanticEvidenceRange(
+        entry.window.content,
+        finding.lineStart,
+        finding.lineEnd,
+      );
+      if (!evidenceRange.complete) {
+        rejected.push(`Rejected finding whose range ${finding.lineStart}-${finding.lineEnd} spans source lines that were not supplied.`);
+        return [];
+      }
+      if (evidenceRange.byteLength > REPOSITORY_SEMANTIC_MAX_CITATION_BYTES) {
+        rejected.push(`Rejected oversized evidence finding at ${finding.lineStart}-${finding.lineEnd} (${evidenceRange.byteLength} bytes).`);
         return [];
       }
       if (isPlannedDocumentationRange({

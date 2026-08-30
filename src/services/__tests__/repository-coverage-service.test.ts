@@ -214,6 +214,12 @@ describe("complete repository coverage", () => {
       lineStart: 4,
       lineEnd: 4,
     })).toBe(false);
+    expect(isPlannedDocumentationRange({
+      path: "README.md",
+      numberedContent: numberedContent.replaceAll("\n", "\r\n"),
+      lineStart: 4,
+      lineEnd: 4,
+    })).toBe(true);
   });
 
   it("extracts imports and symbols across TypeScript, Python, Java, and Go", async () => {

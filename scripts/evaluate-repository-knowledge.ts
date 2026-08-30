@@ -13,6 +13,7 @@ import {
   evaluateRepositoryKnowledgeRun,
   evaluateRepositoryKnowledgeSuite,
   REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
+  REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
   type RepositoryKnowledgeEvaluationRun,
   type RepositoryKnowledgeFixture,
 } from "@/src/evals/repository-knowledge-quality";
@@ -186,6 +187,7 @@ async function main() {
   const aggregate = evaluateRepositoryKnowledgeSuite({ fixtures, runs: observations });
   const output = {
     schemaVersion: REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
+    evaluatorPolicyVersion: REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
     profiles: fixtures.map((fixture) => ({
       fixtureId: fixture.id,
       repository: fixture.repository,

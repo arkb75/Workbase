@@ -1412,6 +1412,116 @@ describe("repository-derived cartographer and coverage critic", () => {
     ]);
   });
 
+  it("uses bounded repair to inspect a third controller operation role", () => {
+    const area = {
+      key: "project_domain:record-processing",
+      label: "Record processing",
+      scopeKey: "example/processing-service",
+      salience: 120,
+      files: [
+        { id: "request-parser", path: "src/controllers/processing/RequestParser.ts", score: 300 },
+        { id: "operation-contract", path: "src/controllers/processing/IProcessing.ts", score: 250 },
+        { id: "io-executor", path: "src/controllers/processing/IOExecutor.ts", score: 200 },
+        { id: "metric-calculator", path: "src/controllers/processing/MetricCalculator.ts", score: 10 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    const initiallySelected = plan[0]!.fileSnapshotIds;
+    expect(semanticSampleTarget(area)).toBe(2);
+    expect(semanticAuditTarget(area)).toBe(2);
+    expect(initiallySelected).toEqual(["io-executor", "request-parser"]);
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: initiallySelected,
+        candidates: initiallySelected.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 2,
+      inspectedSamples: 2,
+      diversityGaps: 1,
+      status: "thin",
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "metric-calculator",
+    ]);
+  });
+
+  it.each([
+    {
+      language: "TypeScript",
+      paths: {
+        parser: "src/query/parser.ts",
+        contract: "src/query/IQuery.ts",
+        executor: "src/query/executor.ts",
+        calculations: "src/query/calculations.ts",
+      },
+    },
+    {
+      language: "Python",
+      paths: {
+        parser: "src/query/parser.py",
+        contract: "src/query/IQuery.py",
+        executor: "src/query/executor.py",
+        calculations: "src/query/calculations.py",
+      },
+    },
+    {
+      language: "Java",
+      paths: {
+        parser: "src/main/java/com/example/query/Parser.java",
+        contract: "src/main/java/com/example/query/IQuery.java",
+        executor: "src/main/java/com/example/query/Executor.java",
+        calculations: "src/main/java/com/example/query/Calculations.java",
+      },
+    },
+  ])("repairs a third sibling operation in a framework-neutral $language layout", ({ paths }) => {
+    const area = {
+      key: "project_domain:query",
+      label: "Query",
+      scopeKey: "example/query-engine",
+      salience: 120,
+      files: [
+        { id: "parser", path: paths.parser, score: 300 },
+        { id: "contract", path: paths.contract, score: 250 },
+        { id: "executor", path: paths.executor, score: 200 },
+        { id: "calculations", path: paths.calculations, score: 10 },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    const initiallySelected = plan[0]!.fileSnapshotIds;
+    expect(initiallySelected).toEqual(["executor", "parser"]);
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: initiallySelected,
+        candidates: initiallySelected.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 2,
+      inspectedSamples: 2,
+      diversityGaps: 1,
+      status: "thin",
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toEqual([
+      "calculations",
+    ]);
+    expect([
+      ...initiallySelected,
+      ...critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds),
+    ]).not.toContain("contract");
+  });
+
   it("preserves role-only basenames when no subject module is present", () => {
     const area = {
       key: "project_domain:job-control",

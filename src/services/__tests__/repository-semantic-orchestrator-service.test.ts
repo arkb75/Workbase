@@ -334,6 +334,84 @@ describe("repository semantic orchestration guardrails", () => {
     });
   });
 
+  it("corrects one semantically invalid planner response on the same bounded model path", async () => {
+    const manifest = [{
+      key: "project_domain:query",
+      label: "Query",
+      scopeKey: "example/query-engine",
+      files: [{ id: "query-parser", path: "src/query/parser.ts", score: 100 }],
+    }] satisfies CapabilityManifestArea[];
+    const budget = createRepositorySemanticPlannerBudget();
+    const request = buildRepositorySemanticPlannerRequest({
+      projectTitle: "Query engine",
+      manifest,
+      budget,
+    });
+    const validPackage = {
+      objective: "Inspect the query implementation and its supported behavior.",
+      capabilityKeys: ["project_domain:query"],
+      fileSnapshotIds: ["query-parser"],
+      questions: ["What query behavior is implemented?"],
+      expectedOutputs: ["Evidence-backed query findings."],
+    };
+    const calls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const repairProfileCalls: Array<Parameters<ConverseTextRuntime["converse"]>[0]> = [];
+    const runtime: ConverseTextRuntime = {
+      async converse(input) {
+        calls.push(input);
+        if (calls.length === 1) {
+          return {
+            text: "",
+            structuredData: {
+              packages: [{
+                ...validPackage,
+                capabilityKeys: ["project_domain:not-supplied"],
+              }],
+            },
+            tokenUsage: { inputTokens: 600, outputTokens: 200, totalTokens: 800 },
+            requestId: "planner-invalid-1",
+          };
+        }
+        return {
+          text: JSON.stringify({ packages: [validPackage] }),
+          structuredData: null,
+          tokenUsage: { inputTokens: 900, outputTokens: 250, totalTokens: 1_150 },
+          requestId: "planner-correction-1",
+        };
+      },
+    };
+    const client = new BedrockStructuredLlmClient(
+      runtime,
+      {
+        provider: "bedrock",
+        region: "us-east-1",
+        modelId: "routing-model",
+      },
+      {
+        async converse(input) {
+          repairProfileCalls.push(input);
+          throw new Error("The separate repair profile must not run.");
+        },
+      },
+    );
+
+    await expect(client.generateStructured(request)).resolves.toMatchObject({
+      data: { packages: [validPackage] },
+      transportMode: "text_repair_fallback",
+    });
+    expect(calls).toHaveLength(2);
+    expect(repairProfileCalls).toHaveLength(0);
+    expect(calls[1]?.systemPrompt).toContain("repair structured model outputs");
+    expect(calls[1]?.userPrompt).toContain("unavailable capability key");
+    expect(calls[1]?.userPrompt).toContain("Allowed capability keys: project_domain:query");
+    expect(calls[1]?.userPrompt).toContain("Allowed representative file snapshot IDs: query-parser");
+    expect(budget.usage).toMatchObject({
+      modelCalls: 2,
+      repairPasses: 1,
+      totalTokens: 1_950,
+    });
+  });
+
   it("finds a feasible bounded packing when greedy placement can strand capacity", () => {
     const sizes = [7, 7, 4, 4, 3, 3, 2];
     const assignments = packSemanticBundleIndexes({

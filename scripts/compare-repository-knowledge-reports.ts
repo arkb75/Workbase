@@ -66,6 +66,7 @@ interface Fixture {
 interface Report {
   name: string;
   path: string | null;
+  evaluatorPolicyVersion: string | null;
   passed: boolean;
   fixtures: Map<string, Fixture>;
   executionIntegrityPassed: boolean;
@@ -106,6 +107,14 @@ function number(source: JsonRecord | null, ...keys: string[]) {
 function requiredBoolean(value: unknown, description: string) {
   if (typeof value !== "boolean") throw new Error(`${description} must be a boolean.`);
   return value;
+}
+
+function optionalNonEmptyString(value: unknown, description: string) {
+  if (value == null) return null;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${description} must be a non-empty string when supplied.`);
+  }
+  return value.trim();
 }
 
 function stringArray(value: unknown, description: string) {
@@ -158,6 +167,34 @@ function normalize(input: NamedReport): Report {
     ? root.reports
     : Array.isArray(aggregate.results) ? aggregate.results : [];
   if (!rawFixtures.length) throw new Error(`${input.name}: report has no fixture reports.`);
+
+  const evaluatorPolicyDeclarations = [
+    { location: "report", value: root.evaluatorPolicyVersion },
+    ...(aggregate === root
+      ? []
+      : [{ location: "aggregate", value: aggregate.evaluatorPolicyVersion }]),
+    ...rawFixtures.map((raw, index) => ({
+      location: `fixture report ${index + 1}`,
+      value: object(raw)?.evaluatorPolicyVersion,
+    })),
+  ].flatMap(({ location, value }) => {
+    const version = optionalNonEmptyString(
+      value,
+      `${input.name}.${location}.evaluatorPolicyVersion`,
+    );
+    return version === null ? [] : [{ location, version }];
+  });
+  const evaluatorPolicyVersions = Array.from(new Set(
+    evaluatorPolicyDeclarations.map(({ version }) => version),
+  ));
+  if (evaluatorPolicyVersions.length > 1) {
+    throw new Error(
+      `${input.name}: evaluator policy declarations disagree (${evaluatorPolicyDeclarations
+        .map(({ location, version }) => `${location}=${version}`)
+        .join(", ")}).`,
+    );
+  }
+  const evaluatorPolicyVersion = evaluatorPolicyVersions[0] ?? null;
 
   const observations = new Map<string, JsonRecord>();
   for (const raw of Array.isArray(root.observations) ? root.observations : []) {
@@ -219,6 +256,7 @@ function normalize(input: NamedReport): Report {
   return {
     name: input.name,
     path: input.path ?? null,
+    evaluatorPolicyVersion,
     passed: requiredBoolean(aggregate.passed, `${input.name}.aggregate.passed`),
     fixtures,
     executionIntegrityPassed: Array.from(fixtures.values()).every((fixture) =>
@@ -389,6 +427,16 @@ function compareBaseline(
   baseline: Report,
   tolerances: RepositoryKnowledgeComparisonTolerances,
 ) {
+  const evaluatorVersionsCompatible =
+    baseline.evaluatorPolicyVersion === null ||
+    candidate.evaluatorPolicyVersion === null ||
+    baseline.evaluatorPolicyVersion === candidate.evaluatorPolicyVersion;
+  const evaluatorVersionDiagnostic =
+    baseline.evaluatorPolicyVersion === null || candidate.evaluatorPolicyVersion === null
+      ? "At least one report predates evaluator policy attestation; comparison uses legacy compatibility and cannot prove identical scorer semantics."
+      : evaluatorVersionsCompatible
+        ? null
+        : "Candidate and baseline declare different evaluator policy versions.";
   const baselineFixtures = Array.from(baseline.fixtures.values());
   const baselineFixtureIds = Array.from(baseline.fixtures.keys()).sort();
   const candidateFixtureIds = Array.from(candidate.fixtures.keys()).sort();
@@ -424,6 +472,13 @@ function compareBaseline(
   const suiteRegressions = regressions(
     [...aggregateQuality, ...aggregateOperations], "suite",
   );
+  if (!evaluatorVersionsCompatible) {
+    suiteRegressions.push({
+      scope: "suite",
+      metric: "evaluatorPolicyVersion",
+      reason: evaluatorVersionDiagnostic!,
+    });
+  }
   if (baseline.passed && !candidate.passed) {
     suiteRegressions.push({
       scope: "suite", metric: "passed",
@@ -513,6 +568,12 @@ function compareBaseline(
   ];
   return {
     baseline: { name: baseline.name, path: baseline.path },
+    evaluatorPolicyCompatibility: {
+      baseline: baseline.evaluatorPolicyVersion,
+      candidate: candidate.evaluatorPolicyVersion,
+      compatible: evaluatorVersionsCompatible,
+      diagnostic: evaluatorVersionDiagnostic,
+    },
     passed: allRegressions.length === 0,
     comparedFixtureCount: baselineFixtures.length - baselineOnlyFixtureIds.length,
     candidateOnlyFixtureIds,
@@ -558,6 +619,7 @@ export function compareRepositoryKnowledgeReports(input: {
       path: candidate.path,
       fixtureCount: candidate.fixtures.size,
       executionIntegrityPassed: candidate.executionIntegrityPassed,
+      evaluatorPolicyVersion: candidate.evaluatorPolicyVersion,
     },
     tolerances: configured,
     operationalMetricSemantics: OPERATIONAL_METRIC_SEMANTICS,

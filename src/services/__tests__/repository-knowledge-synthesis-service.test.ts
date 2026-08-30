@@ -320,6 +320,64 @@ describe("repository operation communities", () => {
     expect(selected).toContain(userCapability);
     expect(selected).toContain(stateChange);
   });
+
+  it("preserves distinct safe operations before sensitive variants of one operation", () => {
+    const safeParserOperation = {
+      ...entry(
+        "src/query/parser.ts",
+        "The parser converts supported filter expressions into an executable query tree.",
+      ),
+      repository: "example/query-engine",
+      semanticSignals: ["query.filter_parsing"],
+      semanticKind: "behavior" as const,
+      evidenceMode: "semantic" as const,
+    };
+    const sensitiveParserVariants = Array.from({ length: 6 }, (_value, index) => ({
+      ...entry(
+        "src/query/parser.ts",
+        `Parser invariant variant ${index + 1} rejects an invalid filter shape.`,
+      ),
+      repository: "example/query-engine",
+      lineStart: 20 + index,
+      lineEnd: 20 + index,
+      sensitivityFlag: true,
+      productImportance: 5,
+      implementationBreadth: 5,
+      technicalDifficulty: 5,
+      semanticSignals: ["query.filter_parsing"],
+      semanticKind: "invariant" as const,
+      evidenceMode: "semantic" as const,
+    }));
+    const safeCalculatorOperation = {
+      ...entry(
+        "src/query/calculator.ts",
+        "The calculator evaluates aggregate operations over validated query results.",
+      ),
+      repository: "example/query-engine",
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      semanticSignals: ["query.aggregate_calculation"],
+      semanticKind: "behavior" as const,
+      evidenceMode: "semantic" as const,
+    };
+
+    const selected = selectSubsystemSynthesisNotebook(
+      "project_domain:query",
+      [
+        ...sensitiveParserVariants,
+        safeParserOperation,
+        safeCalculatorOperation,
+      ],
+      2,
+    );
+
+    expect(selected).toEqual([
+      safeParserOperation,
+      safeCalculatorOperation,
+    ]);
+    expect(selected.every((candidate) => !candidate.sensitivityFlag)).toBe(true);
+  });
 });
 
 describe("repository synthesis model-path limits", () => {
@@ -736,6 +794,97 @@ describe("repository synthesis model-path limits", () => {
       /no supported Project Facts for project_domain:empty/iu,
     );
     expect(finalized.unresolvedQuestions).toEqual(finalized.coverageGaps);
+  });
+
+  it("preserves downstream sensitivity and inherits protection from cited evidence", () => {
+    const safeStatement = "The parser validates a structured request before evaluation.";
+    const protectedStatement = "The adapter consumes a redacted credential value.";
+    const ordinaryStatement = "The request router dispatches validated operations.";
+    const notebook = [
+      {
+        ...entry("src/query/parser.ts", safeStatement),
+        evidenceMode: "semantic" as const,
+        sensitivityFlag: false,
+      },
+      {
+        ...entry("src/integrations/adapter.ts", protectedStatement),
+        evidenceMode: "semantic" as const,
+        sensitivityFlag: true,
+      },
+    ];
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/typed-service",
+      subsystemKey: "project_domain:requests",
+      notebook,
+      coverageGaps: [],
+      result: {
+        facts: [
+          {
+            statement: safeStatement,
+            category: "behavior",
+            confidence: "high",
+            sensitivityFlag: true,
+            citationIndexes: [1],
+            reviewNotes: null,
+            productImportance: 4,
+            implementationBreadth: 3,
+            technicalDifficulty: 3,
+            distinctiveness: 3,
+          },
+          {
+            statement: protectedStatement,
+            category: "behavior",
+            confidence: "high",
+            sensitivityFlag: false,
+            citationIndexes: [2],
+            reviewNotes: null,
+            productImportance: 4,
+            implementationBreadth: 3,
+            technicalDifficulty: 3,
+            distinctiveness: 3,
+          },
+          {
+            statement: ordinaryStatement,
+            category: "behavior",
+            confidence: "high",
+            sensitivityFlag: false,
+            citationIndexes: [1],
+            reviewNotes: null,
+            productImportance: 3,
+            implementationBreadth: 2,
+            technicalDifficulty: 2,
+            distinctiveness: 2,
+          },
+        ],
+        highlights: [{
+          text: "Validated structured requests before evaluation",
+          summary: safeStatement,
+          confidence: "high",
+          sensitivityFlag: true,
+          visibility: "private",
+          citationIndexes: [1],
+          productImportance: 4,
+          implementationBreadth: 3,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }],
+        unresolvedQuestions: [],
+      },
+      tokenUsage: null,
+    });
+
+    expect(finalized.facts.map((fact) => fact.sensitivityFlag)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(finalized.highlights).toEqual([
+      expect.objectContaining({
+        summary: safeStatement,
+        sensitivityFlag: true,
+      }),
+    ]);
   });
 
   it("retains source scope after anchor-only evidence is removed from the model notebook", () => {

@@ -25,9 +25,11 @@ import {
   isRepositoryContextOnlyPath,
   isRepositoryExecutableSourcePath,
   isProjectDomainCapabilityKey,
+  REPOSITORY_SEMANTIC_MAX_CITATION_BYTES,
   type RepositoryFileAnalysis,
   type RepositorySemanticFindingKind,
 } from "@/src/services/repository-coverage-service";
+import { redactRepositorySecrets } from "@/src/services/github-repository-exploration-service";
 import {
   REPOSITORY_STATIC_ANALYZER_VERSION,
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
@@ -3173,8 +3175,9 @@ async function synthesizeSubsystemBase(
           "Treat README and documentation entries as context: future, planned, roadmap, TODO, or not-yet-built behavior is not implemented and cannot become a Highlight without direct implementation evidence.",
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "When operationCommunity is supplied, treat it as an organizational scope rather than evidence: synthesize only the implemented operations represented by that community's cited notebook, and do not turn the community label into a claim.",
-          "Use semanticKind as extraction metadata: prefer supported user_capability, data_flow, invariant, and integration observations over configuration or incidental behavior, while sourceExcerpt remains the sole authority for factual details.",
+          "Preserve operation breadth inside each supplied community before emitting another variant of an operation already covered. Treat semanticKind as descriptive extraction metadata only: it may break ties between observations of the same operation, but must never rank one distinct operation above another solely by kind; sourceExcerpt remains the sole authority for factual details.",
           "When a notebook supports several distinct user or system operations, preserve breadth by covering different operations before emitting another variation of an already-covered operation.",
+          "Set a claim's sensitivityFlag true whenever any cited notebook entry is sensitive, or when the claim itself discloses concrete secret, credential, personal or customer data, an exploitable weakness, or an operational-control detail whose disclosure creates a concrete risk. Ordinary authentication, authorization, validation, session, encryption, and safety behavior is not sensitive merely because it is security-related when no protected detail is disclosed. Never clear sensitivity inherited from cited evidence.",
           repositoryUserFacingCapabilityGuidance,
           repositoryHighlightSelectionGuidance,
           "Return up to three nonredundant Project Facts when the subsystem supports multiple important behaviors, and up to two Highlights only for substantial career-relevant systems.",
@@ -3679,30 +3682,59 @@ export function selectSubsystemSynthesisNotebook(
       default: return 0;
     }
   };
+  const compareBreadthCandidates = (
+    left: SynthesisNotebookEntry,
+    right: SynthesisNotebookEntry,
+  ) =>
+    Number(left.sensitivityFlag) - Number(right.sensitivityFlag) ||
+    importance(right) - importance(left) ||
+    (right.semanticSignals?.length ?? 0) - (left.semanticSignals?.length ?? 0) ||
+    left.repository.localeCompare(right.repository) ||
+    left.sourceId.localeCompare(right.sourceId) ||
+    left.path.localeCompare(right.path) ||
+    left.lineStart - right.lineStart ||
+    left.lineEnd - right.lineEnd ||
+    normalizeWhitespace(left.statement).localeCompare(normalizeWhitespace(right.statement)) ||
+    left.blobSha.localeCompare(right.blobSha);
+  const compareWithinOperation = (
+    left: SynthesisNotebookEntry,
+    right: SynthesisNotebookEntry,
+  ) =>
+    Number(left.sensitivityFlag) - Number(right.sensitivityFlag) ||
+    importance(right) - importance(left) ||
+    semanticKindPriority(right) - semanticKindPriority(left) ||
+    compareBreadthCandidates(left, right);
   const rankedNotebook = rawNotebook
     .filter((entry, index, all) =>
       all.findIndex((other) => synthesisNotebookIdentity(other) === synthesisNotebookIdentity(entry)) === index
     )
-    .sort((left, right) =>
-      (right.semanticSignals?.length ?? 0) - (left.semanticSignals?.length ?? 0) ||
-      semanticKindPriority(right) - semanticKindPriority(left) ||
-      importance(right) - importance(left) ||
-      left.repository.localeCompare(right.repository) ||
-      left.sourceId.localeCompare(right.sourceId) ||
-      left.path.localeCompare(right.path) ||
-      left.lineStart - right.lineStart ||
-      left.lineEnd - right.lineEnd ||
-      normalizeWhitespace(left.statement).localeCompare(normalizeWhitespace(right.statement)) ||
-      left.blobSha.localeCompare(right.blobSha)
-    );
+    .sort(compareBreadthCandidates);
   const semanticEntries = rankedNotebook.filter((entry) => entry.evidenceMode !== "deterministic_anchor");
   const deterministicAnchors = rankedNotebook.filter((entry) => entry.evidenceMode === "deterministic_anchor");
+  const operationThemes = new Map<string, SynthesisNotebookEntry[]>();
+  for (const entry of semanticEntries) {
+    const themes = Array.from(new Set((entry.semanticSignals ?? [])
+      .map((signal) => normalizeWhitespace(signal).toLowerCase())
+      .filter(Boolean)));
+    for (const theme of themes) {
+      const variants = operationThemes.get(theme) ?? [];
+      variants.push(entry);
+      operationThemes.set(theme, variants);
+    }
+  }
+  const sortedOperationThemes = Array.from(operationThemes.values())
+    .map((variants) => [...variants].sort(compareWithinOperation))
+    .sort((left, right) => compareBreadthCandidates(left[0]!, right[0]!));
+  const operationThemeRepresentatives = sortedOperationThemes.map((variants) => variants[0]!);
+  const operationThemeVariants = Array.from(
+    { length: Math.max(0, ...sortedOperationThemes.map((variants) => variants.length - 1)) },
+    (_entry, variantIndex) => sortedOperationThemes.flatMap((variants) =>
+      variants[variantIndex + 1] ? [variants[variantIndex + 1]!] : []
+    ),
+  ).flat();
   const sourceSemanticRepresentatives = semanticEntries.filter((entry, index, all) =>
     all.findIndex((candidate) => candidate.sourceId === entry.sourceId) === index
   ).slice(0, Math.ceil(notebookLimit / 2));
-  const signaledSemanticEntries = semanticEntries.filter((entry) =>
-    (entry.semanticSignals?.length ?? 0) > 0
-  );
   const pathSemanticRepresentatives = semanticEntries.filter((entry, index, all) =>
     all.findIndex((candidate) =>
       candidate.sourceId === entry.sourceId && candidate.path === entry.path
@@ -3710,8 +3742,9 @@ export function selectSubsystemSynthesisNotebook(
   );
   const selectedSemanticEntries = [
     ...sourceSemanticRepresentatives,
-    ...signaledSemanticEntries,
+    ...operationThemeRepresentatives,
     ...pathSemanticRepresentatives,
+    ...operationThemeVariants,
     ...semanticEntries,
   ]
     .filter((entry, index, all) =>
@@ -3768,10 +3801,27 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     ? [`Repository ${repository} used deterministic subsystem synthesis because ${result.synthesisFallbackReason}`]
     : [];
   const validIndexes = new Set(notebook.map((_entry, index) => index + 1));
+  const finalSensitivityFlag = (input: {
+    modelFlag: boolean;
+    citationIndexes: readonly number[];
+    claimText: string;
+  }) => input.modelFlag ||
+    input.citationIndexes.some((index) => notebook[index - 1]?.sensitivityFlag === true) ||
+    redactRepositorySecrets(input.claimText).categories.length > 0;
   const facts = result.facts
     .filter((fact): fact is RepositorySubsystemSynthesis["facts"][number] =>
       Boolean(fact)
     )
+    .map((fact) => ({
+      ...fact,
+      // Protection is monotonic across extraction, synthesis, and a final
+      // deterministic claim scan: no later stage may clear an earlier signal.
+      sensitivityFlag: finalSensitivityFlag({
+        modelFlag: fact.sensitivityFlag,
+        citationIndexes: fact.citationIndexes,
+        claimText: fact.statement,
+      }),
+    }))
     .filter((fact, index, all) =>
       all.findIndex((candidate) =>
         normalizeWhitespace(candidate.statement).toLowerCase() ===
@@ -3786,6 +3836,11 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     .map((highlight) => ({
       ...highlight,
       text: normalizeRepositoryHighlightText(highlight.text),
+      sensitivityFlag: finalSensitivityFlag({
+        modelFlag: highlight.sensitivityFlag,
+        citationIndexes: highlight.citationIndexes,
+        claimText: `${highlight.text} ${highlight.summary}`,
+      }),
     }))
     .filter((highlight) =>
       highlight.citationIndexes.every((index) =>
@@ -4326,7 +4381,7 @@ export async function synthesizeRepositoryKnowledge(
   return selectGlobalRepositoryHighlights(finalized);
 }
 
-export const REPOSITORY_SYNTHESIS_MAX_CITATION_BYTES = 8 * 1024;
+export const REPOSITORY_SYNTHESIS_MAX_CITATION_BYTES = REPOSITORY_SEMANTIC_MAX_CITATION_BYTES;
 
 /**
  * Materialized evidence must preserve the exact range accepted by semantic

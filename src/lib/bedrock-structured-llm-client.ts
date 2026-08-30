@@ -959,6 +959,8 @@ export class BedrockStructuredLlmClient {
     repairMappings?: readonly string[];
     transportPreference?: StructuredOutputTransportMode[];
     repairStrategy?: "fresh_then_repair" | "repair_last_failure";
+    /** Keep a correction on the caller's configured model instead of the shared repair profile. */
+    repairModelPolicy?: "configured_repair" | "same_profile";
     /** Bound client-side provider retries/fallbacks for this logical call. */
     maxProviderAttempts?: 1 | 2;
     maxTokens: number;
@@ -1159,7 +1161,9 @@ export class BedrockStructuredLlmClient {
       operationProviderAttemptCount += 1;
       try {
         response = await (
-          phase === "repair" && this.repairRuntime
+          phase === "repair" &&
+            this.repairRuntime &&
+            params.repairModelPolicy !== "same_profile"
             ? this.repairRuntime
             : this.runtime
         ).converse(boundedRequest);

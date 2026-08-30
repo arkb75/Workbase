@@ -8,6 +8,7 @@ import {
   evaluateRepositoryKnowledgeRun,
   evaluateRepositoryKnowledgeSuite,
   REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
+  REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
   type RepositoryExpectedCapability,
   type RepositoryKnowledgeEvaluationRun,
   type RepositoryKnowledgeFixture,
@@ -340,6 +341,27 @@ describe("generalized repository knowledge evaluation", () => {
   });
 
   it.each([
+    "Parameterized insights render interactive charts.",
+    "Interactive charts visualize dataset insights.",
+  ])("matches equivalent visual-insight word order: %s", (text) => {
+    const baseFixture = repositoryKnowledgeFixture("insightubc-dataset-platform")!;
+    const path = "frontend/insightubc/src/components/Insights.js";
+    const fixture = withEvidenceFile(baseFixture, path, text);
+    const run = runWithSingleGroundedItem({
+      fixture,
+      id: `visual-word-order-${text.indexOf("insights")}`,
+      text,
+      domain: "experience",
+      path,
+      content: text,
+    });
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.recoveredCapabilityKeys).toContain("visual_insights");
+  });
+
+  it.each([
     {
       name: "founder onboarding is not investor onboarding",
       fixtureId: "backer-marketplace",
@@ -497,6 +519,13 @@ describe("generalized repository knowledge evaluation", () => {
     });
 
     expect(report.passed).toBe(true);
+    expect(report.evaluatorPolicyVersion).toBe(
+      REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
+    );
+    expect(report.results.every((result) =>
+      result.evaluatorPolicyVersion ===
+        REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION
+    )).toBe(true);
     expect(report.passingFixtureCount).toBe(repositoryKnowledgeFixtures.length);
     expect(report.minimumProjectScore).toBeGreaterThanOrEqual(0.9);
     expect(report.results.every((result) =>

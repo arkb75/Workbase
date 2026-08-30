@@ -1,5 +1,8 @@
 export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
+/** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
+export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
+  "repository-knowledge-evaluator-v2" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
@@ -129,6 +132,7 @@ export interface RepositoryKnowledgeMetricCheck {
 
 export interface RepositoryKnowledgeEvaluationReport {
   schemaVersion: typeof REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION;
+  evaluatorPolicyVersion: typeof REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION;
   fixtureId: string;
   repository: string | null;
   passed: boolean;
@@ -180,6 +184,7 @@ export interface RepositoryKnowledgeCatalogAudit {
 
 export interface RepositoryKnowledgeSuiteReport {
   schemaVersion: typeof REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION;
+  evaluatorPolicyVersion: typeof REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION;
   passed: boolean;
   hardBudgetPassed: boolean;
   executionIntegrityPassed: boolean;
@@ -1143,6 +1148,7 @@ export function evaluateRepositoryKnowledgeRun(input: {
 
   return {
     schemaVersion: REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
+    evaluatorPolicyVersion: REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
     fixtureId: fixture.id,
     repository: fixture.repository,
     passed: checks.every((check) => check.passed),
@@ -1242,6 +1248,7 @@ export function evaluateRepositoryKnowledgeSuite(input: {
   const score = macroAverageScore * 0.7 + minimumProjectScore * 0.3;
   return {
     schemaVersion: REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
+    evaluatorPolicyVersion: REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
     passed:
       catalog.passed &&
       macroAverageScore >= 0.68 &&
