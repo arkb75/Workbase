@@ -464,6 +464,8 @@ describe("repository synthesis model main path", () => {
     );
     expect(summaries[0]).toMatchObject({
       phase: "operation_community_mapping",
+      capabilityKey: "project_domain:payments",
+      communityPolicy: "project_domain_v1",
       notebookEntries: 36,
       rawEligibleEntries: 37,
       expectedCommunityCount: 3,

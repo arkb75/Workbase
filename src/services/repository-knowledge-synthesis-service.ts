@@ -1450,6 +1450,34 @@ export const REPOSITORY_SYNTHESIS_MAX_BATCH_SUBSYSTEMS = 2;
 export const REPOSITORY_SYNTHESIS_MAX_CRITIC_CLAIMS = 10;
 export const REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE = 12;
 export const REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES = 3;
+export const REPOSITORY_SYNTHESIS_MIN_STRUCTURAL_COMMUNITY_ENTRIES = 7;
+
+const repositoryOperationCommunityStructuralScopes = new Set([
+  "repository_area:product_surface",
+  "repository_area:data_model",
+]);
+
+/**
+ * Limit community expansion to broad product/domain scopes where partitioning
+ * can recover distinct implemented operations. Generic repository areas stay
+ * on the original bounded synthesis path.
+ */
+export function isRepositoryOperationCommunityScope(subsystemKey: string) {
+  return isProjectDomainCapabilityKey(subsystemKey) ||
+    repositoryOperationCommunityStructuralScopes.has(subsystemKey);
+}
+
+export function isRepositoryOperationCommunityCandidate(
+  subsystemKey: string,
+  notebook: readonly SynthesisNotebookEntry[],
+) {
+  if (
+    !isRepositoryOperationCommunityScope(subsystemKey) ||
+    repositoryOperationCommunityCountForScope(subsystemKey, notebook.length) < 2
+  ) return false;
+  return isProjectDomainCapabilityKey(subsystemKey) ||
+    new Set(notebook.map((entry) => entry.path)).size >= 2;
+}
 
 export type RepositorySynthesisClaimLimits = {
   maxFacts: number;
@@ -1626,12 +1654,31 @@ export function repositoryOperationCommunityCount(notebookLength: number) {
   );
 }
 
+export function repositoryOperationCommunityCountForScope(
+  subsystemKey: string,
+  notebookLength: number,
+) {
+  if (!Number.isInteger(notebookLength) || notebookLength < 0) {
+    throw new Error("Repository operation-community notebook length must be a non-negative integer.");
+  }
+  if (!repositoryOperationCommunityStructuralScopes.has(subsystemKey)) {
+    return repositoryOperationCommunityCount(notebookLength);
+  }
+  if (notebookLength < REPOSITORY_SYNTHESIS_MIN_STRUCTURAL_COMMUNITY_ENTRIES) {
+    return 1;
+  }
+  return 2;
+}
+
 export function repositoryOperationCommunityValidationErrors(
   value: { communities: RepositoryOperationCommunity[] },
   notebookLength: number,
+  subsystemKey?: string,
 ) {
   const errors: string[] = [];
-  const expectedCount = repositoryOperationCommunityCount(notebookLength);
+  const expectedCount = subsystemKey
+    ? repositoryOperationCommunityCountForScope(subsystemKey, notebookLength)
+    : repositoryOperationCommunityCount(notebookLength);
   if (expectedCount < 2) {
     errors.push("Operation communities are only valid for a notebook larger than one community.");
   }
@@ -1643,6 +1690,14 @@ export function repositoryOperationCommunityValidationErrors(
   );
   if (new Set(normalizedLabels).size !== normalizedLabels.length) {
     errors.push("Operation-community labels must be distinct.");
+  }
+  if (value.communities.some((community) =>
+    community.memberIndexes.length < 1 ||
+    community.memberIndexes.length > REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE
+  )) {
+    errors.push(
+      `Operation communities must contain between 1 and ${REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE} notebook entries.`,
+    );
   }
   const assigned = value.communities.flatMap((community) => community.memberIndexes);
   const uniqueAssigned = new Set(assigned);
@@ -1733,7 +1788,13 @@ async function mapRepositoryOperationCommunities(input: {
   rawEligibleEntries: number;
   budget: StructuredGenerationBudget;
 }) {
-  const expectedCommunityCount = repositoryOperationCommunityCount(
+  const communityPolicy = repositoryOperationCommunityStructuralScopes.has(
+    input.subsystemKey,
+  )
+    ? "structural_breadth_v1"
+    : "project_domain_v1";
+  const expectedCommunityCount = repositoryOperationCommunityCountForScope(
+    input.subsystemKey,
     input.notebook.length,
   );
   if (expectedCommunityCount < 2) {
@@ -1750,6 +1811,8 @@ async function mapRepositoryOperationCommunities(input: {
       phase: "operation_community_mapping",
       refreshRunId: input.refreshRunId,
       subsystemKey: input.synthesisKey,
+      capabilityKey: input.subsystemKey,
+      communityPolicy,
       notebookEntries: input.notebook.length,
       rawEligibleEntries: input.rawEligibleEntries,
       expectedCommunityCount,
@@ -1771,6 +1834,7 @@ async function mapRepositoryOperationCommunities(input: {
         `Return exactly ${expectedCommunityCount} nonempty communities, assign every supplied index exactly once, and keep each community at or below ${REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE} members.`,
         "Group observations by the same implemented user or system goal, state transition, or end-to-end workflow rather than by language, directory, framework, or technical layer.",
         "Place interface, service, persistence, and integration observations for the same operation together when their actions align; keep sibling entity workflows and unrelated actions separate even when they share a screen or helper.",
+        "Use a concise, concrete operation or domain noun phrase for each label; avoid generic labels such as workflow, feature, data, or other unless a more specific evidence-grounded name is unavailable.",
         "Prefer coherent operation boundaries, but balance communities enough to respect the hard member limit. Do not summarize, rewrite, rank, omit, or add observations.",
       ].join(" "),
       userPrompt: JSON.stringify({
@@ -1802,6 +1866,7 @@ async function mapRepositoryOperationCommunities(input: {
       extraValidation: (value) => repositoryOperationCommunityValidationErrors(
         value,
         input.notebook.length,
+        input.subsystemKey,
       ),
     }),
   });
@@ -4161,25 +4226,36 @@ export async function synthesizeRepositoryKnowledge(
     })));
   } else {
     const allCommunityCandidates = synthesisInputs.flatMap((entry) => {
-      if (!isProjectDomainCapabilityKey(entry.subsystemKey)) return [];
+      if (!isRepositoryOperationCommunityScope(entry.subsystemKey)) return [];
       const eligibleNotebook = modelEligibleSynthesisNotebook(entry.rawNotebook)
         .filter((candidate, index, all) =>
           all.findIndex((other) =>
             synthesisNotebookIdentity(other) === synthesisNotebookIdentity(candidate)
           ) === index
         );
+      const structuralScope = repositoryOperationCommunityStructuralScopes.has(
+        entry.subsystemKey,
+      );
       const notebook = selectSubsystemSynthesisNotebook(
         entry.subsystemKey,
         eligibleNotebook,
-        REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE *
-          REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES,
+        structuralScope
+          ? REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE
+          : REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE *
+            REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES,
       );
-      return repositoryOperationCommunityCount(notebook.length) > 1
+      // Product-surface and data-model rows can be broad by taxonomy alone.
+      // Require multiple concrete paths before paying for a model partition;
+      // project-domain behavior retains its existing eligibility semantics.
+      return isRepositoryOperationCommunityCandidate(entry.subsystemKey, notebook)
         ? [{
             entry,
             notebook,
             rawEligibleEntries: eligibleNotebook.length,
-            communityCount: repositoryOperationCommunityCount(notebook.length),
+            communityCount: repositoryOperationCommunityCountForScope(
+              entry.subsystemKey,
+              notebook.length,
+            ),
           }]
         : [];
     });

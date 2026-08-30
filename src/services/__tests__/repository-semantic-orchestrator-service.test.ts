@@ -4,6 +4,7 @@ import {
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
+  admitSemanticRepairPackagesForTokenPool,
   aggregateSemanticModelBudgetUsage,
   boundedSemanticRepairPackagesForModelCalls,
   buildRepositorySemanticPlannerRequest,
@@ -33,6 +34,7 @@ import {
   semanticWorkPackageGenerationLimits,
   semanticWorkPackageModelCallCount,
   unresolvedSemanticExecutionGaps,
+  REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   type CapabilityManifestArea,
   type CapabilityReport,
   type SemanticWorkPackage,
@@ -40,6 +42,11 @@ import {
 import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("repository semantic orchestration guardrails", () => {
+  it("versions the scaled-diversity and repair-admission policy", () => {
+    expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
+      .toBe("repository-orchestration-v46-hybrid");
+  });
+
   const paths: Record<string, string> = {
     product_surface: "README.md",
     domain_data: "prisma/schema.prisma",
@@ -240,6 +247,49 @@ describe("repository semantic orchestration guardrails", () => {
     expect(ordinary.reduce((total, entry) =>
       total + semanticWorkPackageGenerationLimits(entry).primaryModelCalls, 0
     )).toBe(3);
+  });
+
+  it("trims an oversized repair batch before dispatch and preserves its priority prefix", () => {
+    const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
+      objective: "Inspect distinct operational repair evidence.",
+      capabilityKeys: ["project_domain:operations"],
+      fileSnapshotIds: ["parser", "executor", "reviewer", "helper"],
+      questions: [],
+      expectedOutputs: [],
+    };
+
+    const admitted = admitSemanticRepairPackagesForTokenPool(
+      [repairPackage],
+      12_654,
+    );
+
+    expect(admitted.packages).toHaveLength(1);
+    expect(admitted.packages[0]?.fileSnapshotIds).toEqual([
+      "parser",
+      "executor",
+      "reviewer",
+    ]);
+    expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper"]);
+    expect(admitted.remainingTokens).toBe(1_904);
+  });
+
+  it("records an unaffordable repair as capacity debt without creating a package", () => {
+    const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
+      objective: "Inspect one remaining operation.",
+      capabilityKeys: ["project_domain:operations"],
+      fileSnapshotIds: ["reviewer"],
+      questions: [],
+      expectedOutputs: [],
+    };
+
+    expect(admitSemanticRepairPackagesForTokenPool(
+      [repairPackage],
+      6_000,
+    )).toEqual({
+      packages: [],
+      capacityLimitedFileSnapshotIds: ["reviewer"],
+      remainingTokens: 6_000,
+    });
   });
 
   it("counts shared semantic waves once in orchestration usage", () => {

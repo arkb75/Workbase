@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v45-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v46-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -58,6 +58,13 @@ const MAX_SEMANTIC_REPAIR_WAVES = 3;
 const MAX_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const REPAIR_TOKEN_RESERVE = 16_000;
 const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_000;
+// Repair admission reserves the full structured output plus a bounded prompt
+// envelope before dispatch. The semantic batcher supplies at most 4 KiB per
+// file, but JSON/schema/task framing is material too; charging 2,250 tokens per
+// file plus 4,000 fixed tokens keeps a low remaining pool from admitting a
+// four-file request that the structured client must reject before dispatch.
+const REPAIR_PACKAGE_FIXED_TOKEN_RESERVE = SEMANTIC_WORKER_MAX_OUTPUT_TOKENS + 1_000;
+const REPAIR_FILE_TOKEN_RESERVE = 2_250;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const SEMANTIC_PLANNER_REPRESENTATIVES_PER_CAPABILITY = 1;
@@ -885,27 +892,31 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
     area.key === `${REPOSITORY_AREA_PREFIX}application_core` &&
     evidenceCount > 15
   ) return 4;
-  const entityDiversityFloor = area.key === `${REPOSITORY_AREA_PREFIX}data_model` &&
-      new Set(area.files
+  const entityDiversity = area.key === `${REPOSITORY_AREA_PREFIX}data_model`
+    ? new Set(area.files
         .filter((file) => isCoverageEvidencePath(area.key, file.path))
-        .map((file) => semanticPathProfile(file.path))
-        .filter((profile) => profile.entity)
-        .map((profile) => profile.entity)).size >= 4
-    ? 4
+        .map((file) => semanticPathProfile(file.path).entity)
+        .filter(Boolean)).size
+    : 0;
+  const entityDiversityFloor = entityDiversity >= 4
+    ? Math.min(6, entityDiversity)
     : 0;
   // Flat desktop and component trees commonly encode separate product
-  // workflows in filenames rather than directories. Give a genuinely broad
-  // surface one fourth audit slot so a shell plus one high-scoring workflow
-  // cannot make several neighboring workflows disappear. This changes no
+  // workflows in filenames rather than directories. Scale a genuinely broad
+  // surface to at most six audit samples so a shell plus a few high-scoring
+  // workflows cannot make neighboring workflows disappear. This changes no
   // worker or repair ceiling; it only spends existing bounded capacity.
-  const surfaceDiversityFloor = (
+  const surfaceDiversity = (
     area.key === `${REPOSITORY_AREA_PREFIX}product_surface` ||
     isProjectDomainCapabilityKey(area.key)
-  ) && new Set(area.files
-    .filter((file) => isCoverageEvidencePath(area.key, file.path))
-    .map((file) => semanticPathProfile(file.path).surface)
-    .filter(Boolean)).size >= 4
-    ? 4
+  )
+    ? new Set(area.files
+        .filter((file) => isCoverageEvidencePath(area.key, file.path))
+        .map((file) => semanticPathProfile(file.path).surface)
+        .filter(Boolean)).size
+    : 0;
+  const surfaceDiversityFloor = surfaceDiversity >= 4
+    ? Math.min(6, surfaceDiversity)
     : 0;
   if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor);
@@ -1140,6 +1151,62 @@ export function boundedSemanticRepairPackagesForModelCalls(
     if (remainingModelCalls < 1) break;
   }
   return bounded;
+}
+
+/**
+ * Admit the strongest repair prefixes that can retain their full structured
+ * output allowance. This is deliberately a deterministic pre-dispatch check:
+ * an omitted file remains explicit bounded-capacity debt, not a fabricated
+ * provider failure, and a later refresh may inspect it with a fresh budget.
+ */
+export function admitSemanticRepairPackagesForTokenPool(
+  packages: readonly Omit<SemanticWorkPackage, "id" | "budget">[],
+  tokenPool: number,
+) {
+  const admitted: Array<Omit<SemanticWorkPackage, "id" | "budget">> = [];
+  const capacityLimitedFileSnapshotIds: string[] = [];
+  let remainingTokens = Math.max(0, Math.floor(tokenPool));
+  for (const entry of packages) {
+    let fileSnapshotIds = [...entry.fileSnapshotIds];
+    let candidate: Omit<SemanticWorkPackage, "id" | "budget"> | null = null;
+    while (fileSnapshotIds.length) {
+      const singletonFileSnapshotIds = (entry.singletonFileSnapshotIds ?? [])
+        .filter((id) => fileSnapshotIds.includes(id));
+      const retryFileSnapshotIds = (entry.retryFileSnapshotIds ?? [])
+        .filter((id) => fileSnapshotIds.includes(id));
+      const next = {
+        ...entry,
+        fileSnapshotIds,
+        ...(entry.singletonFileSnapshotIds
+          ? { singletonFileSnapshotIds }
+          : {}),
+        ...(entry.retryFileSnapshotIds
+          ? { retryFileSnapshotIds }
+          : {}),
+      };
+      const projectedTokens =
+        semanticWorkPackageModelCallCount(next) * REPAIR_PACKAGE_FIXED_TOKEN_RESERVE +
+        fileSnapshotIds.length * REPAIR_FILE_TOKEN_RESERVE;
+      if (projectedTokens <= remainingTokens) {
+        candidate = next;
+        remainingTokens -= projectedTokens;
+        break;
+      }
+      fileSnapshotIds = fileSnapshotIds.slice(0, -1);
+    }
+    if (candidate) admitted.push(candidate);
+    const admittedIds = new Set(candidate?.fileSnapshotIds ?? []);
+    capacityLimitedFileSnapshotIds.push(...entry.fileSnapshotIds.filter((id) =>
+      !admittedIds.has(id)
+    ));
+  }
+  return {
+    packages: admitted,
+    capacityLimitedFileSnapshotIds: Array.from(new Set(
+      capacityLimitedFileSnapshotIds,
+    )).sort(),
+    remainingTokens,
+  };
 }
 
 export function packSemanticBundleIndexes(input: {
@@ -2121,6 +2188,10 @@ function semanticEntityFamily(path: string, layer: string) {
   const normalized = basename
     .replace(/([a-z\d])([A-Z])/g, "$1-$2")
     .toLowerCase()
+    // Generated or split model files often suffix one entity stem with a
+    // sequence number (for example ProductDetailsModel0). The number is a
+    // storage-layout detail, not a distinct persisted concept.
+    .replace(/\d+$/g, "")
     .replace(/(?:[-_.](?:list|model|entity|record|schema|repository|store|loader|writer|dao))+$/g, "")
     .replace(/[^a-z\d]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -2595,6 +2666,7 @@ export interface RepositoryCoverageCritique {
     requiredSupportedCandidates: number;
     missingBranchVariants: number;
     diversityGaps: number;
+    diversityGapDescriptions: string[];
     status: "covered" | "coverage_limited" | "thin" | "missing";
   }>;
   gaps: string[];
@@ -2768,19 +2840,28 @@ export function critiqueRepositoryCoverage(input: {
       idealProfiles,
       "module",
     ).size;
+    const boundedDiversityTarget = Math.min(6, targetSamples);
+    const boundedOperationalDiversityTarget = Math.min(
+      6,
+      Math.max(3, targetSamples),
+    );
     const diversityDimensions = shouldRequireDiversity
       ? ([
           { label: "implementation layers", dimension: "layer" as const, maxRequired: 2 },
           { label: "language families", dimension: "language" as const, maxRequired: 2 },
           ...(area.key === `${REPOSITORY_AREA_PREFIX}data_model`
-            ? [{ label: "data entities", dimension: "entity" as const, maxRequired: 2 }]
+            ? [{
+                label: "data entities",
+                dimension: "entity" as const,
+                maxRequired: boundedDiversityTarget,
+              }]
             : []),
           ...(isProjectDomainCapabilityKey(area.key) &&
               idealOperationalRoleCount >= 2
             ? [{
                 label: "operational roles",
                 dimension: "role" as const,
-                maxRequired: 3,
+                maxRequired: boundedOperationalDiversityTarget,
               }]
             : []),
           ...(isProjectDomainCapabilityKey(area.key) &&
@@ -2788,7 +2869,7 @@ export function critiqueRepositoryCoverage(input: {
             ? [{
                 label: "operational modules",
                 dimension: "module" as const,
-                maxRequired: 3,
+                maxRequired: boundedOperationalDiversityTarget,
               }]
             : []),
           ...(
@@ -2796,7 +2877,11 @@ export function critiqueRepositoryCoverage(input: {
               area.key === `${REPOSITORY_AREA_PREFIX}product_surface` ||
               isProjectDomainCapabilityKey(area.key)
             )
-              ? [{ label: "product workflow families", dimension: "surface" as const, maxRequired: 3 }]
+              ? [{
+                  label: "product workflow families",
+                  dimension: "surface" as const,
+                  maxRequired: boundedDiversityTarget,
+                }]
               : []
           ),
         ]).map(({ label, dimension, maxRequired }) => {
@@ -3822,8 +3907,10 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     critique: RepositoryCoverageCritique;
     packages: SemanticWorkPackage[];
     usage: SemanticModelBudgetUsage;
+    capacityLimitedFileSnapshotIds: string[];
   }> = [];
   const repairReports: CapabilityReport[] = [];
+  const repairCapacityOmittedFileSnapshotIds = new Set<string>();
   let effectiveReports = initialReports;
   let nextRepairCritique = initialCritique;
   for (let waveIndex = 0; waveIndex < MAX_SEMANTIC_REPAIR_WAVES; waveIndex += 1) {
@@ -3838,10 +3925,37 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     });
     if (!repairDecision.shouldRun) break;
     const repairTokenPool = repairDecision.tokenPool;
-    const boundedRepairPackages = boundedSemanticRepairPackagesForModelCalls(
+    const callBoundedRepairPackages = boundedSemanticRepairPackagesForModelCalls(
       nextRepairCritique.repairPackages,
       repairDecision.modelCallPool,
+    ).flatMap((entry) => {
+      const fileSnapshotIds = entry.fileSnapshotIds.filter((id) =>
+        !repairCapacityOmittedFileSnapshotIds.has(id)
+      );
+      if (!fileSnapshotIds.length) return [];
+      return [{
+        ...entry,
+        fileSnapshotIds,
+        ...(entry.singletonFileSnapshotIds
+          ? { singletonFileSnapshotIds: entry.singletonFileSnapshotIds.filter((id) =>
+              fileSnapshotIds.includes(id)
+            ) }
+          : {}),
+        ...(entry.retryFileSnapshotIds
+          ? { retryFileSnapshotIds: entry.retryFileSnapshotIds.filter((id) =>
+              fileSnapshotIds.includes(id)
+            ) }
+          : {}),
+      }];
+    });
+    const tokenAdmission = admitSemanticRepairPackagesForTokenPool(
+      callBoundedRepairPackages,
+      repairTokenPool,
     );
+    for (const fileSnapshotId of tokenAdmission.capacityLimitedFileSnapshotIds) {
+      repairCapacityOmittedFileSnapshotIds.add(fileSnapshotId);
+    }
+    const boundedRepairPackages = tokenAdmission.packages;
     if (!boundedRepairPackages.length) break;
     const repairGenerationLimits = boundedRepairPackages.map(
       semanticWorkPackageGenerationLimits,
@@ -3905,6 +4019,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         snapshotStructuredGenerationBudget(repairModelBudget),
         usageBeforeWave,
       ),
+      capacityLimitedFileSnapshotIds:
+        tokenAdmission.capacityLimitedFileSnapshotIds,
     });
     nextRepairCritique = critiqueRepositoryCoverage({
       manifest,
@@ -3913,8 +4029,38 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       selectedFileSnapshotIds: [...selectedFileSnapshotIds],
     });
   }
+  const capacityAdmissionReport: CapabilityReport | null =
+    repairCapacityOmittedFileSnapshotIds.size
+      ? {
+          packageId: stablePackageId(
+            `${refreshRunId}:repair-capacity`,
+            [],
+            [...repairCapacityOmittedFileSnapshotIds],
+          ),
+          inspectedFileSnapshotIds: [],
+          retryFileSnapshotIds: [...repairCapacityOmittedFileSnapshotIds].sort(),
+          capacityLimitedFileSnapshotIds:
+            [...repairCapacityOmittedFileSnapshotIds].sort(),
+          candidates: [],
+          contradictions: [],
+          gaps: [],
+          tokenUsage: [],
+          usage: emptyUsage(),
+          partial: true,
+          diagnosticNotes: [
+            `Bounded repair admission omitted ${repairCapacityOmittedFileSnapshotIds.size} file${repairCapacityOmittedFileSnapshotIds.size === 1 ? "" : "s"} before provider dispatch.`,
+          ],
+        }
+      : null;
+  if (capacityAdmissionReport) {
+    effectiveReports = [...effectiveReports, capacityAdmissionReport];
+  }
   const repairPackages = repairWaves.flatMap((wave) => wave.packages);
-  const finalReports = [...initialReports, ...repairReports];
+  const finalReports = [
+    ...initialReports,
+    ...repairReports,
+    ...(capacityAdmissionReport ? [capacityAdmissionReport] : []),
+  ];
   const repairBudgetUsage = snapshotStructuredGenerationBudget(
     repairModelBudget,
   );
@@ -3962,7 +4108,14 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     ...executionGaps,
     ...missingScopeGaps,
   ]));
-  const capacityLimitations = finalCritique.capacityLimitations;
+  const capacityLimitations = Array.from(new Set([
+    ...finalCritique.capacityLimitations,
+    ...(repairCapacityOmittedFileSnapshotIds.size
+      ? [
+          `Bounded semantic-repair admission omitted ${repairCapacityOmittedFileSnapshotIds.size} lower-priority file${repairCapacityOmittedFileSnapshotIds.size === 1 ? "" : "s"} from oversized repair packages before provider dispatch; higher-priority repair evidence was preserved.`,
+        ]
+      : []),
+  ]));
   const packageCompletion = partitionCapabilityReports(finalReports);
   const repairWorkerUsage = aggregateSemanticModelBudgetUsage(
     repairWaves.map((wave) => wave.usage),

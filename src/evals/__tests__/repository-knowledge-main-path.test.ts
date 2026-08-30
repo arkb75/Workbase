@@ -161,6 +161,8 @@ function operationCommunityMapping(
       phase: "operation_community_mapping",
       refreshRunId: "refresh-1",
       subsystemKey: operationCommunityParentSynthesisKey,
+      capabilityKey: "project_domain:payments",
+      communityPolicy: "project_domain_v1",
       notebookEntries: 13,
       rawEligibleEntries: 41,
       expectedCommunityCount: 2,
@@ -359,22 +361,28 @@ function operationCommunityConsumptions(
   const mappingDigest = typeof mappingAttestation?.mappingDigest === "string"
     ? mappingAttestation.mappingDigest
     : "";
-  return [
-    {
-      childSynthesisKey: operationCommunityChildSynthesisKeys[0],
-      parentSynthesisKey: operationCommunityParentSynthesisKey,
-      mappingDigest,
-      communityIndex: 0,
-      memberIndexes: [1, 2, 3, 4, 5, 6, 7],
-    },
-    {
-      childSynthesisKey: operationCommunityChildSynthesisKeys[1],
-      parentSynthesisKey: operationCommunityParentSynthesisKey,
-      mappingDigest,
-      communityIndex: 1,
-      memberIndexes: [8, 9, 10, 11, 12, 13],
-    },
-  ];
+  const parentSynthesisKey = (
+    mapping.inputSummary as { subsystemKey?: unknown }
+  ).subsystemKey;
+  const communities = (
+    mapping.parsedOutput as {
+      communities?: Array<{ memberIndexes?: unknown }>;
+    }
+  ).communities ?? [];
+  return communities.flatMap((community, communityIndex) => {
+    const childSynthesisKey = operationCommunityChildSynthesisKeys[communityIndex];
+    return childSynthesisKey &&
+        typeof parentSynthesisKey === "string" &&
+        Array.isArray(community.memberIndexes)
+      ? [{
+          childSynthesisKey,
+          parentSynthesisKey,
+          mappingDigest,
+          communityIndex,
+          memberIndexes: community.memberIndexes,
+        }]
+      : [];
+  });
 }
 
 function evaluateOperationCommunityMapping(
@@ -497,6 +505,59 @@ describe("repository knowledge main-path integrity", () => {
       totalGenerations: 5,
       providerAttemptCount: 5,
     });
+  });
+
+  it("accepts an explicitly scoped seven-entry structural community mapping", () => {
+    const structuralParent = "repository_area:data_model#parent-scope";
+    const mapping = operationCommunityMapping({
+      communities: [
+        { label: "Order records", memberIndexes: [1, 2, 3, 4] },
+        { label: "Invoice records", memberIndexes: [5, 6, 7] },
+      ],
+    }, {
+      inputSummary: {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: structuralParent,
+        capabilityKey: "repository_area:data_model",
+        communityPolicy: "structural_breadth_v1",
+        notebookEntries: 7,
+        rawEligibleEntries: 9,
+        expectedCommunityCount: 2,
+      },
+    });
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("does not lower the project-domain community threshold to seven entries", () => {
+    const mapping = operationCommunityMapping({
+      communities: [
+        { label: "Payment intake", memberIndexes: [1, 2, 3, 4] },
+        { label: "Receipt delivery", memberIndexes: [5, 6, 7] },
+      ],
+    }, {
+      inputSummary: {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: operationCommunityParentSynthesisKey,
+        capabilityKey: "project_domain:payments",
+        communityPolicy: "project_domain_v1",
+        notebookEntries: 7,
+        rawEligibleEntries: 7,
+        expectedCommunityCount: 2,
+      },
+    });
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 capability synthesis generation(s) have no valid subsystem-batch attestation.",
+    );
   });
 
   it("rejects a valid mapper community omitted from base synthesis", () => {
@@ -748,6 +809,8 @@ describe("repository knowledge main-path integrity", () => {
           phase: "operation_community_mapping",
           refreshRunId: "refresh-1",
           subsystemKey: operationCommunityParentSynthesisKey,
+          capabilityKey: "project_domain:payments",
+          communityPolicy: "project_domain_v1",
           notebookEntries: 14,
           rawEligibleEntries: 14,
           expectedCommunityCount: 2,
@@ -787,6 +850,8 @@ describe("repository knowledge main-path integrity", () => {
         phase: "operation_community_mapping",
         refreshRunId: "refresh-1",
         subsystemKey: operationCommunityParentSynthesisKey,
+        capabilityKey: "project_domain:payments",
+        communityPolicy: "project_domain_v1",
         rawEligibleEntries: 13,
         expectedCommunityCount: 2,
       },
@@ -794,6 +859,8 @@ describe("repository knowledge main-path integrity", () => {
         phase: "operation_community_mapping",
         refreshRunId: "refresh-1",
         subsystemKey: operationCommunityParentSynthesisKey,
+        capabilityKey: "project_domain:payments",
+        communityPolicy: "project_domain_v1",
         notebookEntries: 13,
         rawEligibleEntries: 13,
         expectedCommunityCount: 3,
@@ -802,6 +869,8 @@ describe("repository knowledge main-path integrity", () => {
         phase: "operation_community_mapping",
         refreshRunId: "refresh-1",
         subsystemKey: " ",
+        capabilityKey: "project_domain:payments",
+        communityPolicy: "project_domain_v1",
         notebookEntries: 13,
         rawEligibleEntries: 13,
         expectedCommunityCount: 2,
@@ -810,8 +879,20 @@ describe("repository knowledge main-path integrity", () => {
         phase: "operation_community_mapping",
         refreshRunId: "refresh-1",
         subsystemKey: operationCommunityParentSynthesisKey,
+        capabilityKey: "project_domain:payments",
+        communityPolicy: "project_domain_v1",
         notebookEntries: 13,
         rawEligibleEntries: 12,
+        expectedCommunityCount: 2,
+      },
+      {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: operationCommunityParentSynthesisKey,
+        capabilityKey: "repository_area:data_model",
+        communityPolicy: "structural_breadth_v1",
+        notebookEntries: 7,
+        rawEligibleEntries: 7,
         expectedCommunityCount: 2,
       },
     ];

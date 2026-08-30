@@ -9,6 +9,8 @@ import {
   exactSinglePathProjectDomainSynthesis,
   exactSynthesisCitationExcerpt,
   isCompleteSynthesisCitationExcerpt,
+  isRepositoryOperationCommunityCandidate,
+  isRepositoryOperationCommunityScope,
   fallbackSubsystemSynthesis,
   finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
@@ -23,6 +25,7 @@ import {
   rejectedRepositorySynthesisClaimKeys,
   repositoryOperationCommunityBudgetLimits,
   repositoryOperationCommunityCount,
+  repositoryOperationCommunityCountForScope,
   repositoryOperationCommunityValidationErrors,
   repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
@@ -87,6 +90,8 @@ describe("repository operation communities", () => {
     expect([
       0,
       1,
+      6,
+      7,
       12,
       13,
       24,
@@ -94,6 +99,8 @@ describe("repository operation communities", () => {
       36,
       72,
     ].map(repositoryOperationCommunityCount)).toEqual([
+      1,
+      1,
       1,
       1,
       1,
@@ -125,6 +132,65 @@ describe("repository operation communities", () => {
         "Repository operation-community mapping count must be a non-negative integer.",
       );
     }
+  });
+
+  it("admits only broad product, data-model, and discovered domain scopes", () => {
+    expect(isRepositoryOperationCommunityScope("project_domain:orders")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:product_surface")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:quality")).toBe(false);
+    expect(isRepositoryOperationCommunityScope("repository_area:application_core")).toBe(false);
+  });
+
+  it("requires seven observations and concrete path diversity for structural scopes", () => {
+    const singlePath = Array.from(
+      { length: 7 },
+      (_item, index) => entry("src/entities/order.ts", `Order behavior ${index + 1} is implemented.`),
+    );
+    const multiplePaths = singlePath.map((item, index) => ({
+      ...item,
+      path: index < 4 ? "src/entities/order.ts" : "src/entities/invoice.ts",
+    }));
+
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:data_model",
+      multiplePaths.slice(0, 6),
+    )).toBe(false);
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:data_model",
+      singlePath,
+    )).toBe(false);
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:data_model",
+      multiplePaths,
+    )).toBe(true);
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:product_surface",
+      multiplePaths,
+    )).toBe(true);
+    expect(isRepositoryOperationCommunityCandidate(
+      "repository_area:quality",
+      multiplePaths,
+    )).toBe(false);
+    expect(isRepositoryOperationCommunityCandidate(
+      "project_domain:orders",
+      singlePath,
+    )).toBe(false);
+    expect(isRepositoryOperationCommunityCandidate(
+      "project_domain:orders",
+      Array.from(
+        { length: 13 },
+        (_item, index) => entry("src/orders/service.ts", `Order behavior ${index + 1} is implemented.`),
+      ),
+    )).toBe(true);
+    expect(repositoryOperationCommunityCountForScope(
+      "repository_area:data_model",
+      multiplePaths.length,
+    )).toBe(2);
+    expect(repositoryOperationCommunityCountForScope(
+      "project_domain:orders",
+      multiplePaths.length,
+    )).toBe(1);
   });
 
   it("admits community children only inside the original repository claim surface", () => {
@@ -200,6 +266,13 @@ describe("repository operation communities", () => {
       ],
     };
     expect(repositoryOperationCommunityValidationErrors(validPartition, 13)).toEqual([]);
+
+    expect(repositoryOperationCommunityValidationErrors({
+      communities: [
+        { label: "Oversized intake", memberIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+        { label: "Empty fulfillment", memberIndexes: [] },
+      ],
+    }, 13)).toContain("Operation communities must contain between 1 and 12 notebook entries.");
 
     expect(repositoryOperationCommunityValidationErrors({
       communities: [

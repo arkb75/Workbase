@@ -1941,6 +1941,150 @@ describe("repository-derived cartographer and coverage critic", () => {
     ]);
   });
 
+  it("scales distinct data-entity audit depth to a bounded six", () => {
+    const entityNames = [
+      "Account",
+      "Invoice",
+      "Payment",
+      "Shipment",
+      "Product",
+      "Supplier",
+      "Warehouse",
+      "Return",
+    ];
+    const area = {
+      key: "repository_area:data_model",
+      label: "Data model and persistence",
+      scopeKey: "example/commerce",
+      salience: 140,
+      files: entityNames.map((name, index) => ({
+        id: name.toLowerCase(),
+        path: `src/model/${name}.java`,
+        score: 100 - index,
+      })),
+    };
+    const inspectedFileSnapshotIds = ["account", "invoice"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} defines a distinct persisted concept.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+
+    expect(semanticAuditTarget(area)).toBe(6);
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 6,
+      diversityGapDescriptions: ["2/6 data entities"],
+      status: "thin",
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .toHaveLength(4);
+  });
+
+  it("scales distinct product workflow audit depth to a bounded six", () => {
+    const surfaceNames = [
+      "Account",
+      "Catalog",
+      "Checkout",
+      "Messages",
+      "Orders",
+      "Reports",
+      "Search",
+      "Settings",
+    ];
+    const area = {
+      key: "repository_area:product_surface",
+      label: "Product surface",
+      scopeKey: "example/commerce-ui",
+      salience: 140,
+      files: surfaceNames.map((name, index) => ({
+        id: name.toLowerCase(),
+        path: `src/ui/${name}View.tsx`,
+        score: 100 - index,
+      })),
+    };
+    const inspectedFileSnapshotIds = ["account", "catalog"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => ({
+          ...candidate(area.key, id),
+          statement: `${id} implements a distinct product workflow.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+
+    expect(semanticAuditTarget(area)).toBe(6);
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 6,
+      diversityGapDescriptions: ["2/6 product workflow families"],
+      status: "thin",
+    });
+    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds))
+      .toHaveLength(4);
+  });
+
+  it("requires up to six distinct operation roles in a broad project domain", () => {
+    const roles = [
+      "Parser",
+      "Executor",
+      "Calculator",
+      "Evaluator",
+      "Reviewer",
+      "Reviser",
+      "Renderer",
+      "Exporter",
+    ];
+    const area = {
+      key: "project_domain:document-processing",
+      label: "Document processing",
+      scopeKey: "example/document-system",
+      salience: 180,
+      files: [
+        ...roles.map((role, index) => ({
+          id: role.toLowerCase(),
+          path: `src/document/${role}.ts`,
+          score: 200 - index,
+        })),
+        ...Array.from({ length: 23 }, (_, index) => ({
+          id: `module-${index}`,
+          path: `src/document/module-${index}-service.ts`,
+          score: 100 - index,
+        })),
+      ],
+    };
+    const inspectedFileSnapshotIds = ["parser", "executor"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+
+    expect(semanticAuditTarget(area)).toBe(14);
+    expect(critique.domains[0]?.diversityGapDescriptions)
+      .toContain("2/6 operational roles");
+    const repairIds = critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    );
+    expect(repairIds).toEqual(expect.arrayContaining([
+      "calculator",
+      "evaluator",
+      "reviewer",
+    ]));
+    expect(repairIds.filter((id) => roles.map((role) => role.toLowerCase()).includes(id)))
+      .toHaveLength(3);
+  });
+
   it("keeps product tests in the quality area and does not spend a repair slot on a third test", () => {
     const dataModel = {
       key: "repository_area:data_model",

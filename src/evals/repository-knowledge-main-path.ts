@@ -108,11 +108,20 @@ function repositorySynthesisGenerationPhase(
 
 const repositoryOperationCommunitySize = 12;
 const repositoryOperationCommunityMaximum = 3;
+const repositoryStructuralCommunityMinimum = 7;
+const repositoryStructuralCommunityCapabilityKeys = new Set([
+  "repository_area:product_surface",
+  "repository_area:data_model",
+]);
+const repositoryStructuralCommunityPolicy = "structural_breadth_v1";
+const repositoryProjectDomainCommunityPolicy = "project_domain_v1";
 
 type RepositoryOperationCommunityMappingDescriptor = {
   batchKey: string;
   refreshRunId: string;
   subsystemKey: string;
+  capabilityKey: string;
+  communityPolicy: string;
   notebookEntries: number;
   rawEligibleEntries: number;
   expectedCommunityCount: number;
@@ -128,27 +137,67 @@ function repositoryOperationCommunityMappingDescriptor(
   const subsystemKey = typeof summary?.subsystemKey === "string"
     ? summary.subsystemKey.trim()
     : "";
+  const explicitCapabilityKey = typeof summary?.capabilityKey === "string"
+    ? summary.capabilityKey.trim()
+    : "";
+  const explicitCommunityPolicy = typeof summary?.communityPolicy === "string"
+    ? summary.communityPolicy.trim()
+    : "";
+  // Mappings emitted before structural communities existed carried only the
+  // hashed project-domain parent key. Preserve their stricter >12-entry audit
+  // contract for historical comparisons; new structural mappings must declare
+  // their exact capability and policy explicitly.
+  const legacyProjectCapabilityKey = !explicitCapabilityKey &&
+      !explicitCommunityPolicy &&
+      /^project_domain:[a-z0-9][a-z0-9_-]*#/iu.test(subsystemKey)
+    ? subsystemKey.slice(0, subsystemKey.indexOf("#"))
+    : "";
+  const capabilityKey = explicitCapabilityKey || legacyProjectCapabilityKey;
+  const communityPolicy = explicitCommunityPolicy || (
+    legacyProjectCapabilityKey ? repositoryProjectDomainCommunityPolicy : ""
+  );
+  const parentCapabilityKey = subsystemKey.includes("#")
+    ? subsystemKey.slice(0, subsystemKey.indexOf("#"))
+    : "";
+  const structuralPolicy =
+    communityPolicy === repositoryStructuralCommunityPolicy &&
+    repositoryStructuralCommunityCapabilityKeys.has(capabilityKey) &&
+    parentCapabilityKey === capabilityKey;
+  const projectDomainPolicy =
+    communityPolicy === repositoryProjectDomainCommunityPolicy &&
+    /^project_domain:[a-z0-9][a-z0-9_-]*$/iu.test(capabilityKey) &&
+    parentCapabilityKey === capabilityKey;
   const notebookEntries = summary?.notebookEntries;
   const rawEligibleEntries = summary?.rawEligibleEntries;
   const expectedCommunityCount = summary?.expectedCommunityCount;
+  const expectedCount = typeof notebookEntries === "number" &&
+      Number.isInteger(notebookEntries)
+    ? structuralPolicy
+      ? 2
+      : Math.ceil(notebookEntries / repositoryOperationCommunitySize)
+    : 0;
   if (
     !refreshRunId ||
     !subsystemKey ||
+    (!structuralPolicy && !projectDomainPolicy) ||
     typeof notebookEntries !== "number" ||
     !Number.isInteger(notebookEntries) ||
-    notebookEntries <= repositoryOperationCommunitySize ||
-    notebookEntries >
-      repositoryOperationCommunitySize * repositoryOperationCommunityMaximum ||
+    (structuralPolicy
+      ? notebookEntries < repositoryStructuralCommunityMinimum ||
+        notebookEntries > repositoryOperationCommunitySize
+      : notebookEntries <= repositoryOperationCommunitySize ||
+        notebookEntries >
+          repositoryOperationCommunitySize * repositoryOperationCommunityMaximum) ||
     typeof rawEligibleEntries !== "number" ||
     !Number.isInteger(rawEligibleEntries) ||
     rawEligibleEntries < notebookEntries ||
     typeof expectedCommunityCount !== "number" ||
     !Number.isInteger(expectedCommunityCount) ||
     expectedCommunityCount < 2 ||
-    expectedCommunityCount > repositoryOperationCommunityMaximum ||
-    expectedCommunityCount !== Math.ceil(
-      notebookEntries / repositoryOperationCommunitySize,
-    )
+    expectedCommunityCount > (
+      structuralPolicy ? 2 : repositoryOperationCommunityMaximum
+    ) ||
+    expectedCommunityCount !== expectedCount
   ) {
     return null;
   }
@@ -156,12 +205,16 @@ function repositoryOperationCommunityMappingDescriptor(
     batchKey: JSON.stringify([
       refreshRunId,
       subsystemKey,
+      capabilityKey,
+      communityPolicy,
       notebookEntries,
       rawEligibleEntries,
       expectedCommunityCount,
     ]),
     refreshRunId,
     subsystemKey,
+    capabilityKey,
+    communityPolicy,
     notebookEntries,
     rawEligibleEntries,
     expectedCommunityCount,
