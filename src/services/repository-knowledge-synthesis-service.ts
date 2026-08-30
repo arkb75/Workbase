@@ -2640,6 +2640,42 @@ function factWithPromotedHighlightFields(
   };
 }
 
+export function repositorySynthesisRevisionReplacementIsNoOp(input:
+  | {
+      kind: "fact";
+      replacement: RepositorySubsystemSynthesis["facts"][number] | null;
+      priorClaim: RepositorySubsystemSynthesis["facts"][number];
+      issues: RepositorySynthesisCriticResult["assessments"][number]["issues"];
+    }
+  | {
+      kind: "highlight";
+      replacement: { text: string } | null;
+      priorClaim: RepositorySubsystemSynthesis["highlights"][number];
+      issues: RepositorySynthesisCriticResult["assessments"][number]["issues"];
+    }
+) {
+  if (!input.replacement) return false;
+  if (input.kind === "highlight") {
+    // The model owns only the revised title; evidence and summary fields are
+    // derived from the promoted Fact. Repeating the rejected title is therefore
+    // an exact no-op and is safer to materialize as an honest removal.
+    return input.replacement.text === input.priorClaim.text;
+  }
+  const wordingChanged =
+    input.replacement.statement !== input.priorClaim.statement;
+  const citationsChanged = JSON.stringify(
+    normalizedSynthesisCitationIndexes(input.replacement.citationIndexes),
+  ) !== JSON.stringify(
+    normalizedSynthesisCitationIndexes(input.priorClaim.citationIndexes),
+  );
+  const requiresWordingChange = input.issues.some((issue) =>
+    issue === "unsupported_compound_action" ||
+    issue === "unsupported_broad_qualifier" ||
+    issue === "unsupported_detail"
+  );
+  return !wordingChanged && (!citationsChanged || requiresWordingChange);
+}
+
 /**
  * Convert compact model-owned content into identity-bearing application
  * patches. Highlight evidence metadata is derived from its uniquely bound Fact,
@@ -2653,18 +2689,39 @@ function materializeRepositorySynthesisRevision(
   slots: RepositorySynthesisRevisionSlots,
   options?: { dropDependentHighlights?: boolean },
 ): RepositorySynthesisRevision {
-  const factRevisions = slots.factSlots.map((slot) => ({
-    claimKey: slot.claimKey,
-    replacement: modelRevision.factReplacements[slot.revisionSlot] ?? null,
-  }));
+  const factRevisions = slots.factSlots.map((slot) => {
+    const candidate = modelRevision.factReplacements[slot.revisionSlot] ?? null;
+    return {
+      claimKey: slot.claimKey,
+      replacement: repositorySynthesisRevisionReplacementIsNoOp({
+        kind: "fact",
+        replacement: candidate,
+        priorClaim: slot.priorClaim,
+        issues: slot.issues,
+      })
+        ? null
+        : candidate,
+    };
+  });
   const factRevisionByClaimKey = new Map(factRevisions.map((revision) => [
     revision.claimKey,
     revision.replacement,
   ]));
-  const highlightTitleByClaimKey = new Map(slots.highlightSlots.map((slot) => [
-    slot.claimKey,
-    modelRevision.highlightTitleReplacements[slot.revisionSlot] ?? null,
-  ]));
+  const highlightTitleByClaimKey = new Map(slots.highlightSlots.map((slot) => {
+    const candidate =
+      modelRevision.highlightTitleReplacements[slot.revisionSlot] ?? null;
+    return [
+      slot.claimKey,
+      repositorySynthesisRevisionReplacementIsNoOp({
+        kind: "highlight",
+        replacement: candidate,
+        priorClaim: slot.priorClaim,
+        issues: slot.issues,
+      })
+        ? null
+        : candidate,
+    ] as const;
+  }));
   const highlightRevisions: RepositorySynthesisRevision["highlightRevisions"] = [];
 
   for (const subsystem of prior.subsystems) {

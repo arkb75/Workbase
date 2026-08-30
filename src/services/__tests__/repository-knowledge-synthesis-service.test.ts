@@ -38,6 +38,7 @@ import {
   repositorySynthesisBatchPromptBytes,
   repositorySynthesisPromptNotebook,
   repositorySynthesisRevisionErrors,
+  repositorySynthesisRevisionReplacementIsNoOp,
   repositorySynthesisRevisionCriticClaims,
   repositorySynthesisRevisionEvidenceIndexes,
   repositorySynthesisStructuralErrors,
@@ -1776,6 +1777,25 @@ describe("repository synthesis model-path limits", () => {
     const removed = applyRepositorySynthesisRevision(prior, removal);
     expect(removed.subsystems[0]?.facts).toEqual([prior.subsystems[0]!.facts[1]]);
     expect(removed.subsystems[0]?.highlights).toEqual([]);
+
+    expect(repositorySynthesisRevisionReplacementIsNoOp({
+      kind: "fact",
+      replacement: cosmeticRevision.factRevisions[0]!.replacement,
+      priorClaim: prior.subsystems[0]!.facts[0]!,
+      issues: critic.assessments[0]!.issues,
+    })).toBe(true);
+    expect(repositorySynthesisRevisionReplacementIsNoOp({
+      kind: "highlight",
+      replacement: { text: prior.subsystems[0]!.highlights[0]!.text },
+      priorClaim: prior.subsystems[0]!.highlights[0]!,
+      issues: critic.assessments[2]!.issues,
+    })).toBe(true);
+    expect(repositorySynthesisRevisionReplacementIsNoOp({
+      kind: "highlight",
+      replacement: { text: "Built inventory record removal" },
+      priorClaim: prior.subsystems[0]!.highlights[0]!,
+      issues: critic.assessments[2]!.issues,
+    })).toBe(false);
 
     const citationMismatchCritic = {
       assessments: critic.assessments.map((assessment) =>

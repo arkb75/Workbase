@@ -46,7 +46,7 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 describe("repository semantic orchestration guardrails", () => {
   it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v56-hybrid");
+      .toBe("repository-orchestration-v57-hybrid");
   });
 
   const paths: Record<string, string> = {
@@ -278,7 +278,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     const admitted = admitSemanticRepairPackagesForTokenPool(
       [repairPackage],
-      10_751,
+      11_751,
     );
 
     expect(admitted.packages).toHaveLength(1);
@@ -289,6 +289,28 @@ describe("repository semantic orchestration guardrails", () => {
     ]);
     expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper"]);
     expect(admitted.remainingTokens).toBe(501);
+  });
+
+  it("trims a two-file repair to one file when schema framing cannot fit both", () => {
+    const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
+      objective: "Inspect the last two operations.",
+      capabilityKeys: ["project_domain:operations"],
+      fileSnapshotIds: ["response-reviser", "wireframe-patcher"],
+      questions: [],
+      expectedOutputs: [],
+    };
+
+    expect(admitSemanticRepairPackagesForTokenPool(
+      [repairPackage],
+      8_586,
+    )).toEqual({
+      packages: [{
+        ...repairPackage,
+        fileSnapshotIds: ["response-reviser"],
+      }],
+      capacityLimitedFileSnapshotIds: ["wireframe-patcher"],
+      remainingTokens: 1_836,
+    });
   });
 
   it("records an unaffordable repair as capacity debt without creating a package", () => {

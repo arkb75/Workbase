@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v56-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v57-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -67,9 +67,11 @@ const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 2_500;
 // Repair admission reserves the full structured output plus a bounded prompt
 // envelope before dispatch. The semantic batcher supplies at most 4 KiB per
 // file, but JSON/schema/task framing is material too; charging 2,250 tokens per
-// file plus 4,000 fixed tokens keeps a low remaining pool from admitting a
-// four-file request that the structured client must reject before dispatch.
-const REPAIR_PACKAGE_FIXED_TOKEN_RESERVE = SEMANTIC_WORKER_MAX_OUTPUT_TOKENS + 1_000;
+// file plus 4,500 fixed tokens keeps a low remaining pool from admitting a
+// request that the structured client must reject before dispatch. When only a
+// prefix fits, admission preserves that useful main-path extraction and records
+// the remainder as explicit capacity debt.
+const REPAIR_PACKAGE_FIXED_TOKEN_RESERVE = SEMANTIC_WORKER_MAX_OUTPUT_TOKENS + 2_000;
 const REPAIR_FILE_TOKEN_RESERVE = 2_250;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
