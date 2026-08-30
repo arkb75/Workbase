@@ -2,6 +2,10 @@ import {
   repositorySynthesisClaimContentDigest as computedRepositorySynthesisClaimContentDigest,
   repositorySynthesisCriticClaimContentDigest,
 } from "@/src/domain/repository-synthesis-attestation";
+import {
+  canonicalRepositoryOperationCommunityMapping,
+  repositoryOperationCommunityMappingDigest,
+} from "@/src/lib/repository-operation-community";
 import { collectUnknownModelUsageAttempts } from "@/src/services/model-usage-service";
 
 export const repositoryKnowledgeModelGenerationKinds = [
@@ -86,15 +90,259 @@ function requestIds(resultRefs: unknown) {
     : [];
 }
 
-type RepositorySynthesisGenerationPhase = "synthesis" | "entailment_critic";
+type RepositorySynthesisGenerationPhase =
+  | "synthesis"
+  | "entailment_critic"
+  | "operation_community_mapping";
 
 function repositorySynthesisGenerationPhase(
   inputSummary: unknown,
 ): RepositorySynthesisGenerationPhase | null {
   const phase = record(inputSummary)?.phase;
-  return phase === "synthesis" || phase === "entailment_critic"
+  return phase === "synthesis" ||
+      phase === "entailment_critic" ||
+      phase === "operation_community_mapping"
     ? phase
     : null;
+}
+
+const repositoryOperationCommunitySize = 12;
+const repositoryOperationCommunityMaximum = 3;
+
+type RepositoryOperationCommunityMappingDescriptor = {
+  batchKey: string;
+  refreshRunId: string;
+  subsystemKey: string;
+  notebookEntries: number;
+  rawEligibleEntries: number;
+  expectedCommunityCount: number;
+};
+
+function repositoryOperationCommunityMappingDescriptor(
+  inputSummary: unknown,
+): RepositoryOperationCommunityMappingDescriptor | null {
+  const summary = record(inputSummary);
+  const refreshRunId = typeof summary?.refreshRunId === "string"
+    ? summary.refreshRunId.trim()
+    : "";
+  const subsystemKey = typeof summary?.subsystemKey === "string"
+    ? summary.subsystemKey.trim()
+    : "";
+  const notebookEntries = summary?.notebookEntries;
+  const rawEligibleEntries = summary?.rawEligibleEntries;
+  const expectedCommunityCount = summary?.expectedCommunityCount;
+  if (
+    !refreshRunId ||
+    !subsystemKey ||
+    typeof notebookEntries !== "number" ||
+    !Number.isInteger(notebookEntries) ||
+    notebookEntries <= repositoryOperationCommunitySize ||
+    notebookEntries >
+      repositoryOperationCommunitySize * repositoryOperationCommunityMaximum ||
+    typeof rawEligibleEntries !== "number" ||
+    !Number.isInteger(rawEligibleEntries) ||
+    rawEligibleEntries < notebookEntries ||
+    typeof expectedCommunityCount !== "number" ||
+    !Number.isInteger(expectedCommunityCount) ||
+    expectedCommunityCount < 2 ||
+    expectedCommunityCount > repositoryOperationCommunityMaximum ||
+    expectedCommunityCount !== Math.ceil(
+      notebookEntries / repositoryOperationCommunitySize,
+    )
+  ) {
+    return null;
+  }
+  return {
+    batchKey: JSON.stringify([
+      refreshRunId,
+      subsystemKey,
+      notebookEntries,
+      rawEligibleEntries,
+      expectedCommunityCount,
+    ]),
+    refreshRunId,
+    subsystemKey,
+    notebookEntries,
+    rawEligibleEntries,
+    expectedCommunityCount,
+  };
+}
+
+function repositoryOperationCommunityMappingIsExactPartition(
+  parsedOutput: unknown,
+  descriptor: RepositoryOperationCommunityMappingDescriptor,
+) {
+  const communities = canonicalRepositoryOperationCommunityMapping(
+    parsedOutput,
+  )?.communities;
+  if (
+    !communities ||
+    communities.length !== descriptor.expectedCommunityCount ||
+    communities.length < 2 ||
+    communities.length > repositoryOperationCommunityMaximum
+  ) {
+    return false;
+  }
+
+  const normalizedLabels: string[] = [];
+  const assignedIndexes: number[] = [];
+  for (const community of communities) {
+    if (
+      community.label.length < 2 ||
+      community.label.length > 80 ||
+      community.memberIndexes.length < 1 ||
+      community.memberIndexes.length > repositoryOperationCommunitySize ||
+      community.memberIndexes.some((index) =>
+        index < 1 ||
+        index > descriptor.notebookEntries
+      )
+    ) {
+      return false;
+    }
+    normalizedLabels.push(community.label.toLowerCase());
+    assignedIndexes.push(...community.memberIndexes);
+  }
+
+  const uniqueLabels = new Set(normalizedLabels);
+  const uniqueIndexes = new Set(assignedIndexes);
+  return uniqueLabels.size === normalizedLabels.length &&
+    assignedIndexes.length === descriptor.notebookEntries &&
+    uniqueIndexes.size === descriptor.notebookEntries &&
+    Array.from(
+      { length: descriptor.notebookEntries },
+      (_entry, index) => index + 1,
+    ).every((index) => uniqueIndexes.has(index));
+}
+
+function attestedRepositoryOperationCommunityMappingDigest(
+  resultRefs: unknown,
+) {
+  const digest = record(record(resultRefs)?.resultAttestation)?.mappingDigest;
+  return typeof digest === "string" && /^[a-f0-9]{64}$/u.test(digest)
+    ? digest
+    : null;
+}
+
+type RepositoryOperationCommunityConsumption = {
+  childSynthesisKey: string;
+  parentSynthesisKey: string;
+  mappingDigest: string;
+  communityIndex: number;
+  memberIndexes: number[];
+};
+
+function repositorySynthesisOperationCommunityConsumptions(
+  inputSummary: unknown,
+) {
+  const values = record(inputSummary)?.operationCommunities;
+  if (values === undefined) {
+    return {
+      records: [] as RepositoryOperationCommunityConsumption[],
+      invalidRecordCount: 0,
+    };
+  }
+  if (!Array.isArray(values)) {
+    return {
+      records: [] as RepositoryOperationCommunityConsumption[],
+      invalidRecordCount: 1,
+    };
+  }
+
+  const records: RepositoryOperationCommunityConsumption[] = [];
+  let invalidRecordCount = 0;
+  for (const value of values) {
+    const consumption = record(value);
+    const childSynthesisKey = typeof consumption?.childSynthesisKey === "string"
+      ? consumption.childSynthesisKey.trim()
+      : "";
+    const parentSynthesisKey = typeof consumption?.parentSynthesisKey === "string"
+      ? consumption.parentSynthesisKey.trim()
+      : "";
+    const mappingDigest = consumption?.mappingDigest;
+    const communityIndex = consumption?.communityIndex;
+    const memberIndexes = consumption?.memberIndexes;
+    if (
+      !childSynthesisKey ||
+      !parentSynthesisKey ||
+      typeof mappingDigest !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(mappingDigest) ||
+      typeof communityIndex !== "number" ||
+      !Number.isInteger(communityIndex) ||
+      communityIndex < 0 ||
+      communityIndex >= repositoryOperationCommunityMaximum ||
+      !Array.isArray(memberIndexes) ||
+      memberIndexes.length < 1 ||
+      memberIndexes.length > repositoryOperationCommunitySize ||
+      memberIndexes.some((index) =>
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        index < 1
+      ) ||
+      new Set(memberIndexes).size !== memberIndexes.length
+    ) {
+      invalidRecordCount += 1;
+      continue;
+    }
+    records.push({
+      childSynthesisKey,
+      parentSynthesisKey,
+      mappingDigest,
+      communityIndex,
+      memberIndexes: memberIndexes.map((index) => index as number),
+    });
+  }
+  return { records, invalidRecordCount };
+}
+
+function repositoryOperationCommunityConsumptionKey(input: {
+  refreshRunId: string;
+  parentSynthesisKey: string;
+  mappingDigest: string;
+  communityIndex: number;
+  memberIndexes: readonly number[];
+}) {
+  return JSON.stringify([
+    input.refreshRunId,
+    input.parentSynthesisKey,
+    input.mappingDigest,
+    input.communityIndex,
+    input.memberIndexes,
+  ]);
+}
+
+function attestedRepositoryOperationCommunities(
+  run: RepositoryKnowledgeGenerationAuditRecord,
+) {
+  if (run.status !== "success") return [];
+  const descriptor = repositoryOperationCommunityMappingDescriptor(
+    run.inputSummary,
+  );
+  const mapping = canonicalRepositoryOperationCommunityMapping(
+    run.parsedOutput,
+  );
+  const mappingDigest = repositoryOperationCommunityMappingDigest(
+    run.parsedOutput,
+  );
+  if (
+    !descriptor ||
+    !mapping ||
+    !repositoryOperationCommunityMappingIsExactPartition(
+      run.parsedOutput,
+      descriptor,
+    ) ||
+    !mappingDigest ||
+    attestedRepositoryOperationCommunityMappingDigest(run.resultRefs) !==
+      mappingDigest
+  ) {
+    return [];
+  }
+  return mapping.communities.map((community, communityIndex) => ({
+    refreshRunId: descriptor.refreshRunId,
+    parentSynthesisKey: descriptor.subsystemKey,
+    mappingDigest,
+    communityIndex,
+    memberIndexes: [...community.memberIndexes],
+  }));
 }
 
 function repositorySynthesisBatchKey(inputSummary: unknown) {
@@ -1092,6 +1340,10 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   const criticRuns = capabilitySynthesisRuns.filter((run) =>
     repositorySynthesisGenerationPhase(run.inputSummary) === "entailment_critic"
   );
+  const operationCommunityMappingRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) ===
+      "operation_community_mapping"
+  );
   const requiredCounts = {
     semanticPlanning: input.generationRuns.filter((run) =>
       run.kind === "execution_routing"
@@ -1113,21 +1365,161 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   }
 
   const missingPhaseAttestation = capabilitySynthesisRuns.length -
-    synthesisRuns.length - criticRuns.length;
+    synthesisRuns.length - criticRuns.length - operationCommunityMappingRuns.length;
   if (missingPhaseAttestation) {
     issues.push(
       `${missingPhaseAttestation} capability synthesis generation(s) have no valid synthesis-phase attestation.`,
     );
   }
-  const missingBatchAttestation = capabilitySynthesisRuns.filter((run) =>
-    repositorySynthesisGenerationPhase(run.inputSummary) !== null &&
-    repositorySynthesisBatchKey(run.inputSummary) === null
-  ).length;
+  const missingBatchAttestation = capabilitySynthesisRuns.filter((run) => {
+    const phase = repositorySynthesisGenerationPhase(run.inputSummary);
+    if (phase === null) return false;
+    return phase === "operation_community_mapping"
+      ? repositoryOperationCommunityMappingDescriptor(run.inputSummary)
+          ?.batchKey === undefined
+      : repositorySynthesisBatchKey(run.inputSummary) === null;
+  }).length;
   if (missingBatchAttestation) {
     issues.push(
       `${missingBatchAttestation} capability synthesis generation(s) have no valid subsystem-batch attestation.`,
     );
   }
+  const invalidOperationCommunityPartitions = operationCommunityMappingRuns
+    .filter((run) => {
+      const descriptor = repositoryOperationCommunityMappingDescriptor(
+        run.inputSummary,
+      );
+      return descriptor !== null &&
+        !repositoryOperationCommunityMappingIsExactPartition(
+          run.parsedOutput,
+          descriptor,
+        );
+    });
+  if (invalidOperationCommunityPartitions.length) {
+    issues.push(
+      `${invalidOperationCommunityPartitions.length} operation-community mapping generation(s) do not contain an exact notebook partition.`,
+    );
+  }
+  const unattestedOperationCommunityMappings = operationCommunityMappingRuns
+    .filter((run) => {
+      const computedDigest = repositoryOperationCommunityMappingDigest(
+        run.parsedOutput,
+      );
+      return computedDigest === null ||
+        attestedRepositoryOperationCommunityMappingDigest(run.resultRefs) !==
+          computedDigest;
+    });
+  if (unattestedOperationCommunityMappings.length) {
+    issues.push(
+      `${unattestedOperationCommunityMappings.length} operation-community mapping generation(s) do not attest their exact mapping payload.`,
+    );
+  }
+
+  const expectedOperationCommunities = operationCommunityMappingRuns.flatMap(
+    attestedRepositoryOperationCommunities,
+  );
+  const expectedOperationCommunityCounts = new Map<string, number>();
+  for (const community of expectedOperationCommunities) {
+    const key = repositoryOperationCommunityConsumptionKey(community);
+    expectedOperationCommunityCounts.set(
+      key,
+      (expectedOperationCommunityCounts.get(key) ?? 0) + 1,
+    );
+  }
+
+  let invalidOperationCommunityConsumptionCount = 0;
+  let orphanOperationCommunityConsumptionCount = 0;
+  const matchedOperationCommunityConsumptions: Array<{
+    key: string;
+    childKey: string;
+  }> = [];
+  for (const run of synthesisRuns) {
+    if (repositorySynthesisRevisionRound(run.inputSummary) !== 0) continue;
+    const parsed = repositorySynthesisOperationCommunityConsumptions(
+      run.inputSummary,
+    );
+    invalidOperationCommunityConsumptionCount += parsed.invalidRecordCount;
+    const summary = record(run.inputSummary);
+    const refreshRunId = typeof summary?.refreshRunId === "string"
+      ? summary.refreshRunId.trim()
+      : "";
+    const batchSubsystemKeys = repositorySynthesisInputSubsystemKeys(
+      run.inputSummary,
+    );
+    for (const consumption of parsed.records) {
+      if (
+        run.status !== "success" ||
+        !refreshRunId ||
+        !batchSubsystemKeys?.includes(consumption.childSynthesisKey)
+      ) {
+        invalidOperationCommunityConsumptionCount += 1;
+        continue;
+      }
+      const key = repositoryOperationCommunityConsumptionKey({
+        refreshRunId,
+        ...consumption,
+      });
+      if (!expectedOperationCommunityCounts.has(key)) {
+        orphanOperationCommunityConsumptionCount += 1;
+        continue;
+      }
+      matchedOperationCommunityConsumptions.push({
+        key,
+        childKey: JSON.stringify([
+          refreshRunId,
+          consumption.childSynthesisKey,
+        ]),
+      });
+    }
+  }
+  if (invalidOperationCommunityConsumptionCount) {
+    issues.push(
+      `${invalidOperationCommunityConsumptionCount} operation-community consumption record(s) have invalid shape or reference a child outside their synthesis batch.`,
+    );
+  }
+  if (orphanOperationCommunityConsumptionCount) {
+    issues.push(
+      `${orphanOperationCommunityConsumptionCount} operation-community consumption record(s) do not match a valid attested mapper community.`,
+    );
+  }
+
+  const consumedOperationCommunityCounts = new Map<string, number>();
+  const consumedOperationCommunityChildren = new Set<string>();
+  let duplicateOperationCommunityConsumptionCount = 0;
+  for (const consumption of matchedOperationCommunityConsumptions) {
+    const consumedCount = consumedOperationCommunityCounts.get(
+      consumption.key,
+    ) ?? 0;
+    if (
+      consumedOperationCommunityChildren.has(consumption.childKey) ||
+      consumedCount >=
+        (expectedOperationCommunityCounts.get(consumption.key) ?? 0)
+    ) {
+      duplicateOperationCommunityConsumptionCount += 1;
+      continue;
+    }
+    consumedOperationCommunityChildren.add(consumption.childKey);
+    consumedOperationCommunityCounts.set(consumption.key, consumedCount + 1);
+  }
+  if (duplicateOperationCommunityConsumptionCount) {
+    issues.push(
+      `${duplicateOperationCommunityConsumptionCount} operation-community consumption record(s) duplicate a mapper community or child synthesis key.`,
+    );
+  }
+
+  let missingOperationCommunityConsumptionCount = 0;
+  for (const [key, expectedCount] of expectedOperationCommunityCounts) {
+    missingOperationCommunityConsumptionCount += Math.max(
+      0,
+      expectedCount - (consumedOperationCommunityCounts.get(key) ?? 0),
+    );
+  }
+  if (missingOperationCommunityConsumptionCount) {
+    issues.push(
+      `${missingOperationCommunityConsumptionCount} valid attested mapper community/communities are not consumed by initial synthesis.`,
+    );
+  }
+
   const synthesisBatchKeys = synthesisRuns.flatMap((run) => {
     const batchKey = repositorySynthesisBatchKey(run.inputSummary);
     return batchKey ? [batchKey] : [];

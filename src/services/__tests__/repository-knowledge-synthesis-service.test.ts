@@ -13,6 +13,7 @@ import {
   finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
   isWorkbaseRepositoryIdentity,
+  materializeRepositoryOperationCommunities,
   matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   mergeRepositorySynthesisCriticAfterRevision,
@@ -20,8 +21,12 @@ import {
   applyRepositorySynthesisCritic,
   applyRepositorySynthesisRevision,
   rejectedRepositorySynthesisClaimKeys,
+  repositoryOperationCommunityBudgetLimits,
+  repositoryOperationCommunityCount,
+  repositoryOperationCommunityValidationErrors,
   repositoryEvidenceBoundaryGuidance,
   repositoryHighlightSelectionGuidance,
+  repositoryModelEligibleSynthesisInputCount,
   repositorySynthesisCriticClaims,
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
@@ -39,6 +44,7 @@ import {
   repositorySynthesisSchema,
   runRepositorySynthesisPrimaryBarrier,
   runOrderedSynthesisBatches,
+  selectRepositoryOperationCommunityExpansions,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
@@ -75,6 +81,246 @@ function entry(path: string, statement = `${path} defines supported repository b
     changeType: "modified",
   };
 }
+
+describe("repository operation communities", () => {
+  it("bounds community counts and mapping budgets at each notebook threshold", () => {
+    expect([
+      0,
+      1,
+      12,
+      13,
+      24,
+      25,
+      36,
+      72,
+    ].map(repositoryOperationCommunityCount)).toEqual([
+      1,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      3,
+    ]);
+
+    expect(repositoryOperationCommunityBudgetLimits(0)).toEqual({
+      maxModelCalls: 0,
+      maxRepairPasses: 0,
+      maxOutputTokens: 2_500,
+      maxTotalTokens: 0,
+    });
+    expect(repositoryOperationCommunityBudgetLimits(3)).toEqual({
+      maxModelCalls: 3,
+      maxRepairPasses: 0,
+      maxOutputTokens: 2_500,
+      maxTotalTokens: 36_000,
+    });
+
+    for (const invalidLength of [-1, 1.5]) {
+      expect(() => repositoryOperationCommunityCount(invalidLength)).toThrow(
+        "Repository operation-community notebook length must be a non-negative integer.",
+      );
+      expect(() => repositoryOperationCommunityBudgetLimits(invalidLength)).toThrow(
+        "Repository operation-community mapping count must be a non-negative integer.",
+      );
+    }
+  });
+
+  it("admits community children only inside the original repository claim surface", () => {
+    const candidates = [
+      { id: "orders", communityCount: 3 },
+      { id: "billing", communityCount: 2 },
+      { id: "search", communityCount: 3 },
+    ];
+    expect(selectRepositoryOperationCommunityExpansions(
+      candidates,
+      27,
+      30,
+    )).toEqual({
+      selected: candidates.slice(0, 2),
+      skipped: candidates.slice(2),
+      runtimeInputCount: 30,
+      runtimeInputLimit: 30,
+    });
+    expect(selectRepositoryOperationCommunityExpansions(
+      candidates,
+      31,
+      30,
+    )).toEqual({
+      selected: [],
+      skipped: candidates,
+      runtimeInputCount: 31,
+      runtimeInputLimit: 31,
+    });
+    expect(() => selectRepositoryOperationCommunityExpansions(
+      [{ id: "invalid", communityCount: 1 }],
+      1,
+    )).toThrow("Repository operation-community expansion limits are invalid.");
+  });
+
+  it("does not reserve claim slots for anchor-only synthesis inputs", () => {
+    const semantic = {
+      ...entry("src/orders/service.ts"),
+      evidenceMode: "semantic" as const,
+    };
+    const anchor = {
+      ...entry("README.md"),
+      evidenceMode: "deterministic_anchor" as const,
+    };
+    const originalModelInputCount = repositoryModelEligibleSynthesisInputCount([
+      { notebook: [semantic] },
+      ...Array.from({ length: 29 }, () => ({ notebook: [anchor] })),
+    ]);
+
+    expect(originalModelInputCount).toBe(1);
+    expect(selectRepositoryOperationCommunityExpansions(
+      [{ id: "orders", communityCount: 3 }],
+      originalModelInputCount,
+      3,
+    )).toMatchObject({
+      selected: [{ id: "orders", communityCount: 3 }],
+      skipped: [],
+      runtimeInputCount: 3,
+      runtimeInputLimit: 3,
+    });
+  });
+
+  it("accepts only an exact, non-overlapping partition of the notebook", () => {
+    const validPartition = {
+      communities: [
+        {
+          label: "Order intake",
+          memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          label: "Order fulfillment",
+          memberIndexes: [8, 9, 10, 11, 12, 13],
+        },
+      ],
+    };
+    expect(repositoryOperationCommunityValidationErrors(validPartition, 13)).toEqual([]);
+
+    expect(repositoryOperationCommunityValidationErrors({
+      communities: [
+        validPartition.communities[0],
+        {
+          ...validPartition.communities[1],
+          memberIndexes: [8, 9, 10, 11, 12],
+        },
+      ],
+    }, 13)).toContain(
+      "Operation communities must partition every supplied notebook index without omissions or additions.",
+    );
+
+    expect(repositoryOperationCommunityValidationErrors({
+      communities: [
+        validPartition.communities[0],
+        {
+          ...validPartition.communities[1],
+          memberIndexes: [7, 8, 9, 10, 11, 12, 13],
+        },
+      ],
+    }, 13)).toContain(
+      "Assign each notebook index to exactly one operation community.",
+    );
+
+    expect(repositoryOperationCommunityValidationErrors({
+      communities: [
+        validPartition.communities[0],
+        {
+          ...validPartition.communities[1],
+          memberIndexes: [8, 9, 10, 11, 12, 14],
+        },
+      ],
+    }, 13)).toContain(
+      "Operation communities must partition every supplied notebook index without omissions or additions.",
+    );
+
+    expect(repositoryOperationCommunityValidationErrors({
+      communities: [
+        { label: "Order intake", memberIndexes: [1, 2, 3, 4] },
+        { label: "Order fulfillment", memberIndexes: [5, 6, 7, 8] },
+        { label: "Order reporting", memberIndexes: [9, 10, 11, 12, 13] },
+      ],
+    }, 13)).toContain("Return exactly 2 operation communities.");
+  });
+
+  it("materializes normalized community labels and preserves the requested notebook order", () => {
+    const notebook = [
+      entry("src/orders/intake.ts", "The service accepts an order."),
+      entry("src/orders/audit.ts", "The service records order changes."),
+      entry("src/orders/fulfillment.ts", "The service fulfills an accepted order."),
+    ];
+
+    const materialized = materializeRepositoryOperationCommunities(notebook, [
+      { label: "  Order   workflow  ", memberIndexes: [3, 1] },
+      { label: "Order audit", memberIndexes: [2] },
+    ]);
+
+    expect(materialized.map((community) => community.label)).toEqual([
+      "Order workflow",
+      "Order audit",
+    ]);
+    expect(materialized[0]?.notebook).toEqual([notebook[2], notebook[0]]);
+    expect(materialized[0]?.notebook[0]).toBe(notebook[2]);
+    expect(materialized[1]?.notebook).toEqual([notebook[1]]);
+  });
+
+  it("keeps later state-changing capability observations in a 36-row candidate notebook", () => {
+    const genericObservations = Array.from({ length: 33 }, (_value, index) => ({
+      ...entry(
+        "src/orders/workflow.ts",
+        `The order module defines internal helper ${index + 1}.`,
+      ),
+      sourceId: "source-commerce",
+      repository: "example/commerce-platform",
+      lineStart: index + 1,
+      lineEnd: index + 1,
+      productImportance: 1,
+      implementationBreadth: 1,
+      technicalDifficulty: 1,
+      semanticKind: "behavior" as const,
+      evidenceMode: "semantic" as const,
+    }));
+    const userCapability = {
+      ...entry(
+        "src/orders/workflow.ts",
+        "A user can confirm a pending order for fulfillment.",
+      ),
+      sourceId: "source-commerce",
+      repository: "example/commerce-platform",
+      lineStart: 100,
+      lineEnd: 104,
+      semanticKind: "user_capability" as const,
+      evidenceMode: "semantic" as const,
+    };
+    const stateChange = {
+      ...entry(
+        "src/orders/workflow.ts",
+        "Confirming an order persists its transition from pending to confirmed.",
+      ),
+      sourceId: "source-commerce",
+      repository: "example/commerce-platform",
+      lineStart: 105,
+      lineEnd: 110,
+      semanticKind: "data_flow" as const,
+      evidenceMode: "semantic" as const,
+    };
+
+    const selected = selectSubsystemSynthesisNotebook(
+      "project_domain:orders",
+      [...genericObservations, userCapability, stateChange],
+      36,
+    );
+
+    expect(selected).toHaveLength(35);
+    expect(selected[0]).toBe(userCapability);
+    expect(selected[1]).toBe(stateChange);
+    expect(selected).toContain(userCapability);
+    expect(selected).toContain(stateChange);
+  });
+});
 
 describe("repository synthesis model-path limits", () => {
   afterEach(() => {
@@ -710,6 +956,7 @@ describe("repository synthesis model-path limits", () => {
       evidenceMode: "semantic" as const,
       semanticStatus: "succeeded" as const,
       semanticSignals: ["domain.payment_idempotency"],
+      semanticKind: "invariant" as const,
       sourceExcerpt: "10: await keys.insert(key);",
     }];
 
@@ -726,6 +973,7 @@ describe("repository synthesis model-path limits", () => {
       implementationBreadth: 4,
       technicalDifficulty: 4,
       semanticSignals: ["domain.payment_idempotency"],
+      semanticKind: "invariant",
       sourceExcerpt: "10: await keys.insert(key);",
     }]);
     const projected = repositorySynthesisPromptNotebook(notebook)[0]!;
@@ -761,6 +1009,73 @@ describe("repository synthesis model-path limits", () => {
     ).every((entry) =>
       entry.claimLimits.maxFacts === 1 && entry.claimLimits.maxHighlights === 0
     )).toBe(true);
+  });
+
+  it("round-robins first-pass Highlight eligibility across allocation groups", () => {
+    const inputs = [
+      { id: "orders-community-1", scope: "orders" },
+      { id: "orders-community-2", scope: "orders" },
+      { id: "billing-community-1", scope: "billing" },
+      { id: "search-community-1", scope: "search" },
+    ];
+
+    const allocated = allocateRepositorySynthesisClaimLimits(
+      inputs,
+      7,
+      3,
+      (input) => input.scope,
+    );
+
+    expect(allocated.map(({ input, claimLimits }) => ({
+      id: input.id,
+      ...claimLimits,
+    }))).toEqual([
+      { id: "orders-community-1", maxFacts: 1, maxHighlights: 1 },
+      { id: "orders-community-2", maxFacts: 1, maxHighlights: 0 },
+      { id: "billing-community-1", maxFacts: 1, maxHighlights: 1 },
+      { id: "search-community-1", maxFacts: 1, maxHighlights: 1 },
+    ]);
+  });
+
+  it("keeps a three-community domain from crowding five other scopes out of repository allocation", () => {
+    const inputs = [
+      ...Array.from({ length: 3 }, (_entry, index) => ({
+        id: `commerce-community-${index + 1}`,
+        sourceId: "source-1",
+        subsystemKey: "project_domain:commerce",
+      })),
+      ...["billing", "search", "notifications", "reporting", "identity"].map(
+        (domain) => ({
+          id: `${domain}-community-1`,
+          sourceId: "source-1",
+          subsystemKey: `project_domain:${domain}`,
+        }),
+      ),
+    ];
+
+    const allocated = allocateRepositorySynthesisClaimLimits(
+      inputs,
+      30,
+      6,
+      (input) => JSON.stringify([input.sourceId, input.subsystemKey]),
+    );
+    const limitsById = new Map(allocated.map(({ input, claimLimits }) => [
+      input.id,
+      claimLimits,
+    ]));
+
+    expect(limitsById.get("commerce-community-1")?.maxHighlights).toBe(1);
+    expect(limitsById.get("commerce-community-2")?.maxHighlights).toBe(0);
+    expect(limitsById.get("commerce-community-3")?.maxHighlights).toBe(0);
+    for (const domain of ["billing", "search", "notifications", "reporting", "identity"]) {
+      expect(limitsById.get(`${domain}-community-1`)?.maxHighlights).toBe(1);
+    }
+    expect(allocated.every(({ claimLimits }) => claimLimits.maxFacts === 3)).toBe(true);
+    expect(allocated.reduce(
+      (total, { claimLimits }) =>
+        total + claimLimits.maxFacts + claimLimits.maxHighlights,
+      0,
+    )).toBe(30);
   });
 
   it("enforces the allocated per-subsystem claim limits structurally", () => {

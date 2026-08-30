@@ -111,6 +111,7 @@ describe("repository semantic task and budget", () => {
     expect(analysis.facts[0]).toMatchObject({
       lineStart: 2,
       lineEnd: 3,
+      semanticKind: "user_capability",
       evidenceExcerpt: "2:   const id = selectedRecordId();\n3:   records.remove(id);",
     });
   });
@@ -167,7 +168,11 @@ describe("repository semantic task and budget", () => {
 
     expect(redacted.facts[0]).toMatchObject({
       sensitivityFlag: true,
+      semanticKind: "behavior",
       evidenceExcerpt: "1: const serviceToken = '[REDACTED API TOKEN]';",
+    });
+    expect(ordinaryAuthentication.facts[0]).toMatchObject({
+      semanticKind: "behavior",
     });
     expect(ordinaryAuthentication.facts[0]?.sensitivityFlag).toBe(false);
     expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain(
@@ -243,8 +248,14 @@ describe("repository semantic task and budget", () => {
       },
     ]);
 
-    expect(redacted?.facts[0]?.sensitivityFlag).toBe(true);
-    expect(ordinaryAuthentication?.facts[0]?.sensitivityFlag).toBe(false);
+    expect(redacted?.facts[0]).toMatchObject({
+      sensitivityFlag: true,
+      semanticKind: "configuration",
+    });
+    expect(ordinaryAuthentication?.facts[0]).toMatchObject({
+      sensitivityFlag: false,
+      semanticKind: "behavior",
+    });
   });
 
   it("rejects planned documentation findings in single-file semantic extraction", async () => {

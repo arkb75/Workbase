@@ -7,6 +7,7 @@ import {
   evaluateRepositoryKnowledgeMainPath,
   type RepositoryKnowledgeGenerationAuditRecord,
 } from "@/src/evals/repository-knowledge-main-path";
+import { repositoryOperationCommunityMappingDigest } from "@/src/lib/repository-operation-community";
 
 const expectedIdentities = {
   execution_routing: { provider: "bedrock", modelId: "routing-model" },
@@ -139,6 +140,58 @@ function entailmentCriticRejecting(
       })),
     },
   });
+}
+
+const operationCommunityParentSynthesisKey =
+  "project_domain:payments#parent-scope";
+const operationCommunityChildSynthesisKeys = [
+  "project_domain:payments#payment-intake",
+  "project_domain:payments#receipt-delivery",
+] as const;
+
+function operationCommunityMapping(
+  parsedOutput: unknown,
+  overrides: Partial<RepositoryKnowledgeGenerationAuditRecord> = {},
+) {
+  const mappingDigest = repositoryOperationCommunityMappingDigest(parsedOutput);
+  if (!mappingDigest) throw new Error("Test mapping must be digestible.");
+  return generation("capability_synthesis", "synthesis-model", {
+    id: "generation-operation-community-mapping",
+    inputSummary: {
+      phase: "operation_community_mapping",
+      refreshRunId: "refresh-1",
+      subsystemKey: operationCommunityParentSynthesisKey,
+      notebookEntries: 13,
+      rawEligibleEntries: 41,
+      expectedCommunityCount: 2,
+    },
+    parsedOutput,
+    resultRefs: {
+      configuredModelId: "synthesis-model",
+      requestIds: ["request-operation-community-mapping"],
+      usageComplete: true,
+      failedProviderAttempts: [],
+      providerAttemptCount: 1,
+      transportMode: "json_schema",
+      resultAttestation: { mappingDigest },
+    },
+    ...overrides,
+  });
+}
+
+function validOperationCommunityPartition() {
+  return {
+    communities: [
+      {
+        label: "Payment intake",
+        memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+      },
+      {
+        label: "Receipt delivery",
+        memberIndexes: [8, 9, 10, 11, 12, 13],
+      },
+    ],
+  };
 }
 
 type DeltaCriticClaim = {
@@ -295,6 +348,86 @@ function evaluateGenerationRuns(
   });
 }
 
+function operationCommunityConsumptions(
+  mapping: RepositoryKnowledgeGenerationAuditRecord,
+) {
+  const mappingAttestation = (
+    mapping.resultRefs as {
+      resultAttestation?: { mappingDigest?: unknown };
+    }
+  ).resultAttestation;
+  const mappingDigest = typeof mappingAttestation?.mappingDigest === "string"
+    ? mappingAttestation.mappingDigest
+    : "";
+  return [
+    {
+      childSynthesisKey: operationCommunityChildSynthesisKeys[0],
+      parentSynthesisKey: operationCommunityParentSynthesisKey,
+      mappingDigest,
+      communityIndex: 0,
+      memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+    },
+    {
+      childSynthesisKey: operationCommunityChildSynthesisKeys[1],
+      parentSynthesisKey: operationCommunityParentSynthesisKey,
+      mappingDigest,
+      communityIndex: 1,
+      memberIndexes: [8, 9, 10, 11, 12, 13],
+    },
+  ];
+}
+
+function evaluateOperationCommunityMapping(
+  mapping: RepositoryKnowledgeGenerationAuditRecord,
+  options: { operationCommunities?: unknown } = {},
+) {
+  const defaultOperationCommunities = operationCommunityConsumptions(mapping);
+  const operationCommunities = Object.hasOwn(options, "operationCommunities")
+    ? options.operationCommunities
+    : defaultOperationCommunities;
+  const synthesis = {
+    subsystems: [
+      {
+        subsystemKey: operationCommunityChildSynthesisKeys[0],
+        facts: [{
+          statement: "The payment service validates an intake request.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      },
+      {
+        subsystemKey: operationCommunityChildSynthesisKeys[1],
+        facts: [{
+          statement: "The payment service delivers a persisted receipt.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      },
+    ],
+  };
+  const synthesisRun = synthesisGeneration(synthesis, {
+    inputSummary: {
+      phase: "synthesis",
+      revisionRound: 0,
+      refreshRunId: "refresh-1",
+      subsystemKeys: [...operationCommunityChildSynthesisKeys],
+      operationCommunities,
+    },
+  });
+  const criticRun = entailmentCritic(synthesis);
+  criticRun.inputSummary = {
+    ...(criticRun.inputSummary as Record<string, unknown>),
+    subsystemKeys: [...operationCommunityChildSynthesisKeys],
+  };
+  return evaluateGenerationRuns([
+    generation("execution_routing", "routing-model"),
+    generation("semantic_extraction", "semantic-model"),
+    mapping,
+    synthesisRun,
+    criticRun,
+  ]);
+}
+
 describe("repository knowledge main-path integrity", () => {
   it("accepts successful attributed model extraction and synthesis", () => {
     const synthesis = {
@@ -346,6 +479,355 @@ describe("repository knowledge main-path integrity", () => {
         budgetExhausted: false,
       },
     });
+  });
+
+  it("accepts an attested operation-community mapping without requiring its own critic", () => {
+    const result = evaluateOperationCommunityMapping(
+      operationCommunityMapping(validOperationCommunityPartition()),
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.metrics).toMatchObject({
+      capabilitySynthesis: 1,
+      entailmentCritic: 1,
+      claimfulSynthesis: 1,
+      criticCoveredSynthesis: 1,
+      successfulGenerations: 5,
+      totalGenerations: 5,
+      providerAttemptCount: 5,
+    });
+  });
+
+  it("rejects a valid mapper community omitted from base synthesis", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const [firstConsumption] = operationCommunityConsumptions(mapping);
+
+    const result = evaluateOperationCommunityMapping(mapping, {
+      operationCommunities: [firstConsumption],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 valid attested mapper community/communities are not consumed by initial synthesis.",
+    );
+  });
+
+  it("rejects a mapper consumption whose member indexes do not match", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const [firstConsumption, secondConsumption] =
+      operationCommunityConsumptions(mapping);
+
+    const result = evaluateOperationCommunityMapping(mapping, {
+      operationCommunities: [
+        {
+          ...firstConsumption,
+          memberIndexes: [1, 2, 3, 4, 5, 6],
+        },
+        secondConsumption,
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community consumption record(s) do not match a valid attested mapper community.",
+    );
+    expect(result.issues).toContain(
+      "1 valid attested mapper community/communities are not consumed by initial synthesis.",
+    );
+  });
+
+  it("rejects an orphan operation-community consumption record", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const consumptions = operationCommunityConsumptions(mapping);
+
+    const result = evaluateOperationCommunityMapping(mapping, {
+      operationCommunities: [
+        ...consumptions,
+        {
+          ...consumptions[0],
+          parentSynthesisKey: "project_domain:orders#unknown-parent",
+        },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community consumption record(s) do not match a valid attested mapper community.",
+    );
+  });
+
+  it("rejects duplicate mapper-community consumption", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const consumptions = operationCommunityConsumptions(mapping);
+
+    const result = evaluateOperationCommunityMapping(mapping, {
+      operationCommunities: [...consumptions, consumptions[0]],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community consumption record(s) duplicate a mapper community or child synthesis key.",
+    );
+  });
+
+  it("rejects an operation-community child outside its synthesis batch", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const [firstConsumption, secondConsumption] =
+      operationCommunityConsumptions(mapping);
+
+    const result = evaluateOperationCommunityMapping(mapping, {
+      operationCommunities: [
+        {
+          ...firstConsumption,
+          childSynthesisKey: "project_domain:payments#unbatched-child",
+        },
+        secondConsumption,
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community consumption record(s) have invalid shape or reference a child outside their synthesis batch.",
+    );
+  });
+
+  it("canonicalizes mapping object-key order and label whitespace", () => {
+    const attested = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    const equivalentParsedOutputs = [
+      {
+        communities: [
+          {
+            memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+            label: "Payment intake",
+          },
+          {
+            memberIndexes: [8, 9, 10, 11, 12, 13],
+            label: "Receipt delivery",
+          },
+        ],
+      },
+      {
+        communities: [
+          {
+            label: "  Payment   intake  ",
+            memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+          },
+          {
+            label: "Receipt\n delivery",
+            memberIndexes: [8, 9, 10, 11, 12, 13],
+          },
+        ],
+      },
+    ];
+
+    for (const parsedOutput of equivalentParsedOutputs) {
+      const result = evaluateOperationCommunityMapping({
+        ...attested,
+        parsedOutput,
+      });
+      expect(result.passed).toBe(true);
+      expect(result.issues).toEqual([]);
+    }
+  });
+
+  it("rejects a persisted operation-community mapping tampered after attestation", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    mapping.parsedOutput = {
+      communities: [
+        {
+          label: "Payment capture",
+          memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          label: "Receipt delivery",
+          memberIndexes: [8, 9, 10, 11, 12, 13],
+        },
+      ],
+    };
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community mapping generation(s) do not attest their exact mapping payload.",
+    );
+    expect(result.issues).not.toContain(
+      "1 operation-community mapping generation(s) do not contain an exact notebook partition.",
+    );
+  });
+
+  it("rejects an attested operation-community partition with an omitted index", () => {
+    const mapping = operationCommunityMapping({
+      communities: [
+        {
+          label: "Payment intake",
+          memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          label: "Receipt delivery",
+          memberIndexes: [8, 9, 10, 11, 12],
+        },
+      ],
+    });
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community mapping generation(s) do not contain an exact notebook partition.",
+    );
+    expect(result.issues).not.toContain(
+      "1 operation-community mapping generation(s) do not attest their exact mapping payload.",
+    );
+  });
+
+  it("rejects an attested operation-community partition with a duplicate index", () => {
+    const mapping = operationCommunityMapping({
+      communities: [
+        {
+          label: "Payment intake",
+          memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          label: "Receipt delivery",
+          memberIndexes: [7, 8, 9, 10, 11, 12, 13],
+        },
+      ],
+    });
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community mapping generation(s) do not contain an exact notebook partition.",
+    );
+  });
+
+  it("rejects duplicate community labels and communities larger than twelve entries", () => {
+    const invalidMappings = [
+      operationCommunityMapping({
+        communities: [
+          {
+            label: "Payment intake",
+            memberIndexes: [1, 2, 3, 4, 5, 6, 7],
+          },
+          {
+            label: " payment   INTAKE ",
+            memberIndexes: [8, 9, 10, 11, 12, 13],
+          },
+        ],
+      }),
+      operationCommunityMapping({
+        communities: [
+          {
+            label: "Payment intake",
+            memberIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+          },
+          {
+            label: "Receipt delivery",
+            memberIndexes: [14],
+          },
+        ],
+      }, {
+        inputSummary: {
+          phase: "operation_community_mapping",
+          refreshRunId: "refresh-1",
+          subsystemKey: operationCommunityParentSynthesisKey,
+          notebookEntries: 14,
+          rawEligibleEntries: 14,
+          expectedCommunityCount: 2,
+        },
+      }),
+    ];
+
+    for (const mapping of invalidMappings) {
+      const result = evaluateOperationCommunityMapping(mapping);
+      expect(result.passed).toBe(false);
+      expect(result.issues).toContain(
+        "1 operation-community mapping generation(s) do not contain an exact notebook partition.",
+      );
+    }
+  });
+
+  it("rejects an operation-community mapping without a valid SHA-256 digest", () => {
+    const mapping = operationCommunityMapping(
+      validOperationCommunityPartition(),
+    );
+    mapping.resultRefs = {
+      ...(mapping.resultRefs as Record<string, unknown>),
+      resultAttestation: { mappingDigest: "not-a-sha-256-digest" },
+    };
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 operation-community mapping generation(s) do not attest their exact mapping payload.",
+    );
+  });
+
+  it("rejects incomplete operation-community mapping input summaries", () => {
+    const summaries = [
+      {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: operationCommunityParentSynthesisKey,
+        rawEligibleEntries: 13,
+        expectedCommunityCount: 2,
+      },
+      {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: operationCommunityParentSynthesisKey,
+        notebookEntries: 13,
+        rawEligibleEntries: 13,
+        expectedCommunityCount: 3,
+      },
+      {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: " ",
+        notebookEntries: 13,
+        rawEligibleEntries: 13,
+        expectedCommunityCount: 2,
+      },
+      {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: operationCommunityParentSynthesisKey,
+        notebookEntries: 13,
+        rawEligibleEntries: 12,
+        expectedCommunityCount: 2,
+      },
+    ];
+
+    for (const inputSummary of summaries) {
+      const result = evaluateOperationCommunityMapping(
+        operationCommunityMapping(validOperationCommunityPartition(), {
+          inputSummary,
+        }),
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.issues).toContain(
+        "1 capability synthesis generation(s) have no valid subsystem-batch attestation.",
+      );
+    }
   });
 
   it("certifies entailment critics against the verification model independently of synthesis", () => {

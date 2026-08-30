@@ -318,6 +318,184 @@ describe("repository synthesis model main path", () => {
     });
   });
 
+  it("maps a capped product domain into bounded, auditable operation communities", async () => {
+    const broadRun = refreshRun();
+    broadRun.snapshots[0]!.files = Array.from({ length: 37 }, (_entry, index) => {
+      const operationPath = `src/domain/operation-${index + 1}-service.ts`;
+      const operationStatement =
+        `Operation ${index + 1} applies a distinct supported state transition for the project.`;
+      const operationFact = {
+        statement: operationStatement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        lineStart: 1,
+        lineEnd: 2,
+        productImportance: 4,
+        implementationBreadth: 3,
+        technicalDifficulty: 3,
+        path: operationPath,
+        subsystemKeys: ["project_domain:payments"],
+        semanticSignals: [],
+        semanticKind: "user_capability" as const,
+        evidenceExcerpt: `1: export function operation${index + 1}() {\n2:   return transition();`,
+        evidenceMode: "semantic" as const,
+      };
+      return {
+        path: operationPath,
+        blobSha: `blob-operation-${index + 1}`,
+        analyzerVersion: null,
+        analysis: null,
+        semanticRefreshRunId: "refresh-1",
+        semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+        semanticStatus: "succeeded",
+        semanticAnalysis: {
+          ...semanticAnalysis(),
+          path: operationPath,
+          summary: operationStatement,
+          // The first file repeats the same extracted observation. Mapping
+          // telemetry must count unique eligible evidence, not raw duplicates.
+          facts: index === 0
+            ? [operationFact, { ...operationFact }]
+            : [operationFact],
+        },
+        changeType: "modified",
+      };
+    });
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(broadRun);
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        observations?: Array<{ index: number }>;
+        subsystems?: Array<{
+          subsystemKey: string;
+          operationCommunity?: string | null;
+          notebook?: Array<{ statement: string }>;
+          claims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      let data: unknown;
+      if (request.schemaName === "repository_operation_communities") {
+        data = {
+          communities: [
+            { label: "Account state transitions", memberIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+            { label: "Settlement state transitions", memberIndexes: [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24] },
+            { label: "Reporting state transitions", memberIndexes: [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36] },
+          ],
+        };
+      } else if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: prompt.subsystems!.map((subsystem) => ({
+            subsystemKey: subsystem.subsystemKey,
+            facts: [{
+              statement: subsystem.notebook![0]!.statement,
+              category: "behavior",
+              confidence: "high",
+              sensitivityFlag: false,
+              citationIndexes: [1],
+              reviewNotes: null,
+              productImportance: 4,
+              implementationBreadth: 3,
+              technicalDifficulty: 3,
+              distinctiveness: 4,
+            }],
+            highlights: [],
+            unresolvedQuestions: [],
+          })),
+        };
+      } else {
+        data = {
+          assessments: prompt.subsystems!.flatMap((subsystem) =>
+            subsystem.claims!.map((claim) => ({
+              claimKey: claim.claimKey,
+              supported: true,
+              issues: [],
+            }))
+          ),
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+        requestId: `request-${request.schemaName}`,
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_operation_communities",
+      "repository_architecture_synthesis",
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_entailment_critic",
+    ]);
+    const mappingPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
+    const synthesisSubsystems = generateStructuredMock.mock.calls
+      .filter(([request]) => request.schemaName === "repository_architecture_synthesis")
+      .flatMap(([request]) => JSON.parse(request.userPrompt).subsystems);
+    expect(mappingPrompt.observations).toHaveLength(36);
+    expect(new Set(synthesisSubsystems.map((subsystem: { operationCommunity: string }) =>
+      subsystem.operationCommunity
+    ))).toEqual(new Set([
+      "Account state transitions",
+      "Settlement state transitions",
+      "Reporting state transitions",
+    ]));
+    expect(synthesisSubsystems.map((subsystem: { notebook: unknown[] }) =>
+      subsystem.notebook.length
+    )).toEqual([12, 12, 12]);
+    const summaries = prismaMock.generationRun.upsert.mock.calls.map(([input]) =>
+      input.create.inputSummary
+    );
+    expect(summaries[0]).toMatchObject({
+      phase: "operation_community_mapping",
+      notebookEntries: 36,
+      rawEligibleEntries: 37,
+      expectedCommunityCount: 3,
+    });
+    const synthesisSummaries = summaries.filter((summary) => summary.phase === "synthesis");
+    const consumedCommunities = synthesisSummaries.flatMap((summary) =>
+      summary.operationCommunities
+    );
+    expect(consumedCommunities).toHaveLength(3);
+    expect(consumedCommunities.map((community) => community.communityIndex).sort()).toEqual([0, 1, 2]);
+    expect(consumedCommunities.every((community) =>
+      community.parentSynthesisKey === summaries[0].subsystemKey &&
+      /^[a-f0-9]{64}$/.test(community.mappingDigest) &&
+      community.memberIndexes.length === 12
+    )).toBe(true);
+    for (const summary of synthesisSummaries) {
+      expect(new Set(summary.subsystemKeys)).toEqual(new Set(
+        summary.operationCommunities.map((community: { childSynthesisKey: string }) =>
+          community.childSynthesisKey
+        ),
+      ));
+    }
+    expect(new Set(consumedCommunities.map((community) => community.mappingDigest)).size).toBe(1);
+    expect(synthesis).toHaveLength(3);
+    expect(synthesis.every((entry) =>
+      entry.subsystemKey === "project_domain:payments" && entry.facts.length === 1
+    )).toBe(true);
+    expect(synthesis.some((entry) => entry.unresolvedQuestions.some((question) =>
+      question.includes("covered 36 of 37 eligible semantic observations")
+    ))).toBe(true);
+  });
+
   it("revises rejected drafts once and re-runs the independent source critic", async () => {
     const revisedStatement =
       "The charge service records an idempotency key before publishing a payment receipt.";
@@ -1676,12 +1854,18 @@ describe("repository synthesis model main path", () => {
     expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(true);
   });
 
-  it("reserves two bounded revisions and native synthesis headroom under one 80K cap", () => {
+  it("keeps the 80K floor and scales required batch headroom", () => {
     expect(repositorySynthesisBudgetLimits(3)).toEqual({
       maxModelCalls: 18,
       maxRepairPasses: 0,
       maxOutputTokens: 10_000,
       maxTotalTokens: 80_000,
+    });
+    expect(repositorySynthesisBudgetLimits(5)).toEqual({
+      maxModelCalls: 30,
+      maxRepairPasses: 0,
+      maxOutputTokens: 10_000,
+      maxTotalTokens: 100_000,
     });
     expect(() => repositorySynthesisBudgetLimits(-1)).toThrow(
       "Repository synthesis batch count must be a non-negative integer.",

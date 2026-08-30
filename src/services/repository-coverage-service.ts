@@ -209,6 +209,9 @@ const semanticFindingKindOptions = [
   "configuration",
 ] as const;
 
+export type RepositorySemanticFindingKind =
+  (typeof semanticFindingKindOptions)[number];
+
 // A native structured-output transport can occasionally return a
 // string just beyond a declared maxLength even though the rest of the object
 // satisfies the schema. These fields are bounded prose, not identifiers whose
@@ -422,6 +425,8 @@ export interface RepositoryChunkAnalysis {
     technicalDifficulty: number;
     subsystemKeys?: string[];
     semanticSignals?: string[];
+    /** Semantic role assigned to this exact finding by model extraction. */
+    semanticKind?: RepositorySemanticFindingKind;
     /** Exact numbered source lines retained for downstream entailment review. */
     evidenceExcerpt?: string;
     evidenceMode?: "static" | "semantic" | "deterministic_fallback";
@@ -939,6 +944,7 @@ async function analyzeChunk(input: {
       technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
       subsystemKeys: unique(finding.capabilityKeys, 6),
       semanticSignals: unique(finding.signalKeys ?? [], 12),
+      semanticKind: finding.kind,
       evidenceExcerpt,
       evidenceMode: "semantic" as const,
     }];
@@ -1544,6 +1550,7 @@ export async function analyzeRepositoryFileBatch(
         technicalDifficulty: finding.kind === "configuration" ? 2 : 3,
         subsystemKeys: capabilityKeys,
         semanticSignals: unique(finding.signalKeys ?? [], 12),
+        semanticKind: finding.kind,
         evidenceExcerpt,
         evidenceMode: "semantic" as const,
         path: entry.file.path,
