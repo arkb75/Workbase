@@ -511,7 +511,7 @@ describe("repository knowledge main-path integrity", () => {
   });
 
   it("accepts an explicitly scoped seven-entry structural community mapping", () => {
-    const structuralParent = "repository_area:data_model#parent-scope";
+    const structuralParent = "repository_area:intelligence#parent-scope";
     const mapping = operationCommunityMapping({
       communities: [
         { label: "Order records", memberIndexes: [1, 2, 3, 4] },
@@ -522,10 +522,42 @@ describe("repository knowledge main-path integrity", () => {
         phase: "operation_community_mapping",
         refreshRunId: "refresh-1",
         subsystemKey: structuralParent,
-        capabilityKey: "repository_area:data_model",
+        capabilityKey: "repository_area:intelligence",
         communityPolicy: "structural_breadth_v1",
         notebookEntries: 7,
         rawEligibleEntries: 9,
+        expectedCommunityCount: 2,
+      },
+    });
+
+    const result = evaluateOperationCommunityMapping(mapping);
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("accepts an exact twenty-four-entry structural community mapping", () => {
+    const structuralParent = "repository_area:intelligence#parent-scope";
+    const mapping = operationCommunityMapping({
+      communities: [
+        {
+          label: "Retrieval and synthesis",
+          memberIndexes: Array.from({ length: 12 }, (_entry, index) => index + 1),
+        },
+        {
+          label: "Review and generation",
+          memberIndexes: Array.from({ length: 12 }, (_entry, index) => index + 13),
+        },
+      ],
+    }, {
+      inputSummary: {
+        phase: "operation_community_mapping",
+        refreshRunId: "refresh-1",
+        subsystemKey: structuralParent,
+        capabilityKey: "repository_area:intelligence",
+        communityPolicy: "structural_breadth_v1",
+        notebookEntries: 24,
+        rawEligibleEntries: 31,
         expectedCommunityCount: 2,
       },
     });

@@ -4,6 +4,7 @@ import {
 } from "@/src/domain/repository-synthesis-attestation";
 import {
   canonicalRepositoryOperationCommunityMapping,
+  isRepositoryOperationCommunityStructuralCapabilityKey,
   repositoryOperationCommunityMappingDigest,
 } from "@/src/lib/repository-operation-community";
 import { collectUnknownModelUsageAttempts } from "@/src/services/model-usage-service";
@@ -109,10 +110,6 @@ function repositorySynthesisGenerationPhase(
 const repositoryOperationCommunitySize = 12;
 const repositoryOperationCommunityMaximum = 3;
 const repositoryStructuralCommunityMinimum = 7;
-const repositoryStructuralCommunityCapabilityKeys = new Set([
-  "repository_area:product_surface",
-  "repository_area:data_model",
-]);
 const repositoryStructuralCommunityPolicy = "structural_breadth_v1";
 const repositoryProjectDomainCommunityPolicy = "project_domain_v1";
 
@@ -161,7 +158,7 @@ function repositoryOperationCommunityMappingDescriptor(
     : "";
   const structuralPolicy =
     communityPolicy === repositoryStructuralCommunityPolicy &&
-    repositoryStructuralCommunityCapabilityKeys.has(capabilityKey) &&
+    isRepositoryOperationCommunityStructuralCapabilityKey(capabilityKey) &&
     parentCapabilityKey === capabilityKey;
   const projectDomainPolicy =
     communityPolicy === repositoryProjectDomainCommunityPolicy &&
@@ -184,7 +181,7 @@ function repositoryOperationCommunityMappingDescriptor(
     !Number.isInteger(notebookEntries) ||
     (structuralPolicy
       ? notebookEntries < repositoryStructuralCommunityMinimum ||
-        notebookEntries > repositoryOperationCommunitySize
+        notebookEntries > repositoryOperationCommunitySize * 2
       : notebookEntries <= repositoryOperationCommunitySize ||
         notebookEntries >
           repositoryOperationCommunitySize * repositoryOperationCommunityMaximum) ||

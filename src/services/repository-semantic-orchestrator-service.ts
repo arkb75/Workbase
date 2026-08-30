@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v53-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v56-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -63,7 +63,7 @@ const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
 const MAX_SEMANTIC_REPAIR_WAVES = 4;
 const MAX_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const REPAIR_TOKEN_RESERVE = 16_000;
-const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_000;
+const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 2_500;
 // Repair admission reserves the full structured output plus a bounded prompt
 // envelope before dispatch. The semantic batcher supplies at most 4 KiB per
 // file, but JSON/schema/task framing is material too; charging 2,250 tokens per
@@ -663,6 +663,35 @@ function repositoryDomainLabel(key: string) {
   return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const flatRepositoryDomainStopTokens = new Set([
+  "adapter", "agent", "api", "app", "application", "base", "client",
+  "component", "config", "controller", "core", "data", "default", "engine",
+  "factory", "generation", "handler", "helper", "index", "interface", "lib",
+  "main", "manager", "migration", "migrations", "model", "page", "panel", "project", "provider",
+  "repository", "route", "runtime", "server", "service", "shared", "src",
+  "store", "system", "type", "util", "view", "worker", "workflow",
+]);
+
+/**
+ * Return only subject nouns that a flat source tree repeats across executable
+ * filenames. One filename can never create a domain by itself; the manifest
+ * builder admits a token only after at least two files corroborate it.
+ */
+export function flatRepositoryDomainTokens(path: string) {
+  const basename = path.replace(/\\/g, "/").split("/").at(-1) ?? "";
+  return Array.from(new Set(basename
+    .replace(/\.[^.]+$/, "")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .replace(/([a-z\d])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter((token) =>
+      token.length >= 4 &&
+      !/^\d+$/.test(token) &&
+      !flatRepositoryDomainStopTokens.has(token)
+    ))).slice(0, 4);
+}
+
 /**
  * Build the cartographer's map from the repository's own directory structure
  * and static inventory. Generic structural areas are only fallbacks for
@@ -675,6 +704,7 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
   maxDomains?: number;
 }) {
   const groups = new Map<string, CapabilityManifestArea>();
+  const flatDomainFilesByToken = new Map<string, RepositoryCartographyFile[]>();
   const repositorySlug = input.scopeKey
     .replace(/\.git$/i, "")
     .split("/")
@@ -722,11 +752,28 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
         .replace(/_/g, "-")}`
     )));
     for (const key of domainKeys) add(key, repositoryDomainLabel(key), file);
+    if (!domainKeys.length && isImplementationEvidencePath(file.path)) {
+      for (const token of flatRepositoryDomainTokens(normalizedPath)) {
+        flatDomainFilesByToken.set(token, [
+          ...(flatDomainFilesByToken.get(token) ?? []),
+          file,
+        ]);
+      }
+    }
     for (const area of repositoryAreaRules) {
       if (repositoryAreaMatchesPath(area, normalizedPath, file.analysis)) {
         add(area.key, area.label, file);
       }
     }
+  }
+
+  for (const [token, files] of flatDomainFilesByToken) {
+    const distinctFiles = files.filter((file, index, all) =>
+      all.findIndex((candidate) => candidate.id === file.id) === index
+    );
+    if (distinctFiles.length < 2) continue;
+    const key = `${PROJECT_DOMAIN_CAPABILITY_PREFIX}${token}`;
+    for (const file of distinctFiles) add(key, repositoryDomainLabel(key), file);
   }
 
   // Merge singular/plural directory variants only when both are actually
@@ -1130,6 +1177,10 @@ export function semanticRepairWaveDecision(input: {
       input.waveIndex >= 0 &&
       input.waveIndex < MAX_SEMANTIC_REPAIR_WAVES &&
       input.hasRepairPackages &&
+      (
+        input.waveIndex === 0 ||
+        (input.priorRepairUsages.at(-1)?.modelCalls ?? 0) > 0
+      ) &&
       priorRepairUsage.modelCalls < input.maxModelCalls &&
       tokenPool > 0,
     tokenPool,
@@ -1704,6 +1755,14 @@ export function fileRelevantCapabilityKeys(input: {
       if (staticKeys.has(key)) return true;
       const normalizedDomainKey = projectDomainAliasIdentity(key);
       if (normalizedDomainKey && staticProjectDomainKeys.has(normalizedDomainKey)) return true;
+      if (
+        input.path &&
+        normalizedDomainKey &&
+        flatRepositoryDomainTokens(input.path).some((token) =>
+          projectDomainAliasIdentity(`${PROJECT_DOMAIN_CAPABILITY_PREFIX}${token}`) ===
+            normalizedDomainKey
+        )
+      ) return true;
       if (!input.path || !key.startsWith(REPOSITORY_AREA_PREFIX)) return false;
       return repositoryAreaRules.some((area) =>
         area.key === key && repositoryAreaMatchesPath(
@@ -2333,7 +2392,9 @@ function semanticOperationalModuleProfile(path: string, layer: string) {
   const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
   const basenameTokens = semanticOperationalTokens(segments.at(-1) ?? "");
   const meaningfulBasenameTokens = basenameTokens.filter((token) =>
-    !semanticOperationalScaffoldingTokens.has(token)
+    !semanticOperationalScaffoldingTokens.has(token) &&
+    !semanticOperationalContainerTokens.has(token) &&
+    !/^\d+$/.test(token)
   );
   const parentModule = [...segments.slice(0, -1)]
     .reverse()
@@ -2343,21 +2404,23 @@ function semanticOperationalModuleProfile(path: string, layer: string) {
     ))
     .find((tokens) => tokens.length)
     ?.join("-") ?? "";
-  const role = (
-    meaningfulBasenameTokens.length > 1 ||
-    semanticOperationalContainerTokens.has(meaningfulBasenameTokens[0] ?? "") ||
-    // A meaningful parent supplies the subject module across common layouts
-    // such as query/parser.ts, query/executor.py, or query/Calculations.java.
-    // Retain the single concrete basename as the operation role so bounded
-    // sampling can distinguish sibling operations without framework-specific
-    // directory or filename vocabularies.
+  const roleCandidate = meaningfulBasenameTokens.at(-1) ?? "";
+  const hasTrailingContainer = semanticOperationalContainerTokens.has(
+    basenameTokens.at(-1) ?? "",
+  );
+  // Generic architectural wrappers such as service, client, handler, and
+  // worker are containers, not distinct business operations. Count only a
+  // concrete operation noun (parser, executor, reconciliation, and similar)
+  // when the filename or parent module provides enough subject context.
+  const role = !hasTrailingContainer &&
+    roleCandidate &&
+    isSemanticOperationalRoleToken(roleCandidate) &&
     (
-      Boolean(parentModule) &&
-      meaningfulBasenameTokens.length === 1 &&
-      isSemanticOperationalRoleToken(meaningfulBasenameTokens[0]!)
+      meaningfulBasenameTokens.length > 1 ||
+      Boolean(parentModule) ||
+      basenameTokens.some((token) => semanticOperationalContainerTokens.has(token))
     )
-  )
-    ? meaningfulBasenameTokens.at(-1) ?? ""
+    ? roleCandidate
     : "";
   const moduleTokens = role
     ? meaningfulBasenameTokens.slice(0, -1)

@@ -7,6 +7,21 @@ export type RepositoryOperationCommunityMapping = {
   }>;
 };
 
+export const repositoryOperationCommunityStructuralCapabilityKeys = new Set([
+  "repository_area:product_surface",
+  "repository_area:intelligence",
+  "repository_area:automation",
+  "repository_area:application_core",
+]);
+
+export function isRepositoryOperationCommunityStructuralCapabilityKey(
+  capabilityKey: string,
+) {
+  return repositoryOperationCommunityStructuralCapabilityKeys.has(
+    capabilityKey,
+  );
+}
+
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>

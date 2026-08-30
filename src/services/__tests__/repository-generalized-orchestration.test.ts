@@ -2150,7 +2150,36 @@ describe("repository-derived cartographer and coverage critic", () => {
       "reviewer",
     ]));
     expect(repairIds.filter((id) => roles.map((role) => role.toLowerCase()).includes(id)))
-      .toHaveLength(3);
+      .toHaveLength(6);
+  });
+
+  it("does not mistake generic architectural containers for business operations", () => {
+    const area = {
+      key: "project_domain:chat",
+      label: "Chat",
+      scopeKey: "example/chat-system",
+      salience: 80,
+      files: [
+        { id: "service", path: "src/chat/chat-service.ts", score: 80 },
+        { id: "client", path: "src/chat/chat-client.ts", score: 70 },
+        { id: "handler", path: "src/chat/chat-handler.ts", score: 60 },
+        { id: "worker", path: "src/chat/chat-worker.ts", score: 50 },
+      ],
+    };
+    const inspectedFileSnapshotIds = ["service", "client"];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: false,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      status: "covered",
+      diversityGapDescriptions: [],
+    });
   });
 
   it("keeps product tests in the quality area and does not spend a repair slot on a third test", () => {
@@ -2568,6 +2597,40 @@ describe("repository-derived cartographer and coverage critic", () => {
         ],
       }),
     ]);
+  });
+
+  it("discovers a flat product domain only when executable filenames corroborate its subject", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/flat-runtime",
+      files: [
+        mappedFile("knowledge-refresh", "src/services/knowledge-refresh-service.ts"),
+        mappedFile("knowledge-review", "src/services/knowledge-review-service.ts"),
+        mappedFile("knowledge-reconcile", "src/services/knowledge-reconciliation-service.ts"),
+        mappedFile("chat-agent", "src/services/project-chat-agent-service.ts"),
+        mappedFile("chat-store", "src/services/project-chat-store.ts"),
+        mappedFile("artifact-generation", "src/services/artifact-generation-service.ts"),
+        mappedFile("artifact-workflow", "src/services/artifact-workflow-service.ts"),
+        mappedFile("migration-a", "db/migrations/001/migration.sql"),
+        mappedFile("migration-b", "db/migrations/002/migration.sql"),
+        mappedFile("singleton", "src/services/billing-service.ts"),
+      ],
+    });
+
+    expect(manifest.map((area) => area.key)).toEqual(expect.arrayContaining([
+      "project_domain:knowledge",
+      "project_domain:chat",
+      "project_domain:artifact",
+    ]));
+    expect(manifest.find((area) => area.key === "project_domain:knowledge")
+      ?.files.map((file) => file.id)).toEqual([
+      "knowledge-reconcile",
+      "knowledge-refresh",
+      "knowledge-review",
+    ]);
+    expect(manifest.some((area) => area.key === "project_domain:billing"))
+      .toBe(false);
+    expect(manifest.some((area) => area.key === "project_domain:migration"))
+      .toBe(false);
   });
 
   it("does not treat roadmap documentation as implementation evidence and requests one repair wave", () => {

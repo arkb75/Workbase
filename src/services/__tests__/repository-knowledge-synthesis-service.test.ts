@@ -50,6 +50,7 @@ import {
   runRepositorySynthesisPrimaryBarrier,
   runOrderedSynthesisBatches,
   selectRepositoryOperationCommunityExpansions,
+  selectRepositoryOperationCommunityNotebook,
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
@@ -88,6 +89,26 @@ function entry(path: string, statement = `${path} defines supported repository b
 }
 
 describe("repository operation communities", () => {
+  it("uses both bounded structural communities before reporting notebook loss", () => {
+    const notebook = Array.from({ length: 30 }, (_entry, index) => ({
+      ...entry(`src/services/operation-${index + 1}-service.ts`),
+      statement: `Operation ${index + 1} applies a distinct state transition.`,
+    }));
+
+    expect(selectRepositoryOperationCommunityNotebook(
+      "repository_area:intelligence",
+      notebook.slice(0, 19),
+    )).toHaveLength(19);
+    expect(selectRepositoryOperationCommunityNotebook(
+      "repository_area:application_core",
+      notebook,
+    )).toHaveLength(24);
+    expect(selectRepositoryOperationCommunityNotebook(
+      "project_domain:operations",
+      notebook,
+    )).toHaveLength(30);
+  });
+
   it("bounds community counts and mapping budgets at each notebook threshold", () => {
     expect([
       0,

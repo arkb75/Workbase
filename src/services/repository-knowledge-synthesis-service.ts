@@ -11,7 +11,10 @@ import {
   type WorkbaseLlmProvider,
 } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
-import { repositoryOperationCommunityMappingDigest } from "@/src/lib/repository-operation-community";
+import {
+  isRepositoryOperationCommunityStructuralCapabilityKey,
+  repositoryOperationCommunityMappingDigest,
+} from "@/src/lib/repository-operation-community";
 import { normalizeWhitespace } from "@/src/lib/utils";
 import { getStructuredLlmClient } from "@/src/services/bedrock-runtime";
 import {
@@ -1452,13 +1455,6 @@ export const REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE = 12;
 export const REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES = 3;
 export const REPOSITORY_SYNTHESIS_MIN_STRUCTURAL_COMMUNITY_ENTRIES = 7;
 
-const repositoryOperationCommunityStructuralScopes = new Set([
-  "repository_area:product_surface",
-  "repository_area:intelligence",
-  "repository_area:automation",
-  "repository_area:application_core",
-]);
-
 /**
  * Limit community expansion to broad product/domain and runtime scopes where
  * partitioning can recover distinct implemented operations. Data model,
@@ -1468,7 +1464,7 @@ const repositoryOperationCommunityStructuralScopes = new Set([
  */
 export function isRepositoryOperationCommunityScope(subsystemKey: string) {
   return isProjectDomainCapabilityKey(subsystemKey) ||
-    repositoryOperationCommunityStructuralScopes.has(subsystemKey);
+    isRepositoryOperationCommunityStructuralCapabilityKey(subsystemKey);
 }
 
 export function isRepositoryOperationCommunityCandidate(
@@ -1481,6 +1477,22 @@ export function isRepositoryOperationCommunityCandidate(
   ) return false;
   return isProjectDomainCapabilityKey(subsystemKey) ||
     new Set(notebook.map((entry) => entry.path)).size >= 2;
+}
+
+export function selectRepositoryOperationCommunityNotebook(
+  subsystemKey: string,
+  notebook: readonly SynthesisNotebookEntry[],
+) {
+  const communityCapacity = REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE * (
+    isRepositoryOperationCommunityStructuralCapabilityKey(subsystemKey)
+      ? 2
+      : REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES
+  );
+  return selectSubsystemSynthesisNotebook(
+    subsystemKey,
+    [...notebook],
+    communityCapacity,
+  );
 }
 
 export type RepositorySynthesisClaimLimits = {
@@ -1687,7 +1699,7 @@ export function repositoryOperationCommunityCountForScope(
   if (!Number.isInteger(notebookLength) || notebookLength < 0) {
     throw new Error("Repository operation-community notebook length must be a non-negative integer.");
   }
-  if (!repositoryOperationCommunityStructuralScopes.has(subsystemKey)) {
+  if (!isRepositoryOperationCommunityStructuralCapabilityKey(subsystemKey)) {
     return repositoryOperationCommunityCount(notebookLength);
   }
   if (notebookLength < REPOSITORY_SYNTHESIS_MIN_STRUCTURAL_COMMUNITY_ENTRIES) {
@@ -1814,7 +1826,7 @@ async function mapRepositoryOperationCommunities(input: {
   rawEligibleEntries: number;
   budget: StructuredGenerationBudget;
 }) {
-  const communityPolicy = repositoryOperationCommunityStructuralScopes.has(
+  const communityPolicy = isRepositoryOperationCommunityStructuralCapabilityKey(
     input.subsystemKey,
   )
     ? "structural_breadth_v1"
@@ -4392,16 +4404,9 @@ export async function synthesizeRepositoryKnowledge(
             synthesisNotebookIdentity(other) === synthesisNotebookIdentity(candidate)
           ) === index
         );
-      const structuralScope = repositoryOperationCommunityStructuralScopes.has(
-        entry.subsystemKey,
-      );
-      const notebook = selectSubsystemSynthesisNotebook(
+      const notebook = selectRepositoryOperationCommunityNotebook(
         entry.subsystemKey,
         eligibleNotebook,
-        structuralScope
-          ? REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE
-          : REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE *
-            REPOSITORY_SYNTHESIS_MAX_OPERATION_COMMUNITIES,
       );
       // Product-surface and data-model rows can be broad by taxonomy alone.
       // Require multiple concrete paths before paying for a model partition;

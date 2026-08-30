@@ -46,7 +46,7 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 describe("repository semantic orchestration guardrails", () => {
   it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v53-hybrid");
+      .toBe("repository-orchestration-v56-hybrid");
   });
 
   const paths: Record<string, string> = {
@@ -224,6 +224,8 @@ describe("repository semantic orchestration guardrails", () => {
       .toEqual({ shouldRun: false, tokenPool: 35_000, modelCallPool: 7 });
     expect(decision(1, true, [usage(45_000)]))
       .toEqual({ shouldRun: false, tokenPool: 0, modelCallPool: 7 });
+    expect(decision(2, true, [usage(10_000), { ...usage(0), modelCalls: 0 }]))
+      .toEqual({ shouldRun: false, tokenPool: 35_000, modelCallPool: 7 });
   });
 
   it("admits all native repair-wave primaries without inline schema fallbacks", () => {
@@ -276,7 +278,7 @@ describe("repository semantic orchestration guardrails", () => {
 
     const admitted = admitSemanticRepairPackagesForTokenPool(
       [repairPackage],
-      12_654,
+      10_751,
     );
 
     expect(admitted.packages).toHaveLength(1);
@@ -286,7 +288,7 @@ describe("repository semantic orchestration guardrails", () => {
       "reviewer",
     ]);
     expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper"]);
-    expect(admitted.remainingTokens).toBe(1_904);
+    expect(admitted.remainingTokens).toBe(501);
   });
 
   it("records an unaffordable repair as capacity debt without creating a package", () => {
@@ -300,11 +302,11 @@ describe("repository semantic orchestration guardrails", () => {
 
     expect(admitSemanticRepairPackagesForTokenPool(
       [repairPackage],
-      6_000,
+      5_500,
     )).toEqual({
       packages: [],
       capacityLimitedFileSnapshotIds: ["reviewer"],
-      remainingTokens: 6_000,
+      remainingTokens: 5_500,
     });
   });
 
@@ -1605,6 +1607,20 @@ describe("repository semantic orchestration guardrails", () => {
         evidence: [{ fileSnapshotId: "circle-contributions", lineStart: 1, lineEnd: 8 }],
       }],
     })).toEqual([]);
+  });
+
+  it("authorizes a flat-tree project domain only on a matching source filename", () => {
+    expect(buildFileSemanticTask({
+      path: "src/services/knowledge-reconciliation-service.ts",
+      workPackageCapabilityKeys: ["project_domain:knowledge"],
+      staticSubsystemKeys: [],
+    })?.capabilityKeys).toEqual(["project_domain:knowledge"]);
+
+    expect(buildFileSemanticTask({
+      path: "src/services/billing-service.ts",
+      workPackageCapabilityKeys: ["project_domain:knowledge"],
+      staticSubsystemKeys: [],
+    })).toBeNull();
   });
 
   it("requires repository-derived capabilities only from admissible coverage evidence", () => {
