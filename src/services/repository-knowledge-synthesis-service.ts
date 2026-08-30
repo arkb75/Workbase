@@ -2488,19 +2488,24 @@ export async function runOrderedSynthesisBatches<T, TResult>(
 ) {
   if (!batches.length) return [];
   const results = new Array<TResult>(batches.length);
-  const waveSize = Math.min(
+  const workerCount = Math.min(
     batches.length,
     Math.max(1, Math.floor(concurrency)),
   );
-  for (let waveStart = 0; waveStart < batches.length; waveStart += waveSize) {
-    const wave = batches.slice(waveStart, waveStart + waveSize);
-    const completed = await Promise.all(wave.map((batch, offset) =>
-      execute(batch, waveStart + offset)
-    ));
-    completed.forEach((result, offset) => {
-      results[waveStart + offset] = result;
-    });
-  }
+  let nextIndex = 0;
+  let failure: unknown;
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (failure === undefined && nextIndex < batches.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await execute(batches[index]!, index);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+  }));
+  if (failure !== undefined) throw failure;
   return results;
 }
 

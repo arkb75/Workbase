@@ -37,15 +37,15 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v38-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v39-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
 const REPAIR_MICRO_BATCH_SIZE = SEMANTIC_MICRO_BATCH_SIZE;
-// Retained only by the exported legacy-plan helper used for safe fallback and
-// historical policy tests. The generalized runtime path below does not call
-// that helper or use these Workbase-era selection limits.
+// The mandatory-file threshold belongs to the exported historical plan helper.
+// The selected-file ceiling is also enforced by the generalized live critic so
+// repair waves cannot silently turn a broad repository into an unbounded scan.
 const MAX_MANDATORY_SEMANTIC_FILES = 18;
 const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
@@ -744,19 +744,45 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
       left.key.localeCompare(right.key),
     );
 
-  // Every evidenced architectural role is an obligation. Product-domain
-  // folders use only the capacity left after those roles, so UI routes cannot
-  // crowd out persistence, integrations, automation, or core services.
-  const structuralReserve = Math.min(structuralFallbacks.length, maxDomains);
-  const selectedDomains = rankedDomains.slice(0, Math.max(0, maxDomains - structuralReserve));
-  const structuralSlots = Math.max(0, maxDomains - selectedDomains.length);
+  // Every specific architectural role is an obligation. Application core is
+  // only a fallback for implementation files that do not have a stable
+  // product-domain home; otherwise it repeats the same notebook and crowds out
+  // genuinely unrepresented behavior during bounded synthesis.
   const applicationCore = structuralFallbacks.find((area) =>
     area.key === `${REPOSITORY_AREA_PREFIX}application_core`
   );
   const specificStructural = structuralFallbacks.filter((area) => area !== applicationCore);
-  const selectedStructural = applicationCore && structuralSlots > 0
-    ? [...specificStructural.slice(0, structuralSlots - 1), applicationCore]
-    : specificStructural.slice(0, structuralSlots);
+  const productDomainFileIds = new Set(rankedDomains.flatMap((area) =>
+    area.files.map((file) => file.id)
+  ));
+  const applicationCoreFiles = applicationCore?.files.filter((file) =>
+    !productDomainFileIds.has(file.id)
+  ) ?? [];
+  const residualApplicationCore = applicationCoreFiles.some((file) =>
+    isCoverageEvidencePath(applicationCore?.key ?? "", file.path)
+  )
+    ? {
+        ...applicationCore!,
+        files: applicationCoreFiles,
+        salience: applicationCoreFiles.reduce(
+          (total, file) => total + file.score,
+          0,
+        ),
+      }
+    : undefined;
+  const structuralCandidates = [
+    ...specificStructural,
+    ...(residualApplicationCore ? [residualApplicationCore] : []),
+  ];
+  const structuralReserve = Math.min(structuralCandidates.length, maxDomains);
+  const selectedDomains = rankedDomains.slice(
+    0,
+    Math.max(0, maxDomains - structuralReserve),
+  );
+  const selectedStructural = structuralCandidates.slice(
+    0,
+    Math.max(0, maxDomains - selectedDomains.length),
+  );
   return [...selectedDomains, ...selectedStructural]
     .map((area) => ({
       ...area,
@@ -863,6 +889,13 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 30) return 4;
+  // A very broad repository-derived product domain can contain many distinct
+  // operations in one flat source tree. Eight samples proved sufficient for
+  // structural areas, but let a 47-file product domain appear complete after
+  // generic API/state/client roles while extractors, reviewers, and revisers
+  // remained unseen. Fourteen remains bounded by the repository-wide 32-file
+  // ceiling and uses only existing repair waves and token budgets.
+  if (isProjectDomainCapabilityKey(area.key)) return 14;
   // Very broad surfaces may use both bounded repair micro-batches after the
   // two-file breadth pass. Eight total samples remains far below adaptive
   // repository-wide waves while representing more than the busiest endpoints.
@@ -2026,6 +2059,24 @@ function isSemanticSamplingScaffoldingPath(path: string) {
     ["abstract", "base", "factory", "fake", "index", "init", "mock", "stub"].includes(tokens[0]!);
 }
 
+const semanticProjectDomainMaintenanceTokens = new Set([
+  "bootstrap", "deploy", "deployment", "migrate", "migration",
+]);
+
+function isSemanticProjectDomainMaintenancePath(path: string) {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  const basename = segments.at(-1) ?? "";
+  const basenameTokens = semanticOperationalTokens(basename);
+  return semanticProjectDomainMaintenanceTokens.has(basenameTokens[0] ?? "") ||
+    (
+      basenameTokens.includes("config") &&
+      /\.(?:json|toml|ya?ml)$/i.test(basename)
+    ) ||
+    segments.slice(0, -1).some((segment) =>
+      /^(?:migration|migrations)$/i.test(segment)
+    );
+}
+
 function semanticOperationalModuleProfile(path: string, layer: string) {
   if (!["core", "service", "integration", "orchestration"].includes(layer)) {
     return { role: "", module: "" };
@@ -2179,14 +2230,36 @@ function semanticProductionCandidates(
   return nonPresentation.length >= target ? nonPresentation : files;
 }
 
+function semanticOperationalSamplingFiles(
+  files: CapabilityManifestArea["files"],
+  target: number,
+  areaKey: string,
+  preferRuntimeOperations = false,
+) {
+  if (!isProjectDomainCapabilityKey(areaKey) || !preferRuntimeOperations) return files;
+  const runtimeOperations = files.filter((file) =>
+    !isSemanticProjectDomainMaintenancePath(file.path)
+  );
+  return runtimeOperations.length >= target ? runtimeOperations : files;
+}
+
 function diverseSemanticFiles(
   files: CapabilityManifestArea["files"],
   target: number,
   seedPaths: string[] = [],
   areaKey = "",
+  preferRuntimeOperations = false,
 ) {
-  const substantive = files.filter((file) => !isSemanticSamplingScaffoldingPath(file.path));
-  const viable = substantive.length >= target ? substantive : files;
+  const operationallyViable = semanticOperationalSamplingFiles(
+    files,
+    target,
+    areaKey,
+    preferRuntimeOperations,
+  );
+  const substantive = operationallyViable.filter((file) =>
+    !isSemanticSamplingScaffoldingPath(file.path)
+  );
+  const viable = substantive.length >= target ? substantive : operationallyViable;
   const candidates = semanticProductionCandidates(viable, areaKey, target);
   const ranked = [...candidates].sort((left, right) =>
     right.score - left.score || left.path.localeCompare(right.path)
@@ -2306,8 +2379,20 @@ export function buildRepositoryDerivedSemanticPlan(input: {
     // Context can explain implementation, but it must not displace executable
     // or schema evidence from the bounded quota.
     const selectedFiles = implementationFiles.length
-      ? diverseSemanticFiles(implementationFiles, target, [], area.key)
-      : diverseSemanticFiles(contextualFiles, target, [], area.key);
+      ? diverseSemanticFiles(
+          implementationFiles,
+          target,
+          [],
+          area.key,
+          semanticAuditTarget(area) === 14,
+        )
+      : diverseSemanticFiles(
+          contextualFiles,
+          target,
+          [],
+          area.key,
+          semanticAuditTarget(area) === 14,
+        );
     const selectedIds = selectedFiles.map((file) => file.id);
     if (!selectedIds.length) continue;
     const preferredOwner = plannerOwner.get(area.key);
@@ -2397,11 +2482,15 @@ export function critiqueRepositoryCoverage(input: {
     Partial<Pick<CapabilityReport, "retryFileSnapshotIds">>
   >;
   allowRepair: boolean;
+  selectedFileSnapshotIds?: readonly string[];
 }): RepositoryCoverageCritique {
   const inspected = new Set(input.reports.flatMap((report) => report.inspectedFileSnapshotIds));
   const retryFileSnapshotIds = new Set(input.reports.flatMap((report) =>
     report.retryFileSnapshotIds ?? []
   ));
+  const selectedFileSnapshotIds = new Set(
+    input.selectedFileSnapshotIds ?? [...inspected, ...retryFileSnapshotIds],
+  );
   const pathByFileId = new Map(input.manifest.flatMap((area) =>
     area.files.map((file) => [file.id, file.path] as const)
   ));
@@ -2471,6 +2560,7 @@ export function critiqueRepositoryCoverage(input: {
       targetSamples,
       [],
       area.key,
+      targetSamples === 14,
     );
     const idealProfiles = idealFiles.map((file) => semanticPathProfile(file.path));
     const supportedBehaviorFamilies = new Set(
@@ -2572,7 +2662,12 @@ export function critiqueRepositoryCoverage(input: {
       entry.dimension,
       new Set(entry.values),
     ] as const));
-    const uninspectedDiversityFiles = evidenceFiles.filter((file) => !inspected.has(file.id));
+    const uninspectedDiversityFiles = semanticOperationalSamplingFiles(
+      evidenceFiles,
+      targetSamples,
+      area.key,
+      targetSamples === 14,
+    ).filter((file) => !inspected.has(file.id));
     while (diversityRepairFileIds.length < Math.min(targetSamples, MAX_REPAIR_FILES)) {
       const currentDeficits = diversityDimensions.filter((entry) =>
         (simulatedValues.get(entry.dimension)?.size ?? 0) < entry.required
@@ -2604,12 +2699,18 @@ export function critiqueRepositoryCoverage(input: {
       }
     }
     const supportedCandidates = supportedCandidateStatements.size;
-    // A very broad area is not semantically covered merely because two of its
-    // many files produced findings. Match its six-sample audit depth with six
-    // distinct supported observations; the bounded four-file repair wave is
-    // exactly the remaining capacity after the two-file first pass.
-    const requiredSupportedCandidates = targetSamples >= 5 ? targetSamples : targetSamples >= 4 ? 2 : 1;
-    const requiredSupportedFiles = targetSamples >= 5 ? targetSamples : 1;
+    // A broad area is not covered merely because many files were inspected,
+    // but neither should every sampled helper be forced to emit a standalone
+    // fact. Eight distinct supported files/findings is the bounded evidence
+    // floor while a large product domain can inspect up to fourteen files.
+    const requiredSupportedCandidates = targetSamples >= 5
+      ? Math.min(8, targetSamples)
+      : targetSamples >= 4
+        ? 2
+        : 1;
+    const requiredSupportedFiles = targetSamples >= 5
+      ? Math.min(8, targetSamples)
+      : 1;
     const diversityGapDescriptions = [
       ...diversityDimensions.map((entry) =>
         `${entry.inspected}/${entry.required} ${entry.label}`
@@ -2732,6 +2833,7 @@ export function critiqueRepositoryCoverage(input: {
         ...priorityAuditFiles.map((file) => file.path),
       ],
       area.key,
+      domain.targetSamples === 14,
     );
     const repairFiles = [...priorityAuditFiles, ...additionalFiles];
     return {
@@ -2763,11 +2865,17 @@ export function critiqueRepositoryCoverage(input: {
       existing.capabilityKeys.add(areaKey);
       existing.singleton ||= singleton;
     } else if (repairSelections.size < MAX_REPAIR_FILES) {
+      const addsSemanticBreadth = !selectedFileSnapshotIds.has(file.id);
+      if (
+        addsSemanticBreadth &&
+        selectedFileSnapshotIds.size >= MAX_SELECTED_SEMANTIC_FILES
+      ) return;
       repairSelections.set(file.id, {
         file,
         capabilityKeys: new Set([areaKey]),
         singleton,
       });
+      if (addsSemanticBreadth) selectedFileSnapshotIds.add(file.id);
     } else {
       return;
     }
@@ -3382,6 +3490,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       maxRepairPasses: 0 as const,
     },
   })).sort((left, right) => left.id.localeCompare(right.id));
+  const selectedFileSnapshotIds = new Set(packages.flatMap((workPackage) =>
+    workPackage.fileSnapshotIds
+  ));
   await prisma.knowledgeRefreshRun.update({
     where: { id: refreshRunId },
     data: {
@@ -3435,6 +3546,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     manifest,
     reports: initialReports,
     allowRepair: true,
+    selectedFileSnapshotIds: [...selectedFileSnapshotIds],
   });
   const initialWorkerUsage = snapshotStructuredGenerationBudget(workerModelBudget);
   const filePathBySnapshotId = new Map(manifest.flatMap((area) =>
@@ -3501,6 +3613,11 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxRepairPasses: 0,
       },
     }));
+    for (const fileSnapshotId of wavePackages.flatMap((workPackage) =>
+      workPackage.fileSnapshotIds
+    )) {
+      selectedFileSnapshotIds.add(fileSnapshotId);
+    }
     const usageBeforeWave = snapshotStructuredGenerationBudget(
       repairModelBudget,
     );
@@ -3538,6 +3655,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       manifest,
       reports: effectiveReports,
       allowRepair: true,
+      selectedFileSnapshotIds: [...selectedFileSnapshotIds],
     });
   }
   const repairPackages = repairWaves.flatMap((wave) => wave.packages);
@@ -3546,6 +3664,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     manifest,
     reports: effectiveReports,
     allowRepair: false,
+    selectedFileSnapshotIds: [...selectedFileSnapshotIds],
   });
   const executionGaps = unresolvedSemanticExecutionGaps({
     initialReports: effectiveReports,

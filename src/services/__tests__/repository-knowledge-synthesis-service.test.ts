@@ -103,7 +103,7 @@ describe("repository synthesis model-path limits", () => {
     expect(loadRun).not.toHaveBeenCalled();
   });
 
-  it("finishes each bounded synthesis wave before admitting the next and returns input order", async () => {
+  it("backfills an available synthesis worker and returns input order", async () => {
     const started: number[] = [];
     const releases = new Map<number, () => void>();
     let active = 0;
@@ -123,12 +123,10 @@ describe("repository synthesis model-path limits", () => {
     await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
     expect(maximumActive).toBe(3);
     releases.get(1)!();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
     releases.get(2)!();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(started).toEqual([0, 1, 2]);
-    releases.get(0)!();
     await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3, 4]));
+    releases.get(0)!();
     releases.get(4)!();
     releases.get(3)!();
 
@@ -140,6 +138,31 @@ describe("repository synthesis model-path limits", () => {
       "batch-4",
     ]);
     expect(maximumActive).toBe(3);
+  });
+
+  it("stops admitting queued synthesis work after a worker fails", async () => {
+    const started: number[] = [];
+    let releaseSecond!: () => void;
+    const execution = runOrderedSynthesisBatches(
+      [0, 1, 2, 3],
+      async (value) => {
+        started.push(value);
+        if (value === 0) throw new Error("primary synthesis failed");
+        if (value === 1) {
+          await new Promise<void>((resolve) => {
+            releaseSecond = resolve;
+          });
+        }
+        return value;
+      },
+      2,
+    );
+
+    await vi.waitFor(() => expect(started).toEqual([0, 1]));
+    releaseSecond();
+
+    await expect(execution).rejects.toThrow("primary synthesis failed");
+    expect(started).toEqual([0, 1]);
   });
 
   it("aligns model synthesis wording with the deterministic absolute-claim safety gate", () => {
@@ -842,7 +865,7 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
-  it("finishes every primary batch before starting sequential optional refinement", async () => {
+  it("finishes every primary batch before starting serialized optional refinement", async () => {
     const events: string[] = [];
     let activeRefinements = 0;
     let maximumActiveRefinements = 0;

@@ -90,8 +90,10 @@ describe("repository-derived cartographer and coverage critic", () => {
       "project_domain:accounts",
       "project_domain:messaging",
       "project_domain:payments",
-      "repository_area:application_core",
     ]));
+    expect(manifest.map((area) => area.key)).not.toContain(
+      "repository_area:application_core",
+    );
     expect(manifest.flatMap((area) => area.files.map((file) => file.path))).not.toEqual(
       expect.arrayContaining([
         ".playwright-cli/session.json",
@@ -109,6 +111,49 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(isRepositoryCartographyNoisePath("fixture/search/demo.py")).toBe(true);
     expect(isRepositoryCartographyNoisePath("__fixture__/search/demo.py")).toBe(true);
     expect(inferProjectDomainCapability("fixture/search/demo.py")).toBeNull();
+  });
+
+  it("uses application core only for files outside selected product domains", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/payment-service",
+      files: [
+        mappedFile("payment-checkout", "src/features/payments/checkout-service.ts"),
+        mappedFile("payment-ledger", "src/features/payments/ledger-service.ts"),
+        mappedFile("reconciliation", "src/reconciliation-service.ts"),
+      ],
+    });
+    const payments = manifest.find((area) =>
+      area.key === "project_domain:payments"
+    );
+    const applicationCore = manifest.find((area) =>
+      area.key === "repository_area:application_core"
+    );
+
+    expect(payments?.files.map((file) => file.id)).toEqual([
+      "payment-checkout",
+      "payment-ledger",
+    ]);
+    expect(applicationCore?.files.map((file) => file.id)).toEqual([
+      "reconciliation",
+    ]);
+  });
+
+  it("reuses an empty application-core slot for another evidenced product domain", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/two-domains",
+      maxDomains: 2,
+      files: [
+        mappedFile("payment-checkout", "src/features/payments/checkout-service.ts"),
+        mappedFile("payment-ledger", "src/features/payments/ledger-service.ts"),
+        mappedFile("message-inbox", "src/features/messaging/inbox-service.ts"),
+        mappedFile("message-thread", "src/features/messaging/thread-service.ts"),
+      ],
+    });
+
+    expect(manifest.map((area) => area.key)).toEqual([
+      "project_domain:messaging",
+      "project_domain:payments",
+    ]);
   });
 
   it("uses file-local agent and model signals without classifying a generic agents ancestor as intelligence", () => {
@@ -498,7 +543,7 @@ describe("repository-derived cartographer and coverage critic", () => {
   it("keeps the established audit-depth curve while the first pass stays bounded", () => {
     const cases = [
       [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
-      [7, 3], [15, 3], [16, 4], [30, 4], [31, 8],
+      [7, 3], [15, 3], [16, 4], [30, 4], [31, 14],
     ] as const;
 
     for (const [fileCount, auditTarget] of cases) {
@@ -513,6 +558,115 @@ describe("repository-derived cartographer and coverage critic", () => {
       expect(semanticSampleTarget(area)).toBe(Math.min(fileCount, 2));
       expect(semanticAuditTarget(area)).toBe(auditTarget);
     }
+
+    expect(semanticAuditTarget({
+      key: "repository_area:application_core",
+      files: Array.from({ length: 31 }, (_, index) => ({
+        id: `structural-${index}`,
+        path: `src/core/file-${index}.ts`,
+        score: 31 - index,
+      })),
+    })).toBe(8);
+  });
+
+  it("audits broad product domains deeply without requiring one fact per sampled file", () => {
+    const area = {
+      key: "project_domain:email-intake",
+      label: "Email intake",
+      scopeKey: "example/proposal-system",
+      files: Array.from({ length: 31 }, (_, index) => ({
+        id: `email-${index}`,
+        path: `src/email-intake/operation-${index}.ts`,
+        score: 31 - index,
+      })),
+    };
+    const inspectedFileSnapshotIds = area.files.slice(0, 14).map((file) => file.id);
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds,
+        candidates: inspectedFileSnapshotIds.slice(0, 8).map((fileId, index) => ({
+          ...candidate(area.key, fileId),
+          statement: `Email intake operation ${index} is implemented.`,
+        })),
+      }],
+      allowRepair: false,
+    });
+
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 14,
+      requiredSupportedCandidates: 8,
+      requiredSupportedFiles: 8,
+      status: "covered",
+    });
+  });
+
+  it("uses broad-domain top-up slots for runtime operations before maintenance artifacts", () => {
+    const inspectedFiles = Array.from({ length: 8 }, (_, index) => ({
+      id: `inspected-${index}`,
+      path: `src/email-intake/current-operation-${index}.py`,
+      score: 120 - index,
+    }));
+    const runtimeFiles = [
+      ["email-sender", "email_sender.py"],
+      ["requirement-extractor", "requirement_extractor.py"],
+      ["pdf-generator", "pdf_generator.py"],
+      ["wireframe-patcher", "wireframe_patcher.py"],
+      ["response-reviser", "response_reviser.py"],
+      ["vision-analyzer", "vision_analyzer.py"],
+    ].map(([id, basename], index) => ({
+      id,
+      path: `src/email-intake/${basename}`,
+      score: 100 - index,
+    }));
+    const maintenanceFiles = [
+      { id: "migration", path: "src/email-intake/migrate_dynamodb.py", score: 300 },
+      { id: "deployment", path: "src/email-intake/deployment_tracker.py", score: 290 },
+      { id: "gateway-config", path: "src/email-intake/api_gateway_config.yaml", score: 280 },
+    ];
+    const fillerFiles = Array.from({ length: 17 }, (_, index) => ({
+      id: `filler-${index}`,
+      path: `src/email-intake/helpers/filler-${index}.py`,
+      score: 10 - index / 10,
+    }));
+    const area = {
+      key: "project_domain:email-intake",
+      label: "Email intake",
+      scopeKey: "example/proposal-system",
+      salience: 100,
+      files: [
+        ...inspectedFiles,
+        ...maintenanceFiles,
+        ...runtimeFiles,
+        ...fillerFiles,
+      ],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: inspectedFiles.map((file) => file.id),
+        candidates: inspectedFiles.map((file, index) => ({
+          ...candidate(area.key, file.id),
+          statement: `Existing operation ${index} is implemented.`,
+        })),
+      }],
+      allowRepair: true,
+    });
+    const selected = critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    );
+
+    expect(selected).toHaveLength(6);
+    expect(selected.filter((fileId) =>
+      runtimeFiles.some((file) => file.id === fileId)
+    )).toHaveLength(5);
+    expect(selected).toEqual(expect.arrayContaining([
+      "requirement-extractor",
+      "response-reviser",
+    ]));
+    expect(selected).not.toEqual(expect.arrayContaining(
+      maintenanceFiles.map((file) => file.id),
+    ));
   });
 
   it("builds a bounded follow-up plan when a first repair leaves true audit-depth gaps", () => {
@@ -594,7 +748,12 @@ describe("repository-derived cartographer and coverage critic", () => {
     };
     const critique = critiqueRepositoryCoverage({ manifest: [area], reports: [], allowRepair: true });
 
-    expect(critique.domains[0]).toMatchObject({ targetSamples: 8, status: "missing" });
+    expect(critique.domains[0]).toMatchObject({
+      targetSamples: 14,
+      requiredSupportedCandidates: 8,
+      requiredSupportedFiles: 8,
+      status: "missing",
+    });
     expect(critique.repairPackages).toHaveLength(2);
     expect(critique.repairPackages.map((entry) => entry.fileSnapshotIds)).toEqual([
       expect.arrayContaining([
@@ -1968,6 +2127,101 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: true,
     });
     expect(successful.repairPackages).toEqual([]);
+  });
+
+  it("caps new repair breadth against every assigned semantic file", () => {
+    const retryArea = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/assigned-cap",
+      salience: 100,
+      files: [
+        { id: "retry-a", path: "src/orders/create.ts", score: 20 },
+        { id: "retry-b", path: "src/orders/update.ts", score: 19 },
+      ],
+    };
+    const missingAreas = Array.from({ length: 4 }, (_, index) => ({
+      key: `project_domain:missing-${index}`,
+      label: `Missing ${index}`,
+      scopeKey: "example/assigned-cap",
+      salience: 90 - index,
+      files: [{
+        id: `new-${index}`,
+        path: `src/missing-${index}/service.ts`,
+        score: 10,
+      }],
+    }));
+    const selectedFileSnapshotIds = [
+      "retry-a",
+      "retry-b",
+      ...Array.from({ length: 26 }, (_, index) => `assigned-${index}`),
+    ];
+    const critique = critiqueRepositoryCoverage({
+      manifest: [retryArea, ...missingAreas],
+      reports: [{
+        inspectedFileSnapshotIds: ["retry-a", "retry-b"],
+        retryFileSnapshotIds: ["retry-a", "retry-b"],
+        candidates: [candidate(retryArea.key, "retry-a")],
+      }],
+      allowRepair: true,
+      selectedFileSnapshotIds,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    );
+
+    expect(repairedIds).toHaveLength(6);
+    expect(repairedIds).toEqual(expect.arrayContaining([
+      "retry-a",
+      "retry-b",
+      "new-0",
+      "new-1",
+      "new-2",
+      "new-3",
+    ]));
+    expect(new Set([...selectedFileSnapshotIds, ...repairedIds]).size).toBe(32);
+  });
+
+  it("allows an exact retry at the semantic-file ceiling without adding breadth", () => {
+    const retryArea = {
+      key: "project_domain:orders",
+      label: "Orders",
+      scopeKey: "example/full-cap",
+      salience: 100,
+      files: [{
+        id: "retry-selected",
+        path: "src/orders/service.ts",
+        score: 20,
+      }],
+    };
+    const missingArea = {
+      key: "project_domain:payments",
+      label: "Payments",
+      scopeKey: "example/full-cap",
+      salience: 90,
+      files: [{
+        id: "new-payment",
+        path: "src/payments/service.ts",
+        score: 20,
+      }],
+    };
+    const critique = critiqueRepositoryCoverage({
+      manifest: [retryArea, missingArea],
+      reports: [{
+        inspectedFileSnapshotIds: [],
+        retryFileSnapshotIds: ["retry-selected"],
+        candidates: [],
+      }],
+      allowRepair: true,
+      selectedFileSnapshotIds: [
+        "retry-selected",
+        ...Array.from({ length: 31 }, (_, index) => `assigned-${index}`),
+      ],
+    });
+
+    expect(critique.repairPackages.flatMap((entry) =>
+      entry.fileSnapshotIds
+    )).toEqual(["retry-selected"]);
   });
 
   it("prioritizes exact model retries before generic breadth under the repair ceiling", () => {
