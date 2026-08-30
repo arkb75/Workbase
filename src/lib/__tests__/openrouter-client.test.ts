@@ -269,6 +269,55 @@ describe("OpenRouterChatCompletionsRuntime", () => {
     });
   });
 
+  it("uses Anthropic's advertised max_tokens parameter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        id: "gen_anthropic_1",
+        model: "anthropic/claude-sonnet-5",
+        provider: "anthropic",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: "{\"status\":\"ok\"}" },
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+          cost: 0.0001,
+        },
+      }),
+    );
+    const runtime = new OpenRouterChatCompletionsRuntime(
+      config({ modelId: "anthropic/claude-sonnet-5" }),
+      undefined,
+      fetchMock,
+    );
+
+    await runtime.converse({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return ok.",
+      maxTokens: 128,
+      temperature: 0,
+      structuredOutput: {
+        mode: "json_schema",
+        schemaName: "status",
+        schemaDescription: "A status result.",
+        jsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["status"],
+          properties: { status: { type: "string" } },
+        },
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+    expect(body.max_tokens).toBe(128);
+    expect(body.max_completion_tokens).toBeUndefined();
+  });
+
   it("removes only unsupported constraints from Anthropic native and strict-tool schemas", async () => {
     for (const mode of ["json_schema", "strict_tool_use"] as const) {
       const body = await structuredRequestBody(

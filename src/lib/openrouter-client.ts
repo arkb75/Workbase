@@ -317,6 +317,13 @@ function modelCompatibleJsonSchema<T>(modelId: string, schema: T): T {
   return schema;
 }
 
+function modelCompatibleTokenLimit(modelId: string, maxTokens: number | undefined) {
+  if (maxTokens === undefined) return {};
+  return modelId.trim().toLowerCase().startsWith("anthropic/")
+    ? { max_tokens: maxTokens }
+    : { max_completion_tokens: maxTokens };
+}
+
 function headers(config: OpenRouterTextConfig) {
   return {
     Authorization: `Bearer ${config.apiKey}`,
@@ -801,11 +808,10 @@ export class OpenRouterChatCompletionsRuntime
           },
           { role: "user", content: input.userPrompt },
         ],
-        // The ZDR-capable Azure endpoints for the selected OpenAI models
-        // advertise max_completion_tokens rather than max_tokens. Sonnet 5
-        // accepts this OpenAI-compatible spelling too, so one parameter keeps
-        // require_parameters strict without excluding every ZDR endpoint.
-        max_completion_tokens: input.maxTokens,
+        // OpenAI's ZDR-capable endpoints advertise max_completion_tokens,
+        // while Anthropic's advertise max_tokens. Sending only the model-
+        // compatible spelling keeps strict parameter routing usable.
+        ...modelCompatibleTokenLimit(this.modelId, input.maxTokens),
         ...(this.config.sendTemperature
           ? { temperature: input.effort ? 1 : input.temperature }
           : {}),
@@ -1102,7 +1108,10 @@ export class OpenRouterConverseTransport implements BedrockConverseTransport {
             : []),
           ...toOpenRouterMessages(input.messages ?? []),
         ],
-        max_completion_tokens: input.inferenceConfig?.maxTokens,
+        ...modelCompatibleTokenLimit(
+          this.modelId,
+          input.inferenceConfig?.maxTokens,
+        ),
         ...(this.config.sendTemperature
           ? {
               temperature: effort
