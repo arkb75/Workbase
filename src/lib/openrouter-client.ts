@@ -302,9 +302,13 @@ function providerRouting(config: OpenRouterTextConfig) {
   };
 }
 
+function isAnthropicModel(modelId: string) {
+  return modelId.trim().toLowerCase().startsWith("anthropic/");
+}
+
 function modelCompatibleJsonSchema<T>(modelId: string, schema: T): T {
   if (
-    modelId.trim().toLowerCase().startsWith("anthropic/") &&
+    isAnthropicModel(modelId) &&
     schema &&
     typeof schema === "object" &&
     !Array.isArray(schema)
@@ -319,7 +323,7 @@ function modelCompatibleJsonSchema<T>(modelId: string, schema: T): T {
 
 function modelCompatibleTokenLimit(modelId: string, maxTokens: number | undefined) {
   if (maxTokens === undefined) return {};
-  return modelId.trim().toLowerCase().startsWith("anthropic/")
+  return isAnthropicModel(modelId)
     ? { max_tokens: maxTokens }
     : { max_completion_tokens: maxTokens };
 }
@@ -757,8 +761,19 @@ export class OpenRouterChatCompletionsRuntime
           structuredOutput.jsonSchema,
         )
       : null;
-    const strictTool =
-      structuredOutput?.mode === "strict_tool_use"
+    // Current Anthropic ZDR endpoints accept forced tool calls but treat
+    // response_format as advisory and reject the OpenAI-only tool strict flag.
+    // Keep the application schema authoritative by forcing the tool and
+    // validating its arguments locally in the structured-generation layer.
+    const useStructuredTool = Boolean(
+      structuredOutput &&
+      (
+        structuredOutput.mode === "strict_tool_use" ||
+        isAnthropicModel(this.modelId)
+      ),
+    );
+    const structuredTool =
+      structuredOutput && useStructuredTool
         ? {
             tools: [
               {
@@ -767,7 +782,7 @@ export class OpenRouterChatCompletionsRuntime
                   name: structuredOutput.schemaName,
                   description: structuredOutput.schemaDescription,
                   parameters: compatibleJsonSchema,
-                  strict: true,
+                  ...(!isAnthropicModel(this.modelId) ? { strict: true } : {}),
                 },
               },
             ],
@@ -779,6 +794,7 @@ export class OpenRouterChatCompletionsRuntime
         : {};
     const jsonSchema =
       structuredOutput &&
+      !useStructuredTool &&
       (structuredOutput.mode === "json_schema" ||
         structuredOutput.mode === "bedrock_json_schema")
         ? {
@@ -819,7 +835,7 @@ export class OpenRouterChatCompletionsRuntime
           ? { reasoning: { effort: input.effort } }
           : {}),
         ...jsonSchema,
-        ...strictTool,
+        ...structuredTool,
       },
     });
     const choice = result.response.choices![0]!;

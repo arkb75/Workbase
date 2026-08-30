@@ -171,11 +171,10 @@ async function structuredRequestBody(
 
 function schemaFromStructuredRequest(
   body: StructuredRequestBody,
-  mode: "json_schema" | "strict_tool_use",
+  _mode: "json_schema" | "strict_tool_use",
 ) {
-  return mode === "json_schema"
-    ? body.response_format?.json_schema.schema
-    : body.tools?.[0]?.function.parameters;
+  return body.response_format?.json_schema.schema ??
+    body.tools?.[0]?.function.parameters;
 }
 
 describe("OpenRouterChatCompletionsRuntime", () => {
@@ -277,8 +276,19 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         provider: "anthropic",
         choices: [
           {
-            finish_reason: "stop",
-            message: { content: "{\"status\":\"ok\"}" },
+            finish_reason: "tool_calls",
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "tool_anthropic_status",
+                  function: {
+                    name: "status",
+                    arguments: "{\"status\":\"ok\"}",
+                  },
+                },
+              ],
+            },
           },
         ],
         usage: {
@@ -295,7 +305,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
       fetchMock,
     );
 
-    await runtime.converse({
+    const result = await runtime.converse({
       systemPrompt: "Return JSON.",
       userPrompt: "Return ok.",
       maxTokens: 128,
@@ -316,6 +326,9 @@ describe("OpenRouterChatCompletionsRuntime", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
     expect(body.max_tokens).toBe(128);
     expect(body.max_completion_tokens).toBeUndefined();
+    expect(body.response_format).toBeUndefined();
+    expect(body.tools[0].function).not.toHaveProperty("strict");
+    expect(result.structuredData).toEqual({ status: "ok" });
   });
 
   it("removes only unsupported constraints from Anthropic native and strict-tool schemas", async () => {
