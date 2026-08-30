@@ -114,6 +114,12 @@ describe("repository semantic task and budget", () => {
       semanticKind: "user_capability",
       evidenceExcerpt: "2:   const id = selectedRecordId();\n3:   records.remove(id);",
     });
+    const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt) as {
+      suppliedLineRanges: Array<[number, number]>;
+      lineRange?: unknown;
+    };
+    expect(prompt).not.toHaveProperty("lineRange");
+    expect(prompt.suppliedLineRanges).toEqual([[1, 4]]);
   });
 
   it("accepts a contiguous exact range from a CRLF repository file", async () => {
@@ -163,21 +169,47 @@ describe("repository semantic task and budget", () => {
 
   it("rejects a citation that crosses lines omitted from a sparse semantic notebook", async () => {
     generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
-      const prompt = JSON.parse(request.userPrompt) as { lineRange: [number, number] };
+      const prompt = JSON.parse(request.userPrompt) as {
+        suppliedLineRanges: Array<[number, number]>;
+        content: string;
+        lineRange?: unknown;
+      };
+      expect(prompt).not.toHaveProperty("lineRange");
+      expect(prompt.suppliedLineRanges.length).toBeGreaterThan(1);
+      const suppliedLineNumbers = prompt.content.split("\n").map((line) =>
+        Number(/^(\d+):/u.exec(line)?.[1])
+      );
+      const advertisedLineNumbers = prompt.suppliedLineRanges.flatMap(([start, end]) =>
+        Array.from({ length: end - start + 1 }, (_unused, index) => start + index)
+      );
+      expect(advertisedLineNumbers).toEqual(suppliedLineNumbers);
+      const laterRange = prompt.suppliedLineRanges[1]!;
       return {
         data: {
           summary: "The module exposes many repository operations.",
           subsystemKeys: ["product_surface"],
-          findings: [{
-            statement: "The module exposes the operations represented across the selected range.",
-            kind: "user_capability",
-            capabilityKeys: ["product_surface"],
-            signalKeys: [],
-            confidence: "high",
-            sensitivityFlag: false,
-            lineStart: prompt.lineRange[0],
-            lineEnd: prompt.lineRange[1],
-          }],
+          findings: [
+            {
+              statement: "The module exposes the operations represented across the selected range.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: prompt.suppliedLineRanges[0]![0],
+              lineEnd: prompt.suppliedLineRanges.at(-1)![1],
+            },
+            {
+              statement: "The later supplied range exports an implemented operation.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: laterRange[0],
+              lineEnd: laterRange[0],
+            },
+          ],
           unresolvedQuestions: [],
         },
         rawOutput: "{}",
@@ -206,11 +238,21 @@ describe("repository semantic task and budget", () => {
       },
     });
 
-    expect(analysis.facts).toEqual([]);
-    expect(analysis.architectureSignals).toEqual([]);
-    expect(analysis.userFacingCapabilities).toEqual([]);
+    expect(analysis.facts).toEqual([
+      expect.objectContaining({
+        statement: "The later supplied range exports an implemented operation.",
+      }),
+    ]);
+    expect(analysis.architectureSignals).toEqual(["user capability"]);
+    expect(analysis.userFacingCapabilities).toEqual([
+      "The later supplied range exports an implemented operation.",
+    ]);
     expect(analysis.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
+    const diagnostic = analysis.semanticDiagnostics?.[0];
+    expect(diagnostic).not.toHaveProperty("lineRange");
+    expect(diagnostic).toHaveProperty("suppliedLineRanges");
     expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("same suppliedLineRanges entry");
   });
 
   it("forces redacted cited ranges sensitive while leaving ordinary authentication unflagged", async () => {
@@ -643,10 +685,17 @@ describe("repository semantic task and budget", () => {
   it("isolates a sparse cross-gap citation without discarding a valid batch sibling", async () => {
     generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
       const prompt = JSON.parse(request.userPrompt) as {
-        files: Array<{ fileKey: string; lineRange: [number, number] }>;
+        files: Array<{
+          fileKey: string;
+          suppliedLineRanges: Array<[number, number]>;
+          lineRange?: unknown;
+        }>;
       };
-      const invalidRange = prompt.files[0]!.lineRange;
-      const validRange = prompt.files[1]!.lineRange;
+      expect(prompt.files.every((file) => !("lineRange" in file))).toBe(true);
+      expect(prompt.files[0]!.suppliedLineRanges.length).toBeGreaterThan(1);
+      expect(prompt.files[1]!.suppliedLineRanges).toEqual([[1, 1]]);
+      const invalidRanges = prompt.files[0]!.suppliedLineRanges;
+      const validRange = prompt.files[1]!.suppliedLineRanges[0]!;
       return {
         data: {
           files: {
@@ -660,8 +709,8 @@ describe("repository semantic task and budget", () => {
                 signalKeys: [],
                 confidence: "high",
                 sensitivityFlag: false,
-                lineStart: invalidRange[0],
-                lineEnd: invalidRange[1],
+                lineStart: invalidRanges[0]![0],
+                lineEnd: invalidRanges.at(-1)![1],
               }],
               unresolvedQuestions: [],
             },
@@ -722,6 +771,7 @@ describe("repository semantic task and budget", () => {
     expect(invalid?.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
     expect(valid?.facts).toHaveLength(1);
     expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("same suppliedLineRanges entry");
   });
 
   it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {
@@ -736,7 +786,7 @@ describe("repository semantic task and budget", () => {
     const paths = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
     generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
       const prompt = JSON.parse(request.userPrompt) as {
-        files: Array<{ fileKey: string; lineRange: [number, number] }>;
+        files: Array<{ fileKey: string; suppliedLineRanges: Array<[number, number]> }>;
       };
       return {
         data: {
@@ -751,8 +801,8 @@ describe("repository semantic task and budget", () => {
                 capabilityKeys: ["project_domain:operations"],
                 confidence: "high",
                 sensitivityFlag: false,
-                lineStart: file.lineRange[0],
-                lineEnd: file.lineRange[0],
+                lineStart: file.suppliedLineRanges[0]![0],
+                lineEnd: file.suppliedLineRanges[0]![0],
               }],
               unresolvedQuestions: [],
             },

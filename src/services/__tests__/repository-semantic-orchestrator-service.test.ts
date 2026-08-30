@@ -23,6 +23,7 @@ import {
   reusableCurrentSnapshotSemanticAnalysis,
   reusableSemanticAnalysis,
   semanticCoverageAssignmentGaps,
+  semanticAnalysisHitCapacityLimit,
   semanticFileReportSignals,
   semanticOrchestrationUsage,
   semanticPlannerTokenCommitment,
@@ -1038,6 +1039,19 @@ describe("repository semantic orchestration guardrails", () => {
       gaps: ["src/orders/service.ts: Semantic analysis failed."],
     });
 
+    const successfulCapacityRetry = effectiveCapabilityReportsAfterRepair({
+      initialReports: [{
+        ...initial,
+        capacityLimitedFileSnapshotIds: ["file-1"],
+      }],
+      repairReports: [repaired],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId,
+    });
+    expect(successfulCapacityRetry.flatMap((entry) =>
+      entry.capacityLimitedFileSnapshotIds ?? []
+    )).toEqual([]);
+
     const reportLevelFailureRemains = effectiveCapabilityReportsAfterRepair({
       initialReports: [{
         ...initial,
@@ -1093,6 +1107,46 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([
       "src/orders/file-7.ts: Semantic model retry did not establish complete assigned capability coverage.",
     ]);
+
+    const mixedCapacityAndProviderFailure: CapabilityReport = {
+      ...initial,
+      inspectedFileSnapshotIds: ["capacity-file", "provider-file"],
+      retryFileSnapshotIds: ["capacity-file", "provider-file"],
+      capacityLimitedFileSnapshotIds: ["capacity-file"],
+      candidates: [],
+      gaps: [
+        "src/orders/capacity.ts: Semantic analysis failed.",
+        "src/orders/capacity.ts: Semantic result persistence failed: database unavailable.",
+        "src/orders/provider.ts: Semantic analysis failed.",
+      ],
+    };
+    const mixedGaps = unresolvedSemanticExecutionGaps({
+      initialReports: [mixedCapacityAndProviderFailure],
+      repairReports: [],
+      retriedFileSnapshotIds: [],
+      filePathBySnapshotId: new Map([
+        ["capacity-file", "src/orders/capacity.ts"],
+        ["provider-file", "src/orders/provider.ts"],
+      ]),
+    });
+    expect(mixedGaps).toEqual(expect.arrayContaining([
+      "src/orders/capacity.ts: Semantic result persistence failed: database unavailable.",
+      "src/orders/provider.ts: Semantic analysis failed.",
+      "src/orders/provider.ts: Semantic model retry did not establish complete assigned capability coverage.",
+    ]));
+    expect(mixedGaps).not.toContain("src/orders/capacity.ts: Semantic analysis failed.");
+
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: [],
+      repairReports: [{
+        ...mixedCapacityAndProviderFailure,
+        inspectedFileSnapshotIds: ["capacity-file"],
+        retryFileSnapshotIds: ["capacity-file"],
+        gaps: ["src/orders/capacity.ts: Semantic analysis failed."],
+      }],
+      retriedFileSnapshotIds: [],
+      filePathBySnapshotId: new Map([["capacity-file", "src/orders/capacity.ts"]]),
+    })).toEqual([]);
   });
 
   it("budgets isolated retries separately from remaining micro-batched files", () => {
@@ -1148,6 +1202,9 @@ describe("repository semantic orchestration guardrails", () => {
       groupSize: 4,
       wasSingleton: true,
     })).toBe(true);
+    expect(semanticAnalysisHitCapacityLimit(analysis("token_budget_exhausted"))).toBe(true);
+    expect(semanticAnalysisHitCapacityLimit(analysis("provider_error"))).toBe(false);
+    expect(semanticAnalysisHitCapacityLimit(analysis("model_call_budget_exhausted"))).toBe(false);
   });
 
   it("keeps eight ordinary repair files within two four-file primary calls", () => {

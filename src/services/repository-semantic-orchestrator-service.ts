@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v43-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v44-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -938,6 +938,8 @@ export interface CapabilityReport {
   inspectedFileSnapshotIds: string[];
   /** Assigned files that still require a bounded model-path retry. */
   retryFileSnapshotIds?: string[];
+  /** Assigned files left incomplete specifically by an enforced semantic budget. */
+  capacityLimitedFileSnapshotIds?: string[];
   /**
    * Retry files whose prior response failed at the file/member boundary and
    * therefore need the larger isolated notebook. Request-wide failures stay
@@ -1304,6 +1306,9 @@ export function effectiveCapabilityReportsAfterRepair(input: {
       ...report,
       inspectedFileSnapshotIds: report.inspectedFileSnapshotIds.filter((id) => !retried.has(id)),
       retryFileSnapshotIds: reportRetryIds.filter((id) => !retried.has(id)),
+      capacityLimitedFileSnapshotIds: (
+        report.capacityLimitedFileSnapshotIds ?? []
+      ).filter((id) => !retried.has(id)),
       singletonRetryFileSnapshotIds: (
         report.singletonRetryFileSnapshotIds ?? []
       ).filter((id) => !retried.has(id)),
@@ -1332,6 +1337,20 @@ export function unresolvedSemanticExecutionGaps(input: {
   filePathBySnapshotId?: ReadonlyMap<string, string>;
 }) {
   const retried = new Set(input.retriedFileSnapshotIds);
+  const capacityLimitedFileSnapshotIds = new Set([
+    ...input.initialReports,
+    ...input.repairReports,
+  ].flatMap((report) => report.capacityLimitedFileSnapshotIds ?? []));
+  const isCapacityLimitedGap = (report: CapabilityReport, gap: string) =>
+    (report.capacityLimitedFileSnapshotIds ?? []).some((id) => {
+      const path = input.filePathBySnapshotId?.get(id);
+      return Boolean(
+        path && (
+          gap === `${path}: Semantic analysis failed.` ||
+          gap === `${path}: Semantic analysis degraded.`
+        )
+      );
+    });
   const requiredRetryFileSnapshotIds = new Set(input.initialReports.flatMap((report) =>
     report.retryFileSnapshotIds ?? []
   ));
@@ -1348,18 +1367,23 @@ export function unresolvedSemanticExecutionGaps(input: {
     );
     return fullySuperseded
       ? []
-      : report.gaps.filter((gap) => semanticExecutionGapPattern.test(gap));
+      : report.gaps.filter((gap) =>
+          semanticExecutionGapPattern.test(gap) && !isCapacityLimitedGap(report, gap)
+        );
   });
   const unresolvedRetryGaps = Array.from(requiredRetryFileSnapshotIds)
-    .filter((id) => !successfulRepairs.has(id))
+    .filter((id) =>
+      !successfulRepairs.has(id) && !capacityLimitedFileSnapshotIds.has(id)
+    )
     .map((id) => {
       const file = input.filePathBySnapshotId?.get(id) ?? `Assigned semantic file ${id}`;
       return `${file}: Semantic model retry did not establish complete assigned capability coverage.`;
     });
   return Array.from(new Set([
     ...initialGaps,
-    ...input.repairReports.flatMap((report) => report.gaps)
-      .filter((gap) => semanticExecutionGapPattern.test(gap)),
+    ...input.repairReports.flatMap((report) => report.gaps.filter((gap) =>
+      semanticExecutionGapPattern.test(gap) && !isCapacityLimitedGap(report, gap)
+    )),
     ...unresolvedRetryGaps,
   ]));
 }
@@ -1448,6 +1472,19 @@ export function requiresSingletonSemanticRetry(input: {
       fileLocalSemanticRetryStatuses.has(
         String((diagnostic as { status?: unknown }).status ?? ""),
       )
+    )
+  );
+}
+
+export function semanticAnalysisHitCapacityLimit(input: {
+  semanticDiagnostics?: unknown[];
+}) {
+  return (input.semanticDiagnostics ?? []).some((diagnostic) =>
+    Boolean(
+      diagnostic &&
+      typeof diagnostic === "object" &&
+      !Array.isArray(diagnostic) &&
+      (diagnostic as { status?: unknown }).status === "token_budget_exhausted"
     )
   );
 }
@@ -2576,7 +2613,7 @@ export function critiqueRepositoryCoverage(input: {
     Pick<CapabilityReport, "inspectedFileSnapshotIds" | "candidates"> &
     Partial<Pick<
       CapabilityReport,
-      "retryFileSnapshotIds" | "singletonRetryFileSnapshotIds"
+      "retryFileSnapshotIds" | "singletonRetryFileSnapshotIds" | "capacityLimitedFileSnapshotIds"
     >>
   >;
   allowRepair: boolean;
@@ -2586,6 +2623,9 @@ export function critiqueRepositoryCoverage(input: {
   const inspected = new Set(input.reports.flatMap((report) => report.inspectedFileSnapshotIds));
   const retryFileSnapshotIds = new Set(input.reports.flatMap((report) =>
     report.retryFileSnapshotIds ?? []
+  ));
+  const capacityLimitedFileSnapshotIds = new Set(input.reports.flatMap((report) =>
+    report.capacityLimitedFileSnapshotIds ?? []
   ));
   const singletonRetryFileSnapshotIds = new Set(input.reports.flatMap((report) =>
     report.singletonRetryFileSnapshotIds ?? []
@@ -2851,18 +2891,21 @@ export function critiqueRepositoryCoverage(input: {
       }),
     ];
     const diversityGapCount = diversityGapDescriptions.length;
+    const hasOutstandingCapacityRetry = evidenceFiles.some((file) =>
+      retryFileSnapshotIds.has(file.id) && capacityLimitedFileSnapshotIds.has(file.id)
+    );
     const hasOutstandingExecutionRetry = evidenceFiles.some((file) =>
-      retryFileSnapshotIds.has(file.id)
+      retryFileSnapshotIds.has(file.id) && !capacityLimitedFileSnapshotIds.has(file.id)
     );
     const evidenceFloorMet =
       supportedCandidates >= requiredSupportedCandidates &&
       supportedFileIds.size >= requiredSupportedFiles;
-    const desiredDepthOnlyLimitation =
+    const boundedCapacityOnlyLimitation =
       evidenceFloorMet &&
-      inspectedSamples < targetSamples &&
       missingBranchVariantFileIds.length === 0 &&
       diversityGapCount === 0 &&
-      !hasOutstandingExecutionRetry;
+      !hasOutstandingExecutionRetry &&
+      (inspectedSamples < targetSamples || hasOutstandingCapacityRetry);
     return {
       key: area.key,
       label: area.label,
@@ -2884,7 +2927,7 @@ export function critiqueRepositoryCoverage(input: {
       requiredSupportedFiles,
       status: supportedCandidates === 0
         ? "missing" as const
-        : input.capacityLimited && desiredDepthOnlyLimitation
+        : input.capacityLimited && boundedCapacityOnlyLimitation
           ? "coverage_limited" as const
         : supportedCandidates < requiredSupportedCandidates ||
             supportedFileIds.size < requiredSupportedFiles ||
@@ -3259,6 +3302,7 @@ async function runWorkPackage(input: {
   });
   const inspected: string[] = [];
   const retryFileSnapshotIds = new Set<string>();
+  const capacityLimitedFileSnapshotIds = new Set<string>();
   const requestedSingletonIds = new Set(
     input.workPackage.singletonFileSnapshotIds ?? [],
   );
@@ -3497,6 +3541,10 @@ async function runWorkPackage(input: {
       tokenUsage.push(...semantic.tokenUsage);
       try {
         const semanticStatus = semantic.semanticStatus ?? (semantic.facts.length ? "succeeded" : "degraded");
+        const capacityLimited =
+          semanticStatus !== "succeeded" &&
+          Boolean(input.sharedModelBudget) &&
+          semanticAnalysisHitCapacityLimit(semantic);
         if (semanticStatus !== "succeeded") {
           retryFileSnapshotIds.add(entry.file.id);
           if (requiresSingletonSemanticRetry({
@@ -3522,6 +3570,7 @@ async function runWorkPackage(input: {
             analyzedAt: new Date(),
           },
         });
+        if (capacityLimited) capacityLimitedFileSnapshotIds.add(entry.file.id);
         inspected.push(entry.file.id);
         const reportSignals = semanticFileReportSignals({
           path: entry.file.path,
@@ -3582,6 +3631,9 @@ async function runWorkPackage(input: {
     packageId: input.workPackage.id,
     inspectedFileSnapshotIds: inspected,
     retryFileSnapshotIds: Array.from(retryFileSnapshotIds).sort(),
+    capacityLimitedFileSnapshotIds: Array.from(
+      capacityLimitedFileSnapshotIds,
+    ).sort(),
     singletonRetryFileSnapshotIds: Array.from(
       singletonRetryFileSnapshotIds,
     ).sort(),
@@ -3862,7 +3914,13 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     initialWorkerTokens:
       initialWorkerUsage.totalTokens + repairBudgetUsage.totalTokens,
   });
+  const capacityLimitedFileSnapshotIds = Array.from(new Set(
+    effectiveReports.flatMap((report) =>
+      report.capacityLimitedFileSnapshotIds ?? []
+    ),
+  )).sort();
   const semanticCapacityReached =
+    capacityLimitedFileSnapshotIds.length > 0 ||
     selectedFileSnapshotIds.size >= MAX_SELECTED_SEMANTIC_FILES ||
     repairBudgetUsage.modelCalls >= MAX_SEMANTIC_REPAIR_MODEL_CALLS ||
     remainingRepairTokenPool <= 0 ||
@@ -3924,6 +3982,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         finalCritique,
         remainingGaps,
         capacityLimitations,
+        capacityLimitedFileSnapshotIds,
         usage: actualUsage,
       }),
       startedAt: new Date(),
@@ -3940,6 +3999,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         finalCritique,
         remainingGaps,
         capacityLimitations,
+        capacityLimitedFileSnapshotIds,
         usage: actualUsage,
       }),
       finishedAt: new Date(),
@@ -3953,6 +4013,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         reports: finalReports,
         remainingGaps,
         capacityLimitations,
+        capacityLimitedFileSnapshotIds,
         partial: remainingGaps.length > 0 || capacityLimitations.length > 0,
         usage: actualUsage,
       }),
@@ -3979,6 +4040,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         reportCount: finalReports.length,
         remainingGaps,
         capacityLimitations,
+        capacityLimitedFileSnapshotIds,
       }),
       budgetUsage: inputJson({
         limits: {

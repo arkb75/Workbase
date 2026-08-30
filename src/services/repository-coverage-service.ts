@@ -728,6 +728,23 @@ function parseNumberedSourceLine(line: string) {
     : null;
 }
 
+function semanticSuppliedLineRanges(numberedContent: string): Array<[number, number]> {
+  const lineNumbers = numberedContent.split("\n").flatMap((line) => {
+    const parsed = parseNumberedSourceLine(line);
+    return parsed ? [parsed.number] : [];
+  });
+  const ranges: Array<[number, number]> = [];
+  for (const lineNumber of lineNumbers) {
+    const current = ranges.at(-1);
+    if (current && lineNumber === current[1] + 1) {
+      current[1] = lineNumber;
+    } else if (!current || lineNumber > current[1]) {
+      ranges.push([lineNumber, lineNumber]);
+    }
+  }
+  return ranges;
+}
+
 export function isPlannedDocumentationRange(input: {
   path: string;
   numberedContent: string;
@@ -816,11 +833,12 @@ async function analyzeChunk(input: {
   const allowedCapabilityKeys = input.task?.capabilityKeys.length
     ? Array.from(new Set(input.task.capabilityKeys))
     : BASE_COVERAGE_TARGETS.map((target) => target.key);
+  const suppliedLineRanges = semanticSuppliedLineRanges(input.content);
   const userPrompt = JSON.stringify({
     repository: input.repository,
     commitSha: input.commitSha,
     path: input.path,
-    lineRange: [input.lineStart, input.lineEnd],
+    suppliedLineRanges,
     researchTask: input.task ? {
       objective: input.task.objective,
       capabilityKeys: allowedCapabilityKeys,
@@ -832,6 +850,10 @@ async function analyzeChunk(input: {
     allowedSemanticSignalKeys: input.task?.semanticSignalKeys ?? [],
     content: input.content,
   });
+  const requestFingerprint = createHash("sha256")
+    .update(userPrompt)
+    .digest("hex")
+    .slice(0, 24);
   const inputBytes = Buffer.byteLength(userPrompt, "utf8");
   if (input.budget) {
     if (input.budget.inputBytes + inputBytes > input.budget.maxInputBytes) {
@@ -847,14 +869,15 @@ async function analyzeChunk(input: {
     kind: "semantic_extraction",
     profile: "code_extraction",
     idempotencyKey: input.workItemId && input.refreshRunId
-      ? `semantic:${input.refreshRunId}:${input.path}:${input.lineStart}-${input.lineEnd}`
+      ? `semantic:${input.refreshRunId}:${input.path}:${requestFingerprint}`
       : undefined,
     inputSummary: {
       refreshRunId: input.refreshRunId ?? null,
       repository: input.repository,
       commitSha: input.commitSha,
       path: input.path,
-      lineRange: [input.lineStart, input.lineEnd],
+      suppliedLineRanges,
+      requestFingerprint,
       inputBytes,
       capabilityKeys: allowedCapabilityKeys,
     },
@@ -866,7 +889,7 @@ async function analyzeChunk(input: {
         repositorySemanticFindingGuidance,
         "Keep each finding atomic and directly entailed by its cited lines. Do not add a second action, ordering claim, success or failure outcome, metric, or type relationship unless those same lines establish it explicitly.",
         "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
-        `Cite the smallest contiguous range whose every line is supplied; never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
+        `Each finding's lineStart and lineEnd must fall within the same suppliedLineRanges entry. Cite the smallest contiguous supplied range, never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
         "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
         "Use stable snake_case subsystem keys.",
@@ -1162,11 +1185,12 @@ export async function analyzeRepositoryFile(input: {
   const failureGaps: string[] = [];
   let failedChunks = 0;
   for (const chunk of chunks) {
+    const suppliedLineRanges = semanticSuppliedLineRanges(chunk.content);
     try {
       const result = await analyzeChunk({ ...input, ...chunk });
       analyses.push(result.data);
       if (result.tokenUsage) tokenUsage.push(result.tokenUsage);
-      if (result.diagnostics) semanticDiagnostics.push({ lineRange: [chunk.lineStart, chunk.lineEnd], ...result.diagnostics });
+      if (result.diagnostics) semanticDiagnostics.push({ suppliedLineRanges, ...result.diagnostics });
     } catch (error) {
       failedChunks += 1;
       const structured = error instanceof StructuredOutputError ? error : null;
@@ -1179,7 +1203,7 @@ export async function analyzeRepositoryFile(input: {
         : `Semantic extraction failed because ${message}`);
       if (structured?.tokenUsage) tokenUsage.push(structured.tokenUsage);
       semanticDiagnostics.push({
-        lineRange: [chunk.lineStart, chunk.lineEnd],
+        suppliedLineRanges,
         status: budgetError?.code ?? structured?.status ?? "provider_error",
         validationErrors: structured?.validationErrors ?? null,
         attempts: structured?.attempts ?? null,
@@ -1248,8 +1272,7 @@ export interface RepositorySemanticBatchFileInput {
 
 function failedBatchFileAnalysis(input: {
   file: RepositorySemanticBatchFileInput;
-  lineStart: number;
-  lineEnd: number;
+  suppliedLineRanges: Array<[number, number]>;
   message: string;
   status: string;
   tokenUsage?: unknown;
@@ -1274,7 +1297,7 @@ function failedBatchFileAnalysis(input: {
     analysisMode: "semantic",
     semanticStatus: "failed",
     semanticDiagnostics: [{
-      lineRange: [input.lineStart, input.lineEnd],
+      suppliedLineRanges: input.suppliedLineRanges,
       status: input.status,
       message: input.message,
       ...(input.diagnostics && typeof input.diagnostics === "object" && !Array.isArray(input.diagnostics)
@@ -1325,6 +1348,7 @@ export async function analyzeRepositoryFileBatch(
       file,
       fileKey: `file-${index + 1}`,
       window,
+      suppliedLineRanges: semanticSuppliedLineRanges(window.content),
       allowedCapabilityKeys: Array.from(new Set(file.task.capabilityKeys)),
     };
   });
@@ -1334,7 +1358,7 @@ export async function analyzeRepositoryFileBatch(
       repository: entry.file.repository,
       commitSha: entry.file.commitSha,
       path: entry.file.path,
-      lineRange: [entry.window.lineStart, entry.window.lineEnd],
+      suppliedLineRanges: entry.suppliedLineRanges,
       researchTask: {
         objective: entry.file.task.objective,
         capabilityKeys: entry.allowedCapabilityKeys,
@@ -1351,13 +1375,7 @@ export async function analyzeRepositoryFileBatch(
   const requestedFileKeys = prepared.map((entry) => entry.fileKey);
   const batchJsonSchema = buildSemanticBatchAnalysisJsonSchema(requestedFileKeys);
   const batchFingerprint = createHash("sha256")
-    .update(prepared.map((entry) => [
-      entry.file.repository,
-      entry.file.commitSha,
-      entry.file.path,
-      entry.window.lineStart,
-      entry.window.lineEnd,
-    ].join(":" )).join("|"))
+    .update(userPrompt)
     .digest("hex")
     .slice(0, 24);
   let result: {
@@ -1393,7 +1411,7 @@ export async function analyzeRepositoryFileBatch(
           repository: entry.file.repository,
           commitSha: entry.file.commitSha,
           path: entry.file.path,
-          lineRange: [entry.window.lineStart, entry.window.lineEnd],
+          suppliedLineRanges: entry.suppliedLineRanges,
           capabilityKeys: entry.allowedCapabilityKeys,
         })),
       },
@@ -1408,7 +1426,7 @@ export async function analyzeRepositoryFileBatch(
           repositorySemanticSensitivityGuidance,
           "Keep each finding atomic and directly entailed by its cited lines. Do not add a second action, ordering claim, success or failure outcome, metric, or type relationship unless those same lines establish it explicitly.",
           "Use exact supplied line numbers. Do not infer personal ownership, business impact, completeness, reliability, or runtime guarantees from code alone.",
-          `Cite the smallest contiguous range whose every line is supplied; never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
+          `Each finding's lineStart and lineEnd must fall within the same suppliedLineRanges entry for that file. Cite the smallest contiguous supplied range, never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
           "Return at most three decisive findings and two concrete unresolved questions per file.",
           "Assign each finding only to that file's allowed capability keys and follow its research task.",
           "signalKeys are stable implementation facets. Use only that file's allowedSemanticSignalKeys and attach every supplied signal directly established by the cited lines.",
@@ -1471,8 +1489,7 @@ export async function analyzeRepositoryFileBatch(
     const message = error instanceof Error ? error.message.slice(0, 500) : "Unknown semantic micro-batch extraction error.";
     return prepared.map((entry, index) => failedBatchFileAnalysis({
         file: entry.file,
-        lineStart: entry.window.lineStart,
-        lineEnd: entry.window.lineEnd,
+        suppliedLineRanges: entry.suppliedLineRanges,
         message,
         status: budgetError?.code ?? structured?.status ?? "provider_error",
         tokenUsage: index === 0 ? structured?.tokenUsage : undefined,
@@ -1500,8 +1517,7 @@ export async function analyzeRepositoryFileBatch(
         : `the provider returned a malformed analysis for ${entry.fileKey} (${entry.file.path}).`;
       return failedBatchFileAnalysis({
         file: entry.file,
-        lineStart: entry.window.lineStart,
-        lineEnd: entry.window.lineEnd,
+        suppliedLineRanges: entry.suppliedLineRanges,
         message,
         status: "malformed_batch_member",
         tokenUsage: index === 0 ? result.tokenUsage : undefined,
@@ -1650,7 +1666,7 @@ export async function analyzeRepositoryFileBatch(
       semanticStatus: hasUsableFacts ? "succeeded" : "degraded",
       semanticSource: hasUsableFacts ? "model" : undefined,
       semanticDiagnostics: [{
-        lineRange: [entry.window.lineStart, entry.window.lineEnd],
+        suppliedLineRanges: entry.suppliedLineRanges,
         status: !hasUsableFacts
           ? "no_supported_findings"
           : capabilityCoverageComplete

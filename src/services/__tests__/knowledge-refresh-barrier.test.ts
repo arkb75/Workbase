@@ -162,7 +162,10 @@ function coverageLimitedRefreshRun() {
         label: "Email intake",
         scopeKey: "owner/proposal-system",
         salience: 80,
-        files: [{ id: "email-service", path: "src/email/service.ts", score: 30 }],
+        files: [
+          { id: "email-service", path: "src/email/service.ts", score: 30 },
+          { id: "email-capacity", path: "src/email/secondary-parser.ts", score: 20 },
+        ],
       }],
       coverageCritique: {
         domains: [{
@@ -181,6 +184,7 @@ function coverageLimitedRefreshRun() {
       capacityLimitations: [
         "Email intake in owner/proposal-system reached the 32-file semantic-analysis capacity after 11 of 14 desired samples.",
       ],
+      capacityLimitedFileSnapshotIds: ["email-capacity"],
     },
     snapshots: [{
       id: "snapshot-1",
@@ -196,6 +200,17 @@ function coverageLimitedRefreshRun() {
         semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
         semanticRefreshRunId: "refresh-limited",
         semanticAnalysis: { ...semantic, path: "src/email/service.ts" },
+      }, {
+        id: "email-capacity",
+        path: "src/email/secondary-parser.ts",
+        disposition: "analyzed",
+        analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
+        analysis: { ...staticAnalysis, path: "src/email/secondary-parser.ts" },
+        semanticStatus: "failed",
+        semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+        semanticRefreshRunId: "refresh-limited",
+        semanticAnalysis: null,
+        semanticDiagnostics: [{ status: "token_budget_exhausted" }],
       }],
     }],
   };
@@ -746,6 +761,32 @@ describe("latest-commit freshness barrier", () => {
         completedHeads: expect.any(Array),
       }),
     }));
+  });
+
+  it("keeps an unmarked semantic failure blocking even beside a coverage-limited area", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "model");
+    const run = coverageLimitedRefreshRun();
+    delete (run.orchestration as { capacityLimitedFileSnapshotIds?: string[] })
+      .capacityLimitedFileSnapshotIds;
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(run);
+
+    await expect(finalizeKnowledgeCoverage("refresh-limited")).rejects.toThrow(
+      "Repository semantic analysis did not establish the required evidence for owner/proposal-system.",
+    );
+  });
+
+  it("does not trust a capacity marker without a persisted token-budget diagnostic", async () => {
+    llmProviderMock.mockReturnValue("openrouter");
+    vi.stubEnv("WORKBASE_SEMANTIC_PLANNER_MODE", "model");
+    const run = coverageLimitedRefreshRun();
+    const capacityFile = run.snapshots[0]!.files.find((file) => file.id === "email-capacity")!;
+    capacityFile.semanticDiagnostics = [{ status: "result_persistence_failure" }];
+    prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(run);
+
+    await expect(finalizeKnowledgeCoverage("refresh-limited")).rejects.toThrow(
+      "Repository semantic analysis did not establish the required evidence for owner/proposal-system.",
+    );
   });
 
   it("allows a persisted capacity-limited model refresh through terminal completion", async () => {

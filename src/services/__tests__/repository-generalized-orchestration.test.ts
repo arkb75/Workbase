@@ -637,6 +637,39 @@ describe("repository-derived cartographer and coverage critic", () => {
       expect.stringContaining("11 of 14 desired samples"),
     ]);
 
+    const fullyInspectedFileSnapshotIds = area.files.slice(0, 14).map((file) => file.id);
+    const capacityRetry = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: fullyInspectedFileSnapshotIds,
+        retryFileSnapshotIds: [fullyInspectedFileSnapshotIds.at(-1)!],
+        capacityLimitedFileSnapshotIds: [fullyInspectedFileSnapshotIds.at(-1)!],
+        candidates: supportedCandidates,
+      }],
+      allowRepair: false,
+      capacityLimited: true,
+    });
+    expect(capacityRetry.domains[0]?.status).toBe("coverage_limited");
+    expect(capacityRetry.gaps).toEqual([]);
+    expect(capacityRetry.capacityLimitations).toEqual([
+      expect.stringContaining("evidence and diversity floors were met"),
+    ]);
+
+    const fullyInspectedOrdinaryRetry = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: fullyInspectedFileSnapshotIds,
+        retryFileSnapshotIds: [fullyInspectedFileSnapshotIds.at(-1)!],
+        candidates: supportedCandidates,
+      }],
+      allowRepair: false,
+      capacityLimited: true,
+    });
+    // Domain evidence remains covered, but the ordinary retry is not relabeled
+    // as capacity-limited; the separate execution-gap barrier stays blocking.
+    expect(fullyInspectedOrdinaryRetry.domains[0]?.status).toBe("covered");
+    expect(fullyInspectedOrdinaryRetry.capacityLimitations).toEqual([]);
+
     const failedRetry = critiqueRepositoryCoverage({
       manifest: [area],
       reports: [{

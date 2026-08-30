@@ -1117,6 +1117,12 @@ export async function finalizeKnowledgeCoverage(runId: string) {
   const orchestrationCapacityLimitations = Array.isArray(orchestrationRecord.capacityLimitations)
     ? (orchestrationRecord.capacityLimitations as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
+  const capacityLimitedFileSnapshotIds = new Set(
+    Array.isArray(orchestrationRecord.capacityLimitedFileSnapshotIds)
+      ? (orchestrationRecord.capacityLimitedFileSnapshotIds as unknown[])
+          .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      : [],
+  );
   const persistedCartography = coverageRecords(orchestrationRecord.cartography);
   const persistedCritique = coverageRecords(record(orchestrationRecord.coverageCritique).domains);
   const semanticWorkers = await prisma.agentRun.findMany({
@@ -1206,19 +1212,44 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       ? matrix
       : selectRequiredSemanticCoverageAreas(matrix);
     const requiredAreaKeys = new Set(requiredAreas.map((area) => area.key));
-    const semanticDegradations = snapshot.files.flatMap((file) =>
-      file.semanticRefreshRunId === runId &&
-      file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION &&
-      (file.semanticStatus === "degraded" || file.semanticStatus === "failed" || file.semanticStatus === "pending")
-        ? [{ path: file.path, message: `Semantic analysis ${file.semanticStatus} for ${file.path}.` }]
-        : [],
-    );
-    const unresolvedSemanticDegradations = semanticDegradations.filter((entry) =>
-      requiredAreas.some((area) =>
-        area.paths.includes(entry.path) &&
-        (!("criticStatus" in area) || area.criticStatus !== "covered")
-      )
-    );
+    const semanticDegradations = snapshot.files.flatMap((file) => {
+      if (
+        file.semanticRefreshRunId !== runId ||
+        file.semanticAnalyzerVersion !== REPOSITORY_SEMANTIC_ANALYZER_VERSION ||
+        (file.semanticStatus !== "degraded" && file.semanticStatus !== "failed" && file.semanticStatus !== "pending")
+      ) return [];
+      const hasPersistedTokenCapacityDiagnostic =
+        Array.isArray(file.semanticDiagnostics) &&
+        file.semanticDiagnostics.some((diagnostic) =>
+          diagnostic &&
+          typeof diagnostic === "object" &&
+          !Array.isArray(diagnostic) &&
+          (diagnostic as { status?: unknown }).status === "token_budget_exhausted"
+        );
+      return [{
+        id: file.id,
+        path: file.path,
+        message: `Semantic analysis ${file.semanticStatus} for ${file.path}.`,
+        capacityLimited:
+          capacityLimitedFileSnapshotIds.has(file.id) &&
+          hasPersistedTokenCapacityDiagnostic,
+      }];
+    });
+    const unresolvedSemanticDegradations = semanticDegradations.filter((entry) => {
+      const mappedAreas = requiredAreas.filter((area) => area.paths.includes(entry.path));
+      const hasUnresolvedArea = mappedAreas.some((area) =>
+        !("criticStatus" in area) || area.criticStatus !== "covered"
+      );
+      if (!hasUnresolvedArea) return false;
+      const isSatisfiedCapacityLimit =
+        entry.capacityLimited &&
+        mappedAreas.length > 0 &&
+        mappedAreas.every((area) =>
+          "criticStatus" in area &&
+          (area.criticStatus === "covered" || area.criticStatus === "coverage_limited")
+        );
+      return !isSatisfiedCapacityLimit;
+    });
     const scopedOrchestrationGaps = repositoryOrchestrationCoverageGaps({
       repository,
       repositories,
