@@ -346,6 +346,38 @@ describe("generalized repository knowledge evaluation", () => {
       path: "ml_service/forecast_service.py",
       text: "The forecast function fits Prophet and predicts the next 30 days.",
     },
+    {
+      name: "InsightUBC request-response API handler",
+      fixtureId: "insightubc-dataset-platform",
+      expectedKey: "rest_api",
+      domain: "experience",
+      path: "src/rest/Server.ts",
+      text: "The API accepts query request bodies and returns query results in its response.",
+    },
+    {
+      name: "Amazon product-details collection operations",
+      fixtureId: "amazon-marketplace-analytics",
+      expectedKey: "product_catalog",
+      domain: "inventory",
+      path: "src/main/model/ProductDetailsList.java",
+      text: "The product-details collection appends and removes product records by ASIN.",
+    },
+    {
+      name: "Amazon purchase-order removal workflow",
+      fixtureId: "amazon-marketplace-analytics",
+      expectedKey: "purchase_orders",
+      domain: "inventory",
+      path: "src/main/ui/PORemove.java",
+      text: "The purchase-order removal screen loads records and reveals Remove and Save controls.",
+    },
+    {
+      name: "Amazon JSON file loading",
+      fixtureId: "amazon-marketplace-analytics",
+      expectedKey: "json_persistence",
+      domain: "inventory",
+      path: "src/main/persistence/DataLoader.java",
+      text: "The file loader reads a configured path and parses its contents as JSON.",
+    },
   ])("recovers independent positive paraphrase: $name", (testCase) => {
     const content = testCase.text;
     const fixture = withEvidenceFile(
@@ -451,6 +483,34 @@ describe("generalized repository knowledge evaluation", () => {
       path: "ml_service/forecast_service.py",
       text: "The forecast service computes a moving-average projection.",
     },
+    {
+      fixtureId: "insightubc-dataset-platform",
+      excludedKey: "rest_api",
+      domain: "experience",
+      path: "src/rest/Server.ts",
+      text: "The UI request handler updates theme state.",
+    },
+    {
+      fixtureId: "amazon-marketplace-analytics",
+      excludedKey: "product_catalog",
+      domain: "inventory",
+      path: "src/main/model/ProductDetailsList.java",
+      text: "The product forecast displays prediction details.",
+    },
+    {
+      fixtureId: "amazon-marketplace-analytics",
+      excludedKey: "purchase_orders",
+      domain: "inventory",
+      path: "src/main/ui/PORemove.java",
+      text: "The purchase-order forecast predicts future demand.",
+    },
+    {
+      fixtureId: "amazon-marketplace-analytics",
+      excludedKey: "json_persistence",
+      domain: "inventory",
+      path: "src/main/persistence/DataLoader.java",
+      text: "The API returns a JSON response.",
+    },
   ])("does not recover a capability when one required concept is absent: $excludedKey", (testCase) => {
     const fixture = withEvidenceFile(
       repositoryKnowledgeFixture(testCase.fixtureId)!,
@@ -490,6 +550,39 @@ describe("generalized repository knowledge evaluation", () => {
 
     const report = evaluateRepositoryKnowledgeRun({ fixture, run });
 
+    expect(report.recoveredCapabilityKeys).toContain("visual_insights");
+  });
+
+  it("grounds a concise Highlight title through its separately grounded summary", () => {
+    const path = "frontend/insightubc/src/components/Insights.js";
+    const excerpts = [
+      "{loading && <CircularProgress size={20} />} {error && <Typography color='error'>{error}</Typography>}",
+      "{barChartData && <Bar data={barChartData} />} {horizontalBarChartData && <Bar data={horizontalBarChartData} />} {chartData && <Line data={chartData} />}",
+    ];
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture("insightubc-dataset-platform")!,
+      path,
+      excerpts.join("\n"),
+    );
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "chart-highlight-with-summary",
+      kind: "highlight",
+      text: "Added chart-based insight visualization with UI status feedback",
+      summary: "The web UI displays bar, horizontal-bar, and line charts when their corresponding chart data is present, and displays loading and error states from corresponding state values.",
+      claimState: "implemented",
+      domain: "experience",
+      evidence: excerpts.map((quote, index) => ({
+        path,
+        lineStart: index + 1,
+        lineEnd: index + 1,
+        quote,
+      })),
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("chart-highlight-with-summary");
     expect(report.recoveredCapabilityKeys).toContain("visual_insights");
   });
 
@@ -719,6 +812,78 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.metrics.highlightCapabilityRecall).toBe(0);
   });
 
+  it("collectively grounds one capability claim across exact expected-path citations", () => {
+    const path = "src/controller/query/QueryParser.ts";
+    const excerpts = [
+      "if (typeof query !== 'object') throw new InsightError('Query must be an object.'); normalized[key.toUpperCase()] = query[key];",
+      "const filters = filter.AND.map((subFilter: any) => this.parseFilter(subFilter)); const negationFilter = filter.NOT;",
+    ];
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture("insightubc-dataset-platform")!,
+      path,
+      excerpts.join("\n"),
+    );
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "collective-query-parser",
+      kind: "fact",
+      text: "The query parser accepts object-shaped queries, normalizes top-level keys to uppercase, and parses nested AND/OR and NOT filters into typed filter objects after validating their operand shapes.",
+      claimState: "implemented",
+      domain: "query",
+      evidence: excerpts.map((quote, index) => ({
+        path,
+        lineStart: index + 1,
+        lineEnd: index + 1,
+        quote,
+      })),
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("collective-query-parser");
+    expect(report.recoveredCapabilityKeys).toContain("query_parser");
+    for (const reference of run.items[0]!.evidence) {
+      const partial = evaluateRepositoryKnowledgeRun({
+        fixture,
+        run: {
+          ...run,
+          items: [{ ...run.items[0]!, evidence: [reference] }],
+        },
+      });
+      expect(partial.recoveredCapabilityKeys).not.toContain("query_parser");
+    }
+  });
+
+  it("does not let a grounded Highlight summary conceal an unsupported title", () => {
+    const path = "src/services/webhook-verification.ts";
+    const content =
+      "Verified GitHub webhook signatures and dispatched repository refresh jobs.";
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture("workbase-project-knowledge")!,
+      path,
+      content,
+    );
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "unsupported-highlight-title",
+      kind: "highlight",
+      text: "Trained a satellite-image weather classifier.",
+      summary: content,
+      claimState: "implemented",
+      domain: "repository_refresh",
+      evidence: [{
+        path,
+        lineStart: 1,
+        lineEnd: 1,
+        quote: content,
+      }],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toContain("unsupported-highlight-title");
+  });
+
   it("does not let an unrelated expected-path citation buy capability recall", () => {
     const fixture = withRepresentativeContent(
       repositoryKnowledgeFixture("solopilot-agent-documents")!,
@@ -728,7 +893,7 @@ describe("generalized repository knowledge evaluation", () => {
         return { ...file, content: "Added a human approval workflow." };
       }
       if (file.path.endsWith("ReplyEditor.tsx")) {
-        return { ...file, content: "export function ReplyEditor() { return null; }" };
+        return { ...file, content: "Rendered an email reply editor." };
       }
       return file;
     });
@@ -736,14 +901,14 @@ describe("generalized repository knowledge evaluation", () => {
     run.items = [{
       id: "laundered-human-review",
       kind: "highlight",
-      text: "Added a human approval workflow.",
+      text: "Added a human approval workflow. Rendered an email reply editor.",
       claimState: "implemented",
       domain: "quality",
       evidence: [
         { path: "src/providers/base.py", quote: "Added a human approval workflow." },
         {
           path: "frontend/email-intake/src/components/ReplyEditor.tsx",
-          quote: "export function ReplyEditor() { return null; }",
+          quote: "Rendered an email reply editor.",
         },
       ],
     }];

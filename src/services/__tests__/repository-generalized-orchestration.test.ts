@@ -2356,6 +2356,132 @@ describe("repository-derived cartographer and coverage critic", () => {
       ?.files.map((file) => file.id)).toContain("repository");
   });
 
+  it("does not confuse repository product features with persistence repositories", () => {
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/repository-product",
+      files: [
+        mappedFile(
+          "orchestrator",
+          "src/services/repository-semantic-orchestrator-service.ts",
+        ),
+        mappedFile(
+          "research-worker",
+          "src/services/project-chat-repository-research-worker-service.ts",
+        ),
+        mappedFile(
+          "lifecycle-ui",
+          "components/work-items/repository-refresh-lifecycle-status.tsx",
+        ),
+        mappedFile("directory", "src/repositories/account-store.ts"),
+        mappedFile("singular-directory", "src/repository/invoice-store.ts"),
+        mappedFile("class-name", "src/runtime/ResearchRepository.ts"),
+        mappedFile("kebab-name", "src/server/circle-repository.ts"),
+      ],
+    });
+    const dataModelIds = manifest.find((area) =>
+      area.key === "repository_area:data_model"
+    )?.files.map((file) => file.id) ?? [];
+
+    expect(dataModelIds).toEqual(expect.arrayContaining([
+      "directory",
+      "singular-directory",
+      "class-name",
+      "kebab-name",
+    ]));
+    expect(dataModelIds).not.toEqual(expect.arrayContaining([
+      "orchestrator",
+      "research-worker",
+      "lifecycle-ui",
+    ]));
+  });
+
+  it("retains generalized schema, migration, model, entity, db, dao, storage, and persistence paths", () => {
+    const expectedIds = [
+      "schema",
+      "migration",
+      "model",
+      "entity",
+      "db",
+      "dao",
+      "storage",
+      "persistence",
+    ];
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/persistence-layouts",
+      files: [
+        mappedFile("schema", "prisma/schema.prisma"),
+        mappedFile("migration", "db/migrations/001-create-orders.sql"),
+        mappedFile("model", "src/models/Order.ts"),
+        mappedFile("entity", "src/entities/Account.java"),
+        mappedFile("db", "lib/db/client.ts"),
+        mappedFile("dao", "src/dao/InvoiceDao.kt"),
+        mappedFile("storage", "src/storage/blob-store.go"),
+        mappedFile("persistence", "src/persistence/payment-writer.py"),
+      ],
+    });
+
+    expect(manifest.find((area) => area.key === "repository_area:data_model")
+      ?.files.map((file) => file.id)).toEqual(expect.arrayContaining(expectedIds));
+  });
+
+  it("does not let broad repository-feature vocabulary inflate the data-model audit target", () => {
+    const featureFiles = Array.from({ length: 36 }, (_, index) => mappedFile(
+      `feature-${index}`,
+      `src/services/repository-feature-${index}-service.ts`,
+    ));
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/broad-repository-product",
+      files: [
+        ...featureFiles,
+        mappedFile("schema", "prisma/schema.prisma"),
+        mappedFile("product", "src/models/Product.java"),
+        mappedFile("orders", "src/models/PurchaseOrders.java"),
+        mappedFile("order-repository", "src/repositories/OrderRepository.java"),
+      ],
+    });
+    const dataModel = manifest.find((area) =>
+      area.key === "repository_area:data_model"
+    );
+
+    expect(dataModel?.files.map((file) => file.id).sort()).toEqual([
+      "order-repository",
+      "orders",
+      "product",
+      "schema",
+    ]);
+    expect(semanticAuditTarget(dataModel!)).toBeLessThanOrEqual(6);
+  });
+
+  it("bounds migration-heavy data-model depth by current entity diversity", () => {
+    const currentEntities = [
+      "Account",
+      "Invoice",
+      "Payment",
+      "Product",
+      "PurchaseOrder",
+      "Shipment",
+    ];
+    const manifest = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/mature-persistence",
+      files: [
+        ...Array.from({ length: 36 }, (_, index) => mappedFile(
+          `migration-${index}`,
+          `db/migrations/${String(index + 1).padStart(3, "0")}-change.sql`,
+        )),
+        ...currentEntities.map((entity) => mappedFile(
+          entity.toLowerCase(),
+          `src/models/${entity}.java`,
+        )),
+      ],
+    });
+    const dataModel = manifest.find((area) =>
+      area.key === "repository_area:data_model"
+    );
+
+    expect(dataModel?.files).toHaveLength(42);
+    expect(semanticAuditTarget(dataModel!)).toBe(6);
+  });
+
   it("keeps a flat source tree researchable without inventing filename domains", () => {
     const manifest = buildRepositoryDerivedCapabilityManifest({
       scopeKey: "example/flat-service",

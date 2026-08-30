@@ -2,7 +2,7 @@ export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
 /** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
 export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
-  "repository-knowledge-evaluator-v3" as const;
+  "repository-knowledge-evaluator-v4" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
@@ -259,6 +259,12 @@ function itemClaimText(item: RepositoryKnowledgeEvaluationItem) {
   return [item.text, item.summary].filter(Boolean).join(" ");
 }
 
+function itemClaimSurfaces(item: RepositoryKnowledgeEvaluationItem) {
+  return [item.text, item.summary].filter(
+    (value): value is string => Boolean(value?.trim()),
+  );
+}
+
 function inferredClaimState(
   item: RepositoryKnowledgeEvaluationItem,
 ): RepositoryKnowledgeClaimState {
@@ -425,14 +431,26 @@ const genericGroundingTokens = new Set([
 ]);
 
 function groundingToken(value: string) {
-  if (value.length > 5 && value.endsWith("ies")) {
-    return `${value.slice(0, -3)}y`;
+  if (value === "status") return "state";
+  let normalized = value;
+  if (normalized.length > 5 && normalized.endsWith("ies")) {
+    normalized = `${normalized.slice(0, -3)}y`;
+  } else if (normalized.length > 6 && normalized.endsWith("ing")) {
+    normalized = normalized.slice(0, -3);
+  } else if (normalized.length > 5 && normalized.endsWith("ed")) {
+    normalized = normalized.slice(0, -2);
+  } else if (
+    normalized.length > 5 &&
+    /(?:ch|sh|ss|x|z)es$/u.test(normalized)
+  ) {
+    normalized = normalized.slice(0, -2);
+  } else if (normalized.length > 4 && normalized.endsWith("s")) {
+    normalized = normalized.slice(0, -1);
   }
-  if (value.length > 6 && value.endsWith("ing")) return value.slice(0, -3);
-  if (value.length > 5 && value.endsWith("ed")) return value.slice(0, -2);
-  if (value.length > 5 && value.endsWith("es")) return value.slice(0, -2);
-  if (value.length > 4 && value.endsWith("s")) return value.slice(0, -1);
-  return value;
+  if (["display", "render", "visualization", "visualize"].includes(normalized)) {
+    return "render";
+  }
+  return normalized;
 }
 
 function groundingTokens(value: string) {
@@ -491,7 +509,7 @@ function lexicallyRelated(left: string, right: string, minimumCoverage = 0.6) {
 function claimClauses(value: string) {
   return value
     .split(
-      /(?:[.;]\s+|,\s+(?:and|but)\s+|\s+(?:and|but)\s+)(?=(?:added|built|created|delivered|implemented|integrated|trained|uses?|validates?|generates?)\b)/iu,
+      /(?:[.;]\s+|(?:,\s+(?:and|but)\s+|\s+(?:and|but)\s+)(?=(?:added|built|created|delivered|implemented|integrated|trained|uses?|validates?|generates?)\b))/iu,
     )
     .map((clause) => clause.trim())
     .filter((clause) => groundingTokens(clause).length > 0);
@@ -765,7 +783,6 @@ export function evaluateRepositoryKnowledgeRun(input: {
       !file ||
       !quoteSupported(file, reference, requireContentGrounding)
     ) return false;
-    const claim = [item.text, item.summary].filter(Boolean).join(" ");
     const excerpt = groundingEvidenceExcerpt(file, reference);
     // Curated certification must be grounded by checked-out source content.
     // A descriptive filename is useful context, but cannot prove the claim.
@@ -773,13 +790,14 @@ export function evaluateRepositoryKnowledgeRun(input: {
       ? excerpt
       : `${normalizedPath(reference.path)} ${excerpt}`;
     if (!evidenceSurface.trim()) return false;
-    return citationClaimClauses(claim).some((clause) =>
-      lexicallyRelated(clause, evidenceSurface, 0.35)
+    return itemClaimSurfaces(item).some((claim) =>
+      citationClaimClauses(claim).some((clause) =>
+        lexicallyRelated(clause, evidenceSurface, 0.35)
+      )
     );
   }
 
   function evidenceSetGroundsItem(item: RepositoryKnowledgeEvaluationItem) {
-    const claim = [item.text, item.summary].filter(Boolean).join(" ");
     const evidenceSurface = item.evidence.flatMap((reference) => {
       const file = repositoryFileForPath(reference.path);
       if (
@@ -791,8 +809,15 @@ export function evaluateRepositoryKnowledgeRun(input: {
         ? excerpt
         : `${normalizedPath(reference.path)} ${excerpt}`];
     }).join(" ").slice(0, 120_000);
-    return Boolean(evidenceSurface) && claimClauses(claim).every((clause) =>
-      lexicallyRelated(clause, evidenceSurface, 0.35)
+    if (!evidenceSurface) return false;
+    const surfaceGrounded = (claim: string) =>
+      claimClauses(claim).every((clause) =>
+        lexicallyRelated(clause, evidenceSurface, 0.35)
+      );
+    const summary = item.summary?.trim();
+    if (!summary) return surfaceGrounded(item.text);
+    return surfaceGrounded(summary) && (
+      surfaceGrounded(item.text) || lexicallyRelated(item.text, summary, 0.35)
     );
   }
 
@@ -845,16 +870,39 @@ export function evaluateRepositoryKnowledgeRun(input: {
     item: RepositoryKnowledgeEvaluationItem,
     capability: RepositoryExpectedCapability,
   ) {
-    return item.evidence.some((reference) => {
+    const evidenceSurface = item.evidence.flatMap((reference) => {
       const path = normalizedPath(reference.path);
-      const file = filesByPath.get(path);
-      return Boolean(
-        file &&
-        groundedEvidenceReferences.has(reference) &&
-        anyPattern(path, capability.evidencePathPatterns) &&
-        validRepositoryReference(reference),
+      const file = repositoryFileForPath(path);
+      if (
+        !file ||
+        !anyPattern(path, capability.evidencePathPatterns) ||
+        !validRepositoryReference(reference)
+      ) return [];
+      const excerpt = groundingEvidenceExcerpt(file, reference);
+      return [requireContentGrounding
+        ? excerpt
+        : `${path} ${excerpt}`];
+    }).join(" ").slice(0, 120_000);
+    if (!evidenceSurface.trim()) return false;
+
+    const separateMatchingSurfaces = itemClaimSurfaces(item).filter((claim) =>
+      anyPattern(claim, capability.matchPatterns)
+    );
+    const matchingSurfaces = separateMatchingSurfaces.length
+      ? separateMatchingSurfaces
+      : anyPattern(itemClaimText(item), capability.matchPatterns)
+        ? [itemClaimText(item)]
+        : [];
+    const capabilityClaims = matchingSurfaces.flatMap((claim) => {
+      const clauses = citationClaimClauses(claim);
+      const matchingClauses = clauses.filter((clause) =>
+        anyPattern(clause, capability.matchPatterns)
       );
+      return matchingClauses.length ? matchingClauses : [claim];
     });
+    return capabilityClaims.some((claim) =>
+      lexicallyRelated(claim, evidenceSurface, 0.35)
+    );
   }
 
   const recoveredCapabilities = implementedCapabilities.filter((capability) =>

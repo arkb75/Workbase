@@ -33,6 +33,7 @@ import {
   repositorySynthesisCriticClaims,
   repositorySynthesisCriticPayload,
   repositorySynthesisCriticValidationErrors,
+  repositorySynthesisFactFloorRevisionClaimKeys,
   repositorySynthesisBatchPromptBytes,
   repositorySynthesisPromptNotebook,
   repositorySynthesisRevisionErrors,
@@ -134,10 +135,10 @@ describe("repository operation communities", () => {
     }
   });
 
-  it("admits only broad product, data-model, and discovered domain scopes", () => {
+  it("admits only broad product and discovered domain scopes", () => {
     expect(isRepositoryOperationCommunityScope("project_domain:orders")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:product_surface")).toBe(true);
-    expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(true);
+    expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(false);
     expect(isRepositoryOperationCommunityScope("repository_area:quality")).toBe(false);
     expect(isRepositoryOperationCommunityScope("repository_area:application_core")).toBe(false);
   });
@@ -163,7 +164,7 @@ describe("repository operation communities", () => {
     expect(isRepositoryOperationCommunityCandidate(
       "repository_area:data_model",
       multiplePaths,
-    )).toBe(true);
+    )).toBe(false);
     expect(isRepositoryOperationCommunityCandidate(
       "repository_area:product_surface",
       multiplePaths,
@@ -186,7 +187,7 @@ describe("repository operation communities", () => {
     expect(repositoryOperationCommunityCountForScope(
       "repository_area:data_model",
       multiplePaths.length,
-    )).toBe(2);
+    )).toBe(1);
     expect(repositoryOperationCommunityCountForScope(
       "project_domain:orders",
       multiplePaths.length,
@@ -1100,6 +1101,66 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
+  it("selects one deterministic rejected Fact only for each empty subsystem", () => {
+    const fact = (statement: string) => ({
+      statement,
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      reviewNotes: null,
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    });
+    const value = {
+      subsystems: [
+        {
+          subsystemKey: "project_domain:orders#scope",
+          facts: [fact("Rejected first order Fact."), fact("Rejected second order Fact.")],
+          highlights: [],
+          unresolvedQuestions: [],
+        },
+        {
+          subsystemKey: "project_domain:billing#scope",
+          facts: [fact("Accepted billing Fact."), fact("Rejected billing sibling.")],
+          highlights: [],
+          unresolvedQuestions: [],
+        },
+        {
+          subsystemKey: "repository_area:product_surface#scope",
+          facts: [fact("Rejected product-surface Fact.")],
+          highlights: [],
+          unresolvedQuestions: [],
+        },
+      ],
+    };
+    const supported = (claimKey: string) => ({
+      claimKey,
+      supported: true,
+      issues: [] as never[],
+    });
+    const rejected = (claimKey: string) => ({
+      claimKey,
+      supported: false,
+      issues: ["unsupported_detail" as const],
+    });
+
+    expect(repositorySynthesisFactFloorRevisionClaimKeys(value, {
+      assessments: [
+        rejected("project_domain:orders#scope:fact:1"),
+        rejected("project_domain:orders#scope:fact:2"),
+        supported("project_domain:billing#scope:fact:1"),
+        rejected("project_domain:billing#scope:fact:2"),
+        rejected("repository_area:product_surface#scope:fact:1"),
+      ],
+    })).toEqual([
+      "project_domain:orders#scope:fact:1",
+      "repository_area:product_surface#scope:fact:1",
+    ]);
+  });
+
   it("packs at most two synthesis scopes by projected bytes without splitting an oversized scope", () => {
     const input = (subsystemKey: string, excerptLength: number) => ({
       subsystemKey,
@@ -1293,6 +1354,51 @@ describe("repository synthesis model-path limits", () => {
       expect(limitsById.get(`${domain}-community-1`)?.maxHighlights).toBe(1);
     }
     expect(allocated.every(({ claimLimits }) => claimLimits.maxFacts === 3)).toBe(true);
+    expect(allocated.reduce(
+      (total, { claimLimits }) =>
+        total + claimLimits.maxFacts + claimLimits.maxHighlights,
+      0,
+    )).toBe(30);
+  });
+
+  it("preserves three findings per broad community before duplicating generic structural details", () => {
+    const inputs = [
+      ...["intake", "proposal", "review"].flatMap((scope) =>
+        [1, 2].map((community) => ({
+          id: `${scope}-community-${community}`,
+          sourceId: "source-1",
+          subsystemKey: `project_domain:${scope}`,
+        }))
+      ),
+      ...["quality", "automation", "integrations", "application", "storage", "intelligence"].map(
+        (scope) => ({
+          id: `${scope}-scope`,
+          sourceId: "source-1",
+          subsystemKey: `repository_area:${scope}`,
+        }),
+      ),
+    ];
+
+    const allocated = allocateRepositorySynthesisClaimLimits(
+      inputs,
+      30,
+      6,
+      (input) => JSON.stringify([input.sourceId, input.subsystemKey]),
+    );
+    const limitsById = new Map(allocated.map(({ input, claimLimits }) => [
+      input.id,
+      claimLimits,
+    ]));
+
+    for (const scope of ["intake", "proposal", "review"]) {
+      expect(limitsById.get(`${scope}-community-1`)?.maxFacts).toBe(3);
+      expect(limitsById.get(`${scope}-community-2`)?.maxFacts).toBe(3);
+    }
+    for (const scope of [
+      "quality", "automation", "integrations", "application", "storage", "intelligence",
+    ]) {
+      expect(limitsById.get(`${scope}-scope`)?.maxFacts).toBe(1);
+    }
     expect(allocated.reduce(
       (total, { claimLimits }) =>
         total + claimLimits.maxFacts + claimLimits.maxHighlights,

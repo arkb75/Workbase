@@ -42,9 +42,9 @@ import {
 import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-knowledge-sync-service";
 
 describe("repository semantic orchestration guardrails", () => {
-  it("versions the scaled-diversity and repair-admission policy", () => {
+  it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v46-hybrid");
+      .toBe("repository-orchestration-v47-hybrid");
   });
 
   const paths: Record<string, string> = {

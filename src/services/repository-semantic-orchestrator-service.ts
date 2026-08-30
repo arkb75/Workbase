@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v46-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v47-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -90,7 +90,7 @@ const repositoryAreaRules = [
   {
     key: `${REPOSITORY_AREA_PREFIX}data_model`,
     label: "Data model and persistence",
-    pattern: /(?:^|[\/_.-])(?:schema|migrations?|models?|entities|repositor(?:y|ies)|database|storage|persistence|db|dao)(?:[\/_.-]|$)/i,
+    pattern: /(?:^|[\/_.-])(?:schema|migrations?|models?|entities|database|storage|persistence|db|dao)(?:[\/_.-]|$)/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}integrations`,
@@ -245,6 +245,18 @@ function repositoryAreaMatchesPath(
   }
   if (area.key === `${REPOSITORY_AREA_PREFIX}intelligence`) {
     return repositoryIntelligenceMatchesFile(path, analysis);
+  }
+  if (area.key === `${REPOSITORY_AREA_PREFIX}data_model`) {
+    if (area.pattern.test(path)) return true;
+    const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+    const basename = segments.at(-1)?.replace(/\.[^.]+$/, "") ?? "";
+    // "Repository" is both a persistence pattern and ordinary product
+    // vocabulary. A repository-named directory or implementation basename is
+    // strong data-layer evidence; a feature such as repository import,
+    // orchestration, research, or lifecycle UI is not.
+    return segments.slice(0, -1).some((segment) =>
+      /^(?:repository|repositories|repo|repos)$/i.test(segment)
+    ) || /(?:repository|repo)$/i.test(basename);
   }
   if (area.key !== `${REPOSITORY_AREA_PREFIX}product_surface`) {
     return area.pattern.test(path);
@@ -918,6 +930,18 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   const surfaceDiversityFloor = surfaceDiversity >= 4
     ? Math.min(6, surfaceDiversity)
     : 0;
+  // Migration histories can contain dozens of immutable files while still
+  // describing only a handful of current persisted concepts. Data-model depth
+  // therefore follows concrete entity diversity and retains a strict bounded
+  // evidence floor instead of growing with every historical migration.
+  if (area.key === `${REPOSITORY_AREA_PREFIX}data_model`) {
+    const structuralDepth = evidenceCount <= 6
+      ? 2
+      : evidenceCount <= 15
+        ? 3
+        : 4;
+    return Math.min(6, Math.max(structuralDepth, entityDiversityFloor));
+  }
   if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor);
   if (evidenceCount <= 30) return 4;
