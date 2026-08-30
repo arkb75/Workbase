@@ -6,6 +6,7 @@ import {
   AwsBedrockConverseRuntime,
   BedrockStructuredLlmClient,
   createStructuredGenerationBudget,
+  estimateStructuredGenerationInputTokens,
   type ConverseTextRuntime,
 } from "@/src/lib/bedrock-structured-llm-client";
 import { OpenRouterRequestError } from "@/src/lib/openrouter-client";
@@ -603,6 +604,7 @@ describe("BedrockStructuredLlmClient", () => {
       schemaDescription: "Test schema.",
       jsonSchema,
       maxTokens: 512,
+      minimumOutputTokens: 512,
       transportPreference: ["bedrock_json_schema"],
       budget,
     });
@@ -1148,6 +1150,70 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.maxTokens).toBe(4_000);
     expect(budget.usage.totalTokens).toBe(12_300);
+  });
+
+  it("does not dispatch structured semantics below their minimum completion allowance", async () => {
+    const systemPrompt = "Extract one evidence-backed semantic observation.";
+    const userPrompt = "export const persist = () => true;";
+    const maxTokens = 3_000;
+    const structuredOutput = {
+      mode: "bedrock_json_schema" as const,
+      schemaName: "repository_semantic_observations",
+      schemaDescription: "One bounded repository semantic observation.",
+      jsonSchema,
+    };
+    const inputReserve = estimateStructuredGenerationInputTokens({
+      systemPrompt,
+      userPrompt,
+      maxTokens,
+      temperature: 0,
+      effort: "low",
+      enablePromptCaching: false,
+      structuredOutput,
+    });
+    const makeRequest = (
+      client: BedrockStructuredLlmClient,
+      budget: ReturnType<typeof createStructuredGenerationBudget>,
+    ) => client.generateStructured({
+      systemPrompt,
+      userPrompt,
+      schema,
+      schemaName: structuredOutput.schemaName,
+      schemaDescription: structuredOutput.schemaDescription,
+      jsonSchema,
+      maxTokens,
+      minimumOutputTokens: maxTokens,
+      effort: "low",
+      enablePromptCaching: false,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    });
+
+    const starved = makeClient([{ structuredData: { ok: true } }]);
+    const starvedBudget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: maxTokens,
+      maxTotalTokens: inputReserve + maxTokens - 1,
+    });
+    await expect(makeRequest(starved.client, starvedBudget)).rejects.toMatchObject({
+      code: "token_budget_exhausted",
+    });
+    expect(starved.calls).toHaveLength(0);
+    expect(starvedBudget.usage).toMatchObject({ modelCalls: 0, totalTokens: 0 });
+
+    const exact = makeClient([{ structuredData: { ok: true } }]);
+    const exactBudget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: maxTokens,
+      maxTotalTokens: inputReserve + maxTokens,
+    });
+    await expect(makeRequest(exact.client, exactBudget)).resolves.toMatchObject({
+      data: { ok: true },
+    });
+    expect(exact.calls).toHaveLength(1);
+    expect(exact.calls[0]?.maxTokens).toBe(maxTokens);
   });
 
   it("rejects a cache-enabled Bedrock request before dispatch when its full charge envelope cannot fit", async () => {

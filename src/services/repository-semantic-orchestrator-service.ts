@@ -37,7 +37,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v44-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v45-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -1281,8 +1281,9 @@ export function partitionCapabilityReports(reports: Array<Pick<CapabilityReport,
 const semanticExecutionGapPattern = /(?:failed|failure|unavailable|degraded|exhausted|could not|returned no file result)/i;
 
 /**
- * Preserve every attempt for audit, but let the latest bounded retry own the
- * final evidence state for its exact immutable file.
+ * Preserve every attempt for audit, but let a completed bounded retry own the
+ * final evidence state for its exact immutable file. A retry that failed or
+ * was blocked before dispatch remains additive evidence of the unresolved gap.
  */
 export function effectiveCapabilityReportsAfterRepair(input: {
   initialReports: CapabilityReport[];
@@ -1290,7 +1291,13 @@ export function effectiveCapabilityReportsAfterRepair(input: {
   retriedFileSnapshotIds: string[];
   filePathBySnapshotId?: ReadonlyMap<string, string>;
 }) {
-  const retried = new Set(input.retriedFileSnapshotIds);
+  const scheduled = new Set(input.retriedFileSnapshotIds);
+  const retried = new Set(input.repairReports.flatMap((report) => {
+    const stillIncomplete = new Set(report.retryFileSnapshotIds ?? []);
+    return report.inspectedFileSnapshotIds.filter((id) =>
+      scheduled.has(id) && !stillIncomplete.has(id)
+    );
+  }));
   const initial = input.initialReports.map((report): CapabilityReport => {
     const reportRetryIds = report.retryFileSnapshotIds ?? [];
     const retriedGapPrefixes = reportRetryIds
@@ -3876,13 +3883,16 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       sharedModelBudget: repairModelBudget,
     })));
     const waveReports = preserveSettledCapabilityReports(wavePackages, settledWaveReports);
-    const retriedFileSnapshotIds = Array.from(new Set(wavePackages.flatMap((entry) =>
+    const scheduledRetryFileSnapshotIds = Array.from(new Set(wavePackages.flatMap((entry) =>
       entry.retryFileSnapshotIds ?? []
     )));
     effectiveReports = effectiveCapabilityReportsAfterRepair({
       initialReports: effectiveReports,
       repairReports: waveReports,
-      retriedFileSnapshotIds,
+      // A retry owns the prior file state only after it actually completes.
+      // A pre-dispatch capacity rejection remains visible beside the earlier
+      // parse/provider gap rather than laundering it into a capacity exception.
+      retriedFileSnapshotIds: scheduledRetryFileSnapshotIds,
       filePathBySnapshotId,
     });
     repairReports.push(...waveReports);

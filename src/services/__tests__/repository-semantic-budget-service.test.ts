@@ -665,6 +665,12 @@ describe("repository semantic task and budget", () => {
     });
     expect(Object.keys(request.jsonSchema.properties.files.properties)).toEqual(["file-1", "file-2", "file-3"]);
     expect(request.jsonSchema.$defs.semanticFileAnalysis).toBeDefined();
+    expect(request.jsonSchema.$defs.semanticFileAnalysis.properties.subsystemKeys.items.enum).toEqual([
+      "project_chat_grounding",
+    ]);
+    expect(
+      request.jsonSchema.$defs.semanticFileAnalysis.properties.findings.items.properties.capabilityKeys.items.enum,
+    ).toEqual(["project_chat_grounding"]);
     expect(request.jsonSchema.properties.files.properties).toEqual({
       "file-1": { $ref: "#/$defs/semanticFileAnalysis" },
       "file-2": { $ref: "#/$defs/semanticFileAnalysis" },
@@ -678,8 +684,109 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("visible button or field proves an affordance");
     expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
+    expect(request.systemPrompt).toContain("opaque identifier");
+    expect(request.systemPrompt).toContain("preserving punctuation such as ':'");
     expect(request.transportPreference).toEqual(["json_schema"]);
     expect(request.enablePromptCaching).toBe(false);
+    expect(request.minimumOutputTokens).toBe(request.maxTokens);
+  });
+
+  it("uses an exact shared capability-key enum while keeping batch results file-local", async () => {
+    const fileAnalysis = (
+      capabilityKeys: string[],
+      statement: string,
+      subsystemKeys = capabilityKeys,
+    ) => ({
+      summary: statement,
+      subsystemKeys,
+      findings: [{
+        statement,
+        kind: "data_flow" as const,
+        capabilityKeys,
+        signalKeys: [],
+        confidence: "high" as const,
+        sensitivityFlag: false as const,
+        lineStart: 1,
+        lineEnd: 1,
+      }],
+      unresolvedQuestions: [],
+    });
+    const result = (files: Record<string, ReturnType<typeof fileAnalysis>>) => ({
+      data: { files },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+    generateStructuredMock
+      .mockResolvedValueOnce(result({
+        "file-1": fileAnalysis(
+          ["project_domain:payments", "repository_area:data_model"],
+          "The payment operation persists the completed charge.",
+          ["repository_area:data_model"],
+        ),
+        "file-2": fileAnalysis(
+          ["repository_area:data_model"],
+          "The persistence operation stores the repository record.",
+        ),
+      }))
+      .mockResolvedValueOnce(result({
+        "file-1": fileAnalysis(
+          ["project_domain:shipping"],
+          "The shipping operation dispatches the selected parcel.",
+        ),
+        "file-2": fileAnalysis(
+          ["project_domain:shipping"],
+          "The queue stores the parcel dispatch request.",
+        ),
+      }));
+
+    const batchInput = (path: string, capabilityKey: string) => ({
+      repository: "example/project",
+      commitSha: "a".repeat(40),
+      path,
+      content: "export const operation = () => true;",
+      task: {
+        objective: `Determine how ${capabilityKey} executes.`,
+        capabilityKeys: [capabilityKey],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+    const first = await analyzeRepositoryFileBatch([
+      batchInput("src/payments.ts", "project_domain:payments"),
+      batchInput("src/persistence.ts", "repository_area:data_model"),
+    ]);
+    await analyzeRepositoryFileBatch([
+      batchInput("src/shipping.ts", "project_domain:shipping"),
+      batchInput("src/shipping-queue.ts", "project_domain:shipping"),
+    ]);
+
+    const firstRequest = generateStructuredMock.mock.calls[0]?.[0];
+    const secondRequest = generateStructuredMock.mock.calls[1]?.[0];
+    const enumAt = (request: typeof firstRequest) =>
+      request.jsonSchema.$defs.semanticFileAnalysis.properties.subsystemKeys.items.enum;
+    expect(enumAt(firstRequest)).toEqual([
+      "project_domain:payments",
+      "repository_area:data_model",
+    ]);
+    expect(enumAt(secondRequest)).toEqual(["project_domain:shipping"]);
+    expect(enumAt(firstRequest)).toEqual([
+      "project_domain:payments",
+      "repository_area:data_model",
+    ]);
+    expect(first[0]?.facts[0]?.subsystemKeys).toEqual(["project_domain:payments"]);
+    expect(first[0]?.subsystemKeys).not.toContain("repository_area:data_model");
+    expect(first[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        strippedUnsupportedCapabilityKeys: ["repository_area:data_model"],
+        strippedUnsupportedSubsystemKeys: ["repository_area:data_model"],
+      }),
+    ]));
+    expect(first[1]?.facts[0]?.subsystemKeys).toEqual(["repository_area:data_model"]);
   });
 
   it("isolates a sparse cross-gap citation without discarding a valid batch sibling", async () => {
@@ -1340,8 +1447,71 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
     expect(request.transportPreference).toEqual(["json_schema"]);
     expect(request.enablePromptCaching).toBe(false);
+    expect(request.minimumOutputTokens).toBe(request.maxTokens);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
+  });
+
+  it("treats colon-delimited capability keys as opaque provider-schema values", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The script persists repository knowledge.",
+        // Provider schema enforcement should prevent this normalized metadata,
+        // but the redundant file-level label must not poison a supported fact
+        // if a provider returns it anyway.
+        subsystemKeys: ["repository_area_data_model"],
+        findings: [{
+          statement: "The script persists repository knowledge records.",
+          kind: "data_flow",
+          capabilityKeys: ["repository_area:data_model"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/project",
+      commitSha: "a".repeat(40),
+      path: "scripts/backfill.ts",
+      content: "await persistRepositoryKnowledge();",
+      task: {
+        objective: "Determine how repository knowledge is persisted.",
+        capabilityKeys: ["repository_area:data_model"],
+        questions: [],
+        expectedOutputs: ["An exact-line persistence observation"],
+      },
+    });
+
+    const request = generateStructuredMock.mock.calls[0]?.[0];
+    expect(request.systemPrompt).not.toContain("snake_case subsystem keys");
+    expect(request.systemPrompt).toContain("opaque identifier");
+    expect(request.systemPrompt).toContain("preserving punctuation such as ':'");
+    expect(request.jsonSchema.properties.subsystemKeys.items.enum).toEqual([
+      "repository_area:data_model",
+    ]);
+    expect(request.jsonSchema.properties.findings.items.properties.capabilityKeys.items.enum).toEqual([
+      "repository_area:data_model",
+    ]);
+    expect(analysis.subsystemKeys).toContain("repository_area:data_model");
+    expect(analysis.subsystemKeys).not.toContain("repository_area_data_model");
+    expect(analysis.facts[0]?.subsystemKeys).toEqual(["repository_area:data_model"]);
+    expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        strippedUnsupportedSubsystemKeys: ["repository_area_data_model"],
+      }),
+    ]));
   });
 
   it("uses task and static-analysis hints when a singleton large file is windowed", async () => {

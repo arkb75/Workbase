@@ -964,6 +964,12 @@ export class BedrockStructuredLlmClient {
     /** Bound client-side provider retries/fallbacks for this logical call. */
     maxProviderAttempts?: 1 | 2;
     maxTokens: number;
+    /**
+     * Small structured completions can be predictably truncated even though a
+     * shared budget still has a few tokens left. When set, fail admission
+     * before dispatch instead of silently shrinking below this viable floor.
+     */
+    minimumOutputTokens?: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
     enablePromptCaching?: boolean;
@@ -971,6 +977,16 @@ export class BedrockStructuredLlmClient {
     extraValidation?: (value: T) => string[];
     signal?: AbortSignal;
   }) {
+    if (
+      params.minimumOutputTokens !== undefined &&
+      (
+        !Number.isInteger(params.minimumOutputTokens) ||
+        params.minimumOutputTokens < 1 ||
+        params.minimumOutputTokens > params.maxTokens
+      )
+    ) {
+      throw new Error("minimumOutputTokens must be a positive integer no greater than maxTokens.");
+    }
     const temperature = params.temperature ?? 0;
     const effort = params.effort ?? "high";
     const enablePromptCaching = params.enablePromptCaching ?? true;
@@ -1074,10 +1090,11 @@ export class BedrockStructuredLlmClient {
               inputTokenReserve -
               cacheTokenReserve,
           );
-          if (permittedOutputTokens < 1) {
+          const minimumOutputTokens = params.minimumOutputTokens ?? 1;
+          if (permittedOutputTokens < minimumOutputTokens) {
             throw budgetError(
               "token_budget_exhausted",
-              `The structured-generation token budget is exhausted before another bounded request can start.`,
+              `The structured-generation token budget cannot preserve the ${minimumOutputTokens}-token minimum completion allowance for another bounded request.`,
               budget,
             );
           }

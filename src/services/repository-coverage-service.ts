@@ -325,14 +325,72 @@ const semanticBatchFileAnalysisJsonSchema: JsonSchemaObject = {
   },
 };
 
-function buildSemanticBatchAnalysisJsonSchema(fileKeys: string[]): JsonSchemaObject {
+function withAllowedSemanticCapabilityKeys(
+  schema: JsonSchemaObject,
+  allowedCapabilityKeys: string[],
+): JsonSchemaObject {
+  const properties = schema.properties as Record<string, JsonSchemaObject>;
+  const findings = properties.findings;
+  const finding = findings.items as JsonSchemaObject;
+  const findingProperties = finding.properties as Record<string, JsonSchemaObject>;
+  const capabilityKeys = Array.from(new Set(allowedCapabilityKeys));
+  const capabilityKeyItem: JsonSchemaObject = {
+    type: "string",
+    minLength: 2,
+    maxLength: 100,
+    ...(capabilityKeys.length ? { enum: capabilityKeys } : {}),
+    description: "An opaque allowed capability identifier; copy it verbatim without changing punctuation.",
+  };
+  return {
+    ...schema,
+    properties: {
+      ...properties,
+      subsystemKeys: {
+        ...properties.subsystemKeys,
+        description: "Capability identifiers copied verbatim from allowedCapabilityKeys.",
+        items: capabilityKeyItem,
+      },
+      findings: {
+        ...findings,
+        items: {
+          ...finding,
+          properties: {
+            ...findingProperties,
+            capabilityKeys: {
+              ...findingProperties.capabilityKeys,
+              description: "Only the allowed capability identifiers directly supported by this finding, copied verbatim.",
+              items: capabilityKeyItem,
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function buildSemanticAnalysisJsonSchema(
+  allowedCapabilityKeys: string[],
+): JsonSchemaObject {
+  return withAllowedSemanticCapabilityKeys(
+    semanticAnalysisJsonSchema,
+    allowedCapabilityKeys,
+  );
+}
+
+function buildSemanticBatchAnalysisJsonSchema(
+  fileKeys: string[],
+  allowedCapabilityKeys: string[],
+): JsonSchemaObject {
   return {
     type: "object",
     // Bedrock supports internal JSON Schema references. Define the relatively
     // large per-file grammar once so a four-file batch does not compile four
     // identical strict subgrammars and exceed the provider's grammar limit.
     $defs: {
-      semanticFileAnalysis: semanticBatchFileAnalysisJsonSchema,
+      semanticFileAnalysis: withAllowedSemanticCapabilityKeys(
+        semanticBatchFileAnalysisJsonSchema,
+        allowedCapabilityKeys,
+      ),
     },
     additionalProperties: false,
     required: ["files"],
@@ -864,6 +922,10 @@ async function analyzeChunk(input: {
     }
     input.budget.inputBytes += inputBytes;
   }
+  const semanticMaxTokens = Math.min(
+    input.budget?.model.limits.maxOutputTokens ?? 4_000,
+    4_000,
+  );
   const result = await runAuditedStructuredGeneration({
     workItemId: input.workItemId,
     kind: "semantic_extraction",
@@ -892,7 +954,7 @@ async function analyzeChunk(input: {
         `Each finding's lineStart and lineEnd must fall within the same suppliedLineRanges entry. Cite the smallest contiguous supplied range, never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
         "Use unresolvedQuestions only for a concrete blocker that prevents a supported primary-behavior finding; omit speculative follow-up questions and details outside this window.",
         "Return at most eight concise findings and four concise unresolved questions. Keep every statement and question comfortably within its schema limit.",
-        "Use stable snake_case subsystem keys.",
+        "Treat every allowedCapabilityKeys value as an opaque identifier. Copy subsystemKeys and every finding.capabilityKeys value verbatim from that list, preserving punctuation such as ':'; never normalize, rename, translate, or invent capability keys.",
         repositorySemanticSensitivityGuidance,
         "Assign each finding only to the capabilityKeys it directly supports; do not copy every file-level subsystem key onto every finding.",
         "signalKeys are stable implementation facets, not freeform tags. Use only supplied allowedSemanticSignalKeys and attach every one directly established by the cited lines.",
@@ -902,14 +964,14 @@ async function analyzeChunk(input: {
       schema: semanticAnalysisSchema,
       schemaName: "repository_semantic_observations",
       schemaDescription: "Evidence-backed semantic findings and exact line ranges from one immutable repository window.",
-      jsonSchema: semanticAnalysisJsonSchema,
+      jsonSchema: buildSemanticAnalysisJsonSchema(allowedCapabilityKeys),
       exampleOutput: {
         summary: "The window implements a bounded project-scoped retrieval operation.",
-        subsystemKeys: ["retrieval_provenance"],
+        subsystemKeys: [allowedCapabilityKeys[0]!],
         findings: [{
           statement: "The operation scopes retrieval by both user and work item.",
           kind: "invariant",
-          capabilityKeys: ["retrieval_provenance"],
+          capabilityKeys: [allowedCapabilityKeys[0]!],
           signalKeys: [],
           confidence: "high",
           sensitivityFlag: false,
@@ -920,7 +982,8 @@ async function analyzeChunk(input: {
       },
       requiredFieldPaths: ["summary", "subsystemKeys", "findings", "unresolvedQuestions"],
       repairMappings: ["Map facts or observations to findings without inventing content.", "Map category to the closest supported finding kind."],
-      maxTokens: Math.min(input.budget?.model.limits.maxOutputTokens ?? 4_000, 4_000),
+      maxTokens: semanticMaxTokens,
+      minimumOutputTokens: semanticMaxTokens,
       temperature: 0,
       // Reserve the completion allowance for exact-line structured evidence;
       // deeper reasoning here reduces reliability without adding authority.
@@ -1017,10 +1080,16 @@ async function analyzeChunk(input: {
       evidenceMode: "semantic" as const,
     }];
   });
+  const strippedUnsupportedSubsystemKeys = result.data.subsystemKeys.filter(
+    (key) => !allowedCapabilityKeys.includes(key),
+  );
   return {
     data: {
       summary: result.data.summary,
-      subsystemKeys: unique(result.data.subsystemKeys, 12),
+      subsystemKeys: unique([
+        ...result.data.subsystemKeys.filter((key) => allowedCapabilityKeys.includes(key)),
+        ...findings.flatMap((finding) => finding.subsystemKeys ?? []),
+      ], 12),
       responsibilities: findings.map((finding) => finding.statement),
       symbols: [],
       dependencies: [],
@@ -1039,6 +1108,7 @@ async function analyzeChunk(input: {
       transportMode: result.transportMode,
       attempts: result.attempts,
       rejectedFindings: rejected.length,
+      strippedUnsupportedSubsystemKeys,
     },
   };
 }
@@ -1373,11 +1443,18 @@ export async function analyzeRepositoryFileBatch(
   });
   const inputBytes = Buffer.byteLength(userPrompt, "utf8");
   const requestedFileKeys = prepared.map((entry) => entry.fileKey);
-  const batchJsonSchema = buildSemanticBatchAnalysisJsonSchema(requestedFileKeys);
+  const batchJsonSchema = buildSemanticBatchAnalysisJsonSchema(
+    requestedFileKeys,
+    prepared.flatMap((entry) => entry.allowedCapabilityKeys),
+  );
   const batchFingerprint = createHash("sha256")
     .update(userPrompt)
     .digest("hex")
     .slice(0, 24);
+  const semanticMaxTokens = Math.min(
+    sharedBudget?.model.limits.maxOutputTokens ?? 6_000,
+    6_000,
+  );
   let result: {
     data: z.infer<typeof semanticBatchAnalysisSchema>;
     tokenUsage: unknown;
@@ -1429,6 +1506,7 @@ export async function analyzeRepositoryFileBatch(
           `Each finding's lineStart and lineEnd must fall within the same suppliedLineRanges entry for that file. Cite the smallest contiguous supplied range, never span a numbering gap, and keep the exact range within ${REPOSITORY_SEMANTIC_MAX_CITATION_BYTES} UTF-8 bytes.`,
           "Return at most three decisive findings and two concrete unresolved questions per file.",
           "Assign each finding only to that file's allowed capability keys and follow its research task.",
+          "Treat every allowedCapabilityKeys value as an opaque identifier. Copy subsystemKeys and every finding.capabilityKeys value verbatim from that file's list, preserving punctuation such as ':'; never normalize, rename, translate, or invent capability keys.",
           "signalKeys are stable implementation facets. Use only that file's allowedSemanticSignalKeys and attach every supplied signal directly established by the cited lines.",
         ].join(" "),
         userPrompt,
@@ -1461,7 +1539,8 @@ export async function analyzeRepositoryFileBatch(
           "Keep exactly one object property per supplied fileKey; do not echo fileKey or path fields.",
           "Map facts or observations to that file's findings without inventing content.",
         ],
-        maxTokens: Math.min(sharedBudget?.model.limits.maxOutputTokens ?? 6_000, 6_000),
+        maxTokens: semanticMaxTokens,
+        minimumOutputTokens: semanticMaxTokens,
         temperature: 0,
         // Semantic extraction is a transcription/grounding task with a strict
         // schema, not an open-ended reasoning task. On reasoning models,
@@ -1541,6 +1620,9 @@ export async function analyzeRepositoryFileBatch(
     const acceptedFindings: typeof parsedData.findings = [];
     const structurallyInferredCapabilityKeys = new Set<string>();
     const strippedUnsupportedCapabilityKeys = new Set<string>();
+    const strippedUnsupportedSubsystemKeys = parsedData.subsystemKeys.filter(
+      (key) => !entry.allowedCapabilityKeys.includes(key),
+    );
     const facts = parsedData.findings.flatMap((finding) => {
       const inferredCapabilityKeys = structurallySupportedSemanticCapabilityKeys({
         path: entry.file.path,
@@ -1681,6 +1763,7 @@ export async function analyzeRepositoryFileBatch(
         missingCapabilityKeys,
         structurallyInferredCapabilityKeys: Array.from(structurallyInferredCapabilityKeys).sort(),
         strippedUnsupportedCapabilityKeys: Array.from(strippedUnsupportedCapabilityKeys).sort(),
+        strippedUnsupportedSubsystemKeys: unique(strippedUnsupportedSubsystemKeys, 12).sort(),
         unknownBatchMembers: unknownMembers,
         batchFingerprint,
       }],

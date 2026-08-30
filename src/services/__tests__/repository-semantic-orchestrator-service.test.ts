@@ -1000,6 +1000,53 @@ describe("repository semantic orchestration guardrails", () => {
       retriedFileSnapshotIds: ["file-1"],
       filePathBySnapshotId,
     });
+    expect(afterFirstWave.flatMap((entry) => entry.gaps)).toEqual([
+      "src/orders/menu.ts: Semantic analysis degraded.",
+      "src/orders/menu.ts: Semantic analysis degraded.",
+    ]);
+    expect(afterFirstWave.flatMap((entry) => entry.candidates.map((candidate) => candidate.statement))).toEqual([
+      "The partial batch produced an obsolete observation.",
+    ]);
+
+    const capacityBlockedRetry = {
+      ...report(
+        "capacity-retry",
+        "",
+        ["file-1"],
+        ["src/orders/menu.ts: Semantic analysis failed."],
+        true,
+      ),
+      capacityLimitedFileSnapshotIds: ["file-1"],
+    };
+    const afterCapacityBlockedRetry = effectiveCapabilityReportsAfterRepair({
+      initialReports: [initial],
+      repairReports: [capacityBlockedRetry],
+      retriedFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId,
+    });
+    expect(afterCapacityBlockedRetry[0]).toMatchObject({
+      retryFileSnapshotIds: ["file-1"],
+      gaps: ["src/orders/menu.ts: Semantic analysis degraded."],
+    });
+    expect(afterCapacityBlockedRetry.flatMap((entry) =>
+      entry.capacityLimitedFileSnapshotIds ?? []
+    )).toEqual(["file-1"]);
+    expect(afterCapacityBlockedRetry.flatMap((entry) =>
+      entry.candidates.map((candidate) => candidate.statement)
+    )).toEqual(["The partial batch produced an obsolete observation."]);
+    expect(afterCapacityBlockedRetry.flatMap((entry) => entry.gaps)).toEqual([
+      "src/orders/menu.ts: Semantic analysis degraded.",
+      "src/orders/menu.ts: Semantic analysis failed.",
+    ]);
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: afterCapacityBlockedRetry,
+      repairReports: [],
+      retriedFileSnapshotIds: [],
+      filePathBySnapshotId,
+    })).toEqual(expect.arrayContaining([
+      "src/orders/menu.ts: Semantic analysis degraded.",
+    ]));
+
     const afterSecondWave = effectiveCapabilityReportsAfterRepair({
       initialReports: afterFirstWave,
       repairReports: [repaired],
