@@ -1315,9 +1315,10 @@ export function fallbackSubsystemSynthesis(
  * no Highlight, preserving the explicit `no_safe_candidates` outcome for
  * genuinely thin repositories.
  */
-export function substantialFactHighlightFallback(
+export function groundedHighlightCandidateFloor(
   facts: RepositorySubsystemSynthesis["facts"],
   notebook: SynthesisNotebookEntry[],
+  subsystemKey?: string,
 ): RepositorySubsystemSynthesis["highlights"] {
   const repositoryProductCapabilityEvidence = Array.from(new Map(
     notebook
@@ -1337,6 +1338,17 @@ export function substantialFactHighlightFallback(
   ).values());
   const repositoryKey = (citation: SynthesisNotebookEntry) =>
     citation.repository.trim().replace(/\.git$/ui, "").toLowerCase();
+  const corroboratedProjectDomainPaths = isProjectDomainCapabilityKey(
+    subsystemKey ?? "",
+  )
+    ? new Set(notebook.flatMap((citation) =>
+        citation.evidenceMode === "semantic" &&
+          citation.semanticStatus === "succeeded" &&
+          isImplementationSynthesisPath(citation.path)
+          ? [citation.path]
+          : []
+      ))
+    : new Set<string>();
   const candidates = facts.flatMap((fact) => {
     if (
       fact.confidence !== "high" ||
@@ -1396,6 +1408,18 @@ export function substantialFactHighlightFallback(
       ? individuallySubstantialEvidence
       : repositoryCorroboratedEvidence.length
         ? repositoryCorroboratedEvidence
+        : corroboratedProjectDomainPaths.size >= 2
+            ? exactCitations.filter((citation) =>
+                citation.productImportance >= 3 &&
+                citation.implementationBreadth >= 2 &&
+                citation.technicalDifficulty >= 3 &&
+                (
+                  citation.semanticKind === "user_capability" ||
+                  citation.semanticKind === "data_flow" ||
+                  citation.semanticKind === "invariant" ||
+                  citation.semanticKind === "integration"
+                )
+              )
         : [];
     if (!substantialEvidence.length) return [];
 
@@ -4144,6 +4168,10 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     .filter((highlight) =>
       facts.filter((fact) => repositoryHighlightPromotesFact(highlight, fact)).length === 1
     );
+  const groundedHighlightFloor =
+    approvalEligible && modelHighlights.length === 0
+      ? groundedHighlightCandidateFloor(facts, notebook, subsystemKey)
+      : [];
   // Project Facts are the durable knowledge layer. Highlights are optional
   // presentation candidates and may be removed later by global salience and
   // deduplication, so they cannot independently certify subsystem coverage.
@@ -4161,10 +4189,11 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     repository,
     subsystemKey,
     facts,
-    // The synthesis model is authoritative about whether a supported Fact is
-    // substantial enough to become a Highlight. Do not silently promote a
-    // Fact after the model deliberately returned no Highlights.
-    highlights: modelHighlights,
+    // Keep the model's candidates, but do not let a clean synthesis erase an
+    // entire corroborated project domain after it has already rated and cited
+    // a substantial fact. The floor copies that fact verbatim; degraded or
+    // deterministic synthesis remains ineligible.
+    highlights: [...modelHighlights, ...groundedHighlightFloor].slice(0, 2),
     unresolvedQuestions: Array.from(new Set([
       ...result.unresolvedQuestions,
       ...coverageGaps,

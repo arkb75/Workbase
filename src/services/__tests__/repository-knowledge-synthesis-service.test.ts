@@ -55,7 +55,7 @@ import {
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
-  substantialFactHighlightFallback,
+  groundedHighlightCandidateFloor,
   synthesisNotebookSourceCoverageGaps,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
@@ -2383,7 +2383,7 @@ describe("repository synthesis model-path limits", () => {
         semanticStatus: "succeeded" as const,
       },
     ];
-    const highlights = substantialFactHighlightFallback([{
+    const highlights = groundedHighlightCandidateFloor([{
       statement:
         "The application combines signed-session rotation with scoped authorization for protected project data.",
       category: "architecture",
@@ -2402,6 +2402,63 @@ describe("repository synthesis model-path limits", () => {
       citationIndexes: [1, 2],
       visibility: "private",
       confidence: "high",
+    })]);
+  });
+
+  it("keeps one verified data-flow highlight for a corroborated project domain", () => {
+    const statement =
+      "AVG and SUM accumulate values with Decimal and return numbers rounded to two decimal places.";
+    const fact = {
+      statement,
+      category: "data_flow" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [1],
+      productImportance: 3,
+      implementationBreadth: 2,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+      reviewNotes: null,
+    };
+    const notebook = [
+      {
+        ...entry("src/query/Calculations.ts", statement),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticKind: "data_flow" as const,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+      },
+      {
+        ...entry(
+          "src/query/QueryExecutor.ts",
+          "The query executor applies validated transformations to matching data.",
+        ),
+        evidenceMode: "semantic" as const,
+        semanticStatus: "succeeded" as const,
+        semanticKind: "data_flow" as const,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+      },
+    ];
+
+    const finalized = finalizeRepositorySubsystemSynthesis({
+      sourceId: "source-1",
+      repository: "example/dataset-platform",
+      subsystemKey: "project_domain:query",
+      notebook,
+      coverageGaps: [],
+      result: { facts: [fact], highlights: [], unresolvedQuestions: [] },
+      tokenUsage: null,
+    });
+
+    expect(finalized.highlights).toEqual([expect.objectContaining({
+      text: statement,
+      summary: statement,
+      citationIndexes: [1],
+      visibility: "private",
     })]);
   });
 
@@ -2438,7 +2495,7 @@ describe("repository synthesis model-path limits", () => {
       };
       const original = structuredClone(fact);
 
-      expect(substantialFactHighlightFallback([fact], notebook)).toEqual([
+      expect(groundedHighlightCandidateFloor([fact], notebook)).toEqual([
         expect.objectContaining({
           text: statement,
           citationIndexes: [1],
@@ -2481,7 +2538,7 @@ describe("repository synthesis model-path limits", () => {
       },
     ];
 
-    expect(substantialFactHighlightFallback([{
+    expect(groundedHighlightCandidateFloor([{
       statement,
       category: "behavior",
       confidence: "high",
@@ -2531,7 +2588,7 @@ describe("repository synthesis model-path limits", () => {
     const secondStatement =
       "The tailoring workflow selects a close resume branch before applying minimal edits.";
 
-    expect(substantialFactHighlightFallback([
+    expect(groundedHighlightCandidateFloor([
       {
         statement: firstStatement,
         category: "architecture",
@@ -2574,7 +2631,7 @@ describe("repository synthesis model-path limits", () => {
       technicalDifficulty: 3,
     }];
 
-    expect(substantialFactHighlightFallback([{
+    expect(groundedHighlightCandidateFloor([{
       statement: "The product exposes one small documented behavior.",
       category: "behavior",
       confidence: "high",
@@ -2610,7 +2667,7 @@ describe("repository synthesis model-path limits", () => {
       repository: "example/two",
     };
 
-    expect(substantialFactHighlightFallback([{
+    expect(groundedHighlightCandidateFloor([{
       statement: "Repository one exposes one documented product behavior.",
       category: "behavior",
       confidence: "high",
@@ -2638,7 +2695,7 @@ describe("repository synthesis model-path limits", () => {
       technicalDifficulty: 3,
     };
 
-    expect(substantialFactHighlightFallback([{
+    expect(groundedHighlightCandidateFloor([{
       statement: "The product documents one resume-selection behavior.",
       category: "behavior",
       confidence: "high",
@@ -2788,7 +2845,7 @@ describe("repository synthesis model-path limits", () => {
       distinctiveness: 1,
       reviewNotes: null,
     };
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [lowValue],
       [{
         ...entry("src/format.ts"),
@@ -2800,7 +2857,7 @@ describe("repository synthesis model-path limits", () => {
         technicalDifficulty: 1,
       }],
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{
         ...lowValue,
         productImportance: 5,
@@ -2818,7 +2875,7 @@ describe("repository synthesis model-path limits", () => {
         technicalDifficulty: 1,
       }],
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{
         ...lowValue,
         productImportance: 5,
@@ -2836,7 +2893,7 @@ describe("repository synthesis model-path limits", () => {
         technicalDifficulty: 3,
       }],
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{
         ...lowValue,
         productImportance: 5,
@@ -2867,23 +2924,23 @@ describe("repository synthesis model-path limits", () => {
       reviewNotes: null,
     };
 
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{ ...substantial, sensitivityFlag: true }],
       semanticNotebook,
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{ ...substantial, confidence: "medium" }],
       semanticNotebook,
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [substantial],
       [{ ...semanticNotebook[0]!, semanticStatus: "degraded" }],
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{ ...substantial, citationIndexes: [2] }],
       semanticNotebook,
     )).toEqual([]);
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       [{ ...substantial, statement: `A substantial claim ${"with supported detail ".repeat(20)}` }],
       semanticNotebook,
     )).toEqual([]);
@@ -2903,7 +2960,7 @@ describe("repository synthesis model-path limits", () => {
       notebook,
     );
 
-    expect(substantialFactHighlightFallback(
+    expect(groundedHighlightCandidateFloor(
       synthesis?.facts ?? [],
       notebook,
     )).toEqual([expect.objectContaining({
