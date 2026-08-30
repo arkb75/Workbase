@@ -169,10 +169,7 @@ async function structuredRequestBody(
   ) as StructuredRequestBody;
 }
 
-function schemaFromStructuredRequest(
-  body: StructuredRequestBody,
-  _mode: "json_schema" | "strict_tool_use",
-) {
+function schemaFromStructuredRequest(body: StructuredRequestBody) {
   return body.response_format?.json_schema.schema ??
     body.tools?.[0]?.function.parameters;
 }
@@ -337,7 +334,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         "anthropic/claude-sonnet-5",
         mode,
       );
-      expect(schemaFromStructuredRequest(body, mode)).toEqual(
+      expect(schemaFromStructuredRequest(body)).toEqual(
         constraintCompatibleJsonSchema,
       );
     }
@@ -354,7 +351,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         "openai/gpt-5.6-terra",
         mode,
       );
-      expect(schemaFromStructuredRequest(body, mode)).toEqual(
+      expect(schemaFromStructuredRequest(body)).toEqual(
         constraintRichJsonSchema,
       );
     }
