@@ -211,37 +211,132 @@ type RepositorySynthesisRevisionPatch = {
   highlightRevisions: RepositorySynthesisRevisionPatchEntry[];
 };
 
+type RepositorySynthesisAuditPromotion = {
+  confidence: "low" | "medium" | "high";
+  sensitivityFlag: boolean;
+  productImportance: number;
+  implementationBreadth: number;
+  technicalDifficulty: number;
+  distinctiveness: number;
+};
+type RepositorySynthesisAuditVisibility =
+  | "private"
+  | "resume_safe"
+  | "linkedin_safe"
+  | "public_safe";
+type RepositorySynthesisAuditFactCategory =
+  | "architecture"
+  | "behavior"
+  | "data_flow"
+  | "code_location"
+  | "dependency"
+  | "configuration";
+
 type RepositorySynthesisAuditClaim = {
   claimKey: string;
   kind: "fact" | "highlight";
   claim: Record<string, unknown>;
   citationIndexes: number[];
+  promotion: RepositorySynthesisAuditPromotion | null;
+  visibility: RepositorySynthesisAuditVisibility | null;
 };
+
+function repositorySynthesisAuditVisibility(
+  value: unknown,
+): RepositorySynthesisAuditVisibility | null {
+  return value === "private" ||
+      value === "resume_safe" ||
+      value === "linkedin_safe" ||
+      value === "public_safe"
+    ? value
+    : null;
+}
+
+function repositorySynthesisAuditFactCategory(
+  value: unknown,
+): RepositorySynthesisAuditFactCategory | null {
+  return value === "architecture" ||
+      value === "behavior" ||
+      value === "data_flow" ||
+      value === "code_location" ||
+      value === "dependency" ||
+      value === "configuration"
+    ? value
+    : null;
+}
+
+function repositorySynthesisAuditReviewNotes(value: unknown) {
+  return value === null || typeof value === "string"
+    ? value
+    : undefined;
+}
+
+function repositorySynthesisAuditPromotion(
+  value: Record<string, unknown>,
+): RepositorySynthesisAuditPromotion | null {
+  const confidence = value.confidence;
+  const sensitivityFlag = value.sensitivityFlag;
+  const scores = [
+    value.productImportance,
+    value.implementationBreadth,
+    value.technicalDifficulty,
+    value.distinctiveness,
+  ];
+  if (
+    (confidence !== "low" && confidence !== "medium" && confidence !== "high") ||
+    typeof sensitivityFlag !== "boolean" ||
+    scores.some((score) =>
+      typeof score !== "number" || !Number.isInteger(score) || score < 0 || score > 5
+    )
+  ) return null;
+  return {
+    confidence: confidence as RepositorySynthesisAuditPromotion["confidence"],
+    sensitivityFlag,
+    productImportance: value.productImportance as number,
+    implementationBreadth: value.implementationBreadth as number,
+    technicalDifficulty: value.technicalDifficulty as number,
+    distinctiveness: value.distinctiveness as number,
+  };
+}
 
 function repositorySynthesisAuditClaimPayload(value: unknown) {
   const subsystems = record(value)?.subsystems;
-  if (!Array.isArray(subsystems)) return null;
+  if (!Array.isArray(subsystems) || subsystems.length < 1 || subsystems.length > 8) {
+    return null;
+  }
   const claims: RepositorySynthesisAuditClaim[] = [];
+  const subsystemKeys = new Set<string>();
   for (const candidate of subsystems) {
     const subsystem = record(candidate);
     const subsystemKey = typeof subsystem?.subsystemKey === "string"
       ? subsystem.subsystemKey.trim()
       : "";
     if (
-      !subsystemKey ||
+      subsystemKey.length < 2 ||
+      subsystemKey.length > 100 ||
+      subsystemKeys.has(subsystemKey) ||
       !Array.isArray(subsystem?.facts) ||
-      !Array.isArray(subsystem.highlights)
+      subsystem.facts.length > 3 ||
+      !Array.isArray(subsystem.highlights) ||
+      subsystem.highlights.length > 2
     ) {
       return null;
     }
+    subsystemKeys.add(subsystemKey);
     for (const [index, candidateFact] of subsystem.facts.entries()) {
       const fact = record(candidateFact);
       if (!fact || !Array.isArray(fact.citationIndexes)) return null;
       claims.push({
         claimKey: `${subsystemKey}:fact:${index + 1}`,
         kind: "fact",
-        claim: { statement: fact.statement },
+        claim: {
+          statement: fact.statement,
+          category: fact.category,
+          reviewNotes: fact.reviewNotes,
+        },
         citationIndexes: fact.citationIndexes as number[],
+        promotion: repositorySynthesisAuditPromotion(fact),
+        visibility: null,
       });
     }
     for (const [index, candidateHighlight] of subsystem.highlights.entries()) {
@@ -252,6 +347,8 @@ function repositorySynthesisAuditClaimPayload(value: unknown) {
         kind: "highlight",
         claim: { text: highlight.text, summary: highlight.summary },
         citationIndexes: highlight.citationIndexes as number[],
+        promotion: repositorySynthesisAuditPromotion(highlight),
+        visibility: repositorySynthesisAuditVisibility(highlight.visibility),
       });
     }
   }
@@ -271,6 +368,119 @@ function repositorySynthesisAuditClaimPayloadDigest(
   return claims.length
     ? repositorySynthesisCriticClaimContentDigest(claims)
     : computedRepositorySynthesisClaimContentDigest({ subsystems: [] });
+}
+
+function repositorySynthesisAuditClaimsHaveCompleteServerShape(
+  claims: readonly RepositorySynthesisAuditClaim[],
+) {
+  const boundedTrimmedText = (
+    value: unknown,
+    minimum: number,
+    maximum: number,
+  ) => typeof value === "string" &&
+    value === value.trim() &&
+    value.length >= minimum &&
+    value.length <= maximum;
+  const fieldsAreComplete = claims.every((claim) => {
+    const citationsAreValid = claim.citationIndexes.length >= 1 &&
+      claim.citationIndexes.length <= 6 &&
+      claim.citationIndexes.every((index) =>
+        Number.isInteger(index) && index >= 1
+      );
+    if (!claim.promotion || !citationsAreValid) return false;
+    if (claim.kind === "highlight") {
+      return claim.visibility !== null &&
+        boundedTrimmedText(claim.claim.text, 10, 1_000) &&
+        boundedTrimmedText(claim.claim.summary, 10, 1_000);
+    }
+    const reviewNotes = repositorySynthesisAuditReviewNotes(
+      claim.claim.reviewNotes,
+    );
+    return claim.visibility === null &&
+      boundedTrimmedText(claim.claim.statement, 10, 500) &&
+      repositorySynthesisAuditFactCategory(claim.claim.category) !== null &&
+      reviewNotes !== undefined &&
+      (
+        reviewNotes === null ||
+        (reviewNotes === reviewNotes.trim() && reviewNotes.length <= 1_000)
+      );
+  });
+  if (!fieldsAreComplete) return false;
+  const facts = claims.filter((claim) => claim.kind === "fact");
+  return claims
+    .filter((claim) => claim.kind === "highlight")
+    .every((highlight) => {
+      const subsystemKey = repositorySynthesisAuditClaimSubsystemKey(
+        highlight.claimKey,
+        "highlight",
+      );
+      return Boolean(subsystemKey) && facts.filter((fact) =>
+        repositorySynthesisAuditClaimSubsystemKey(fact.claimKey, "fact") ===
+          subsystemKey && auditHighlightPromotesFact(highlight, fact)
+      ).length === 1;
+    });
+}
+
+function repositorySynthesisAuditClaimsExactlyEqual(
+  left: readonly RepositorySynthesisAuditClaim[],
+  right: readonly RepositorySynthesisAuditClaim[],
+) {
+  const canonical = (claims: readonly RepositorySynthesisAuditClaim[]) =>
+    [...claims]
+      .sort((a, b) => a.claimKey.localeCompare(b.claimKey))
+      .map((claim) => ({
+        claimKey: claim.claimKey,
+        kind: claim.kind,
+        claim: claim.kind === "fact"
+          ? {
+              statement: claim.claim.statement,
+              category: claim.claim.category,
+              reviewNotes: claim.claim.reviewNotes,
+            }
+          : {
+              text: claim.claim.text,
+              summary: claim.claim.summary,
+            },
+        citationIndexes: claim.citationIndexes,
+        promotion: claim.promotion,
+        visibility: claim.visibility,
+      }));
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function repositorySynthesisAuditClaimSubsystemKey(
+  claimKey: string,
+  kind?: "fact" | "highlight",
+) {
+  const markers = kind
+    ? [`:${kind}:`]
+    : [":fact:", ":highlight:"];
+  for (const marker of markers) {
+    const markerIndex = claimKey.lastIndexOf(marker);
+    if (markerIndex > 0) return claimKey.slice(0, markerIndex);
+  }
+  return null;
+}
+
+function repositorySynthesisRevisionEvidenceIndexesBySubsystem(
+  value: unknown,
+) {
+  if (!Array.isArray(value) || !value.length || value.length > 10) return null;
+  const indexesBySubsystem = new Map<string, ReadonlySet<number>>();
+  for (const candidate of value) {
+    const entry = record(candidate);
+    const subsystemKey = typeof entry?.subsystemKey === "string"
+      ? entry.subsystemKey.trim()
+      : "";
+    const citationIndexes = normalizedAuditCitations(entry?.citationIndexes);
+    if (
+      !subsystemKey ||
+      !citationIndexes?.length ||
+      indexesBySubsystem.has(subsystemKey)
+    ) return null;
+    indexesBySubsystem.set(subsystemKey, new Set(citationIndexes));
+  }
+  return indexesBySubsystem;
 }
 
 function repositorySynthesisRevisionPatch(
@@ -376,8 +586,14 @@ function applyRepositorySynthesisRevisionPatch(
           ? {
               claimKey: nextClaimKey,
               kind: "fact" as const,
-              claim: { statement: replacement.statement },
+              claim: {
+                statement: replacement.statement,
+                category: replacement.category,
+                reviewNotes: replacement.reviewNotes,
+              },
               citationIndexes: replacement.citationIndexes as number[],
+              promotion: repositorySynthesisAuditPromotion(replacement),
+              visibility: null,
             }
           : {
               claimKey: nextClaimKey,
@@ -387,6 +603,10 @@ function applyRepositorySynthesisRevisionPatch(
                 summary: replacement.summary,
               },
               citationIndexes: replacement.citationIndexes as number[],
+              promotion: repositorySynthesisAuditPromotion(replacement),
+              visibility: repositorySynthesisAuditVisibility(
+                replacement.visibility,
+              ),
             }
         : { ...entry.claim, claimKey: nextClaimKey };
       claims.push(nextClaim);
@@ -429,6 +649,293 @@ function repositorySynthesisRevisionCriticClaims(
   return claims.length && !claimContentDigest
     ? null
     : { claims, claimContentDigest };
+}
+
+function normalizedAuditCitations(value: unknown) {
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) =>
+      typeof entry !== "number" || !Number.isInteger(entry) || entry < 1
+    )
+  ) return null;
+  return Array.from(new Set(value as number[])).sort((left, right) => left - right);
+}
+
+function sameAuditCitations(left: unknown, right: unknown) {
+  const normalizedLeft = normalizedAuditCitations(left);
+  const normalizedRight = normalizedAuditCitations(right);
+  return normalizedLeft !== null && normalizedRight !== null &&
+    JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
+}
+
+function sameExactAuditCitations(left: unknown, right: unknown) {
+  return Array.isArray(left) && Array.isArray(right) &&
+    JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizedAuditText(value: unknown) {
+  return typeof value === "string" ? value.replace(/\s+/gu, " ").trim() : null;
+}
+
+function sameAuditPromotion(
+  left: RepositorySynthesisAuditPromotion | null,
+  right: RepositorySynthesisAuditPromotion | null,
+) {
+  return left !== null && right !== null &&
+    left.confidence === right.confidence &&
+    left.sensitivityFlag === right.sensitivityFlag &&
+    left.productImportance === right.productImportance &&
+    left.implementationBreadth === right.implementationBreadth &&
+    left.technicalDifficulty === right.technicalDifficulty &&
+    left.distinctiveness === right.distinctiveness;
+}
+
+function auditHighlightPromotesFact(
+  highlight: RepositorySynthesisAuditClaim,
+  fact: RepositorySynthesisAuditClaim,
+) {
+  return highlight.kind === "highlight" && fact.kind === "fact" &&
+    normalizedAuditText(highlight.claim.summary) ===
+      normalizedAuditText(fact.claim.statement) &&
+    sameAuditCitations(highlight.citationIndexes, fact.citationIndexes) &&
+    sameAuditPromotion(highlight.promotion, fact.promotion);
+}
+
+/**
+ * V3 may server-rebind an otherwise accepted Highlight when its promoted Fact
+ * changes. Admit only that exact derived cascade in addition to claims the
+ * prior critic rejected; arbitrary accepted-claim edits remain invalid.
+ */
+function repositorySynthesisRevisionPatchIsAuthorized(input: {
+  priorClaims: readonly RepositorySynthesisAuditClaim[];
+  patch: RepositorySynthesisRevisionPatch;
+  rejectedClaimKeys: readonly string[];
+  priorAssessments: readonly {
+    claimKey: string;
+    supported: boolean;
+    issues: string[];
+  }[];
+  allowedCitationIndexesBySubsystem: ReadonlyMap<
+    string,
+    ReadonlySet<number>
+  >;
+}) {
+  if (!repositorySynthesisAuditClaimsHaveCompleteServerShape(
+    input.priorClaims,
+  )) return false;
+  const rejected = new Set(input.rejectedClaimKeys);
+  const expected = new Set(input.rejectedClaimKeys);
+  const highlightPatchByKey = new Map(input.patch.highlightRevisions.map(
+    (entry) => [entry.claimKey, entry] as const,
+  ));
+  const factPatchByKey = new Map(input.patch.factRevisions.map(
+    (entry) => [entry.claimKey, entry] as const,
+  ));
+  const facts = input.priorClaims.filter((claim) => claim.kind === "fact");
+  const highlights = input.priorClaims.filter((claim) =>
+    claim.kind === "highlight"
+  );
+  const priorClaimByKey = new Map(input.priorClaims.map((claim) => [
+    claim.claimKey,
+    claim,
+  ]));
+  const issuesByKey = new Map(input.priorAssessments.map((assessment) => [
+    assessment.claimKey,
+    assessment.issues,
+  ]));
+  for (const revision of [
+    ...input.patch.factRevisions.map((entry) => ({
+      ...entry,
+      kind: "fact" as const,
+    })),
+    ...input.patch.highlightRevisions.map((entry) => ({
+      ...entry,
+      kind: "highlight" as const,
+    })),
+  ]) {
+    if (revision.replacement === null) continue;
+    const subsystemKey = repositorySynthesisAuditClaimSubsystemKey(
+      revision.claimKey,
+      revision.kind,
+    );
+    const allowedCitationIndexes = subsystemKey
+      ? input.allowedCitationIndexesBySubsystem.get(subsystemKey)
+      : null;
+    const replacementPromotion = repositorySynthesisAuditPromotion(
+      revision.replacement,
+    );
+    const replacementVisibility = revision.kind === "highlight"
+      ? repositorySynthesisAuditVisibility(revision.replacement.visibility)
+      : null;
+    if (
+      !subsystemKey ||
+      !allowedCitationIndexes ||
+      !replacementPromotion ||
+      (
+        revision.kind === "fact" &&
+        (
+          !repositorySynthesisAuditFactCategory(
+            revision.replacement.category,
+          ) ||
+          repositorySynthesisAuditReviewNotes(
+            revision.replacement.reviewNotes,
+          ) === undefined
+        )
+      ) ||
+      (revision.kind === "highlight" && !replacementVisibility) ||
+      !Array.isArray(revision.replacement.citationIndexes) ||
+      revision.replacement.citationIndexes.some((index) =>
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        !allowedCitationIndexes.has(index)
+      )
+    ) return false;
+
+    if (!rejected.has(revision.claimKey)) continue;
+    const priorClaim = priorClaimByKey.get(revision.claimKey);
+    if (!priorClaim || priorClaim.kind !== revision.kind) return false;
+    const wordingChanged = revision.kind === "fact"
+      ? revision.replacement.statement !== priorClaim.claim.statement
+      : revision.replacement.text !== priorClaim.claim.text ||
+        revision.replacement.summary !== priorClaim.claim.summary;
+    const citationsChanged = !sameAuditCitations(
+      revision.replacement.citationIndexes,
+      priorClaim.citationIndexes,
+    );
+    const requiresWordingChange = (issuesByKey.get(revision.claimKey) ?? [])
+      .some((issue) =>
+        issue === "unsupported_compound_action" ||
+        issue === "unsupported_broad_qualifier" ||
+        issue === "unsupported_detail"
+      );
+    if (!wordingChanged && (!citationsChanged || requiresWordingChange)) {
+      return false;
+    }
+  }
+  const effectiveFacts = facts.flatMap<RepositorySynthesisAuditClaim>((fact) => {
+    const revision = factPatchByKey.get(fact.claimKey);
+    if (!revision) return [fact];
+    if (revision.replacement === null) return [];
+    return [{
+      ...fact,
+      kind: "fact" as const,
+      claim: {
+        statement: revision.replacement.statement,
+        category: revision.replacement.category,
+        reviewNotes: revision.replacement.reviewNotes,
+      },
+      citationIndexes: revision.replacement.citationIndexes as number[],
+      promotion: repositorySynthesisAuditPromotion(revision.replacement),
+    }];
+  });
+  for (const priorHighlight of highlights) {
+    const markerIndex = priorHighlight.claimKey.lastIndexOf(":highlight:");
+    const subsystemPrefix = markerIndex > 0
+      ? priorHighlight.claimKey.slice(0, markerIndex)
+      : "";
+    if (!subsystemPrefix) return false;
+    const subsystemFacts = facts.filter((candidate) =>
+      candidate.claimKey.startsWith(`${subsystemPrefix}:fact:`)
+    );
+    const matchingPriorFacts = subsystemFacts.filter((candidate) =>
+      auditHighlightPromotesFact(priorHighlight, candidate)
+    );
+    const priorFact = matchingPriorFacts.length === 1
+      ? matchingPriorFacts[0]!
+      : null;
+    const factRevision = priorFact
+      ? factPatchByKey.get(priorFact.claimKey)
+      : undefined;
+    const isRejected = rejected.has(priorHighlight.claimKey);
+    const isAcceptedCascade = !isRejected && Boolean(factRevision);
+    if (isAcceptedCascade) expected.add(priorHighlight.claimKey);
+    if (!isRejected && !isAcceptedCascade) continue;
+
+    const highlightRevision = highlightPatchByKey.get(
+      priorHighlight.claimKey,
+    );
+    if (!highlightRevision) return false;
+    if (!priorFact) {
+      if (highlightRevision.replacement !== null) return false;
+      continue;
+    }
+    const effectiveFact = factRevision
+      ? effectiveFacts.find((candidate) =>
+          candidate.claimKey === priorFact.claimKey
+        ) ?? null
+      : priorFact;
+    if (!effectiveFact) {
+      if (highlightRevision.replacement !== null) return false;
+      continue;
+    }
+    if (isRejected && highlightRevision.replacement === null) continue;
+
+    const expectedReplacementHighlight: RepositorySynthesisAuditClaim = {
+      ...priorHighlight,
+      claim: {
+        text: priorHighlight.claim.text,
+        summary: effectiveFact.claim.statement,
+      },
+      citationIndexes: [...effectiveFact.citationIndexes],
+      promotion: effectiveFact.promotion,
+      visibility: priorHighlight.visibility,
+    };
+    const effectiveSubsystemFacts = effectiveFacts.filter((candidate) =>
+      candidate.claimKey.startsWith(`${subsystemPrefix}:fact:`)
+    );
+    const remainsUniquelyBound = effectiveSubsystemFacts.filter((candidate) =>
+      auditHighlightPromotesFact(expectedReplacementHighlight, candidate)
+    ).length === 1;
+    if (!remainsUniquelyBound) {
+      if (highlightRevision.replacement !== null) return false;
+      continue;
+    }
+    if (highlightRevision.replacement === null) return false;
+    if (
+      highlightRevision.replacement.summary !== effectiveFact.claim.statement ||
+      !sameExactAuditCitations(
+        highlightRevision.replacement.citationIndexes,
+        effectiveFact.citationIndexes,
+      ) ||
+      !sameAuditPromotion(
+        repositorySynthesisAuditPromotion(highlightRevision.replacement),
+        effectiveFact.promotion,
+      ) ||
+      repositorySynthesisAuditVisibility(
+        highlightRevision.replacement.visibility,
+      ) !== priorHighlight.visibility ||
+      (
+        !isRejected &&
+        highlightRevision.replacement.text !== priorHighlight.claim.text
+      )
+    ) return false;
+  }
+  if (!sameUniqueKeys(
+    [...input.patch.factRevisions, ...input.patch.highlightRevisions]
+      .map((entry) => entry.claimKey),
+    [...expected],
+  )) return false;
+  const applied = applyRepositorySynthesisRevisionPatch(
+    input.priorClaims,
+    input.patch,
+  );
+  if (
+    !applied ||
+    !repositorySynthesisAuditClaimsHaveCompleteServerShape(applied.claims)
+  ) return false;
+  const appliedFacts = applied.claims.filter((claim) => claim.kind === "fact");
+  return applied.claims
+    .filter((claim) => claim.kind === "highlight")
+    .every((highlight) => {
+      const subsystemKey = repositorySynthesisAuditClaimSubsystemKey(
+        highlight.claimKey,
+        "highlight",
+      );
+      return Boolean(subsystemKey) && appliedFacts.filter((fact) =>
+        repositorySynthesisAuditClaimSubsystemKey(fact.claimKey, "fact") ===
+          subsystemKey && auditHighlightPromotesFact(highlight, fact)
+      ).length === 1;
+    });
 }
 
 function repositoryCriticAssessments(parsedOutput: unknown) {
@@ -570,6 +1077,7 @@ function expectedIdentityFor(
 export function evaluateRepositoryKnowledgeMainPath(input: {
   generationRuns: readonly RepositoryKnowledgeGenerationAuditRecord[];
   expectedIdentities: Partial<Record<RepositoryKnowledgeModelGenerationKind, RepositoryKnowledgeExpectedModelIdentity>>;
+  expectedSynthesisCriticIdentity?: RepositoryKnowledgeExpectedModelIdentity;
   coverage: unknown;
   orchestration: unknown;
   warnings: unknown;
@@ -786,14 +1294,37 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
           deltaCritic.revisionPatch,
         )
       : null;
+    const currentClaims = repositorySynthesisAuditClaimPayload(
+      run.parsedOutput,
+    );
+    const revisionContract = String(
+      record(run.inputSummary)?.revisionContract ?? "",
+    );
     const currentDigest = computedRepositorySynthesisClaimContentDigest(
       run.parsedOutput,
     );
     return applied &&
+        currentClaims &&
         currentDigest &&
         currentDigest ===
           attestedRepositorySynthesisClaimContentDigest(run.resultRefs) &&
-        repositorySynthesisAuditClaimPayloadDigest(applied.claims) === currentDigest
+        repositorySynthesisAuditClaimPayloadDigest(applied.claims) ===
+          currentDigest &&
+        (
+          revisionContract !== "rejected_claim_patch_v3_server_slots" ||
+          (
+            repositorySynthesisAuditClaimsHaveCompleteServerShape(
+              sourceClaims!,
+            ) &&
+            repositorySynthesisAuditClaimsHaveCompleteServerShape(
+              currentClaims,
+            ) &&
+            repositorySynthesisAuditClaimsExactlyEqual(
+              applied.claims,
+              currentClaims,
+            )
+          )
+        )
       ? applied.keyRemap
       : null;
   };
@@ -812,10 +1343,13 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     if (visiting.has(run)) return false;
     visiting.add(run);
     const valid = (() => {
-      if (
-        record(run.inputSummary)?.revisionContract !==
-          "rejected_claim_patch_v2_delta_critic"
-      ) {
+      const revisionContract = String(
+        record(run.inputSummary)?.revisionContract ?? "",
+      );
+      if (![
+        "rejected_claim_patch_v2_delta_critic",
+        "rejected_claim_patch_v3_server_slots",
+      ].includes(revisionContract)) {
         return false;
       }
       const prior = priorSynthesisForDelta(run, deltaCritic);
@@ -830,12 +1364,30 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       const priorClaims = repositorySynthesisAuditClaimPayload(
         prior.parsedOutput,
       );
-      const applied = priorClaims
-        ? applyRepositorySynthesisRevisionPatch(
-            priorClaims,
-            deltaCritic.revisionPatch,
+      if (!priorClaims) return false;
+      const currentClaims = repositorySynthesisAuditClaimPayload(
+        run.parsedOutput,
+      );
+      if (!currentClaims) return false;
+      const v3ServerSlots =
+        revisionContract === "rejected_claim_patch_v3_server_slots";
+      const allowedCitationIndexesBySubsystem = v3ServerSlots
+        ? repositorySynthesisRevisionEvidenceIndexesBySubsystem(
+            record(run.inputSummary)?.revisionEvidenceIndexesBySubsystem,
           )
         : null;
+      if (
+        v3ServerSlots &&
+        (
+          !repositorySynthesisAuditClaimsHaveCompleteServerShape(priorClaims) ||
+          !repositorySynthesisAuditClaimsHaveCompleteServerShape(currentClaims) ||
+          !allowedCitationIndexesBySubsystem
+        )
+      ) return false;
+      const applied = applyRepositorySynthesisRevisionPatch(
+        priorClaims,
+        deltaCritic.revisionPatch,
+      );
       const priorPayloadDigest = computedRepositorySynthesisClaimContentDigest(
         prior.parsedOutput,
       );
@@ -849,7 +1401,14 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
         currentDigest !==
           attestedRepositorySynthesisClaimContentDigest(run.resultRefs) ||
         repositorySynthesisAuditClaimPayloadDigest(applied.claims) !==
-          currentDigest
+          currentDigest ||
+        (
+          v3ServerSlots &&
+          !repositorySynthesisAuditClaimsExactlyEqual(
+            applied.claims,
+            currentClaims,
+          )
+        )
       ) {
         return false;
       }
@@ -877,17 +1436,28 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       const criticKeyRemap = criticKeyRemapForSynthesis(prior);
       if (!priorAssessments || !criticKeyRemap) return false;
       const rejectedClaimKeys: string[] = [];
+      const remappedPriorAssessments: typeof priorAssessments = [];
       for (const assessment of priorAssessments) {
-        if (assessment.supported && assessment.issues.length === 0) continue;
         const claimKey = criticKeyRemap.get(assessment.claimKey);
         if (!claimKey) return false;
+        remappedPriorAssessments.push({ ...assessment, claimKey });
+        if (assessment.supported && assessment.issues.length === 0) continue;
         rejectedClaimKeys.push(claimKey);
       }
       const patchClaimKeys = [
         ...deltaCritic.revisionPatch.factRevisions,
         ...deltaCritic.revisionPatch.highlightRevisions,
       ].map((entry) => entry.claimKey);
-      return sameUniqueKeys(patchClaimKeys, rejectedClaimKeys);
+      return revisionContract === "rejected_claim_patch_v2_delta_critic"
+        ? sameUniqueKeys(patchClaimKeys, rejectedClaimKeys)
+        : repositorySynthesisRevisionPatchIsAuthorized({
+            priorClaims,
+            patch: deltaCritic.revisionPatch,
+            rejectedClaimKeys,
+            priorAssessments: remappedPriorAssessments,
+            allowedCitationIndexesBySubsystem:
+              allowedCitationIndexesBySubsystem!,
+          });
     })();
     visiting.delete(run);
     deltaValidation.set(run, valid);
@@ -974,7 +1544,10 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   input.generationRuns.forEach((run, index) => {
     const label = `${run.kind} generation ${index + 1}`;
     const refs = record(run.resultRefs);
-    const expected = expectedIdentityFor(run.kind, input.expectedIdentities);
+    const expected = run.kind === "capability_synthesis" &&
+        repositorySynthesisGenerationPhase(run.inputSummary) === "entailment_critic"
+      ? input.expectedSynthesisCriticIdentity ?? expectedIdentityFor(run.kind, input.expectedIdentities)
+      : expectedIdentityFor(run.kind, input.expectedIdentities);
     if (run.status !== "success") {
       issues.push(`${label} ended with status ${run.status}.`);
     }

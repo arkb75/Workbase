@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import type { HighlightTagValue } from "@/src/lib/highlight-taxonomy";
@@ -10,7 +10,9 @@ import {
   recordAutoResolvedKnowledgeChangesInTransaction,
   upsertReviewableKnowledgeChange,
   upsertReviewableKnowledgeChangeInTransaction,
+  upsertReviewableKnowledgeChangesInTransaction,
   type AutoResolvedKnowledgeChangeInput,
+  type ReviewableKnowledgeChangeInput,
 } from "@/src/services/knowledge-change-service";
 import { lockKnowledgeWorkItemMutation } from "@/src/services/knowledge-mutation-lock-service";
 import {
@@ -638,7 +640,7 @@ function citationsForIndexes(input: {
   });
 }
 
-async function recordChange(input: {
+type ReconciliationKnowledgeChangeInput = {
   workItemId: string;
   refreshRunId?: string;
   entityKind: "evidence" | "highlight" | "project_fact" | "artifact";
@@ -650,15 +652,34 @@ async function recordChange(input: {
   provenance?: unknown;
   downstreamImpact?: unknown;
   suffix: string;
-}, client?: Prisma.TransactionClient) {
+};
+
+function reconciliationKnowledgeChangeInput(
+  input: ReconciliationKnowledgeChangeInput,
+): ReviewableKnowledgeChangeInput {
   const idempotencyKey = `${input.refreshRunId ?? "direct"}:${input.entityKind}:${input.action}:${input.suffix}`;
-  const change = {
-    ...input,
+  return {
+    workItemId: input.workItemId,
     refreshRunId: input.refreshRunId ?? null,
+    entityKind: input.entityKind,
+    action: input.action,
+    entityId: input.entityId,
+    beforeSnapshot: input.beforeSnapshot,
+    afterSnapshot: input.afterSnapshot,
+    reason: input.reason,
+    provenance: input.provenance,
+    downstreamImpact: input.downstreamImpact,
     policyVersion: KNOWLEDGE_LIFECYCLE_POLICY_VERSION,
     modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
     idempotencyKey,
   };
+}
+
+async function recordChange(
+  input: ReconciliationKnowledgeChangeInput,
+  client?: Prisma.TransactionClient,
+) {
+  const change = reconciliationKnowledgeChangeInput(input);
   return client
     ? upsertReviewableKnowledgeChangeInTransaction(change, client)
     : upsertReviewableKnowledgeChange(change);
@@ -881,7 +902,7 @@ export function highlightReconciliationCasWhere(
   };
 }
 
-async function applyFact(input: {
+export async function applyFact(input: {
   runId: string;
   workItemId: string;
   subsystem: SynthesizedKnowledge;
@@ -932,7 +953,7 @@ async function applyFact(input: {
         data: {
           status: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.fact.reviewState,
           validatedThroughSha: input.commitSha,
           lastValidatedAt: validatedAt,
           validationHeads: toInputJson(input.validationHeads),
@@ -954,7 +975,8 @@ async function applyFact(input: {
         skipDuplicates: true,
       });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
-      await recordChange({
+      await recordAutoResolvedKnowledgeChangesInTransaction([
+        reconciliationKnowledgeChangeInput({
         workItemId: input.workItemId,
         refreshRunId: input.runId,
         entityKind: "project_fact",
@@ -979,7 +1001,7 @@ async function applyFact(input: {
           statement: closest.fact.statement,
           status: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.fact.reviewState,
           approvalSource: closest.fact.approvalSource,
           publicSafetyStatus: closest.fact.publicSafetyStatus,
           validatedThroughSha: input.commitSha,
@@ -996,8 +1018,9 @@ async function applyFact(input: {
           commitSha: input.commitSha,
           preservedUserEdit: validatesUserEdit,
         },
-        suffix: `${closest.fact.id}:${input.commitSha}`,
-      }, tx);
+          suffix: `${closest.fact.id}:${input.commitSha}`,
+        }),
+      ], tx);
       return true;
     });
     return applied ? closest.fact.id : null;
@@ -1006,6 +1029,10 @@ async function applyFact(input: {
   const supersedes = input.allowCanonicalReplacement && !unsafe && closest && closest.score >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
     ? closest.fact
     : null;
+  const creationPlan = newProjectFactPlan({
+    ...input,
+    key: "single-project-fact",
+  }, { unsafe, supersedes });
   const fact = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
     if (closest) {
       if (supersedes) {
@@ -1024,44 +1051,12 @@ async function applyFact(input: {
     }
     const created = await tx.projectFact.create({
       data: {
-        workItemId: input.workItemId,
-        statement: input.candidate.statement,
-        category: input.candidate.category,
-        confidence: input.candidate.confidence,
-        status: unsafe ? "draft" : "approved",
-        lifecycleStatus: unsafe ? "quarantined" : "active",
-        reviewState: "pending_review",
-        approvalSource: "automation",
-        publicSafetyStatus: "not_eligible",
-        sensitivityFlag: input.candidate.sensitivityFlag,
-        reviewNotes: input.candidate.reviewNotes,
-        searchText: normalizeWhitespace([input.candidate.statement, input.candidate.category, input.candidate.reviewNotes ?? ""].join(" ")),
-        supersedesProjectFactId: supersedes?.id,
-        subsystemKey: input.subsystem.subsystemKey,
-        validatedThroughSha: input.commitSha,
-        lastValidatedAt: new Date(),
-        validationHeads: toInputJson(input.validationHeads),
-        autoAppliedAt: unsafe ? null : new Date(),
-        productImportance: input.candidate.productImportance,
-        implementationBreadth: input.candidate.implementationBreadth,
-        technicalDifficulty: input.candidate.technicalDifficulty,
-        distinctiveness: input.candidate.distinctiveness,
+        ...creationPlan.data,
         evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
       },
     });
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
-    await recordChange({
-      workItemId: input.workItemId,
-      refreshRunId: input.runId,
-      entityKind: "project_fact",
-      action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
-      entityId: created.id,
-      beforeSnapshot: supersedes ? { id: supersedes.id, statement: supersedes.statement } : undefined,
-      afterSnapshot: { id: created.id, statement: created.statement, category: created.category, confidence: created.confidence, lifecycleStatus: created.lifecycleStatus },
-      reason: unsafe ? "The generated Project Fact failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified successor." : "Current repository evidence supported a new Project Fact.",
-      provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
-      suffix: `${hash(created.statement).slice(0, 16)}:${input.commitSha}`,
-    }, tx);
+    await upsertReviewableKnowledgeChangeInTransaction(creationPlan.change, tx);
     return created;
   });
   if (!fact) return null;
@@ -1070,19 +1065,8 @@ async function applyFact(input: {
   // user later edits and activates the candidate.
   if (!unsafe) {
     await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    const embeddingTask: KnowledgeEmbeddingTask = {
-      entityKind: "project_fact",
-      entityId: fact.id,
-      // This ID was created in the transaction immediately above, so an
-      // embedding freshness read is guaranteed to miss.
-      execute: () => upsertProjectFactEmbedding({
-        projectFactId: fact.id,
-        inputText: buildProjectFactEmbeddingText(fact),
-        skipFreshnessCheck: true,
-      }),
-    };
-    if (input.enqueueEmbedding) input.enqueueEmbedding(embeddingTask);
-    else await embeddingTask.execute();
+    if (input.enqueueEmbedding) input.enqueueEmbedding(creationPlan.embeddingTask);
+    else await creationPlan.embeddingTask.execute();
   }
   return unsafe ? null : fact.id;
 }
@@ -1111,10 +1095,8 @@ async function applyHighlight(input: {
   // repository-derived Highlight is both expensive and guaranteed to fail the
   // ownership gate in the normal case. Auto-apply it as private memory and let
   // later reviewed ownership context drive a separate public verification.
-  const publicVerification = repositoryHighlightPublicDisposition(unsafe);
-  const text = publicVerification.eligible && publicVerification.correctedText
-    ? publicVerification.correctedText
-    : input.candidate.text;
+  const presentation = newHighlightPresentation(input, unsafe);
+  const { text } = presentation;
   const existing = await prisma.highlight.findMany({
     where: { workItemId: input.workItemId, lifecycleStatus: { in: ["active", "needs_validation"] } },
     include: { evidence: { include: { evidenceItem: true } } },
@@ -1162,7 +1144,7 @@ async function applyHighlight(input: {
         data: {
           verificationStatus: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.highlight.reviewState,
           validatedThroughSha: input.commitSha,
           lastValidatedAt: validatedAt,
           validationHeads: toInputJson(input.validationHeads),
@@ -1180,7 +1162,8 @@ async function applyHighlight(input: {
         skipDuplicates: true,
       });
       await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
-      await recordChange({
+      await recordAutoResolvedKnowledgeChangesInTransaction([
+        reconciliationKnowledgeChangeInput({
         workItemId: input.workItemId,
         refreshRunId: input.runId,
         entityKind: "highlight",
@@ -1205,7 +1188,7 @@ async function applyHighlight(input: {
           text: closest.highlight.text,
           verificationStatus: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.highlight.reviewState,
           approvalSource: closest.highlight.approvalSource,
           publicSafetyStatus: closest.highlight.publicSafetyStatus,
           validatedThroughSha: input.commitSha,
@@ -1222,8 +1205,9 @@ async function applyHighlight(input: {
           commitSha: input.commitSha,
           preservedUserEdit: validatesUserEdit,
         },
-        suffix: `${closest.highlight.id}:${input.commitSha}`,
-      }, tx);
+          suffix: `${closest.highlight.id}:${input.commitSha}`,
+        }),
+      ], tx);
       return true;
     });
     return applied ? closest.highlight.id : null;
@@ -1238,11 +1222,10 @@ async function applyHighlight(input: {
     // retrieval nondeterministic. Preserve the manual canonical row.
     return null;
   }
-  const tags = inferHighlightTags({
-    text,
-    summary: input.candidate.summary,
-    verificationNotes: publicVerification.reasons.join(" ") || "Verified from complete repository coverage.",
-  });
+  const creationPlan = newHighlightPlan({
+    ...input,
+    key: "single-highlight",
+  }, { unsafe, supersedes, presentation });
   const highlight = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
     if (closest) {
       if (supersedes) {
@@ -1261,55 +1244,19 @@ async function applyHighlight(input: {
     }
     const created = await tx.highlight.create({
       data: {
-        workItemId: input.workItemId,
-        text,
-        summary: input.candidate.summary,
-        searchText: normalizeWhitespace([text, input.candidate.summary, input.subsystem.subsystemKey].join(" ")),
-        confidence: input.candidate.confidence,
-        ownershipClarity: "unclear",
-        sensitivityFlag: input.candidate.sensitivityFlag,
-        verificationStatus: unsafe ? "flagged" : "approved",
-        lifecycleStatus: unsafe ? "quarantined" : "active",
-        reviewState: "pending_review",
-        approvalSource: "automation",
-        publicSafetyStatus: publicVerification.eligible ? "verified" : publicVerification.reasons.length ? "failed" : "pending",
-        visibility: publicVerification.eligible ? input.candidate.visibility : "private",
-        risksSummary: publicVerification.reasons.join(" ").slice(0, 1_000) || null,
-        verificationNotes: "Auto-applied from complete, commit-pinned repository coverage.",
-        metadata: toInputJson({
-          managedBy: "repository_knowledge_sync",
-          refreshRunId: input.runId,
-          subsystemKey: input.subsystem.subsystemKey,
-          scores: {
-            productImportance: input.candidate.productImportance,
-            implementationBreadth: input.candidate.implementationBreadth,
-            technicalDifficulty: input.candidate.technicalDifficulty,
-            distinctiveness: input.candidate.distinctiveness,
-          },
-          publicVerification,
-        }),
-        validatedThroughSha: input.commitSha,
-        lastValidatedAt: new Date(),
-        validationHeads: toInputJson(input.validationHeads),
-        autoAppliedAt: unsafe ? null : new Date(),
-        supersedesHighlightId: supersedes?.id,
+        ...creationPlan.data,
         evidence: { create: input.evidenceIds.map((evidenceItemId) => ({ evidenceItemId })) },
-        tags: { create: tags.map((tag) => ({ dimension: tag.dimension, tag: tag.tag, score: tag.score ?? null })) },
+        tags: {
+          create: creationPlan.tags.map((tag) => ({
+            dimension: tag.dimension,
+            tag: tag.tag,
+            score: tag.score ?? null,
+          })),
+        },
       },
     });
     if (!unsafe) await tx.evidenceItem.updateMany({ where: { id: { in: input.evidenceIds } }, data: { included: true } });
-    await recordChange({
-      workItemId: input.workItemId,
-      refreshRunId: input.runId,
-      entityKind: "highlight",
-      action: unsafe ? "quarantined" : supersedes ? "updated" : "created",
-      entityId: created.id,
-      beforeSnapshot: supersedes ? { id: supersedes.id, text: supersedes.text } : undefined,
-      afterSnapshot: { id: created.id, text: created.text, summary: created.summary, lifecycleStatus: created.lifecycleStatus, publicSafetyStatus: created.publicSafetyStatus },
-      reason: unsafe ? "The generated Highlight failed an automatic safety gate." : supersedes ? "Current repository evidence produced a verified Highlight successor." : "Current repository evidence supported a new Highlight.",
-      provenance: { evidenceIds: input.evidenceIds, commitSha: input.commitSha, subsystemKey: input.subsystem.subsystemKey },
-      suffix: `${hash(created.text).slice(0, 16)}:${input.commitSha}`,
-    }, tx);
+    await upsertReviewableKnowledgeChangeInTransaction(creationPlan.change, tx);
     return created;
   });
   if (!highlight) return null;
@@ -1317,25 +1264,8 @@ async function applyHighlight(input: {
   // defer their embedding instead of creating an immediately unused vector.
   if (!unsafe) {
     await assertKnowledgeRefreshGenerationCurrent(input.runId);
-    const embeddingTask: KnowledgeEmbeddingTask = {
-      entityKind: "highlight",
-      entityId: highlight.id,
-      // This ID was created in the transaction immediately above, so an
-      // embedding freshness read is guaranteed to miss.
-      execute: () => upsertHighlightEmbedding({
-        highlightId: highlight.id,
-        inputText: buildHighlightEmbeddingText({
-          text: highlight.text,
-          summary: highlight.summary,
-          verificationNotes: highlight.verificationNotes,
-          tags,
-          evidence: { summary: input.candidate.summary, sourceRefs: input.evidence.map((entry, index) => ({ evidenceItemId: input.evidenceIds[index] ?? "", sourceId: "repository-sync", sourceType: "github_repo" as const, title: entry.title, sourceLabel: "GitHub", excerpt: entry.excerpt })) },
-        }),
-        skipFreshnessCheck: true,
-      }),
-    };
-    if (input.enqueueEmbedding) input.enqueueEmbedding(embeddingTask);
-    else await embeddingTask.execute();
+    if (input.enqueueEmbedding) input.enqueueEmbedding(creationPlan.embeddingTask);
+    else await creationPlan.embeddingTask.execute();
   }
   return unsafe ? null : highlight.id;
 }
@@ -1361,6 +1291,447 @@ type PreparedHighlightReconciliation = {
   sourceEntries: SynthesisNotebookEntry[];
 };
 
+type NewProjectFactInput = PreparedFactReconciliation & {
+  runId: string;
+  workItemId: string;
+};
+
+function repositoryKnowledgeChangeScopeDigest(
+  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">,
+  text: string,
+) {
+  return hash(JSON.stringify({
+    sourceId: subsystem.sourceId,
+    subsystemKey: subsystem.subsystemKey,
+    text: normalizeWhitespace(text),
+  })).slice(0, 16);
+}
+
+function newProjectFactPlan(
+  input: NewProjectFactInput,
+  options: {
+    unsafe: boolean;
+    supersedes?: Pick<ExistingProjectFactForReconciliation, "id" | "statement"> | null;
+  },
+) {
+  const id = randomUUID();
+  const validatedAt = new Date();
+  const data = {
+    id,
+    workItemId: input.workItemId,
+    statement: input.candidate.statement,
+    category: input.candidate.category,
+    confidence: input.candidate.confidence,
+    status: options.unsafe ? "draft" as const : "approved" as const,
+    lifecycleStatus: options.unsafe ? "quarantined" as const : "active" as const,
+    reviewState: "pending_review" as const,
+    approvalSource: "automation" as const,
+    publicSafetyStatus: "not_eligible" as const,
+    sensitivityFlag: input.candidate.sensitivityFlag,
+    reviewNotes: input.candidate.reviewNotes,
+    searchText: normalizeWhitespace([
+      input.candidate.statement,
+      input.candidate.category,
+      input.candidate.reviewNotes ?? "",
+    ].join(" ")),
+    supersedesProjectFactId: options.supersedes?.id,
+    subsystemKey: input.subsystem.subsystemKey,
+    validatedThroughSha: input.commitSha,
+    lastValidatedAt: validatedAt,
+    validationHeads: toInputJson(input.validationHeads),
+    autoAppliedAt: options.unsafe ? null : validatedAt,
+    productImportance: input.candidate.productImportance,
+    implementationBreadth: input.candidate.implementationBreadth,
+    technicalDifficulty: input.candidate.technicalDifficulty,
+    distinctiveness: input.candidate.distinctiveness,
+  } satisfies Prisma.ProjectFactCreateManyInput;
+  const change = reconciliationKnowledgeChangeInput({
+    workItemId: input.workItemId,
+    refreshRunId: input.runId,
+    entityKind: "project_fact",
+    action: options.unsafe ? "quarantined" : options.supersedes ? "updated" : "created",
+    entityId: id,
+    beforeSnapshot: options.supersedes
+      ? { id: options.supersedes.id, statement: options.supersedes.statement }
+      : undefined,
+    afterSnapshot: {
+      id,
+      statement: data.statement,
+      category: data.category,
+      confidence: data.confidence,
+      lifecycleStatus: data.lifecycleStatus,
+    },
+    reason: options.unsafe
+      ? "The generated Project Fact failed an automatic safety gate."
+      : options.supersedes
+        ? "Current repository evidence produced a verified successor."
+        : "Current repository evidence supported a new Project Fact.",
+    provenance: {
+      evidenceIds: input.evidenceIds,
+      commitSha: input.commitSha,
+      subsystemKey: input.subsystem.subsystemKey,
+    },
+    suffix: `${repositoryKnowledgeChangeScopeDigest(
+      input.subsystem,
+      data.statement,
+    )}:${input.commitSha}`,
+  });
+  const embeddingTask: KnowledgeEmbeddingTask = {
+    entityKind: "project_fact",
+    entityId: id,
+    execute: () => upsertProjectFactEmbedding({
+      projectFactId: id,
+      inputText: buildProjectFactEmbeddingText(data),
+      skipFreshnessCheck: true,
+    }),
+  };
+  return { entry: input, id, data, change, embeddingTask };
+}
+
+type NewHighlightInput = PreparedHighlightReconciliation & {
+  runId: string;
+  workItemId: string;
+};
+
+function newHighlightPresentation(
+  input: Pick<NewHighlightInput, "candidate">,
+  unsafe: boolean,
+) {
+  const publicVerification = repositoryHighlightPublicDisposition(unsafe);
+  const text = publicVerification.eligible && publicVerification.correctedText
+    ? publicVerification.correctedText
+    : input.candidate.text;
+  const verificationNotes = "Auto-applied from complete, commit-pinned repository coverage.";
+  const tags = inferHighlightTags({
+    text,
+    summary: input.candidate.summary,
+    verificationNotes: publicVerification.reasons.join(" ") || "Verified from complete repository coverage.",
+  });
+  return { publicVerification, text, verificationNotes, tags };
+}
+
+function newHighlightPlan(
+  input: NewHighlightInput,
+  options: {
+    unsafe: boolean;
+    supersedes?: Pick<ExistingHighlightForReconciliation, "id" | "text"> | null;
+    presentation?: ReturnType<typeof newHighlightPresentation>;
+  },
+) {
+  const id = randomUUID();
+  const validatedAt = new Date();
+  const presentation = options.presentation ?? newHighlightPresentation(input, options.unsafe);
+  const data = {
+    id,
+    workItemId: input.workItemId,
+    text: presentation.text,
+    summary: input.candidate.summary,
+    searchText: normalizeWhitespace([
+      presentation.text,
+      input.candidate.summary,
+      input.subsystem.subsystemKey,
+    ].join(" ")),
+    confidence: input.candidate.confidence,
+    ownershipClarity: "unclear" as const,
+    sensitivityFlag: input.candidate.sensitivityFlag,
+    verificationStatus: options.unsafe ? "flagged" as const : "approved" as const,
+    lifecycleStatus: options.unsafe ? "quarantined" as const : "active" as const,
+    reviewState: "pending_review" as const,
+    approvalSource: "automation" as const,
+    publicSafetyStatus: presentation.publicVerification.eligible
+      ? "verified" as const
+      : presentation.publicVerification.reasons.length
+        ? "failed" as const
+        : "pending" as const,
+    visibility: presentation.publicVerification.eligible
+      ? input.candidate.visibility
+      : "private" as const,
+    risksSummary: presentation.publicVerification.reasons.join(" ").slice(0, 1_000) || null,
+    verificationNotes: presentation.verificationNotes,
+    metadata: toInputJson({
+      managedBy: "repository_knowledge_sync",
+      refreshRunId: input.runId,
+      subsystemKey: input.subsystem.subsystemKey,
+      scores: {
+        productImportance: input.candidate.productImportance,
+        implementationBreadth: input.candidate.implementationBreadth,
+        technicalDifficulty: input.candidate.technicalDifficulty,
+        distinctiveness: input.candidate.distinctiveness,
+      },
+      publicVerification: presentation.publicVerification,
+    }),
+    validatedThroughSha: input.commitSha,
+    lastValidatedAt: validatedAt,
+    validationHeads: toInputJson(input.validationHeads),
+    autoAppliedAt: options.unsafe ? null : validatedAt,
+    supersedesHighlightId: options.supersedes?.id,
+  } satisfies Prisma.HighlightCreateManyInput;
+  const change = reconciliationKnowledgeChangeInput({
+    workItemId: input.workItemId,
+    refreshRunId: input.runId,
+    entityKind: "highlight",
+    action: options.unsafe ? "quarantined" : options.supersedes ? "updated" : "created",
+    entityId: id,
+    beforeSnapshot: options.supersedes
+      ? { id: options.supersedes.id, text: options.supersedes.text }
+      : undefined,
+    afterSnapshot: {
+      id,
+      text: data.text,
+      summary: data.summary,
+      lifecycleStatus: data.lifecycleStatus,
+      publicSafetyStatus: data.publicSafetyStatus,
+    },
+    reason: options.unsafe
+      ? "The generated Highlight failed an automatic safety gate."
+      : options.supersedes
+        ? "Current repository evidence produced a verified Highlight successor."
+        : "Current repository evidence supported a new Highlight.",
+    provenance: {
+      evidenceIds: input.evidenceIds,
+      commitSha: input.commitSha,
+      subsystemKey: input.subsystem.subsystemKey,
+    },
+    suffix: `${repositoryKnowledgeChangeScopeDigest(
+      input.subsystem,
+      data.text,
+    )}:${input.commitSha}`,
+  });
+  const embeddingTask: KnowledgeEmbeddingTask = {
+    entityKind: "highlight",
+    entityId: id,
+    execute: () => upsertHighlightEmbedding({
+      highlightId: id,
+      inputText: buildHighlightEmbeddingText({
+        text: data.text,
+        summary: data.summary,
+        verificationNotes: data.verificationNotes,
+        tags: presentation.tags,
+        evidence: {
+          summary: input.candidate.summary,
+          sourceRefs: input.evidence.map((entry, index) => ({
+            evidenceItemId: input.evidenceIds[index] ?? "",
+            sourceId: "repository-sync",
+            sourceType: "github_repo" as const,
+            title: entry.title,
+            sourceLabel: "GitHub",
+            excerpt: entry.excerpt,
+          })),
+        },
+      }),
+      skipFreshnessCheck: true,
+    }),
+  };
+  return {
+    entry: input,
+    id,
+    data,
+    change,
+    embeddingTask,
+    tags: presentation.tags,
+    presentation,
+  };
+}
+
+function collidingColdCandidateKeys<T extends {
+  key: string;
+  subsystem: Pick<SynthesizedKnowledge, "subsystemKey">;
+}>(
+  entries: readonly T[],
+  text: (entry: T) => string,
+) {
+  const collisions = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    for (const other of entries.slice(index + 1)) {
+      if (
+        entry.subsystem.subsystemKey === other.subsystem.subsystemKey &&
+        knowledgeSimilarity(text(entry), text(other)) >= STRONG_KNOWLEDGE_IDENTITY_THRESHOLD
+      ) {
+        collisions.add(entry.key);
+        collisions.add(other.key);
+      }
+    }
+  }
+  return collisions;
+}
+
+/**
+ * A genuinely cold Work Item has no active repository knowledge to compare,
+ * revalidate, or supersede. Create its independent safe candidates in one
+ * generation-fenced transaction, while leaving every ownership-sensitive,
+ * unsafe, uncited, or identity-colliding candidate on the established CAS
+ * path. The under-lock emptiness check closes the race with a user mutation
+ * that may have committed after the caller loaded its reconciliation snapshot.
+ */
+export async function createColdKnowledgeBatch(input: {
+  runId: string;
+  workItemId: string;
+  facts: PreparedFactReconciliation[];
+  highlights: PreparedHighlightReconciliation[];
+  enqueueEmbedding?: (task: KnowledgeEmbeddingTask) => void;
+}) {
+  const safeFacts = input.facts.filter((entry) =>
+    hasPromotedReconciliationEvidence(entry.evidenceIds) &&
+    !isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    })
+  );
+  const collidingFactKeys = collidingColdCandidateKeys(
+    safeFacts,
+    (entry) => entry.candidate.statement,
+  );
+  const factPlans = safeFacts
+    .filter((entry) => !collidingFactKeys.has(entry.key))
+    .map((entry) => newProjectFactPlan({
+      ...entry,
+      runId: input.runId,
+      workItemId: input.workItemId,
+    }, { unsafe: false }));
+
+  const safeHighlights = input.highlights.filter((entry) =>
+    hasPromotedReconciliationEvidence(entry.evidenceIds) &&
+    !isSynthesizedCandidateUnsafe({
+      approvalEligible: entry.subsystem.approvalEligible,
+      candidate: entry.candidate,
+      sources: entry.sourceEntries,
+    })
+  );
+  const collidingHighlightKeys = collidingColdCandidateKeys(
+    safeHighlights,
+    (entry) => entry.candidate.text,
+  );
+  const highlightPlans = safeHighlights
+    .filter((entry) => !collidingHighlightKeys.has(entry.key))
+    .map((entry) => newHighlightPlan({
+      ...entry,
+      runId: input.runId,
+      workItemId: input.workItemId,
+    }, { unsafe: false }));
+
+  const createdFactIdsByKey = new Map<string, string>();
+  const createdHighlightIdsByKey = new Map<string, string>();
+  if (!factPlans.length && !highlightPlans.length) {
+    return { createdFactIdsByKey, createdHighlightIdsByKey };
+  }
+
+  const createdPlans = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    const [currentFact, currentHighlight] = await Promise.all([
+      factPlans.length
+        ? tx.projectFact.findFirst({
+            where: {
+              workItemId: input.workItemId,
+              lifecycleStatus: { in: ["active", "needs_validation"] },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      highlightPlans.length
+        ? tx.highlight.findFirst({
+            where: {
+              workItemId: input.workItemId,
+              lifecycleStatus: { in: ["active", "needs_validation"] },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const factsToCreate = currentFact ? [] : factPlans;
+    const highlightsToCreate = currentHighlight ? [] : highlightPlans;
+    if (!factsToCreate.length && !highlightsToCreate.length) {
+      return { facts: [], highlights: [] };
+    }
+
+    if (factsToCreate.length) {
+      const created = await tx.projectFact.createMany({
+        data: factsToCreate.map((plan) => plan.data),
+      });
+      if (created.count !== factsToCreate.length) {
+        throw new Error("Cold Project Fact batch did not create every planned row.");
+      }
+    }
+    if (highlightsToCreate.length) {
+      const created = await tx.highlight.createMany({
+        data: highlightsToCreate.map((plan) => plan.data),
+      });
+      if (created.count !== highlightsToCreate.length) {
+        throw new Error("Cold Highlight batch did not create every planned row.");
+      }
+    }
+
+    const factEvidenceRows = factsToCreate.flatMap(({ entry, id }) =>
+      entry.evidenceIds.map((evidenceItemId) => ({
+        projectFactId: id,
+        evidenceItemId,
+      }))
+    );
+    const highlightEvidenceRows = highlightsToCreate.flatMap(({ entry, id }) =>
+      entry.evidenceIds.map((evidenceItemId) => ({
+        highlightId: id,
+        evidenceItemId,
+      }))
+    );
+    const highlightTagRows = highlightsToCreate.flatMap(({ id, tags }) =>
+      tags.map((tag) => ({
+        highlightId: id,
+        dimension: tag.dimension,
+        tag: tag.tag,
+        score: tag.score ?? null,
+      }))
+    );
+    await Promise.all([
+      factEvidenceRows.length
+        ? tx.projectFactEvidence.createMany({ data: factEvidenceRows, skipDuplicates: true })
+        : Promise.resolve(),
+      highlightEvidenceRows.length
+        ? tx.highlightEvidence.createMany({ data: highlightEvidenceRows, skipDuplicates: true })
+        : Promise.resolve(),
+      highlightTagRows.length
+        ? tx.highlightTag.createMany({ data: highlightTagRows, skipDuplicates: true })
+        : Promise.resolve(),
+    ]);
+    const includedEvidenceIds = Array.from(new Set([
+      ...factsToCreate.flatMap(({ entry }) => entry.evidenceIds),
+      ...highlightsToCreate.flatMap(({ entry }) => entry.evidenceIds),
+    ]));
+    if (includedEvidenceIds.length) {
+      await tx.evidenceItem.updateMany({
+        where: { id: { in: includedEvidenceIds } },
+        data: { included: true },
+      });
+    }
+
+    await upsertReviewableKnowledgeChangesInTransaction([
+      ...factsToCreate.map((plan) => plan.change),
+      ...highlightsToCreate.map((plan) => plan.change),
+    ], tx);
+    return { facts: factsToCreate, highlights: highlightsToCreate };
+  }, { timeoutMs: 45_000 });
+
+  for (const plan of createdPlans.facts) {
+    createdFactIdsByKey.set(plan.entry.key, plan.id);
+  }
+  for (const plan of createdPlans.highlights) {
+    createdHighlightIdsByKey.set(plan.entry.key, plan.id);
+  }
+
+  if (createdFactIdsByKey.size || createdHighlightIdsByKey.size) {
+    await assertKnowledgeRefreshGenerationCurrent(input.runId);
+  }
+  for (const plan of factPlans) {
+    if (!createdFactIdsByKey.has(plan.entry.key)) continue;
+    if (input.enqueueEmbedding) input.enqueueEmbedding(plan.embeddingTask);
+    else await plan.embeddingTask.execute();
+  }
+  for (const plan of highlightPlans) {
+    if (!createdHighlightIdsByKey.has(plan.entry.key)) continue;
+    if (input.enqueueEmbedding) input.enqueueEmbedding(plan.embeddingTask);
+    else await plan.embeddingTask.execute();
+  }
+  return { createdFactIdsByKey, createdHighlightIdsByKey };
+}
+
 /**
  * Revalidating unchanged knowledge is lifecycle maintenance, not a new review
  * decision. Apply all exact/user-edit-preserving matches under one generation
@@ -1368,7 +1739,7 @@ type PreparedHighlightReconciliation = {
  * serializable transaction per Fact/Highlight with one transaction per cold
  * refresh while keeping every row-level CAS and immutable provenance link.
  */
-async function revalidateExistingKnowledge(input: {
+export async function revalidateExistingKnowledge(input: {
   runId: string;
   workItemId: string;
   facts: PreparedFactReconciliation[];
@@ -1472,9 +1843,9 @@ async function revalidateExistingKnowledge(input: {
     };
   }
 
-  const appliedFactIdsByKey = new Map<string, string>();
-  const appliedHighlightIdsByKey = new Map<string, string>();
-  await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+  const applied = await withKnowledgeRefreshGenerationFence(input.runId, async (tx) => {
+    const appliedFactIdsByKey = new Map<string, string>();
+    const appliedHighlightIdsByKey = new Map<string, string>();
     const validatedAt = new Date();
     const changeInputs: AutoResolvedKnowledgeChangeInput[] = [];
     const evidenceIds = new Set<string>();
@@ -1487,7 +1858,7 @@ async function revalidateExistingKnowledge(input: {
         data: {
           status: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.fact.reviewState,
           validatedThroughSha: entry.commitSha,
           lastValidatedAt: validatedAt,
           validationHeads: toInputJson(entry.validationHeads),
@@ -1516,6 +1887,8 @@ async function revalidateExistingKnowledge(input: {
           statement: closest.fact.statement,
           status: closest.fact.status,
           lifecycleStatus: closest.fact.lifecycleStatus,
+          reviewState: closest.fact.reviewState,
+          approvalSource: closest.fact.approvalSource,
           validatedThroughSha: closest.fact.validatedThroughSha,
         },
         afterSnapshot: {
@@ -1523,6 +1896,8 @@ async function revalidateExistingKnowledge(input: {
           statement: closest.fact.statement,
           status: "approved",
           lifecycleStatus: "active",
+          reviewState: closest.fact.reviewState,
+          approvalSource: closest.fact.approvalSource,
           validatedThroughSha: entry.commitSha,
         },
         reason: validatesUserEdit
@@ -1549,7 +1924,7 @@ async function revalidateExistingKnowledge(input: {
         data: {
           verificationStatus: "approved",
           lifecycleStatus: "active",
-          reviewState: "pending_review",
+          reviewState: closest.highlight.reviewState,
           validatedThroughSha: entry.commitSha,
           lastValidatedAt: validatedAt,
           validationHeads: toInputJson(entry.validationHeads),
@@ -1574,6 +1949,8 @@ async function revalidateExistingKnowledge(input: {
           text: closest.highlight.text,
           verificationStatus: closest.highlight.verificationStatus,
           lifecycleStatus: closest.highlight.lifecycleStatus,
+          reviewState: closest.highlight.reviewState,
+          approvalSource: closest.highlight.approvalSource,
           validatedThroughSha: closest.highlight.validatedThroughSha,
         },
         afterSnapshot: {
@@ -1581,6 +1958,8 @@ async function revalidateExistingKnowledge(input: {
           text: closest.highlight.text,
           verificationStatus: "approved",
           lifecycleStatus: "active",
+          reviewState: closest.highlight.reviewState,
+          approvalSource: closest.highlight.approvalSource,
           validatedThroughSha: entry.commitSha,
         },
         reason: validatesUserEdit
@@ -1628,9 +2007,10 @@ async function revalidateExistingKnowledge(input: {
     if (changeInputs.length) {
       await recordAutoResolvedKnowledgeChangesInTransaction(changeInputs, tx);
     }
+    return { appliedFactIdsByKey, appliedHighlightIdsByKey };
   }, { timeoutMs: 45_000 });
 
-  return { matchedKeys, appliedFactIdsByKey, appliedHighlightIdsByKey };
+  return { matchedKeys, ...applied };
 }
 
 export async function reconcileRepositoryKnowledge(runId: string) {
@@ -1735,11 +2115,23 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     existingHighlights,
   });
   finishStage("batchedRevalidation");
+  const batchedColdCreates = await createColdKnowledgeBatch({
+    runId,
+    workItemId: run.workItemId,
+    facts: existingFacts.length ? [] : preparedFacts,
+    highlights: existingHighlights.length ? [] : preparedHighlights,
+    enqueueEmbedding,
+  });
   const producedByScope = synthesisProducedEntityBuckets(synthesis);
   for (const entry of preparedFacts) {
     const batchedId = batchedRevalidations.appliedFactIdsByKey.get(entry.key);
     if (batchedId) {
       producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.projectFactIds.push(batchedId);
+      continue;
+    }
+    const coldCreatedId = batchedColdCreates.createdFactIdsByKey.get(entry.key);
+    if (coldCreatedId) {
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.projectFactIds.push(coldCreatedId);
       continue;
     }
     // A lost row-level CAS means a user or newer writer changed the matched
@@ -1761,6 +2153,11 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     const batchedId = batchedRevalidations.appliedHighlightIdsByKey.get(entry.key);
     if (batchedId) {
       producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(batchedId);
+      continue;
+    }
+    const coldCreatedId = batchedColdCreates.createdHighlightIdsByKey.get(entry.key);
+    if (coldCreatedId) {
+      producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(coldCreatedId);
       continue;
     }
     if (batchedRevalidations.matchedKeys.has(entry.key)) continue;
@@ -1828,6 +2225,8 @@ export async function reconcileRepositoryKnowledge(runId: string) {
             preparedHighlightCount: preparedHighlights.length,
             batchedFactRevalidationCount: batchedRevalidations.appliedFactIdsByKey.size,
             batchedHighlightRevalidationCount: batchedRevalidations.appliedHighlightIdsByKey.size,
+            batchedFactCreateCount: batchedColdCreates.createdFactIdsByKey.size,
+            batchedHighlightCreateCount: batchedColdCreates.createdHighlightIdsByKey.size,
           },
         }),
       },

@@ -132,6 +132,7 @@ export interface RepositoryKnowledgeEvaluationReport {
   fixtureId: string;
   repository: string | null;
   passed: boolean;
+  executionIntegrityStatus: "passed" | "failed" | "unreported" | "not_required";
   score: number;
   metrics: {
     capabilityRecall: number;
@@ -180,6 +181,8 @@ export interface RepositoryKnowledgeCatalogAudit {
 export interface RepositoryKnowledgeSuiteReport {
   schemaVersion: typeof REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION;
   passed: boolean;
+  hardBudgetPassed: boolean;
+  executionIntegrityPassed: boolean;
   score: number;
   macroAverageScore: number;
   minimumProjectScore: number;
@@ -247,6 +250,10 @@ function itemSearchText(item: RepositoryKnowledgeEvaluationItem) {
   return [item.text, item.summary, item.domain].filter(Boolean).join(" ");
 }
 
+function itemClaimText(item: RepositoryKnowledgeEvaluationItem) {
+  return [item.text, item.summary].filter(Boolean).join(" ");
+}
+
 function inferredClaimState(
   item: RepositoryKnowledgeEvaluationItem,
 ): RepositoryKnowledgeClaimState {
@@ -287,19 +294,54 @@ function referencedContent(
 function quoteSupported(
   file: RepositoryEvaluationFile,
   reference: RepositoryKnowledgeEvidenceReference,
+  requireContent = false,
 ) {
-  if (file.content === undefined) return true;
-  if (!reference.quote?.trim()) {
+  if (file.content === undefined) return !requireContent;
+  const normalizeEvidenceText = (value: string) => value
+    .replace(/\s+/gu, " ")
+    .trim();
+  const quote = reference.quote?.trim() ?? "";
+  const hasLineStart = reference.lineStart != null;
+  const hasLineEnd = reference.lineEnd != null;
+  if (requireContent && hasLineStart !== hasLineEnd) return false;
+  if (requireContent && !hasLineStart) {
+    if (!quote) return false;
+    const normalizedContent = normalizeEvidenceText(file.content);
+    const normalizedQuote = normalizeEvidenceText(quote);
+    const redactionPattern = /["']?\[REDACTED(?: [^\]]+)?\]["']?/giu;
+    const anchors = redactionPattern.test(normalizedQuote)
+      ? normalizedQuote
+        .split(redactionPattern)
+        .map(normalizeEvidenceText)
+        .filter((fragment) => fragment.length >= 16)
+      : [normalizedQuote];
+    redactionPattern.lastIndex = 0;
+    const anchor = [...anchors].sort((left, right) => right.length - left.length)[0];
+    if (!anchor) return false;
+    const first = normalizedContent.indexOf(anchor);
+    if (first < 0 || normalizedContent.indexOf(anchor, first + 1) >= 0) {
+      return false;
+    }
+  }
+  if (!quote) {
     return referencedContent(file, reference) !== undefined;
   }
   // Exact repository excerpts remain authoritative even when a local checkout
   // has inserted lines before the snapshot range. The immutable observation
   // still retains its original line numbers for auditability.
-  const normalizeEvidenceText = (value: string) => value
-    .replace(/\s+/gu, " ")
-    .trim();
-  const normalizedContent = normalizeEvidenceText(file.content);
-  const normalizedQuote = normalizeEvidenceText(reference.quote);
+  const hasDeclaredRange =
+    reference.lineStart != null || reference.lineEnd != null;
+  // Curated runs are evaluated against the exact pinned commit, so a declared
+  // range must exist and contain its quote. Relaxed anywhere-in-file matching
+  // remains available only to compact synthetic/legacy observations.
+  const quoteSearchContent = requireContent && hasDeclaredRange
+    ? referencedContent(file, reference)
+    : file.content;
+  if (quoteSearchContent === undefined || quoteSearchContent === null) {
+    return false;
+  }
+  const normalizedContent = normalizeEvidenceText(quoteSearchContent);
+  const normalizedQuote = normalizeEvidenceText(quote);
   const redactionPattern = /["']?\[REDACTED(?: [^\]]+)?\]["']?/giu;
   if (!redactionPattern.test(normalizedQuote)) {
     return normalizedContent.includes(normalizedQuote);
@@ -491,6 +533,78 @@ function metricCheck(
   };
 }
 
+function maximumBudgetCheck(
+  name: string,
+  actual: number | null,
+  maximum: number,
+): RepositoryKnowledgeMetricCheck {
+  const reported = actual !== null && Number.isFinite(actual) && actual >= 0;
+  return {
+    name,
+    passed: reported && actual !== null && actual <= maximum,
+    actual: reported ? round(actual) : "unreported",
+    expected: `<= ${maximum}`,
+  };
+}
+
+function repositoryKnowledgeHardBudgetChecks(
+  run: RepositoryKnowledgeEvaluationRun,
+  budget: RepositoryKnowledgeBudget,
+) {
+  return [
+    maximumBudgetCheck(
+      "duration does not exceed the fixture maximum",
+      run.performance.durationMs,
+      budget.maximumDurationMs,
+    ),
+    maximumBudgetCheck(
+      "model calls do not exceed the fixture maximum",
+      run.performance.modelCalls,
+      budget.maximumModelCalls,
+    ),
+    maximumBudgetCheck(
+      "tokens do not exceed the fixture maximum",
+      run.performance.totalTokens,
+      budget.maximumTokens,
+    ),
+    maximumBudgetCheck(
+      "estimated cost does not exceed the fixture maximum",
+      run.performance.estimatedCostUsd,
+      budget.maximumEstimatedCostUsd,
+    ),
+  ];
+}
+
+function repositoryKnowledgeExecutionIntegrityStatus(
+  fixture: RepositoryKnowledgeFixture,
+  run: RepositoryKnowledgeEvaluationRun,
+): RepositoryKnowledgeEvaluationReport["executionIntegrityStatus"] {
+  if (fixture.sourceKind !== "curated_real_repository") return "not_required";
+  const integrity = run.executionIntegrity;
+  if (!integrity) return "unreported";
+  return integrity.passed &&
+      integrity.issues.length === 0 &&
+      integrity.modelIdentities.length > 0 &&
+      integrity.policyVersions.length > 0
+    ? "passed"
+    : "failed";
+}
+
+function repositoryKnowledgeExecutionIntegrityCheck(
+  fixture: RepositoryKnowledgeFixture,
+  run: RepositoryKnowledgeEvaluationRun,
+): RepositoryKnowledgeMetricCheck {
+  const status = repositoryKnowledgeExecutionIntegrityStatus(fixture, run);
+  return {
+    name: "main-path execution integrity",
+    passed: status === "passed" || status === "not_required",
+    actual: status,
+    expected: fixture.sourceKind === "curated_real_repository"
+      ? "complete passed attestation"
+      : "not required",
+  };
+}
+
 function languageFamily(language: string) {
   const normalized = language.toLocaleLowerCase();
   if (["javascript", "typescript", "tsx", "jsx"].includes(normalized)) {
@@ -604,6 +718,8 @@ export function evaluateRepositoryKnowledgeRun(input: {
   const filesByPath = new Map(
     fixture.files.map((file) => [normalizedPath(file.path), file]),
   );
+  const requireContentGrounding =
+    fixture.sourceKind === "curated_real_repository";
   const discoveredCapabilities = run.discoveredCapabilities ?? [];
   const isIgnoredRepositoryPath = (path: string) =>
     anyPattern(normalizedPath(path), fixture.ignoredPathPatterns);
@@ -617,7 +733,9 @@ export function evaluateRepositoryKnowledgeRun(input: {
     reference: RepositoryKnowledgeEvidenceReference,
   ) => {
     const file = repositoryFileForPath(reference.path);
-    return Boolean(file && quoteSupported(file, reference));
+    return Boolean(
+      file && quoteSupported(file, reference, requireContentGrounding),
+    );
   };
   const matchesExplicitFalsePositiveTrap = (
     identity: string,
@@ -638,12 +756,18 @@ export function evaluateRepositoryKnowledgeRun(input: {
     reference: RepositoryKnowledgeEvidenceReference,
   ) {
     const file = repositoryFileForPath(reference.path);
-    if (!file || !quoteSupported(file, reference)) return false;
+    if (
+      !file ||
+      !quoteSupported(file, reference, requireContentGrounding)
+    ) return false;
     const claim = [item.text, item.summary].filter(Boolean).join(" ");
-    // A serialized quote cannot prove itself when no checkout content was
-    // supplied. Compact manifests can still establish path-level relevance.
     const excerpt = groundingEvidenceExcerpt(file, reference);
-    const evidenceSurface = `${normalizedPath(reference.path)} ${excerpt}`;
+    // Curated certification must be grounded by checked-out source content.
+    // A descriptive filename is useful context, but cannot prove the claim.
+    const evidenceSurface = requireContentGrounding
+      ? excerpt
+      : `${normalizedPath(reference.path)} ${excerpt}`;
+    if (!evidenceSurface.trim()) return false;
     return citationClaimClauses(claim).some((clause) =>
       lexicallyRelated(clause, evidenceSurface, 0.35)
     );
@@ -653,9 +777,14 @@ export function evaluateRepositoryKnowledgeRun(input: {
     const claim = [item.text, item.summary].filter(Boolean).join(" ");
     const evidenceSurface = item.evidence.flatMap((reference) => {
       const file = repositoryFileForPath(reference.path);
-      if (!file || !quoteSupported(file, reference)) return [];
+      if (
+        !file ||
+        !quoteSupported(file, reference, requireContentGrounding)
+      ) return [];
       const excerpt = groundingEvidenceExcerpt(file, reference);
-      return [`${normalizedPath(reference.path)} ${excerpt}`];
+      return [requireContentGrounding
+        ? excerpt
+        : `${normalizedPath(reference.path)} ${excerpt}`];
     }).join(" ").slice(0, 120_000);
     return Boolean(evidenceSurface) && claimClauses(claim).every((clause) =>
       lexicallyRelated(clause, evidenceSurface, 0.35)
@@ -696,7 +825,10 @@ export function evaluateRepositoryKnowledgeRun(input: {
         const usesExpectedDomainKey = fixture.expectedDomains.some((domain) =>
           domain.key === item.domain
         );
-        return anyPattern(itemSearchText(item), capability.matchPatterns) &&
+        // Generated domain labels are evaluated separately below. Exclude
+        // them here so a model-authored label cannot answer the capability
+        // oracle when the claim itself does not describe the capability.
+        return anyPattern(itemClaimText(item), capability.matchPatterns) &&
             (!usesExpectedDomainKey || item.domain === capability.domainKey)
           ? [index]
           : [];
@@ -996,6 +1128,8 @@ export function evaluateRepositoryKnowledgeRun(input: {
     metricCheck("duplicate highlight rate", duplicateRate, 0.35, "maximum"),
     metricCheck("coverage calibration", coverageCalibration, 0.7, "minimum"),
     metricCheck("bounded cost and latency", budgetAdherence, 0.75, "minimum"),
+    ...repositoryKnowledgeHardBudgetChecks(run, fixture.budget),
+    repositoryKnowledgeExecutionIntegrityCheck(fixture, run),
     metricCheck("generated and tooling artifact exclusion", inventoryHygiene, 0.95, "minimum"),
     metricCheck("capability-map precision", capabilityMapPrecision, 0.7, "minimum"),
     metricCheck("capability granularity", capabilityGranularity, 0.75, "minimum"),
@@ -1012,6 +1146,10 @@ export function evaluateRepositoryKnowledgeRun(input: {
     fixtureId: fixture.id,
     repository: fixture.repository,
     passed: checks.every((check) => check.passed),
+    executionIntegrityStatus: repositoryKnowledgeExecutionIntegrityStatus(
+      fixture,
+      run,
+    ),
     score: round(score),
     metrics: {
       capabilityRecall: round(capabilityRecall),
@@ -1089,6 +1227,18 @@ export function evaluateRepositoryKnowledgeSuite(input: {
   const minimumProjectScore = Math.min(...results.map((result) => result.score));
   const passingFixtureCount = results.filter((result) => result.passed).length;
   const requiredPassingFixtures = Math.ceil(results.length * 0.75);
+  const hardBudgetPassed = input.fixtures.every((fixture) =>
+    repositoryKnowledgeHardBudgetChecks(
+      runsByFixture.get(fixture.id)!,
+      fixture.budget,
+    ).every((check) => check.passed)
+  );
+  const executionIntegrityPassed = input.fixtures.every((fixture) =>
+    repositoryKnowledgeExecutionIntegrityCheck(
+      fixture,
+      runsByFixture.get(fixture.id)!,
+    ).passed
+  );
   const score = macroAverageScore * 0.7 + minimumProjectScore * 0.3;
   return {
     schemaVersion: REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION,
@@ -1096,7 +1246,11 @@ export function evaluateRepositoryKnowledgeSuite(input: {
       catalog.passed &&
       macroAverageScore >= 0.68 &&
       minimumProjectScore >= 0.55 &&
+      hardBudgetPassed &&
+      executionIntegrityPassed &&
       passingFixtureCount >= requiredPassingFixtures,
+    hardBudgetPassed,
+    executionIntegrityPassed,
     score: round(score),
     macroAverageScore: round(macroAverageScore),
     minimumProjectScore: round(minimumProjectScore),

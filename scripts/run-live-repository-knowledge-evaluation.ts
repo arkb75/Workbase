@@ -153,6 +153,7 @@ async function runRepository(input: {
     (typeof repositoryKnowledgeModelGenerationKinds)[number],
     RepositoryKnowledgeExpectedModelIdentity
   >>;
+  expectedSynthesisCriticIdentity: RepositoryKnowledgeExpectedModelIdentity;
 }) {
   const startedAt = Date.now();
   progress(`${input.variant}/${input.fixtureId}: resolving repository`);
@@ -301,6 +302,7 @@ async function runRepository(input: {
     const mainPathIntegrity = evaluateRepositoryKnowledgeMainPath({
       generationRuns,
       expectedIdentities: input.expectedIdentities,
+      expectedSynthesisCriticIdentity: input.expectedSynthesisCriticIdentity,
       coverage: completed.coverage,
       orchestration: completed.orchestration,
       warnings: completed.warnings,
@@ -382,6 +384,7 @@ async function main() {
     capability_synthesis: resolveActiveTextModelIdentity("deep_synthesis"),
     coverage_audit: resolveActiveTextModelIdentity("verification"),
   };
+  const expectedSynthesisCriticIdentity = resolveActiveTextModelIdentity("verification");
   const requestedFixtureIds = Array.from(new Set(options.fixtureIds));
   const unknownFixtureIds = requestedFixtureIds.filter((fixtureId) =>
     !liveFixtures.some((fixture) => fixture.id === fixtureId)
@@ -413,6 +416,7 @@ async function main() {
       userId: user.id,
       variant: options.variant,
       expectedIdentities,
+      expectedSynthesisCriticIdentity,
     }));
   }
   process.stdout.write(`${JSON.stringify({

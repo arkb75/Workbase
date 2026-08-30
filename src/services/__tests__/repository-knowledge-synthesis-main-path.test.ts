@@ -3,6 +3,7 @@ import type { StructuredGenerationBudget } from "@/src/lib/bedrock-structured-ll
 import type { RepositoryFileAnalysis } from "@/src/services/repository-coverage-service";
 
 const generateStructuredMock = vi.hoisted(() => vi.fn());
+const requestedClientProfiles = vi.hoisted(() => [] as string[]);
 const prismaMock = vi.hoisted(() => ({
   knowledgeRefreshRun: {
     findUniqueOrThrow: vi.fn(),
@@ -21,9 +22,12 @@ vi.mock("@/src/lib/llm-config", () => ({
   }),
 }));
 vi.mock("@/src/services/bedrock-runtime", () => ({
-  getStructuredLlmClient: () => ({
+  getStructuredLlmClient: (profile: string) => {
+    requestedClientProfiles.push(profile);
+    return ({
     generateStructured: generateStructuredMock,
-  }),
+    });
+  },
 }));
 
 import {
@@ -144,6 +148,7 @@ function chargeBudget(budget: StructuredGenerationBudget | undefined) {
 describe("repository synthesis model main path", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    requestedClientProfiles.length = 0;
     vi.stubEnv("WORKBASE_REPOSITORY_SYNTHESIS_MODE", "model");
     prismaMock.knowledgeRefreshRun.findUniqueOrThrow.mockResolvedValue(refreshRun());
     prismaMock.generationRun.upsert.mockImplementation(async (input) => ({
@@ -229,6 +234,7 @@ describe("repository synthesis model main path", () => {
       "repository_architecture_synthesis",
       "repository_synthesis_entailment_critic",
     ]);
+    expect(requestedClientProfiles).toEqual(["deep_synthesis", "verification"]);
     expect(generateStructuredMock.mock.calls[0]![0]).toMatchObject({
       maxTokens: 10_000,
       effort: "low",
@@ -258,6 +264,9 @@ describe("repository synthesis model main path", () => {
     );
     expect(generateStructuredMock.mock.calls[0]![0].systemPrompt).toContain(
       "sourceExcerpt contains the exact bounded source fragments",
+    );
+    expect(generateStructuredMock.mock.calls[0]![0].systemPrompt).toContain(
+      "Each Highlight must promote exactly one emitted Fact",
     );
     expect(synthesis).toEqual([
       expect.objectContaining({
@@ -326,7 +335,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
-          rejectedClaims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -353,9 +362,8 @@ describe("repository synthesis model main path", () => {
         };
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         data = {
-          factRevisions: [{
-            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
-            replacement: {
+          factReplacements: {
+            [prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot]: {
               statement: revisedStatement,
               category: "behavior",
               confidence: "high",
@@ -367,8 +375,8 @@ describe("repository synthesis model main path", () => {
               technicalDifficulty: 4,
               distinctiveness: 4,
             },
-          }],
-          highlightRevisions: [],
+          },
+          highlightTitleReplacements: {},
         };
       } else {
         criticRound += 1;
@@ -416,7 +424,7 @@ describe("repository synthesis model main path", () => {
     ]);
     expect(summaries[2]).toEqual(expect.objectContaining({
       rejectedClaimCount: 1,
-      revisionContract: "rejected_claim_patch_v2_delta_critic",
+      revisionContract: "rejected_claim_patch_v3_server_slots",
     }));
     expect(summaries[1]).toEqual(expect.objectContaining({
       claimCount: 1,
@@ -489,7 +497,7 @@ describe("repository synthesis model main path", () => {
     const longSummary = (
       "The charge service records an idempotency key before publishing a payment receipt. " +
       "This bounded repository claim remains directly supported by the cited implementation. ".repeat(12)
-    ).slice(0, 900);
+    ).slice(0, 480);
     let criticRound = 0;
     generateStructuredMock.mockReset();
     generateStructuredMock.mockImplementation(async (input) => {
@@ -504,7 +512,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
-          rejectedClaims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -526,7 +534,7 @@ describe("repository synthesis model main path", () => {
           subsystems: [{
             subsystemKey,
             facts: [{
-              statement,
+              statement: longSummary,
               category: "behavior",
               confidence: "high",
               sensitivityFlag: false,
@@ -539,21 +547,19 @@ describe("repository synthesis model main path", () => {
             }],
             highlights: [highlight(
               "Encrypts every receipt through the full payment lifecycle",
-              "The service encrypts every receipt through a complete payment lifecycle.",
+              longSummary,
             )],
             unresolvedQuestions: [],
           }],
         };
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         data = {
-          factRevisions: [],
-          highlightRevisions: [{
-            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
-            replacement: highlight(
-              "Publishes idempotent payment receipts",
-              longSummary,
-            ),
-          }],
+          factReplacements: {},
+          highlightTitleReplacements: {
+            [prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot]: {
+              text: "Publishes idempotent payment receipts",
+            },
+          },
         };
       } else {
         criticRound += 1;
@@ -582,6 +588,17 @@ describe("repository synthesis model main path", () => {
 
     await synthesizeRepositoryKnowledge("refresh-1");
 
+    const revisionBudget = generateStructuredMock.mock.calls[2]![0]
+      .budget as StructuredGenerationBudget;
+    const reCriticBudget = generateStructuredMock.mock.calls[3]![0]
+      .budget as StructuredGenerationBudget;
+    expect(revisionBudget.limits.maxModelCalls).toBe(
+      reCriticBudget.limits.maxModelCalls - 1,
+    );
+    expect(revisionBudget.limits.maxTotalTokens).toBeLessThan(
+      reCriticBudget.limits.maxTotalTokens,
+    );
+    expect(reCriticBudget.limits.maxTotalTokens).toBe(80_000);
     const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0]
       .data.parsedOutput;
     expect(persistedRevision).toEqual(expect.objectContaining({
@@ -595,13 +612,483 @@ describe("repository synthesis model main path", () => {
       revisionPatch: [{
         claimKey: expect.stringMatching(/:highlight:1$/u),
         kind: "highlight",
-        replacement: {
+        replacement: expect.objectContaining({
           text: "Publishes idempotent payment receipts",
           summary: longSummary,
+          visibility: "resume_safe",
           citationIndexes: [1],
-        },
+          confidence: "high",
+          sensitivityFlag: false,
+          productImportance: 5,
+          implementationBreadth: 3,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        }),
       }],
     }));
+  });
+
+  it("repairs the live SoloPilot title without asking the model to recreate its accepted Fact", async () => {
+    const promotedFact =
+      "The web UI can amend a reply as HTML through the reply-amendment API, then invokes its approval handler and clears the editing state.";
+    const revisedTitle = "Amend replies and invoke an approval handler";
+    let criticRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        schema: { safeParse: (value: unknown) => { success: boolean; error?: { issues: Array<{ message: string }> } } };
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
+          rejectedClaims?: Array<{
+            revisionSlot: string;
+            kind: "fact" | "highlight";
+            promotedFact?: { statement: string } | null;
+          }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = {
+        statement: promotedFact,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      };
+      const highlight = {
+        text: "Amend and approve email replies from the web UI",
+        summary: promotedFact,
+        confidence: fact.confidence,
+        sensitivityFlag: fact.sensitivityFlag,
+        visibility: "private" as const,
+        citationIndexes: [1],
+        productImportance: fact.productImportance,
+        implementationBreadth: fact.implementationBreadth,
+        technicalDifficulty: fact.technicalDifficulty,
+        distinctiveness: fact.distinctiveness,
+      };
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact],
+            highlights: [highlight],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        const rejected = prompt.subsystems[0]!.rejectedClaims!;
+        expect(rejected).toEqual([
+          expect.objectContaining({
+            revisionSlot: "H1",
+            kind: "highlight",
+            promotedFact: expect.objectContaining({ statement: promotedFact }),
+          }),
+        ]);
+        const wrongCount = request.schema.safeParse({
+          factReplacements: {},
+          highlightTitleReplacements: {},
+        });
+        expect(wrongCount.success).toBe(false);
+        expect(wrongCount.error?.issues.map((issue) => issue.message)).toContain(
+          "Highlight title replacement count must be exactly 1; returned 0.",
+        );
+        data = {
+          factReplacements: {},
+          highlightTitleReplacements: { H1: { text: revisedTitle } },
+        };
+      } else {
+        criticRound += 1;
+        data = {
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: claim.kind === "fact" || criticRound === 2,
+            issues: claim.kind === "highlight" && criticRound === 1
+              ? ["unsupported_detail"]
+              : [],
+          })),
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(synthesis[0]?.facts).toEqual([
+      expect.objectContaining({ statement: promotedFact }),
+    ]);
+    expect(synthesis[0]?.highlights).toEqual([
+      expect.objectContaining({
+        text: revisedTitle,
+        summary: promotedFact,
+        citationIndexes: [1],
+        visibility: "private",
+        confidence: "high",
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      }),
+    ]);
+    const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0]
+      .data.parsedOutput;
+    expect(persistedRevision.revisionPatch).toEqual([
+      expect.objectContaining({
+        claimKey: expect.stringMatching(/:highlight:1$/u),
+        kind: "highlight",
+        replacement: expect.objectContaining({
+          text: revisedTitle,
+          summary: promotedFact,
+          visibility: "private",
+          citationIndexes: [1],
+          confidence: "high",
+          sensitivityFlag: false,
+          productImportance: 3,
+          implementationBreadth: 2,
+          technicalDifficulty: 3,
+          distinctiveness: 3,
+        }),
+      }),
+    ]);
+  });
+
+  it("rebinds and re-critiques an accepted Highlight after its Fact is revised", async () => {
+    const priorStatement = `${statement} It encrypts every receipt.`;
+    const revisedTitle = "Publishes receipts with idempotency keys";
+    let criticRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{
+            claimKey: string;
+            kind: "fact" | "highlight";
+            claim: { statement?: string; summary?: string };
+          }>;
+          rejectedClaims?: Array<{ revisionSlot: string; kind: "fact" | "highlight" }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = (factStatement: string) => ({
+        statement: factStatement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 5,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      });
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(priorStatement)],
+            highlights: [{
+              text: revisedTitle,
+              summary: priorStatement,
+              confidence: "high",
+              sensitivityFlag: false,
+              visibility: "private",
+              citationIndexes: [1],
+              productImportance: 5,
+              implementationBreadth: 3,
+              technicalDifficulty: 4,
+              distinctiveness: 4,
+            }],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        const rejected = prompt.subsystems[0]!.rejectedClaims!;
+        expect(rejected.map((claim) => [claim.revisionSlot, claim.kind])).toEqual([
+          ["F1", "fact"],
+        ]);
+        data = {
+          factReplacements: { F1: fact(statement) },
+          highlightTitleReplacements: {},
+        };
+      } else {
+        criticRound += 1;
+        data = {
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: criticRound === 2 || claim.kind === "highlight",
+            issues:
+              criticRound === 1 && claim.kind === "fact"
+                ? ["unsupported_detail"]
+                : [],
+          })),
+        };
+        if (criticRound === 2) {
+          expect(prompt.subsystems[0]!.claims).toHaveLength(2);
+          const changedHighlight = prompt.subsystems[0]!.claims!.find((claim) =>
+            claim.kind === "highlight"
+          );
+          expect(changedHighlight?.claim.summary).toBe(statement);
+        }
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(synthesis[0]?.facts).toEqual([
+      expect.objectContaining({ statement }),
+    ]);
+    expect(synthesis[0]?.highlights).toEqual([
+      expect.objectContaining({ text: revisedTitle, summary: statement }),
+    ]);
+    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
+      "repository_synthesis_claim_revisions",
+      "repository_synthesis_entailment_critic",
+    ]);
+  });
+
+  it("removes a bound Highlight when its Fact revision is null", async () => {
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = {
+        statement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 5,
+        implementationBreadth: 3,
+        technicalDifficulty: 4,
+        distinctiveness: 4,
+      };
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact],
+            highlights: [{
+              text: "Publishes idempotent payment receipts",
+              summary: statement,
+              confidence: "high",
+              sensitivityFlag: false,
+              visibility: "private",
+              citationIndexes: [1],
+              productImportance: 5,
+              implementationBreadth: 3,
+              technicalDifficulty: 4,
+              distinctiveness: 4,
+            }],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        data = {
+          factReplacements: { F1: null },
+          highlightTitleReplacements: {},
+        };
+      } else {
+        data = {
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: claim.kind === "highlight",
+            issues: claim.kind === "highlight" ? [] : ["unsupported_detail"],
+          })),
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(synthesis[0]?.facts).toEqual([]);
+    expect(synthesis[0]?.highlights).toEqual([]);
+    expect(synthesis[0]?.unresolvedQuestions).toContain(
+      "Removed a Highlight because its promoted Project Fact was removed or no longer uniquely bound.",
+    );
+    expect(generateStructuredMock).toHaveBeenCalledTimes(3);
+    const revisionPatch = prismaMock.generationRun.update.mock.calls[2]![0]
+      .data.parsedOutput.revisionPatch;
+    expect(revisionPatch).toEqual([
+      expect.objectContaining({ kind: "fact", replacement: null }),
+      expect.objectContaining({ kind: "highlight", replacement: null }),
+    ]);
+  });
+
+  it("maps two same-kind replacements by server slot rather than object order", async () => {
+    const priorStatements = [
+      `${statement} It encrypts every receipt.`,
+      "The charge service records latency and guarantees zero downtime.",
+    ];
+    const revisedStatements = [
+      statement,
+      "The charge service records request latency for diagnostics.",
+    ];
+    let criticRound = 0;
+    generateStructuredMock.mockReset();
+    generateStructuredMock.mockImplementation(async (input) => {
+      const request = input as {
+        schemaName: string;
+        userPrompt: string;
+        schema: { safeParse: (value: unknown) => { success: boolean; error?: { issues: Array<{ message: string }> } } };
+        budget?: StructuredGenerationBudget;
+        extraValidation?: (value: never) => string[];
+      };
+      chargeBudget(request.budget);
+      const prompt = JSON.parse(request.userPrompt) as {
+        subsystems: Array<{
+          subsystemKey: string;
+          claims?: Array<{ claimKey: string }>;
+        }>;
+      };
+      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
+      const fact = (factStatement: string) => ({
+        statement: factStatement,
+        category: "behavior" as const,
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        citationIndexes: [1],
+        reviewNotes: null,
+        productImportance: 4,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      });
+      let data: unknown;
+      if (request.schemaName === "repository_architecture_synthesis") {
+        data = {
+          subsystems: [{
+            subsystemKey,
+            facts: priorStatements.map(fact),
+            highlights: [],
+            unresolvedQuestions: [],
+          }],
+        };
+      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
+        const wrongSlots = request.schema.safeParse({
+          factReplacements: {
+            F1: fact(revisedStatements[0]!),
+            F3: fact(revisedStatements[1]!),
+          },
+          highlightTitleReplacements: {},
+        });
+        expect(wrongSlots.success).toBe(false);
+        expect(wrongSlots.error?.issues.map((issue) => issue.message)).toContain(
+          "Fact replacement slots must match exactly; missing [F2], unexpected [F3].",
+        );
+        data = {
+          factReplacements: {
+            F2: fact(revisedStatements[1]!),
+            F1: fact(revisedStatements[0]!),
+          },
+          highlightTitleReplacements: {},
+        };
+      } else {
+        criticRound += 1;
+        data = {
+          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
+            claimKey: claim.claimKey,
+            supported: criticRound === 2,
+            issues: criticRound === 1 ? ["unsupported_detail"] : [],
+          })),
+        };
+      }
+      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
+      return {
+        data,
+        rawOutput: JSON.stringify(data),
+        parsedOutput: data,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        provider: "bedrock",
+        modelId: "synthesis-model",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+
+    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
+
+    expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual(
+      revisedStatements,
+    );
+    const revisionPatch = prismaMock.generationRun.update.mock.calls[2]![0]
+      .data.parsedOutput.revisionPatch;
+    expect(revisionPatch.map((candidate: { claimKey: string; replacement: { statement: string } }) => [
+      candidate.claimKey.match(/:fact:(\d+)$/u)?.[1],
+      candidate.replacement.statement,
+    ])).toEqual([
+      ["1", revisedStatements[0]],
+      ["2", revisedStatements[1]],
+    ]);
   });
 
   it("rechecks only the changed claim through a bounded second revision", async () => {
@@ -626,7 +1113,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string }>;
-          rejectedClaims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -658,18 +1145,17 @@ describe("repository synthesis model main path", () => {
         };
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         revisionRound += 1;
-        const rejectedClaimKey = prompt.subsystems[0]!.rejectedClaims![0]!.claimKey;
+        const revisionSlot = prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot;
         data = {
-          factRevisions: [{
-            claimKey: rejectedClaimKey,
-            replacement: revisionRound === 1
+          factReplacements: {
+            [revisionSlot]: revisionRound === 1
               ? fact(
                   `${correctedPaymentStatement} It encrypts payment receipts.`,
                   [1],
                 )
               : fact(correctedPaymentStatement, [1]),
-          }],
-          highlightRevisions: [],
+          },
+          highlightTitleReplacements: {},
         };
       } else {
         const claims = prompt.subsystems[0]!.claims!;
@@ -738,7 +1224,7 @@ describe("repository synthesis model main path", () => {
     ]);
     expect(summaries[4]).toEqual(expect.objectContaining({
       rejectedClaimCount: 1,
-      revisionContract: "rejected_claim_patch_v2_delta_critic",
+      revisionContract: "rejected_claim_patch_v3_server_slots",
     }));
     expect(summaries[1]).toEqual(expect.objectContaining({
       claimCount: 3,
@@ -840,7 +1326,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string }>;
-          rejectedClaims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -871,11 +1357,10 @@ describe("repository synthesis model main path", () => {
         };
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         data = {
-          factRevisions: [{
-            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
-            replacement: null,
-          }],
-          highlightRevisions: [],
+          factReplacements: {
+            [prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot]: null,
+          },
+          highlightTitleReplacements: {},
         };
       } else {
         data = {
@@ -964,7 +1449,7 @@ describe("repository synthesis model main path", () => {
         subsystems: Array<{
           subsystemKey: string;
           claims?: Array<{ claimKey: string }>;
-          rejectedClaims?: Array<{ claimKey: string }>;
+          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
         }>;
       };
       const subsystemKey = prompt.subsystems[0]!.subsystemKey;
@@ -993,15 +1478,14 @@ describe("repository synthesis model main path", () => {
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         revisionRound += 1;
         data = {
-          factRevisions: [{
-            claimKey: prompt.subsystems[0]!.rejectedClaims![0]!.claimKey,
-            replacement: fact(
+          factReplacements: {
+            [prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot]: fact(
               revisionRound === 1
                 ? firstRevisionStatement
                 : secondRevisionStatement,
             ),
-          }],
-          highlightRevisions: [],
+          },
+          highlightTitleReplacements: {},
         };
       } else {
         data = {
@@ -1058,7 +1542,7 @@ describe("repository synthesis model main path", () => {
     ]);
   });
 
-  it("keeps the verified primary result when only native revision-pair headroom remains", async () => {
+  it("skips optional refinement when the native revision and critic pair cannot fit", async () => {
     generateStructuredMock.mockReset();
     generateStructuredMock.mockImplementation(async (input) => {
       const request = input as {
@@ -1069,9 +1553,9 @@ describe("repository synthesis model main path", () => {
       };
       if (request.budget) {
         request.budget.usage.modelCalls += 1;
-        request.budget.usage.inputTokens += 29_000;
+        request.budget.usage.inputTokens += 34_500;
         request.budget.usage.outputTokens += 1_000;
-        request.budget.usage.totalTokens += 30_000;
+        request.budget.usage.totalTokens += 35_500;
       }
       const prompt = JSON.parse(request.userPrompt) as {
         subsystems: Array<{
@@ -1111,7 +1595,7 @@ describe("repository synthesis model main path", () => {
         data,
         rawOutput: JSON.stringify(data),
         parsedOutput: data,
-        tokenUsage: { inputTokens: 29_000, outputTokens: 1_000, totalTokens: 30_000 },
+        tokenUsage: { inputTokens: 34_500, outputTokens: 1_000, totalTokens: 35_500 },
         provider: "bedrock",
         modelId: "synthesis-model",
         transportMode: "bedrock_json_schema",
@@ -1135,10 +1619,24 @@ describe("repository synthesis model main path", () => {
     expect(prismaMock.generationRun.upsert).toHaveBeenCalledTimes(2);
   });
 
-  it("admits optional refinement only with native-or-repair room for both calls", () => {
+  it("admits the native revision and mandatory critic without pre-spending repair capacity", () => {
     const tokenReserve = repositorySynthesisRevisionPairTokenReserve({
       projectTitle: "Ledger Platform",
       revisionRound: 1,
+      provider: "openrouter",
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        notebook: [{ index: 1, sourceExcerpt }],
+        rejectedClaims: [{
+          claimKey: "project_domain:payments#scope:fact:1",
+          kind: "fact",
+        }],
+      }],
+    });
+    const bedrockTokenReserve = repositorySynthesisRevisionPairTokenReserve({
+      projectTitle: "Ledger Platform",
+      revisionRound: 1,
+      provider: "bedrock",
       subsystems: [{
         subsystemKey: "project_domain:payments#scope",
         notebook: [{ index: 1, sourceExcerpt }],
@@ -1160,9 +1658,10 @@ describe("repository synthesis model main path", () => {
       },
     };
 
-    expect(tokenReserve).toBeGreaterThan(20_000);
-    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_MODEL_CALLS).toBe(4);
-    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES).toBe(2);
+    expect(tokenReserve).toBeGreaterThan(6_000);
+    expect(bedrockTokenReserve).toBeGreaterThan(tokenReserve);
+    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_MODEL_CALLS).toBe(2);
+    expect(REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES).toBe(0);
     expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(true);
     budget.usage.totalTokens += 1;
     expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
@@ -1173,17 +1672,14 @@ describe("repository synthesis model main path", () => {
       1;
     expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
     budget.usage.modelCalls = 2;
-    budget.usage.repairPasses =
-      budget.limits.maxRepairPasses -
-      REPOSITORY_SYNTHESIS_REVISION_PAIR_REPAIR_PASSES +
-      1;
-    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(false);
+    budget.usage.repairPasses = budget.limits.maxRepairPasses;
+    expect(repositorySynthesisRevisionPairFits(budget, tokenReserve)).toBe(true);
   });
 
   it("reserves two bounded revisions and native synthesis headroom under one 80K cap", () => {
     expect(repositorySynthesisBudgetLimits(3)).toEqual({
-      maxModelCalls: 24,
-      maxRepairPasses: 6,
+      maxModelCalls: 18,
+      maxRepairPasses: 0,
       maxOutputTokens: 10_000,
       maxTotalTokens: 80_000,
     });

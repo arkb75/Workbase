@@ -459,6 +459,25 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("propagates an explicit provider-attempt limit without a shared budget", async () => {
+    const { client, calls } = makeClient([{ structuredData: { ok: true } }]);
+
+    await client.generateStructured({
+      systemPrompt: "Return JSON.",
+      userPrompt: "Return {\"ok\":true}.",
+      schema,
+      schemaName: "workbase_test_schema",
+      schemaDescription: "Test schema.",
+      jsonSchema,
+      maxTokens: 128,
+      transportPreference: ["json_schema"],
+      maxProviderAttempts: 1,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.maxProviderAttempts).toBe(1);
+  });
+
   it("enforces the shared model-call budget across structured transports", async () => {
     const { client, calls } = makeClient([
       { text: "not valid json" },
@@ -979,7 +998,7 @@ describe("BedrockStructuredLlmClient", () => {
     expect(calls[0]?.maxTokens).toBe(4_000);
   });
 
-  it("preserves a 4K output ceiling for a live-sized semantic micro-batch under a 16K budget", async () => {
+  it("preserves a 4K output ceiling for an uncached live-sized semantic micro-batch under a 16K budget", async () => {
     const { client, calls } = makeClient([{
       structuredData: { ok: true },
       tokenUsage: {
@@ -1008,12 +1027,45 @@ describe("BedrockStructuredLlmClient", () => {
       jsonSchema: liveSizedSchema,
       maxTokens: 4_000,
       transportPreference: ["bedrock_json_schema"],
+      enablePromptCaching: false,
       budget,
     });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.maxTokens).toBe(4_000);
     expect(budget.usage.totalTokens).toBe(12_300);
+  });
+
+  it("rejects a cache-enabled Bedrock request before dispatch when its full charge envelope cannot fit", async () => {
+    const { client, calls } = makeClient([{
+      structuredData: { ok: true },
+      tokenUsage: {
+        inputTokens: 1_000,
+        outputTokens: 500,
+        totalTokens: 2_500,
+      },
+    }]);
+    const budget = createStructuredGenerationBudget({
+      maxModelCalls: 1,
+      maxRepairPasses: 0,
+      maxOutputTokens: 1_000,
+      maxTotalTokens: 2_000,
+    });
+
+    await expect(client.generateStructured({
+      systemPrompt: "Extract evidence-backed repository facts.",
+      userPrompt: "repository evidence ".repeat(100),
+      schema,
+      schemaName: "repository_semantic_observation_batch",
+      schemaDescription: "A bounded repository observation batch.",
+      jsonSchema,
+      maxTokens: 1_000,
+      transportPreference: ["bedrock_json_schema"],
+      budget,
+    })).rejects.toMatchObject({ code: "token_budget_exhausted" });
+
+    expect(calls).toHaveLength(0);
+    expect(budget.usage).toMatchObject({ modelCalls: 0, totalTokens: 0 });
   });
 
   it("records max_tokens when a native structured response ends before valid JSON", async () => {

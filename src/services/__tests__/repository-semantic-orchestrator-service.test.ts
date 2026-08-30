@@ -5,6 +5,7 @@ import {
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
   aggregateSemanticModelBudgetUsage,
+  boundedSemanticRepairPackagesForModelCalls,
   buildRepositorySemanticPlannerRequest,
   buildFileSemanticTask,
   capabilityCandidatesFromAnalysis,
@@ -25,6 +26,7 @@ import {
   semanticOrchestrationUsage,
   semanticPlannerTokenCommitment,
   semanticRepairTokenPool,
+  semanticRepairWaveDecision,
   semanticSignalKeysForFile,
   semanticWorkPackageGenerationLimits,
   semanticWorkPackageModelCallCount,
@@ -154,6 +156,88 @@ describe("repository semantic orchestration guardrails", () => {
     });
     expect(remaining).toBe(17_978);
     expect(2_310 + 38_483 + repairUsage.totalTokens + remaining).toBe(80_000);
+  });
+
+  it("admits at most three repair waves, stops early, and deducts prior usage", () => {
+    const usage = (totalTokens: number) => ({
+      modelCalls: 1,
+      repairPasses: 0,
+      inputTokens: totalTokens,
+      outputTokens: 0,
+      totalTokens,
+      unknownUsageCalls: 0,
+    });
+    const decision = (
+      waveIndex: number,
+      hasRepairPackages: boolean,
+      priorRepairUsages: ReturnType<typeof usage>[],
+    ) => semanticRepairWaveDecision({
+      waveIndex,
+      hasRepairPackages,
+      maxTotalTokens: 80_000,
+      maxModelCalls: 8,
+      plannerTokenCommitment: 5_000,
+      initialWorkerTokens: 30_000,
+      priorRepairUsages,
+    });
+
+    expect(decision(0, true, [])).toEqual({
+      shouldRun: true,
+      tokenPool: 45_000,
+      modelCallPool: 8,
+    });
+    expect(decision(1, true, [usage(10_000)]))
+      .toEqual({ shouldRun: true, tokenPool: 35_000, modelCallPool: 7 });
+    expect(decision(2, true, [usage(10_000), usage(15_000)]))
+      .toEqual({ shouldRun: true, tokenPool: 20_000, modelCallPool: 6 });
+    expect(decision(3, true, [])).toEqual({
+      shouldRun: false,
+      tokenPool: 45_000,
+      modelCallPool: 8,
+    });
+    expect(decision(1, false, [usage(10_000)]))
+      .toEqual({ shouldRun: false, tokenPool: 35_000, modelCallPool: 7 });
+    expect(decision(1, true, [usage(45_000)]))
+      .toEqual({ shouldRun: false, tokenPool: 0, modelCallPool: 7 });
+  });
+
+  it("admits all native repair-wave primaries without inline schema fallbacks", () => {
+    const repairPackage = (
+      id: string,
+      fileSnapshotIds: string[],
+      singletonFileSnapshotIds: string[] = [],
+    ): Omit<SemanticWorkPackage, "id" | "budget"> => ({
+      objective: id,
+      capabilityKeys: [id],
+      fileSnapshotIds,
+      singletonFileSnapshotIds,
+      questions: [],
+      expectedOutputs: [],
+    });
+    const singletonIds = Array.from({ length: 8 }, (_, index) => `retry-${index}`);
+    const [boundedSingletons] = boundedSemanticRepairPackagesForModelCalls([
+      repairPackage("singleton", singletonIds, singletonIds),
+    ], 8);
+    expect(boundedSingletons?.fileSnapshotIds).toEqual(singletonIds);
+    expect(semanticWorkPackageGenerationLimits(boundedSingletons!)).toMatchObject({
+      primaryModelCalls: 8,
+      maxModelCalls: 8,
+      maxRepairPasses: 0,
+    });
+
+    const ordinary = boundedSemanticRepairPackagesForModelCalls([
+      repairPackage("first", ["a", "b", "c", "d"]),
+      repairPackage("second", ["e", "f", "g", "h"]),
+      repairPackage("third", ["i", "j", "k", "l"]),
+    ], 4);
+    expect(ordinary.map((entry) => entry.objective)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(ordinary.reduce((total, entry) =>
+      total + semanticWorkPackageGenerationLimits(entry).primaryModelCalls, 0
+    )).toBe(3);
   });
 
   it("counts shared semantic waves once in orchestration usage", () => {
@@ -941,9 +1025,24 @@ describe("repository semantic orchestration guardrails", () => {
       singletonFileSnapshotIds: ["retry-a", "retry-b", "retry-c"],
     })).toEqual({
       primaryModelCalls: 3,
-      maxModelCalls: 6,
-      maxRepairPasses: 3,
+      maxModelCalls: 3,
+      maxRepairPasses: 0,
     });
+  });
+
+  it("keeps eight ordinary repair files within two four-file primary calls", () => {
+    const packages = [
+      { fileSnapshotIds: ["a", "b", "c", "d"] },
+      { fileSnapshotIds: ["e", "f", "g", "h"] },
+    ];
+    const limits = packages.map(semanticWorkPackageGenerationLimits);
+
+    expect(limits).toEqual([
+      { primaryModelCalls: 1, maxModelCalls: 1, maxRepairPasses: 0 },
+      { primaryModelCalls: 1, maxModelCalls: 1, maxRepairPasses: 0 },
+    ]);
+    expect(limits.reduce((total, entry) => total + entry.primaryModelCalls, 0)).toBe(2);
+    expect(limits.reduce((total, entry) => total + entry.maxModelCalls, 0)).toBe(2);
   });
 
   it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {

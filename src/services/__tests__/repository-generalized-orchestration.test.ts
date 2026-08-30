@@ -111,6 +111,134 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(inferProjectDomainCapability("fixture/search/demo.py")).toBeNull();
   });
 
+  it("uses file-local agent and model signals without classifying a generic agents ancestor as intelligence", () => {
+    const deployScript = mappedFile(
+      "deploy-script",
+      "src/agents/email_intake/scripts/deploy_api_lambda.sh",
+    );
+    const reviewerAgent = mappedFile(
+      "reviewer-agent",
+      "src/agents/review/reviewer_agent.py",
+    );
+    const planner = mappedFile("planner", "src/runtime/planner.py");
+    planner.analysis.symbols = ["RepositoryPlanner", "LLMPlanningStep"];
+    planner.analysis.dependencies = ["langchain"];
+
+    const intelligence = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/agent-runtime",
+      files: [deployScript, reviewerAgent, planner],
+    }).find((area) => area.key === "repository_area:intelligence");
+
+    expect(intelligence?.files.map((file) => file.id)).toEqual(["planner"]);
+  });
+
+  it("normalizes model and retrieval identifiers before matching intelligence signals", () => {
+    const llmPlanner = mappedFile("llm-planner", "src/runtime/planner.ts");
+    llmPlanner.analysis.symbols = ["LLMPlanningStep"];
+    const ragRetriever = mappedFile("rag-retriever", "src/runtime/reader.ts");
+    ragRetriever.analysis.symbols = ["RagRetriever"];
+    const gptClient = mappedFile("gpt-client", "src/runtime/client.ts");
+    gptClient.analysis.symbols = ["GPTClient"];
+    const dependencyOnly = mappedFile("dependency", "src/runtime/adapter.ts");
+    dependencyOnly.analysis.dependencies = ["@langchain/core"];
+    const chatGptClient = mappedFile(
+      "chatgpt-client",
+      "src/runtime/chatgpt_client.py",
+    );
+
+    const intelligence = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/model-runtime",
+      files: [llmPlanner, ragRetriever, gptClient, dependencyOnly, chatGptClient],
+    }).find((area) => area.key === "repository_area:intelligence");
+
+    expect(intelligence?.files.map((file) => file.id)).toEqual(expect.arrayContaining([
+      "llm-planner",
+      "rag-retriever",
+      "gpt-client",
+      "dependency",
+      "chatgpt-client",
+    ]));
+  });
+
+  it("recognizes common non-OpenAI model runtimes without treating generic training code as AI", () => {
+    const ollama = mappedFile("ollama", "src/runtime/client.py");
+    ollama.analysis.symbols = ["OllamaClient"];
+    ollama.analysis.dependencies = ["ollama"];
+    const gemini = mappedFile("gemini", "src/runtime/gemini_adapter.ts");
+    gemini.analysis.symbols = ["GoogleGenerativeAI"];
+    gemini.analysis.dependencies = ["@google/generative-ai"];
+    const mistral = mappedFile("mistral", "src/runtime/provider.py");
+    mistral.analysis.dependencies = ["mistralai"];
+    const llamaIndex = mappedFile("llama-index", "src/runtime/indexer.py");
+    llamaIndex.analysis.dependencies = ["llama_index"];
+    const transformers = mappedFile("transformers", "src/runtime/model.py");
+    transformers.analysis.dependencies = ["torch", "transformers"];
+    const employeeTraining = mappedFile(
+      "employee-training",
+      "src/training/course_service.ts",
+    );
+    employeeTraining.analysis.symbols = ["TrainingCourseService"];
+
+    const intelligence = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/provider-neutral-runtime",
+      files: [
+        ollama,
+        gemini,
+        mistral,
+        llamaIndex,
+        transformers,
+        employeeTraining,
+      ],
+    }).find((area) => area.key === "repository_area:intelligence");
+
+    expect(intelligence?.files.map((file) => file.id)).toEqual(expect.arrayContaining([
+      "ollama",
+      "gemini",
+      "mistral",
+      "llama-index",
+      "transformers",
+    ]));
+    expect(intelligence?.files.map((file) => file.id)).not.toContain(
+      "employee-training",
+    );
+  });
+
+  it("does not confuse lexical collisions or HTTP user agents with model intelligence", () => {
+    const research = mappedFile("research", "src/runtime/ResearchRepository.ts");
+    research.analysis.symbols = ["ResearchRepository"];
+    const clock = mappedFile("clock", "src/runtime/PredictableClock.ts");
+    clock.analysis.symbols = ["PredictableClock"];
+    const userAgent = mappedFile("user-agent", "src/http/user_agent_parser.ts");
+    userAgent.analysis.symbols = ["UserAgentParser"];
+    userAgent.analysis.architectureSignals = ["Parses the HTTP User-Agent header"];
+    const poetry = mappedFile("poetry", "src/writing/SonnetGenerator.ts");
+    poetry.analysis.symbols = ["HaikuFormatter"];
+    const graphics = mappedFile("graphics", "src/graphics/vector_canvas.ts");
+    graphics.analysis.dependencies = ["chroma-color"];
+    const domainAgent = mappedFile("domain-agent", "src/support/customer_agent.ts");
+    const domainModel = mappedFile("domain-model", "src/domain/customer.ts");
+    domainModel.analysis.symbols = ["CustomerModel"];
+    domainModel.analysis.dependencies = ["provider"];
+    const training = mappedFile("training", "src/training/course_service.ts");
+    training.analysis.symbols = ["EmployeeTrainingCourse"];
+
+    const intelligence = buildRepositoryDerivedCapabilityManifest({
+      scopeKey: "example/application-runtime",
+      files: [
+        research,
+        clock,
+        userAgent,
+        poetry,
+        graphics,
+        domainAgent,
+        domainModel,
+        training,
+      ],
+    }).find((area) => area.key === "repository_area:intelligence");
+
+    expect(intelligence).toBeUndefined();
+  });
+
   it("keeps conventional test bootstraps out of semantic cartography without relaxing implementation failures", () => {
     const files = [
       mappedFile("app", "frontend/example/src/App.js", 5),
@@ -468,8 +596,93 @@ describe("repository-derived cartographer and coverage critic", () => {
 
     expect(critique.domains[0]).toMatchObject({ targetSamples: 8, status: "missing" });
     expect(critique.repairPackages).toHaveLength(2);
-    expect(critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds)).toHaveLength(6);
+    expect(critique.repairPackages.map((entry) => entry.fileSnapshotIds)).toEqual([
+      expect.arrayContaining([
+        "catalog-0",
+        "catalog-1",
+        "catalog-2",
+        "catalog-3",
+      ]),
+      expect.arrayContaining([
+        "catalog-4",
+        "catalog-5",
+        "catalog-6",
+        "catalog-7",
+      ]),
+    ]);
     expect(critique.gaps).toEqual([expect.stringContaining("no supported semantic finding")]);
+  });
+
+  it("fits non-overlapping four-file and three-file coverage debts into two repair calls", () => {
+    const broadArea = (key: string, label: string, salience: number) => ({
+      key,
+      label,
+      scopeKey: "example/broad-application",
+      salience,
+      files: Array.from({ length: 31 }, (_, index) => ({
+        id: `${key}-${index}`,
+        path: `src/${key}/workflow-${index}.ts`,
+        score: 31 - index,
+      })),
+    });
+    const intelligence = broadArea("intelligence", "Intelligence", 100);
+    const applicationCore = broadArea("application-core", "Application core", 90);
+    const supported = (key: string, fileSnapshotId: string) => ({
+      ...candidate(key, fileSnapshotId),
+      statement: `${key} is supported by ${fileSnapshotId}.`,
+    });
+    const initiallySupported = [
+      ...intelligence.files.slice(0, 4).map((file) => supported(intelligence.key, file.id)),
+      ...applicationCore.files.slice(0, 5).map((file) => supported(applicationCore.key, file.id)),
+    ];
+    const initialReport = {
+      inspectedFileSnapshotIds: initiallySupported.flatMap((entry) =>
+        entry.evidence.map((evidence) => evidence.fileSnapshotId)
+      ),
+      candidates: initiallySupported,
+    };
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [intelligence, applicationCore],
+      reports: [initialReport],
+      allowRepair: true,
+    });
+    const repairedIds = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
+
+    expect(critique.domains).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: intelligence.key,
+        supportedFileCount: 4,
+        requiredSupportedFiles: 8,
+        status: "thin",
+      }),
+      expect.objectContaining({
+        key: applicationCore.key,
+        supportedFileCount: 5,
+        requiredSupportedFiles: 8,
+        status: "thin",
+      }),
+    ]));
+    expect(critique.repairPackages.map((entry) => entry.fileSnapshotIds.length)).toEqual([4, 3]);
+    expect(repairedIds.filter((id) => id.startsWith("intelligence-"))).toHaveLength(4);
+    expect(repairedIds.filter((id) => id.startsWith("application-core-"))).toHaveLength(3);
+
+    const completed = critiqueRepositoryCoverage({
+      manifest: [intelligence, applicationCore],
+      reports: [
+        initialReport,
+        {
+          inspectedFileSnapshotIds: repairedIds,
+          candidates: repairedIds.map((id) => supported(
+            id.startsWith("intelligence-") ? intelligence.key : applicationCore.key,
+            id,
+          )),
+        },
+      ],
+      allowRepair: false,
+    });
+    expect(completed.gaps).toEqual([]);
+    expect(completed.domains.every((domain) => domain.status === "covered")).toBe(true);
   });
 
   it("does not admit documentation source merely because it contains a Java production-shaped suffix", () => {
@@ -593,7 +806,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     }));
     expect(repairedIds).toEqual(["shipment-create", "customer-list"]);
     expect(repairedIds).not.toEqual(expect.arrayContaining(["invoice-view"]));
-    expect(repairedIds.length).toBeLessThanOrEqual(6);
+    expect(repairedIds.length).toBeLessThanOrEqual(8);
   });
 
   it("keeps account entrypoints distinct from neighboring authentication handlers", () => {
@@ -1010,6 +1223,63 @@ describe("repository-derived cartographer and coverage critic", () => {
 
     const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
     expect(plan[0]?.fileSnapshotIds).toEqual(["billing", "notifications"]);
+  });
+
+  it("keeps backend operational modules visible in a UI-heavy project domain", () => {
+    const area = {
+      key: "project_domain:workspace",
+      label: "Workspace",
+      scopeKey: "example/ui-heavy-workspace",
+      salience: 180,
+      files: [
+        ...Array.from({ length: 8 }, (_, index) => ({
+          id: `panel-${index}`,
+          path: `src/ui/workspace/Panel${index}.tsx`,
+          score: 140 - index,
+        })),
+        {
+          id: "document-ingestion",
+          path: "src/services/document-ingestion-service.ts",
+          score: 70,
+        },
+        {
+          id: "retrieval-index",
+          path: "src/services/retrieval-index-service.ts",
+          score: 60,
+        },
+        {
+          id: "export-renderer",
+          path: "src/services/export-renderer-service.ts",
+          score: 50,
+        },
+      ],
+    };
+
+    const plan = buildRepositoryDerivedSemanticPlan({ manifest: [area] });
+    const initiallySelected = plan.flatMap((entry) => entry.fileSnapshotIds);
+    expect(initiallySelected.some((id) => [
+      "document-ingestion",
+      "retrieval-index",
+      "export-renderer",
+    ].includes(id))).toBe(true);
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: initiallySelected,
+        candidates: initiallySelected.map((id) => candidate(area.key, id)),
+      }],
+      allowRepair: true,
+    });
+    const selectedAcrossWaves = new Set([
+      ...initiallySelected,
+      ...critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds),
+    ]);
+    expect([
+      "document-ingestion",
+      "retrieval-index",
+      "export-renderer",
+    ].filter((id) => selectedAcrossWaves.has(id)).length).toBeGreaterThanOrEqual(2);
   });
 
   it("filters generic scaffolding before selecting provider implementations", () => {
@@ -1733,9 +2003,9 @@ describe("repository-derived cartographer and coverage critic", () => {
     });
     const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
 
-    expect(selected).toHaveLength(6);
+    expect(selected).toHaveLength(7);
     expect(selected[0]).toBe("degraded-orders");
-    expect(new Set(selected.filter((id) => id.startsWith("uncovered-"))).size).toBe(5);
+    expect(new Set(selected.filter((id) => id.startsWith("uncovered-"))).size).toBe(6);
   });
 
   it("does not count an exact retry as a new semantic breadth sample", () => {
@@ -1974,7 +2244,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     const critique = critiqueRepositoryCoverage({ manifest, reports: [], allowRepair: true });
     const selected = critique.repairPackages.flatMap((entry) => entry.fileSnapshotIds);
 
-    expect(selected).toHaveLength(6);
+    expect(selected).toHaveLength(8);
     for (let areaIndex = 0; areaIndex < 3; areaIndex += 1) {
       expect(selected.some((fileId) => fileId.startsWith(`area-${areaIndex}-`))).toBe(true);
     }

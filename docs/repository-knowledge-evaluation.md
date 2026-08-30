@@ -63,6 +63,15 @@ knowledge reconciliation, staleness reconciliation, and completion. It is
 sequential by design so repository/provider budgets remain auditable. A variant
 slug is required and is recorded in every temporary work-item title.
 
+The certified main path uses native structured output with one provider attempt
+per generation. Semantic planning and extraction, synthesis, and citation
+entailment are recorded separately. Synthesis batches retain the 28 KiB,
+two-subsystem, and ten-claim safety bounds while deterministically backfilling
+compatible scopes. Entailment critics run on the verification profile rather
+than the synthesis profile; database certification checks each phase against
+its configured model identity and rejects silent provider/model substitution,
+text-repair transport, failed attempts, or deterministic fallback output.
+
 ```bash
 npm run eval:repository-knowledge:live -- \
   --variant adaptive \
@@ -96,9 +105,10 @@ For a product-level run, use the branch normally:
    capability ledger, path dispositions, semantic statuses, and generation
    usage. It does not call a model or mutate product state.
 
-```bash
-npm run eval:repository-knowledge -- --from-database-all > /tmp/branch-report.json
-```
+Every selected curated profile must be paired with `--repository-root` at its
+exact clean pinned checkout. This is required for both database and serialized
+observations; a compact fixture manifest alone is useful for offline scorer
+tests, but cannot certify real-repository provenance.
 
 When comparing variants in one database, scope every profile to the exact
 work-item ID printed by its live run so a newer run cannot replace the intended
@@ -115,13 +125,20 @@ Use one or more `--from-database <fixture-id>` flags for a subset. The six real
 fixture IDs are listed above. The output contains one stable JSON profile and
 report per repository plus the aggregate and the normalized observations.
 
-For full provenance validation, point each profile at the corresponding local
-checkout. This expands the compact fixture inventory so evidence from any real
-file—not only a representative fixture path—can be validated. Quoted evidence
-is read only from referenced files and is bounded to 512 KiB per file; a quote
-cannot establish claim support when checkout content was not supplied. The
-curated capability patterns remain recall targets and planned-feature traps,
-not a whitelist of everything a branch is allowed to discover.
+The required checkout expands the compact fixture inventory so evidence from
+any real file—not only a representative fixture path—can be validated. It must
+resolve to the fixture's pinned commit and have no tracked working-tree drift;
+untracked files are excluded from the manifest. Every cited file is read for
+source-grounding verification, bounded to 512 KiB per file, 2,000 files, and
+32 MiB in total. The curated
+capability patterns remain recall targets and planned-feature traps, not a
+whitelist of everything a branch is allowed to discover.
+
+For curated provenance, a file path alone is never evidence. A citation must
+either declare a valid start and end line in the pinned blob, or provide an
+exact excerpt with a unique deterministic anchor in that blob. Half-ranges,
+missing files, ambiguous un-ranged excerpts, and quotes outside their declared
+range fail grounding.
 
 ```bash
 npm run eval:repository-knowledge -- \
@@ -148,7 +165,12 @@ npm run eval:repository-knowledge -- \
 ```
 
 Inputs are strict: unknown fields, out-of-range coverage, negative usage, and
-malformed provenance fail before scoring. `--compact` emits single-line JSON.
+malformed provenance fail before scoring. Serialized observations are useful
+for quality diagnostics and branch-to-branch score comparisons, but their
+execution-integrity fields are self-attested and are therefore ignored for
+curated certification. Use `--from-database` to certify provider identity,
+policy, fallback, and generation-chain integrity from persisted production
+records. `--compact` emits single-line JSON.
 
 ## CI boundary
 

@@ -146,6 +146,19 @@ function jsonStringArray(value: unknown) {
     : [];
 }
 
+/**
+ * Certification must use only provider calls owned by the selected refresh.
+ * A time-window query alone can include project-chat routing or a concurrent
+ * refresh for the same Work Item.
+ */
+export function repositoryGenerationRunsForRefresh<
+  T extends { inputSummary: unknown },
+>(runs: readonly T[], refreshRunId: string) {
+  return runs.filter((run) =>
+    stringValue(record(run.inputSummary)?.refreshRunId) === refreshRunId
+  );
+}
+
 type SemanticFileState = {
   id: string;
   path: string;
@@ -330,7 +343,13 @@ export async function repositoryKnowledgeObservationFromDatabase(
       `No analyzed repository snapshot exists for ${fixture.repository}; wait for its refresh to finish.`,
     );
   }
-  const [highlights, facts, generationRuns] = await Promise.all([
+  const refreshRunId = snapshot.refreshRunId;
+  if (!refreshRunId) {
+    throw new Error(
+      `The analyzed snapshot for ${fixture.repository} is not bound to a repository refresh; rerun the repository refresh before evaluation.`,
+    );
+  }
+  const [highlights, facts, generationRunsInWindow] = await Promise.all([
     prisma.highlight.findMany({
       where: {
         workItemId: source.workItemId,
@@ -405,6 +424,10 @@ export async function repositoryKnowledgeObservationFromDatabase(
         })
       : Promise.resolve([]),
   ]);
+  const generationRuns = repositoryGenerationRunsForRefresh(
+    generationRunsInWindow,
+    refreshRunId,
+  );
 
   const evidence = (rows: Array<{ evidenceItem: { title: string; content: string; metadata: unknown } }>) =>
     rows.flatMap((row) => {
@@ -439,6 +462,7 @@ export async function repositoryKnowledgeObservationFromDatabase(
       capability_synthesis: resolveActiveTextModelIdentity("deep_synthesis"),
       coverage_audit: resolveActiveTextModelIdentity("verification"),
     },
+    expectedSynthesisCriticIdentity: resolveActiveTextModelIdentity("verification"),
     coverage: snapshot.refreshRun?.coverage,
     orchestration: snapshot.refreshRun?.orchestration,
     warnings: snapshot.refreshRun?.warnings,

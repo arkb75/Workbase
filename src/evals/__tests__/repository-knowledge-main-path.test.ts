@@ -165,6 +165,15 @@ function deltaRevisionGeneration(
   revisionPatch: RevisionPatch,
   criticClaims: DeltaCriticClaim[],
   revisionRound = 1,
+  options?: {
+    revisionContract?:
+      | "rejected_claim_patch_v2_delta_critic"
+      | "rejected_claim_patch_v3_server_slots";
+    revisionEvidenceIndexesBySubsystem?: Array<{
+      subsystemKey: string;
+      citationIndexes: number[];
+    }>;
+  },
 ) {
   const claimContentDigest =
     repositorySynthesisClaimContentDigest(revisedSynthesis);
@@ -208,7 +217,19 @@ function deltaRevisionGeneration(
       refreshRunId: "refresh-1",
       subsystemKeys: ["project_domain:payments#scope"],
       revisionRound,
-      revisionContract: "rejected_claim_patch_v2_delta_critic",
+      revisionContract:
+        options?.revisionContract ??
+        "rejected_claim_patch_v2_delta_critic",
+      ...(options?.revisionContract ===
+          "rejected_claim_patch_v3_server_slots"
+        ? {
+            revisionEvidenceIndexesBySubsystem:
+              options.revisionEvidenceIndexesBySubsystem ?? [{
+                subsystemKey: "project_domain:payments#scope",
+                citationIndexes: [1],
+              }],
+          }
+        : {}),
     },
     resultRefs: {
       configuredModelId: "synthesis-model",
@@ -256,6 +277,21 @@ function deltaEntailmentCritic(
         issues: [],
       })),
     },
+  });
+}
+
+function evaluateGenerationRuns(
+  generationRuns: RepositoryKnowledgeGenerationAuditRecord[],
+) {
+  return evaluateRepositoryKnowledgeMainPath({
+    generationRuns,
+    expectedIdentities,
+    coverage: null,
+    orchestration: {
+      fallbackUsed: false,
+      generationRunId: "generation-execution_routing",
+    },
+    warnings: null,
   });
 }
 
@@ -309,6 +345,58 @@ describe("repository knowledge main-path integrity", () => {
         deterministicSynthesis: false,
         budgetExhausted: false,
       },
+    });
+  });
+
+  it("certifies entailment critics against the verification model independently of synthesis", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const verificationCritic = entailmentCritic(synthesis, 0, {
+      modelId: "verification-model",
+      resultRefs: {
+        configuredModelId: "verification-model",
+        requestIds: ["request-capability-synthesis-critic"],
+        usageComplete: true,
+        failedProviderAttempts: [],
+        providerAttemptCount: 1,
+        transportMode: "json_schema",
+      },
+    });
+    const evaluate = (critic: RepositoryKnowledgeGenerationAuditRecord) =>
+      evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(synthesis),
+          critic,
+        ],
+        expectedIdentities,
+        expectedSynthesisCriticIdentity: {
+          provider: "bedrock",
+          modelId: "verification-model",
+        },
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+    expect(evaluate(verificationCritic)).toMatchObject({ passed: true, issues: [] });
+    expect(evaluate(entailmentCritic(synthesis))).toMatchObject({
+      passed: false,
+      issues: [expect.stringContaining(
+        "used model synthesis-model; expected verification-model",
+      )],
     });
   });
 
@@ -708,6 +796,723 @@ describe("repository knowledge main-path integrity", () => {
         );
       }
     }
+  });
+
+  it("admits only the exact server-derived Highlight cascade from a revised Fact", () => {
+    const factKey = "project_domain:payments#scope:fact:1";
+    const highlightKey = "project_domain:payments#scope:highlight:1";
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 4,
+    };
+    const initial = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The service encrypts every receipt.",
+          category: "behavior" as const,
+          reviewNotes: null,
+          citationIndexes: [1],
+          ...promotion,
+        }],
+        highlights: [{
+          text: "Receipt encryption",
+          summary: "The service encrypts every receipt.",
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotion,
+        }],
+      }],
+    };
+
+    for (const [title, expectedPass] of [
+      ["Receipt encryption", true],
+      ["Unreviewed accepted-title rewrite", false],
+    ] as const) {
+      const revisedFact = {
+        statement: "The service encrypts payment receipts.",
+        category: "behavior" as const,
+        reviewNotes: null,
+        citationIndexes: [1],
+        ...promotion,
+      };
+      const revisedHighlight = {
+        text: title,
+        summary: revisedFact.statement,
+        visibility: "private" as const,
+        citationIndexes: [1],
+        ...promotion,
+      };
+      const revised = {
+        subsystems: [{
+          subsystemKey: "project_domain:payments#scope",
+          facts: [revisedFact],
+          highlights: [revisedHighlight],
+        }],
+      };
+      const changedClaims: DeltaCriticClaim[] = [
+        {
+          claimKey: factKey,
+          kind: "fact",
+          claim: { statement: revisedFact.statement },
+          citationIndexes: [1],
+        },
+        {
+          claimKey: highlightKey,
+          kind: "highlight",
+          claim: {
+            text: revisedHighlight.text,
+            summary: revisedHighlight.summary,
+          },
+          citationIndexes: [1],
+        },
+      ];
+      const revisionPatch: RevisionPatch = {
+        factRevisions: [{ claimKey: factKey, replacement: revisedFact }],
+        highlightRevisions: [{
+          claimKey: highlightKey,
+          replacement: revisedHighlight,
+        }],
+      };
+      const result = evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(initial),
+          entailmentCriticRejecting(initial, [factKey]),
+          deltaRevisionGeneration(
+            initial,
+            revised,
+            revisionPatch,
+            changedClaims,
+            1,
+            {
+              revisionContract: "rejected_claim_patch_v3_server_slots",
+            },
+          ),
+          deltaEntailmentCritic(changedClaims),
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+      expect(result.passed).toBe(expectedPass);
+    }
+  });
+
+  it("replays full promotion binding and permits a null cascade after ambiguity", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const factKey = `${subsystemKey}:fact:1`;
+    const highlightKey = `${subsystemKey}:highlight:1`;
+    const promotionA = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 4,
+    };
+    const promotionB = { ...promotionA, distinctiveness: 2 };
+    const evaluate = (
+      initial: unknown,
+      revised: unknown,
+      revisionPatch: RevisionPatch,
+      changedClaims: DeltaCriticClaim[],
+    ) => evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [factKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          revisionPatch,
+          changedClaims,
+          1,
+          { revisionContract: "rejected_claim_patch_v3_server_slots" },
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    const duplicateTextInitial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [
+          { statement: "Records receipts.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotionA },
+          { statement: "Records receipts.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotionB },
+        ],
+        highlights: [{
+          text: "Receipt recording",
+          summary: "Records receipts.",
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotionA,
+        }],
+      }],
+    };
+    const uniqueReplacement = {
+      statement: "Records payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotionA,
+    };
+    const uniqueHighlight = {
+      text: "Receipt recording",
+      summary: uniqueReplacement.statement,
+      visibility: "private" as const,
+      citationIndexes: [1],
+      ...promotionA,
+    };
+    const uniquelyBound = evaluate(
+      duplicateTextInitial,
+      {
+        subsystems: [{
+          subsystemKey,
+          facts: [uniqueReplacement, duplicateTextInitial.subsystems[0]!.facts[1]],
+          highlights: [uniqueHighlight],
+        }],
+      },
+      {
+        factRevisions: [{ claimKey: factKey, replacement: uniqueReplacement }],
+        highlightRevisions: [{ claimKey: highlightKey, replacement: uniqueHighlight }],
+      },
+      [
+        {
+          claimKey: factKey,
+          kind: "fact",
+          claim: { statement: uniqueReplacement.statement },
+          citationIndexes: [1],
+        },
+        {
+          claimKey: highlightKey,
+          kind: "highlight",
+          claim: {
+            text: uniqueHighlight.text,
+            summary: uniqueHighlight.summary,
+          },
+          citationIndexes: [1],
+        },
+      ],
+    );
+    expect(uniquelyBound.passed).toBe(true);
+
+    const ambiguityInitial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [
+          { statement: "Records receipts.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotionA },
+          { statement: "Stores payment receipts.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotionA },
+        ],
+        highlights: [{
+          text: "Receipt recording",
+          summary: "Records receipts.",
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotionA,
+        }],
+      }],
+    };
+    const ambiguousReplacement = {
+      statement: "Stores payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotionA,
+    };
+    const ambiguityRemoved = evaluate(
+      ambiguityInitial,
+      {
+        subsystems: [{
+          subsystemKey,
+          facts: [ambiguousReplacement, ambiguityInitial.subsystems[0]!.facts[1]],
+          highlights: [],
+        }],
+      },
+      {
+        factRevisions: [{ claimKey: factKey, replacement: ambiguousReplacement }],
+        highlightRevisions: [{ claimKey: highlightKey, replacement: null }],
+      },
+      [{
+        claimKey: factKey,
+        kind: "fact",
+        claim: { statement: ambiguousReplacement.statement },
+        citationIndexes: [1],
+      }],
+    );
+    expect(ambiguityRemoved.passed).toBe(true);
+  });
+
+  it("rejects a Highlight-only revision that changes server-owned promotion fields", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const highlightKey = `${subsystemKey}:highlight:1`;
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 4,
+    };
+    const fact = {
+      statement: "Records payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    };
+    const initial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [fact],
+        highlights: [{
+          text: "Receipt recording",
+          summary: fact.statement,
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotion,
+        }],
+      }],
+    };
+    const forgedHighlight = {
+      text: "Receipt persistence",
+      summary: "Publishes every receipt to an external ledger.",
+      visibility: "public_safe" as const,
+      citationIndexes: [2],
+      ...promotion,
+      confidence: "low" as const,
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey,
+        facts: [fact],
+        highlights: [forgedHighlight],
+      }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: highlightKey,
+      kind: "highlight",
+      claim: {
+        text: forgedHighlight.text,
+        summary: forgedHighlight.summary,
+      },
+      citationIndexes: [2],
+    }];
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [highlightKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          {
+            factRevisions: [],
+            highlightRevisions: [{
+              claimKey: highlightKey,
+              replacement: forgedHighlight,
+            }],
+          },
+          changedClaims,
+          1,
+          {
+            revisionContract: "rejected_claim_patch_v3_server_slots",
+          },
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
+  });
+
+  it("keeps unsupported-detail wording obligations after positional re-keying", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const initial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [
+          { statement: "Encrypts every receipt.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotion },
+          { statement: "Publishes every receipt globally.", category: "behavior" as const, reviewNotes: null, citationIndexes: [1], ...promotion },
+        ],
+        highlights: [],
+      }],
+    };
+    const roundOneFact = {
+      statement: "Publishes payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    };
+    const roundOne = {
+      subsystems: [{ subsystemKey, facts: [roundOneFact], highlights: [] }],
+    };
+    const roundOneClaims: DeltaCriticClaim[] = [{
+      claimKey: `${subsystemKey}:fact:2`,
+      kind: "fact",
+      claim: { statement: roundOneFact.statement },
+      citationIndexes: [1],
+    }];
+    const roundOneCritic = deltaEntailmentCritic(roundOneClaims, 1);
+    roundOneCritic.parsedOutput = {
+      assessments: [{
+        claimKey: `${subsystemKey}:fact:2`,
+        supported: false,
+        issues: ["unsupported_detail"],
+      }],
+    };
+    const citationOnlyFact = { ...roundOneFact, citationIndexes: [2] };
+    const roundTwo = {
+      subsystems: [{ subsystemKey, facts: [citationOnlyFact], highlights: [] }],
+    };
+    const roundTwoClaims: DeltaCriticClaim[] = [{
+      claimKey: `${subsystemKey}:fact:1`,
+      kind: "fact",
+      claim: { statement: citationOnlyFact.statement },
+      citationIndexes: [2],
+    }];
+
+    const result = evaluateGenerationRuns([
+      generation("execution_routing", "routing-model"),
+      generation("semantic_extraction", "semantic-model"),
+      synthesisGeneration(initial),
+      entailmentCriticRejecting(initial, [
+        `${subsystemKey}:fact:1`,
+        `${subsystemKey}:fact:2`,
+      ]),
+      deltaRevisionGeneration(
+        initial,
+        roundOne,
+        {
+          factRevisions: [
+            { claimKey: `${subsystemKey}:fact:1`, replacement: null },
+            { claimKey: `${subsystemKey}:fact:2`, replacement: roundOneFact },
+          ],
+          highlightRevisions: [],
+        },
+        roundOneClaims,
+        1,
+        {
+          revisionContract: "rejected_claim_patch_v3_server_slots",
+          revisionEvidenceIndexesBySubsystem: [{
+            subsystemKey,
+            citationIndexes: [1, 2],
+          }],
+        },
+      ),
+      roundOneCritic,
+      deltaRevisionGeneration(
+        roundOne,
+        roundTwo,
+        {
+          factRevisions: [{
+            claimKey: `${subsystemKey}:fact:1`,
+            replacement: citationOnlyFact,
+          }],
+          highlightRevisions: [],
+        },
+        roundTwoClaims,
+        2,
+        {
+          revisionContract: "rejected_claim_patch_v3_server_slots",
+          revisionEvidenceIndexesBySubsystem: [{
+            subsystemKey,
+            citationIndexes: [1, 2],
+          }],
+        },
+      ),
+      deltaEntailmentCritic(roundTwoClaims, 2),
+    ]);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
+  });
+
+  it("requires exact server-owned metadata and notebook-bounded citations in v3 revisions", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const factKey = `${subsystemKey}:fact:1`;
+    const promotion = {
+      confidence: "low" as const,
+      sensitivityFlag: false,
+      productImportance: 0,
+      implementationBreadth: 0,
+      technicalDifficulty: 0,
+      distinctiveness: 0,
+    };
+    const initialFact = {
+      statement: "Records payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    };
+    const initial = {
+      subsystems: [{ subsystemKey, facts: [initialFact], highlights: [] }],
+    };
+    const validFact = {
+      ...initialFact,
+      statement: "Stores payment receipt identifiers.",
+    };
+    const build = (
+      replacement: Record<string, unknown>,
+      emitted: Record<string, unknown> = replacement,
+      allowedCitationIndexes = [1],
+    ) => {
+      const revised = {
+        subsystems: [{ subsystemKey, facts: [emitted], highlights: [] }],
+      };
+      const changedClaims: DeltaCriticClaim[] = [{
+        claimKey: factKey,
+        kind: "fact",
+        claim: { statement: String(replacement.statement) },
+        citationIndexes: replacement.citationIndexes as number[],
+      }];
+      return evaluateGenerationRuns([
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, [factKey]),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          {
+            factRevisions: [{ claimKey: factKey, replacement }],
+            highlightRevisions: [],
+          },
+          changedClaims,
+          1,
+          {
+            revisionContract: "rejected_claim_patch_v3_server_slots",
+            revisionEvidenceIndexesBySubsystem: [{
+              subsystemKey,
+              citationIndexes: allowedCitationIndexes,
+            }],
+          },
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ]);
+    };
+
+    expect(build(validFact).passed).toBe(true);
+    expect(build(
+      validFact,
+      { ...validFact, distinctiveness: 1 },
+    ).passed).toBe(false);
+    expect(build(
+      { ...validFact, citationIndexes: [2] },
+      { ...validFact, citationIndexes: [2] },
+      [1],
+    ).passed).toBe(false);
+    const missingCategory: Record<string, unknown> = { ...validFact };
+    delete missingCategory.category;
+    expect(build(missingCategory).passed).toBe(false);
+  });
+
+  it("rejects v3 chains anchored to impossible subsystem cardinalities", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const fact = (index: number) => ({
+      statement: `Records payment receipt number ${index}.`,
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    });
+    const highlight = (index: number, statement: string) => ({
+      text: `Payment receipt record ${index}`,
+      summary: statement,
+      visibility: "private" as const,
+      citationIndexes: [1],
+      ...promotion,
+    });
+    const oversizedPayloads = [
+      {
+        initial: {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(1), fact(2), fact(3), fact(4)],
+            highlights: [],
+          }],
+        },
+        rejectedKey: `${subsystemKey}:fact:4`,
+        revised: {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(1), fact(2), fact(3)],
+            highlights: [],
+          }],
+        },
+        patch: {
+          factRevisions: [{
+            claimKey: `${subsystemKey}:fact:4`,
+            replacement: null,
+          }],
+          highlightRevisions: [],
+        } satisfies RevisionPatch,
+      },
+      {
+        initial: {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(1)],
+            highlights: [
+              highlight(1, fact(1).statement),
+              highlight(2, fact(1).statement),
+              highlight(3, fact(1).statement),
+            ],
+          }],
+        },
+        rejectedKey: `${subsystemKey}:highlight:3`,
+        revised: {
+          subsystems: [{
+            subsystemKey,
+            facts: [fact(1)],
+            highlights: [
+              highlight(1, fact(1).statement),
+              highlight(2, fact(1).statement),
+            ],
+          }],
+        },
+        patch: {
+          factRevisions: [],
+          highlightRevisions: [{
+            claimKey: `${subsystemKey}:highlight:3`,
+            replacement: null,
+          }],
+        } satisfies RevisionPatch,
+      },
+    ];
+
+    for (const sample of oversizedPayloads) {
+      const result = evaluateGenerationRuns([
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(sample.initial),
+        entailmentCriticRejecting(sample.initial, [sample.rejectedKey]),
+        deltaRevisionGeneration(
+          sample.initial,
+          sample.revised,
+          sample.patch,
+          [],
+          1,
+          { revisionContract: "rejected_claim_patch_v3_server_slots" },
+        ),
+      ]);
+
+      expect(result.passed).toBe(false);
+      expect(result.issues).toContain(
+        "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+      );
+    }
+  });
+
+  it("rejects a v3 chain anchored to an ambiguously promoted Highlight", () => {
+    const subsystemKey = "project_domain:payments#scope";
+    const highlightKey = `${subsystemKey}:highlight:1`;
+    const promotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 3,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
+      distinctiveness: 3,
+    };
+    const fact = {
+      statement: "Records payment receipts.",
+      category: "behavior" as const,
+      reviewNotes: null,
+      citationIndexes: [1],
+      ...promotion,
+    };
+    const initial = {
+      subsystems: [{
+        subsystemKey,
+        facts: [fact, { ...fact }],
+        highlights: [{
+          text: "Payment receipt recording",
+          summary: fact.statement,
+          visibility: "private" as const,
+          citationIndexes: [1],
+          ...promotion,
+        }],
+      }],
+    };
+    const revised = {
+      subsystems: [{
+        subsystemKey,
+        facts: [fact, { ...fact }],
+        highlights: [],
+      }],
+    };
+    const result = evaluateGenerationRuns([
+      generation("execution_routing", "routing-model"),
+      generation("semantic_extraction", "semantic-model"),
+      synthesisGeneration(initial),
+      entailmentCriticRejecting(initial, [highlightKey]),
+      deltaRevisionGeneration(
+        initial,
+        revised,
+        {
+          factRevisions: [],
+          highlightRevisions: [{ claimKey: highlightKey, replacement: null }],
+        },
+        [],
+        1,
+        { revisionContract: "rejected_claim_patch_v3_server_slots" },
+      ),
+    ]);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContain(
+      "1 changed-claim synthesis revision(s) do not chain to the exact prior subsystem payload.",
+    );
   });
 
   it("rejects a missing or mismatched changed-claim critic", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   modelCallsFromGenerationTelemetry,
   repositoryGenerationModelCalls,
+  repositoryGenerationRunsForRefresh,
   semanticCoverageFromOrchestration,
 } from "@/src/evals/repository-knowledge-database-observation";
 
@@ -13,6 +14,18 @@ const attempt = (requestId: string) => ({
 });
 
 describe("repository knowledge database performance telemetry", () => {
+  it("binds certification runs to the selected refresh instead of its time window", () => {
+    const selected = repositoryGenerationRunsForRefresh([
+      { id: "planner", inputSummary: { refreshRunId: "refresh-1" } },
+      { id: "semantic", inputSummary: { refreshRunId: "refresh-1", path: "src/core.ts" } },
+      { id: "concurrent-chat", inputSummary: { route: "repository_research" } },
+      { id: "other-refresh", inputSummary: { refreshRunId: "refresh-2" } },
+      { id: "malformed", inputSummary: null },
+    ], "refresh-1");
+
+    expect(selected.map((run) => run.id)).toEqual(["planner", "semantic"]);
+  });
+
   it("counts multiple provider attempts in one generation row once each", () => {
     const tokenUsage = {
       attempts: [attempt("request-1"), attempt("request-2"), attempt("request-3")],

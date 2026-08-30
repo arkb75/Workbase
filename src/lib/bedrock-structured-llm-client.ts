@@ -947,6 +947,8 @@ export class BedrockStructuredLlmClient {
     repairMappings?: readonly string[];
     transportPreference?: StructuredOutputTransportMode[];
     repairStrategy?: "fresh_then_repair" | "repair_last_failure";
+    /** Bound client-side provider retries/fallbacks for this logical call. */
+    maxProviderAttempts?: 1 | 2;
     maxTokens: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
@@ -987,7 +989,9 @@ export class BedrockStructuredLlmClient {
       phase: StructuredGenerationPhase,
     ) => {
       const budget = params.budget;
-      let boundedRequest = request;
+      let boundedRequest = params.maxProviderAttempts === undefined
+        ? request
+        : { ...request, maxProviderAttempts: params.maxProviderAttempts };
       let releaseAdmissionReservation = () => {};
       if (budget) {
         const reservations = reservationsForStructuredGenerationBudget(budget);
@@ -1031,9 +1035,6 @@ export class BedrockStructuredLlmClient {
             request.enablePromptCaching
             ? inputTokenReserve
             : 0;
-          const requiresCacheAwareFit =
-            cacheTokenReserve > 0 &&
-            (reservations.totalTokens > 0 || budget.usage.totalTokens > 0);
           // Charged usage determines the request's real output ceiling. In-flight
           // reservations may delay admission, but must never shrink maxTokens and
           // turn a healthy structured request into a likely truncation.
@@ -1042,7 +1043,7 @@ export class BedrockStructuredLlmClient {
             budget.limits.maxOutputTokens,
             permanentlyAvailableTokens -
               inputTokenReserve -
-              (requiresCacheAwareFit ? cacheTokenReserve : 0),
+              cacheTokenReserve,
           );
           if (permittedOutputTokens < 1) {
             throw new StructuredGenerationBudgetError(
@@ -1053,21 +1054,20 @@ export class BedrockStructuredLlmClient {
           }
           const requestTokenReservation =
             inputTokenReserve + cacheTokenReserve + permittedOutputTokens;
-          if (
-            requestTokenReservation > currentlyAvailableTokens &&
-            reservations.totalTokens > 0
-          ) {
-            await waitForStructuredGenerationBudgetReservation(
-              reservations,
-              params.signal,
+          if (requestTokenReservation > currentlyAvailableTokens) {
+            if (reservations.totalTokens > 0) {
+              await waitForStructuredGenerationBudgetReservation(
+                reservations,
+                params.signal,
+              );
+              continue;
+            }
+            throw new StructuredGenerationBudgetError(
+              "token_budget_exhausted",
+              `The structured-generation token budget cannot admit another bounded request.`,
+              snapshotStructuredGenerationBudget(budget),
             );
-            continue;
           }
-          // Do not shrink a lone request's established output ceiling merely
-          // because cache usage could reach its conservative maximum; actual
-          // provider usage is still enforced after that response. For concurrent
-          // or subsequent calls, require the full cache-aware reservation to fit
-          // so they can never share already reserved or spent headroom.
           budget.usage.modelCalls += 1;
           if (phase === "repair") budget.usage.repairPasses += 1;
           // OpenRouter's configured fallback runtime can make at most one second
@@ -1087,6 +1087,7 @@ export class BedrockStructuredLlmClient {
             repairCallReserve;
           const providerAttemptLimit =
             this.config.provider !== "bedrock" &&
+            (params.maxProviderAttempts ?? 2) > 1 &&
             availableAdditionalCalls >= 1 &&
             currentlyAvailableTokens >= requestTokenReservation * 2
               ? 2

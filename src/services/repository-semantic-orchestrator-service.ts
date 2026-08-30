@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@/src/generated/prisma/client";
 import { z } from "zod";
-import type { JsonSchemaObject } from "@/src/lib/llm-json-schemas";
+import type {
+  JsonSchemaObject,
+  StructuredOutputTransportMode,
+} from "@/src/lib/llm-json-schemas";
 import { resolveWorkbaseLlmProvider } from "@/src/lib/llm-config";
 import { prisma } from "@/src/lib/prisma";
 import {
@@ -34,12 +37,12 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v37-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v38-hybrid";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
-const REPAIR_MICRO_BATCH_SIZE = 3;
+const REPAIR_MICRO_BATCH_SIZE = SEMANTIC_MICRO_BATCH_SIZE;
 // Retained only by the exported legacy-plan helper used for safe fallback and
 // historical policy tests. The generalized runtime path below does not call
 // that helper or use these Workbase-era selection limits.
@@ -48,7 +51,11 @@ const MAX_SELECTED_SEMANTIC_FILES = 32;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_PACKAGES = 2;
 const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
-const MAX_SEMANTIC_REPAIR_WAVES = 2;
+// Large, diverse repositories can use a third model-led pass when the first
+// two repairs leave evidence debt and the same hard token budget still has
+// room. Smaller repositories stop as soon as the critic reports coverage.
+const MAX_SEMANTIC_REPAIR_WAVES = 3;
+const MAX_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const REPAIR_TOKEN_RESERVE = 16_000;
 const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_000;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
@@ -93,8 +100,10 @@ const repositoryAreaRules = [
     label: "Search, retrieval, and model intelligence",
     // Deliberately exclude bare "model" and "api": both are ordinary
     // application vocabulary in Java/TypeScript and previously created large
-    // numbers of false AI/integration classifications.
-    pattern: /(?:search|retriev|rank(?:er|ing)|recommend|embedding|vector|agents?|llm|inference|training|machine[-_ ]learning|ml_service|forecast|predict)/i,
+    // numbers of false AI/integration classifications. A generic ancestor
+    // directory named `agents` is also insufficient; file-local agent and
+    // static runtime signals are handled below.
+    pattern: /(?:search|retriev|rank(?:er|ing)|recommend|embedding|vector|llm|inference|training|machine[-_ ]learning|ml_service|forecast|predict)/i,
   },
   {
     key: `${REPOSITORY_AREA_PREFIX}application_core`,
@@ -108,9 +117,116 @@ const repositoryAreaRules = [
   },
 ] as const;
 
+type RepositoryAreaStaticSignals = Pick<
+  RepositoryFileAnalysis,
+  "symbols" | "dependencies" | "architectureSignals"
+>;
+
+function repositorySignalTokens(value: string) {
+  return value
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter(Boolean);
+}
+
+function repositoryIntelligenceSignalMatches(values: readonly string[]) {
+  const tokenGroups = values.map(repositorySignalTokens);
+  const tokens = tokenGroups.flat();
+  const tokenSet = new Set(tokens);
+  const hasPair = (left: string, right: string) =>
+    tokenGroups.some((group) =>
+      group.some((token, index) => token === left && group[index + 1] === right)
+    );
+  const hasContextInOneSignal = (
+    ambiguous: readonly string[],
+    context: readonly string[],
+  ) => tokenGroups.some((group) => {
+    const groupTokens = new Set(group);
+    return ambiguous.some((token) => groupTokens.has(token)) &&
+      context.some((token) => groupTokens.has(token));
+  });
+  const hasStrongSignal = tokens.some((token) =>
+    /^(?:search(?:able|ed|er|ers|es|ing)?|retriev(?:al|als|e|ed|er|ers|es|ing)?|rank(?:ed|er|ers|ing|ings|s)?|recommend(?:ation|ations|ed|er|ers|ing|s)?|embed(?:ded|der|ders|ding|dings|s)?|forecast(?:ed|er|ers|ing|s)?|predict(?:ed|ing|ion|ions|ive|or|ors|s)?|inferences?)$/u.test(token)
+  ) || [
+    "llm",
+    "rag",
+    "gpt",
+    "chatgpt",
+    "bedrock",
+    "openrouter",
+    "openai",
+    "langchain",
+    "claude",
+    "anthropic",
+    "chromadb",
+  ].some((token) => tokenSet.has(token));
+  const hasStandaloneRuntimeSignal = tokenGroups.some((group) =>
+    group.length <= 3 && [
+      "ollama",
+      "mistral",
+      "mistralai",
+      "cohere",
+      "huggingface",
+      "llamaindex",
+      "vertexai",
+      "vllm",
+      "litellm",
+      "genai",
+      "tensorflow",
+      "pytorch",
+      "torch",
+      "transformers",
+      "onnxruntime",
+    ].some((token) => group.includes(token))
+  );
+  const hasVectorContext = hasContextInOneSignal(
+    ["vector", "vectors"],
+    [
+      "search", "store", "index", "database", "db", "embed", "embedding",
+    ],
+  );
+  const hasChromaContext = hasContextInOneSignal(
+    ["chroma"],
+    ["db", "database"],
+  );
+  const hasClaudeModelContext = hasContextInOneSignal(
+    ["haiku", "sonnet"],
+    ["claude", "anthropic"],
+  );
+  return hasStrongSignal ||
+    hasStandaloneRuntimeSignal ||
+    hasVectorContext ||
+    hasChromaContext ||
+    hasClaudeModelContext ||
+    hasPair("machine", "learning") ||
+    hasPair("generative", "ai") ||
+    hasPair("llama", "index") ||
+    hasPair("model", "training") ||
+    hasPair("ml", "service") ||
+    hasPair("semantic", "search") ||
+    hasPair("ai", "provider") ||
+    hasPair("model", "provider");
+}
+
+function repositoryIntelligenceMatchesFile(
+  path: string,
+  analysis?: Partial<RepositoryAreaStaticSignals>,
+) {
+  const normalized = path.replace(/\\/g, "/");
+  return repositoryIntelligenceSignalMatches([
+    normalized,
+    ...(analysis?.symbols ?? []),
+    ...(analysis?.dependencies ?? []),
+    ...(analysis?.architectureSignals ?? []),
+  ]);
+}
+
 function repositoryAreaMatchesPath(
   area: (typeof repositoryAreaRules)[number],
   path: string,
+  analysis?: Partial<RepositoryAreaStaticSignals>,
 ) {
   if (area.key === `${REPOSITORY_AREA_PREFIX}quality`) {
     return isRepositoryTestPath(path);
@@ -119,6 +235,9 @@ function repositoryAreaMatchesPath(
     return ["core", "service", "interface"].includes(
       semanticImplementationLayer(path),
     );
+  }
+  if (area.key === `${REPOSITORY_AREA_PREFIX}intelligence`) {
+    return repositoryIntelligenceMatchesFile(path, analysis);
   }
   if (area.key !== `${REPOSITORY_AREA_PREFIX}product_surface`) {
     return area.pattern.test(path);
@@ -416,8 +535,11 @@ export function compactRepositorySemanticPlannerInput(input: {
 
 export function createRepositorySemanticPlannerBudget() {
   return createStructuredGenerationBudget({
-    maxModelCalls: 4,
-    maxRepairPasses: 1,
+    // Planning is one native structured request. If that request cannot meet
+    // the contract, the refresh fails visibly instead of spending another
+    // provider call on a hidden transport or text-repair path.
+    maxModelCalls: 1,
+    maxRepairPasses: 0,
     maxOutputTokens: SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS,
     maxTotalTokens: SEMANTIC_PLANNER_MAX_TOTAL_TOKENS,
   });
@@ -446,7 +568,11 @@ export function buildRepositorySemanticPlannerRequest(input: {
     maxTokens: SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS,
     temperature: 0,
     effort: "medium" as const,
-    repairStrategy: "repair_last_failure" as const,
+    // The routing inventory is unique to this refresh, so there is no reusable
+    // prompt prefix worth Bedrock cache accounting or its extra token reserve.
+    enablePromptCaching: false,
+    transportPreference: ["json_schema"] satisfies StructuredOutputTransportMode[],
+    maxProviderAttempts: 1 as const,
     budget: input.budget,
     extraValidation: (value: z.infer<typeof workPackageSchema>) => {
       const errors: string[] = [];
@@ -559,7 +685,9 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     )));
     for (const key of domainKeys) add(key, repositoryDomainLabel(key), file);
     for (const area of repositoryAreaRules) {
-      if (repositoryAreaMatchesPath(area, normalizedPath)) add(area.key, area.label, file);
+      if (repositoryAreaMatchesPath(area, normalizedPath, file.analysis)) {
+        add(area.key, area.label, file);
+      }
     }
   }
 
@@ -697,7 +825,7 @@ export function semanticSampleTarget(area: Pick<CapabilityManifestArea, "key" | 
 /**
  * The independent critic retains the prior depth curve. This is deliberately
  * separate from the two-file breadth-first initial plan: broad, high-salience
- * areas can spend the one bounded repair wave instead of being declared
+ * areas can spend bounded repair capacity instead of being declared
  * covered after a single thin pass.
  */
 export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "files">) {
@@ -815,8 +943,8 @@ export function semanticWorkPackageGenerationLimits(input: Pick<
   const primaryModelCalls = semanticWorkPackageModelCallCount(input);
   return {
     primaryModelCalls,
-    maxModelCalls: primaryModelCalls * 2,
-    maxRepairPasses: primaryModelCalls,
+    maxModelCalls: primaryModelCalls,
+    maxRepairPasses: 0,
   };
 }
 
@@ -840,7 +968,7 @@ export function semanticOrchestrationUsage(input: {
 type SemanticModelBudgetUsage = Omit<RepositorySemanticBudgetUsage, "inputBytes">;
 
 export function aggregateSemanticModelBudgetUsage(
-  usages: SemanticModelBudgetUsage[],
+  usages: readonly SemanticModelBudgetUsage[],
 ): SemanticModelBudgetUsage {
   return usages.reduce<SemanticModelBudgetUsage>((total, usage) => ({
     modelCalls: total.modelCalls + usage.modelCalls,
@@ -857,6 +985,94 @@ export function aggregateSemanticModelBudgetUsage(
     totalTokens: 0,
     unknownUsageCalls: 0,
   });
+}
+
+function semanticModelBudgetUsageDelta(
+  after: SemanticModelBudgetUsage,
+  before: SemanticModelBudgetUsage,
+): SemanticModelBudgetUsage {
+  return {
+    modelCalls: Math.max(0, after.modelCalls - before.modelCalls),
+    repairPasses: Math.max(0, after.repairPasses - before.repairPasses),
+    inputTokens: Math.max(0, after.inputTokens - before.inputTokens),
+    outputTokens: Math.max(0, after.outputTokens - before.outputTokens),
+    totalTokens: Math.max(0, after.totalTokens - before.totalTokens),
+    unknownUsageCalls: Math.max(
+      0,
+      after.unknownUsageCalls - before.unknownUsageCalls,
+    ),
+  };
+}
+
+export function semanticRepairWaveDecision(input: {
+  waveIndex: number;
+  hasRepairPackages: boolean;
+  maxTotalTokens: number;
+  maxModelCalls: number;
+  plannerTokenCommitment: number;
+  initialWorkerTokens: number;
+  priorRepairUsages: readonly SemanticModelBudgetUsage[];
+}) {
+  const priorRepairUsage = aggregateSemanticModelBudgetUsage(
+    input.priorRepairUsages,
+  );
+  const tokenPool = semanticRepairTokenPool({
+    maxTotalTokens: input.maxTotalTokens,
+    plannerTokenCommitment: input.plannerTokenCommitment,
+    initialWorkerTokens:
+      input.initialWorkerTokens + priorRepairUsage.totalTokens,
+  });
+  return {
+    shouldRun:
+      input.waveIndex >= 0 &&
+      input.waveIndex < MAX_SEMANTIC_REPAIR_WAVES &&
+      input.hasRepairPackages &&
+      priorRepairUsage.modelCalls < input.maxModelCalls &&
+      tokenPool > 0,
+    tokenPool,
+    modelCallPool: Math.max(
+      0,
+      input.maxModelCalls - priorRepairUsage.modelCalls,
+    ),
+  };
+}
+
+export function boundedSemanticRepairPackagesForModelCalls(
+  packages: readonly Omit<SemanticWorkPackage, "id" | "budget">[],
+  maximumModelCalls: number,
+) {
+  const bounded: Array<Omit<SemanticWorkPackage, "id" | "budget">> = [];
+  let remainingModelCalls = Math.max(0, Math.floor(maximumModelCalls));
+  for (const entry of packages) {
+    let fileSnapshotIds = [...entry.fileSnapshotIds];
+    while (fileSnapshotIds.length) {
+      const singletonFileSnapshotIds = (entry.singletonFileSnapshotIds ?? [])
+        .filter((id) => fileSnapshotIds.includes(id));
+      const candidate = {
+        ...entry,
+        fileSnapshotIds,
+        ...(entry.singletonFileSnapshotIds
+          ? { singletonFileSnapshotIds }
+          : {}),
+      };
+      // Admission is entirely native structured-output primaries. Malformed
+      // results are retried in the next bounded coverage wave instead of
+      // spending an inline fallback slot ahead of untouched files.
+      const projectedCalls = semanticWorkPackageGenerationLimits(
+        candidate,
+      ).primaryModelCalls;
+      if (projectedCalls <= remainingModelCalls) {
+        bounded.push(candidate);
+        remainingModelCalls -= projectedCalls;
+        break;
+      }
+      // Repair packages are priority ordered. Keep the strongest prefix when
+      // the remaining global call allowance cannot admit the whole package.
+      fileSnapshotIds = fileSnapshotIds.slice(0, -1);
+    }
+    if (remainingModelCalls < 1) break;
+  }
+  return bounded;
 }
 
 export function packSemanticBundleIndexes(input: {
@@ -968,6 +1184,7 @@ export function missingAssignedFileCandidateGaps(input: {
     id: string;
     path: string;
     staticSubsystemKeys: string[];
+    staticAnalysis?: Partial<RepositoryAreaStaticSignals>;
   }>;
   workPackageCapabilityKeys: string[];
   candidates: Array<Pick<CapabilityCandidate, "key" | "evidence">>;
@@ -977,6 +1194,7 @@ export function missingAssignedFileCandidateGaps(input: {
       workPackageCapabilityKeys: input.workPackageCapabilityKeys,
       staticSubsystemKeys: file.staticSubsystemKeys,
       path: file.path,
+      staticAnalysis: file.staticAnalysis,
     });
     return assignedKeys.flatMap((key) => input.candidates.some((candidate) =>
       candidate.key === key && candidate.evidence.some((evidence) => evidence.fileSnapshotId === file.id)
@@ -1199,6 +1417,7 @@ export function fileRelevantCapabilityKeys(input: {
   workPackageCapabilityKeys: string[];
   staticSubsystemKeys: string[];
   path?: string;
+  staticAnalysis?: Partial<RepositoryAreaStaticSignals>;
 }) {
   // A package key is emitted after cartography has merged aliases; static
   // analysis still carries the original directory spelling for this file.
@@ -1226,7 +1445,11 @@ export function fileRelevantCapabilityKeys(input: {
       if (normalizedDomainKey && staticProjectDomainKeys.has(normalizedDomainKey)) return true;
       if (!input.path || !key.startsWith(REPOSITORY_AREA_PREFIX)) return false;
       return repositoryAreaRules.some((area) =>
-        area.key === key && repositoryAreaMatchesPath(area, input.path!)
+        area.key === key && repositoryAreaMatchesPath(
+          area,
+          input.path!,
+          input.staticAnalysis,
+        )
       );
     });
   if (!input.path) return staticallyRelevant;
@@ -1267,6 +1490,7 @@ export function buildFileSemanticTask(input: {
   path: string;
   workPackageCapabilityKeys: string[];
   staticSubsystemKeys: string[];
+  staticAnalysis?: Partial<RepositoryAreaStaticSignals>;
 }) {
   const capabilityKeys = fileRelevantCapabilityKeys(input);
   if (!capabilityKeys.length) return null;
@@ -1986,13 +2210,19 @@ function diverseSemanticFiles(
       .map((file) => {
         const profile = semanticPathProfile(file.path);
         const newBehavior = !covered.behaviors.has(profile.behavior);
+        const newOperationalRole = Boolean(profile.role) &&
+          !covered.roles.has(profile.role);
+        const newOperationalModule = Boolean(profile.module) &&
+          !covered.modules.has(profile.module);
         const novelty = (
           Number(newBehavior) * 16 +
           Number(newBehavior) * semanticBehaviorImportance(profile.behavior) * 4 +
           Number(!covered.layers.has(profile.layer)) * 4 +
           Number(!covered.languages.has(profile.language)) * 2 +
-          Number(!newBehavior && Boolean(profile.role) && !covered.roles.has(profile.role)) * 0.25 +
-          Number(!newBehavior && Boolean(profile.module) && !covered.modules.has(profile.module)) +
+          Number(!newBehavior && newOperationalRole) *
+            (isProjectDomainCapabilityKey(areaKey) ? 2 : 0.25) +
+          Number(newOperationalModule) *
+            (isProjectDomainCapabilityKey(areaKey) ? 4 : 1) +
           Number(
             !newBehavior &&
             Boolean(profile.variant) &&
@@ -2285,15 +2515,36 @@ export function critiqueRepositoryCoverage(input: {
       targetSamples > 1 &&
       implementationFiles.length > 0 &&
       area.key !== `${REPOSITORY_AREA_PREFIX}quality`;
-    const usefulValues = (profiles: ReturnType<typeof semanticPathProfile>[], dimension: "layer" | "language" | "entity" | "surface") =>
+    const usefulValues = (profiles: ReturnType<typeof semanticPathProfile>[], dimension: "layer" | "language" | "entity" | "surface" | "role" | "module") =>
       new Set(profiles.map((profile) => profile[dimension]).filter((value) => value && value !== "unknown"));
     const idealSurfaceCount = usefulValues(idealProfiles, "surface").size;
+    const idealOperationalRoleCount = usefulValues(idealProfiles, "role").size;
+    const idealOperationalModuleCount = usefulValues(
+      idealProfiles,
+      "module",
+    ).size;
     const diversityDimensions = shouldRequireDiversity
       ? ([
           { label: "implementation layers", dimension: "layer" as const, maxRequired: 2 },
           { label: "language families", dimension: "language" as const, maxRequired: 2 },
           ...(area.key === `${REPOSITORY_AREA_PREFIX}data_model`
             ? [{ label: "data entities", dimension: "entity" as const, maxRequired: 2 }]
+            : []),
+          ...(isProjectDomainCapabilityKey(area.key) &&
+              idealOperationalRoleCount >= 2
+            ? [{
+                label: "operational roles",
+                dimension: "role" as const,
+                maxRequired: 3,
+              }]
+            : []),
+          ...(isProjectDomainCapabilityKey(area.key) &&
+              idealOperationalModuleCount >= 2
+            ? [{
+                label: "operational modules",
+                dimension: "module" as const,
+                maxRequired: 3,
+              }]
             : []),
           ...(
             idealSurfaceCount >= 2 && (
@@ -2779,6 +3030,7 @@ async function runWorkPackage(input: {
         path: file.path,
         workPackageCapabilityKeys: input.workPackage.capabilityKeys,
         staticSubsystemKeys: staticAnalysis.subsystemKeys,
+        staticAnalysis,
       });
       // Planner packages are bounded and may contain an extra file that is not
       // statically mapped to any capability owned by this worker. Do not ask
@@ -3012,7 +3264,12 @@ async function runWorkPackage(input: {
   const assignedFiles = files.flatMap((file) => {
     const staticAnalysis = parseAnalysis(file.analysis);
     return staticAnalysis
-      ? [{ id: file.id, path: file.path, staticSubsystemKeys: staticAnalysis.subsystemKeys }]
+      ? [{
+          id: file.id,
+          path: file.path,
+          staticSubsystemKeys: staticAnalysis.subsystemKeys,
+          staticAnalysis,
+        }]
       : [];
   });
   gaps.push(...missingAssignedFileCandidateGaps({
@@ -3104,8 +3361,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const minimumRepairTokenReserve = Math.min(REPAIR_TOKEN_RESERVE, Math.floor(availableWorkerTokens / 2));
   const workerTokenPool = Math.max(0, availableWorkerTokens - minimumRepairTokenReserve);
   const workerModelBudget = createStructuredGenerationBudget({
-    maxModelCalls: modelCallCounts.reduce((total, value) => total + value, 0) + normalizedPlan.length,
-    maxRepairPasses: normalizedPlan.length,
+    maxModelCalls: modelCallCounts.reduce((total, value) => total + value, 0),
+    maxRepairPasses: 0,
     maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
     maxTotalTokens: workerTokenPool,
   });
@@ -3118,11 +3375,11 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       // Enforce the micro-batched execution shape in the budget itself. A
       // future regression to one provider call per file should fail closed
       // instead of silently restoring the old cost profile.
-      maxModelCalls: modelCallCounts[index]! + 1,
+      maxModelCalls: modelCallCounts[index]!,
       maxInputBytes: 64 * 1024,
       maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
       maxTotalTokens: workerTokenPool,
-      maxRepairPasses: 1 as const,
+      maxRepairPasses: 0 as const,
     },
   })).sort((left, right) => left.id.localeCompare(right.id));
   await prisma.knowledgeRefreshRun.update({
@@ -3188,6 +3445,13 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     plannerTokenCommitment,
     initialWorkerTokens: initialWorkerUsage.totalTokens,
   });
+  const repairModelBudget = createStructuredGenerationBudget({
+    maxModelCalls: MAX_SEMANTIC_REPAIR_MODEL_CALLS,
+    // Raised per wave only by capacity left after all admitted primary calls.
+    maxRepairPasses: 0,
+    maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
+    maxTotalTokens: initialRepairTokenPool,
+  });
   const repairWaves: Array<{
     waveNumber: number;
     tokenCeiling: number;
@@ -3199,26 +3463,27 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   let effectiveReports = initialReports;
   let nextRepairCritique = initialCritique;
   for (let waveIndex = 0; waveIndex < MAX_SEMANTIC_REPAIR_WAVES; waveIndex += 1) {
-    const priorRepairUsage = aggregateSemanticModelBudgetUsage(
-      repairWaves.map((wave) => wave.usage),
-    );
-    const repairTokenPool = semanticRepairTokenPool({
+    const repairDecision = semanticRepairWaveDecision({
+      waveIndex,
+      hasRepairPackages: nextRepairCritique.repairPackages.length > 0,
       maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+      maxModelCalls: MAX_SEMANTIC_REPAIR_MODEL_CALLS,
       plannerTokenCommitment,
-      initialWorkerTokens: initialWorkerUsage.totalTokens + priorRepairUsage.totalTokens,
+      initialWorkerTokens: initialWorkerUsage.totalTokens,
+      priorRepairUsages: repairWaves.map((wave) => wave.usage),
     });
-    if (!nextRepairCritique.repairPackages.length || repairTokenPool <= 0) break;
-    const repairGenerationLimits = nextRepairCritique.repairPackages.map(
+    if (!repairDecision.shouldRun) break;
+    const repairTokenPool = repairDecision.tokenPool;
+    const boundedRepairPackages = boundedSemanticRepairPackagesForModelCalls(
+      nextRepairCritique.repairPackages,
+      repairDecision.modelCallPool,
+    );
+    if (!boundedRepairPackages.length) break;
+    const repairGenerationLimits = boundedRepairPackages.map(
       semanticWorkPackageGenerationLimits,
     );
-    const repairModelBudget = createStructuredGenerationBudget({
-      maxModelCalls: repairGenerationLimits.reduce((total, value) => total + value.maxModelCalls, 0),
-      maxRepairPasses: repairGenerationLimits.reduce((total, value) => total + value.maxRepairPasses, 0),
-      maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
-      maxTotalTokens: repairTokenPool,
-    });
     const waveNumber = waveIndex + 1;
-    const wavePackages: SemanticWorkPackage[] = nextRepairCritique.repairPackages.map((entry, index) => ({
+    const wavePackages: SemanticWorkPackage[] = boundedRepairPackages.map((entry, index) => ({
       ...entry,
       id: stablePackageId(
         `${refreshRunId}:repair:${waveNumber}`,
@@ -3233,9 +3498,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxInputBytes: 64 * 1024,
         maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
         maxTotalTokens: repairTokenPool,
-        maxRepairPasses: repairGenerationLimits[index]!.maxRepairPasses,
+        maxRepairPasses: 0,
       },
     }));
+    const usageBeforeWave = snapshotStructuredGenerationBudget(
+      repairModelBudget,
+    );
     const settledWaveReports = await Promise.allSettled(wavePackages.map((workPackage) => runWorkPackage({
       rootRunId: root.id,
       refreshRunId,
@@ -3261,7 +3529,10 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       tokenCeiling: repairTokenPool,
       critique: nextRepairCritique,
       packages: wavePackages,
-      usage: snapshotStructuredGenerationBudget(repairModelBudget),
+      usage: semanticModelBudgetUsageDelta(
+        snapshotStructuredGenerationBudget(repairModelBudget),
+        usageBeforeWave,
+      ),
     });
     nextRepairCritique = critiqueRepositoryCoverage({
       manifest,

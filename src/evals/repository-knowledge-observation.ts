@@ -65,7 +65,18 @@ const repositoryKnowledgeEvaluationRunSchema = z.object({
 export function parseRepositoryKnowledgeEvaluationRun(
   input: unknown,
 ): RepositoryKnowledgeEvaluationRun {
-  return repositoryKnowledgeEvaluationRunSchema.parse(input);
+  const parsed = repositoryKnowledgeEvaluationRunSchema.parse(input);
+  return {
+    ...parsed,
+    executionIntegrity: {
+      passed: false,
+      issues: [
+        "Serialized observations are self-attested and cannot certify production execution integrity; use the database adapter.",
+      ],
+      modelIdentities: [],
+      policyVersions: [],
+    },
+  };
 }
 
 export function parseRepositoryKnowledgeEvaluationRuns(input: unknown) {

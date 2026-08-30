@@ -528,7 +528,8 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("visible button or field proves an affordance");
     expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
-    expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
+    expect(request.transportPreference).toEqual(["json_schema"]);
+    expect(request.enablePromptCaching).toBe(false);
   });
 
   it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {
@@ -1095,7 +1096,8 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("query-parameter plumbing");
     expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
-    expect(request.transportPreference).toEqual(["json_schema", "text_repair_fallback"]);
+    expect(request.transportPreference).toEqual(["json_schema"]);
+    expect(request.enablePromptCaching).toBe(false);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
   });

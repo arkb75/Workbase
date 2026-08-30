@@ -814,6 +814,7 @@ async function analyzeChunk(input: {
       ? `semantic:${input.refreshRunId}:${input.path}:${input.lineStart}-${input.lineEnd}`
       : undefined,
     inputSummary: {
+      refreshRunId: input.refreshRunId ?? null,
       repository: input.repository,
       commitSha: input.commitSha,
       path: input.path,
@@ -865,10 +866,14 @@ async function analyzeChunk(input: {
       // deeper reasoning here reduces reliability without adding authority.
       effort: "low",
       repairStrategy: "repair_last_failure",
-      // A malformed native structured response is repaired once by the same
-      // model. Deterministic analysis remains a degraded path and is rejected
-      // by live evaluation; schema repair is the bounded provider path.
-      transportPreference: ["json_schema", "text_repair_fallback"],
+      // Native schema extraction is the only semantic path. A malformed
+      // response stays visible as a failed file, and the coverage critic can
+      // retry it in the next bounded wave without starving untouched primaries.
+      transportPreference: ["json_schema"],
+      enablePromptCaching: false,
+      // Semantic coverage admits every primary file attempt before optional
+      // client-side provider fallback can spend another file's call slot.
+      maxProviderAttempts: 1,
       budget: input.budget?.model,
       extraValidation: (value) => value.findings.flatMap((finding, index) =>
         [
@@ -1325,6 +1330,7 @@ export async function analyzeRepositoryFileBatch(
         ? `semantic-batch:${input[0].refreshRunId}:${batchFingerprint}`
         : undefined,
       inputSummary: {
+        refreshRunId: input[0]?.refreshRunId ?? null,
         batchSize: input.length,
         inputBytes,
         files: prepared.map((entry) => ({
@@ -1391,9 +1397,13 @@ export async function analyzeRepositoryFileBatch(
         // file observations the workflow actually needs.
         effort: "low",
         repairStrategy: "repair_last_failure",
-        // Preserve the semantic model path when a provider returns malformed
-        // JSON instead of replacing the whole micro-batch deterministically.
-        transportPreference: ["json_schema", "text_repair_fallback"],
+        // Keep schema failures explicit; the bounded coverage wave retries
+        // affected files through native structured output as new primaries.
+        transportPreference: ["json_schema"],
+        enablePromptCaching: false,
+        // OpenRouter already performs same-model provider routing. Keep the
+        // bounded semantic wave's remaining slots for other primary files.
+        maxProviderAttempts: 1,
         budget: sharedBudget?.model,
       }),
     }) as typeof result;

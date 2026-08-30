@@ -4,7 +4,10 @@ import {
   repositoryKnowledgeFixtures,
 } from "@/src/evals/repository-knowledge-fixtures";
 import { repositoryKnowledgeObservationFromDatabase } from "@/src/evals/repository-knowledge-database-observation";
-import { hydrateRepositoryKnowledgeFixtureFromLocalTree } from "@/src/evals/repository-knowledge-local-repository";
+import {
+  assertCuratedRepositoryRoots,
+  hydrateRepositoryKnowledgeFixtureFromLocalTree,
+} from "@/src/evals/repository-knowledge-local-repository";
 import { parseRepositoryKnowledgeEvaluationRuns } from "@/src/evals/repository-knowledge-observation";
 import {
   evaluateRepositoryKnowledgeRun,
@@ -24,11 +27,13 @@ interface CliOptions {
 
 function usage() {
   return `Usage:
-  npm run eval:repository-knowledge -- --observation <runs.json> [--repository-root <fixture-id>=<checkout>]
-  npm run eval:repository-knowledge -- --from-database-all [--work-item <fixture-id>=<work-item-id> ...] [--repository-root <fixture-id>=<checkout> ...]
-  npm run eval:repository-knowledge -- --from-database <fixture-id> [--work-item <fixture-id>=<work-item-id>] [--from-database <fixture-id> ...]
+  npm run eval:repository-knowledge -- --observation <runs.json> --repository-root <curated-fixture-id>=<checkout> [...]
+  npm run eval:repository-knowledge -- --from-database-all [--work-item <fixture-id>=<work-item-id> ...] --repository-root <fixture-id>=<checkout> ...
+  npm run eval:repository-knowledge -- --from-database <fixture-id> [--work-item <fixture-id>=<work-item-id>] --repository-root <fixture-id>=<checkout> [...]
 
 Inputs may be one observation, an array, or an object with a runs/observations array.
+Every selected curated real-repository fixture requires its exact clean pinned checkout.
+Synthetic fixtures do not require --repository-root.
 Use --compact for stable single-line JSON. The default is pretty JSON.`;
 }
 
@@ -163,6 +168,7 @@ async function main() {
     }
     return fixture;
   });
+  assertCuratedRepositoryRoots(baseFixtures, options.repositoryRoots);
   const fixtures: RepositoryKnowledgeFixture[] = await Promise.all(
     baseFixtures.map(async (fixture, index) => {
       const repositoryRoot = options.repositoryRoots.get(fixture.id);

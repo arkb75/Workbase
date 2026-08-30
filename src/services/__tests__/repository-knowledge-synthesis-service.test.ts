@@ -7,6 +7,8 @@ import {
   deterministicSynthesisAnchorSubsystems,
   derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
+  exactSynthesisCitationExcerpt,
+  isCompleteSynthesisCitationExcerpt,
   fallbackSubsystemSynthesis,
   finalizeRepositorySubsystemSynthesis,
   isBroadSemanticRepositoryLifecycleFact,
@@ -434,7 +436,7 @@ describe("repository synthesis model-path limits", () => {
       result: { facts: [], highlights: [highlight], unresolvedQuestions: [] },
       tokenUsage: null,
     });
-    expect(absentFactFinalized.highlights).toEqual([highlight]);
+    expect(absentFactFinalized.highlights).toEqual([]);
     expect(absentFactFinalized.coverageGaps).toEqual([
       expect.stringMatching(
         /^Repository example\/payments produced no supported Project Facts for project_domain:payments/u,
@@ -559,9 +561,12 @@ describe("repository synthesis model-path limits", () => {
     });
 
     expect(finalized.facts).toEqual([]);
-    expect(finalized.highlights).toEqual([highlight]);
+    expect(finalized.highlights).toEqual([]);
     expect(finalized.unresolvedQuestions).toContain(
       "Entailment verification rejected fact 1: unsupported broad qualifier.",
+    );
+    expect(finalized.unresolvedQuestions).toContain(
+      "Entailment verification rejected a Highlight because its promoted Project Fact did not survive verification.",
     );
     expect(finalized.coverageGaps).toHaveLength(1);
     expect(finalized.coverageGaps[0]).toMatch(/^Repository example\/payments /u);
@@ -641,6 +646,39 @@ describe("repository synthesis model-path limits", () => {
     expect(() => buildRepositorySynthesisBatches([first], 0)).toThrow(
       "Repository synthesis batch input-byte limit must be a positive integer.",
     );
+  });
+
+  it("backfills later small scopes into the first compatible singleton batch", () => {
+    const input = (subsystemKey: string, excerptLength: number) => ({
+      subsystemKey,
+      synthesisKey: `${subsystemKey}#scope`,
+      claimLimits: { maxFacts: 3, maxHighlights: 2 },
+      notebook: [{
+        ...entry(`src/${subsystemKey}.ts`),
+        evidenceMode: "semantic" as const,
+        semanticSignals: [`domain.${subsystemKey}`],
+        sourceExcerpt: "x".repeat(excerptLength),
+      }],
+    });
+    const first = input("first", 1_000);
+    const second = input("second", 1_000);
+    const third = input("third", 40);
+    const fourth = input("fourth", 40);
+    const maxInputBytes = Math.max(
+      repositorySynthesisBatchPromptBytes([first, third]),
+      repositorySynthesisBatchPromptBytes([second, fourth]),
+    );
+
+    expect(repositorySynthesisBatchPromptBytes([first, second])).toBeGreaterThan(
+      maxInputBytes,
+    );
+    expect(buildRepositorySynthesisBatches(
+      [first, second, third, fourth],
+      maxInputBytes,
+    ).map((batch) => batch.map((candidate) => candidate.subsystemKey))).toEqual([
+      ["first", "third"],
+      ["second", "fourth"],
+    ]);
   });
 
   it("projects only synthesis-relevant notebook fields with stable citation indexes", () => {
@@ -747,6 +785,63 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
+  it("requires each Highlight to promote one emitted Fact without broadening it", () => {
+    const fact = {
+      statement: "The service records an idempotency key before publishing a receipt.",
+      category: "behavior" as const,
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      citationIndexes: [2, 1],
+      reviewNotes: null,
+      productImportance: 5,
+      implementationBreadth: 3,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    };
+    const promoted = {
+      text: "Publishes idempotent receipts",
+      summary: fact.statement,
+      confidence: fact.confidence,
+      sensitivityFlag: fact.sensitivityFlag,
+      visibility: "private" as const,
+      citationIndexes: [1, 2],
+      productImportance: fact.productImportance,
+      implementationBreadth: fact.implementationBreadth,
+      technicalDifficulty: fact.technicalDifficulty,
+      distinctiveness: fact.distinctiveness,
+    };
+    const input = [{
+      subsystemKey: "project_domain:payments",
+      synthesisKey: "project_domain:payments#scope",
+      notebook: [
+        { ...entry("src/payments/key.ts"), evidenceMode: "semantic" as const },
+        { ...entry("src/payments/receipt.ts"), evidenceMode: "semantic" as const },
+      ],
+    }];
+    const synthesis = (highlight: typeof promoted) => ({
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [fact],
+        highlights: [highlight],
+        unresolvedQuestions: [],
+      }],
+    });
+
+    expect(repositorySynthesisStructuralErrors(synthesis(promoted), input)).toEqual([]);
+    expect(repositorySynthesisStructuralErrors(synthesis({
+      ...promoted,
+      summary: `${fact.statement} It also encrypts every receipt.`,
+    }), input)).toEqual([
+      "project_domain:payments#scope Highlight 1 must promote exactly one emitted Fact with matching summary, normalized citations, confidence, sensitivity, and scores.",
+    ]);
+    expect(repositorySynthesisStructuralErrors(synthesis({
+      ...promoted,
+      technicalDifficulty: 5,
+    }), input)).toEqual([
+      "project_domain:payments#scope Highlight 1 must promote exactly one emitted Fact with matching summary, normalized citations, confidence, sensitivity, and scores.",
+    ]);
+  });
+
   it("finishes every primary batch before starting sequential optional refinement", async () => {
     const events: string[] = [];
     let activeRefinements = 0;
@@ -787,9 +882,9 @@ describe("repository synthesis model-path limits", () => {
       technicalDifficulty: 3,
       distinctiveness: 3,
     });
-    const highlight = (text: string, citationIndexes = [1]) => ({
+    const highlight = (text: string, summary: string, citationIndexes = [1]) => ({
       text,
-      summary: text,
+      summary,
       confidence: "high" as const,
       sensitivityFlag: false,
       visibility: "private" as const,
@@ -806,7 +901,11 @@ describe("repository synthesis model-path limits", () => {
           fact("The screen removes and encrypts an inventory record.", [1, 2]),
           fact("The store writes an inventory record."),
         ],
-        highlights: [highlight("Built the complete inventory lifecycle", [1, 2])],
+        highlights: [highlight(
+          "Built the complete inventory lifecycle",
+          "The screen removes and encrypts an inventory record.",
+          [1, 2],
+        )],
         unresolvedQuestions: [],
       }],
     };
@@ -836,7 +935,11 @@ describe("repository synthesis model-path limits", () => {
       }],
       highlightRevisions: [{
         claimKey: "project_domain:inventory#scope:highlight:1",
-        replacement: highlight("Built inventory record removal", [1, 2]),
+        replacement: highlight(
+          "Built inventory record removal",
+          "The screen removes an inventory record.",
+          [1, 2],
+        ),
       }],
     };
     const notebook = [
@@ -950,7 +1053,9 @@ describe("repository synthesis model-path limits", () => {
       prior,
       citationMismatchCritic,
       inputs,
-    )).toEqual([]);
+    )).toEqual([
+      "project_domain:inventory#scope Highlight 1 must promote exactly one emitted Fact with matching summary, normalized citations, confidence, sensitivity, and scores.",
+    ]);
 
     expect(repositorySynthesisRevisionErrors({
       factRevisions: [...revision.factRevisions, ...revision.factRevisions],
@@ -1403,7 +1508,18 @@ describe("repository synthesis model-path limits", () => {
       }],
       coverageGaps: [],
       result: {
-        facts: [],
+        facts: [{
+          statement,
+          category: "behavior",
+          confidence: "high",
+          sensitivityFlag: false,
+          citationIndexes: [1],
+          reviewNotes: null,
+          productImportance: 5,
+          implementationBreadth: 4,
+          technicalDifficulty: 4,
+          distinctiveness: 4,
+        }],
         highlights: [{
           text: longTitle,
           summary: statement,
@@ -2811,20 +2927,23 @@ describe("repository synthesis model-path limits", () => {
     const result = fallbackSubsystemSynthesis("review_ui", selected);
 
     expect(selected).toHaveLength(5);
-    expect(result.facts[0]).toMatchObject({
-      statement: expect.stringContaining("project workspace review UI"),
-      citationIndexes: [1, 2, 3, 4, 5],
-    });
+    expect(result.facts[0]?.statement).toContain("project workspace review UI");
+    expect(new Set(result.facts[0]?.citationIndexes)).toEqual(
+      new Set([1, 2, 3, 4, 5]),
+    );
   });
 
-  it("reserves every broad review-UI facet before high-scoring notebook distractors", () => {
+  it("reserves project-derived semantic facets before high-scoring notebook distractors", () => {
     const required = [
       entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
       entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
       entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
       entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
       entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
-    ];
+    ].map((candidate, index) => ({
+      ...candidate,
+      semanticSignals: [`project_surface.facet_${index + 1}`],
+    }));
     const distractors = Array.from({ length: 20 }, (_, index) => ({
       ...entry(`components/unrelated-${index}.tsx`, `A high-scoring unrelated UI observation ${index}.`),
       productImportance: 5,
@@ -2834,7 +2953,7 @@ describe("repository synthesis model-path limits", () => {
 
     const selected = selectSubsystemSynthesisNotebook("review_ui", [...distractors, ...required]);
 
-    expect(selected).toHaveLength(20);
+    expect(selected).toHaveLength(12);
     for (const facet of required) {
       expect(selected.some((entry) => entry.statement === facet.statement)).toBe(true);
     }
@@ -2842,7 +2961,7 @@ describe("repository synthesis model-path limits", () => {
       .toContain("project workspace review UI");
   });
 
-  it("reserves secondary system facets before high-scoring notebook distractors", () => {
+  it("reserves multiple project-derived facets without recognizing their names", () => {
     const required = [
       entry("src/services/project-chat-agent-service.ts", "selectHistory retains the latest 12 messages within a bounded history budget."),
       entry("src/services/project-agent-harness.ts", "highAuthorityMemory admits verified_highlight and verified_project_fact sources."),
@@ -2850,7 +2969,10 @@ describe("repository synthesis model-path limits", () => {
       entry("src/services/project-chat-agent-service.ts", "A retry request without supporting evidence fails closed, preventing hallucinated behavior."),
       entry("src/services/project-execution-router-service.ts", "The project execution router uses deterministic rules for high-confidence intent."),
       entry("src/services/project-execution-router-service.ts", "The project execution router selects routes within safety, budget, and attached-repository constraints."),
-    ];
+    ].map((candidate, index) => ({
+      ...candidate,
+      semanticSignals: [`agent_platform.facet_${index + 1}`],
+    }));
     const distractors = Array.from({ length: 24 }, (_, index) => ({
       ...entry(`src/services/unrelated-${index}.ts`, `A high-scoring unrelated chat observation ${index}.`),
       productImportance: 5,
@@ -2899,21 +3021,24 @@ describe("repository synthesis model-path limits", () => {
       [...anchors, ...semantic],
     );
 
-    expect(selected).toHaveLength(20);
+    expect(selected).toHaveLength(12);
     expect(selected.filter((candidate) => candidate.evidenceMode !== "deterministic_anchor"))
       .toHaveLength(10);
     expect(selected.filter((candidate) => candidate.evidenceMode === "deterministic_anchor"))
-      .toHaveLength(10);
+      .toHaveLength(2);
   });
 
-  it("keeps required facets ahead of per-source representatives and reports overflow", () => {
+  it("balances project-derived facets with per-source representatives and reports overflow", () => {
     const required = [
       entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
       entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
       entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
       entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
       entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
-    ];
+    ].map((candidate, index) => ({
+      ...candidate,
+      semanticSignals: [`workspace.facet_${index + 1}`],
+    }));
     const repositories = Array.from({ length: 24 }, (_, index) => ({
       ...entry(`src/repository-${index}.ts`, `Repository ${index} contributes a current-head semantic observation.`),
       sourceId: `source-${index.toString().padStart(2, "0")}`,
@@ -2926,13 +3051,13 @@ describe("repository synthesis model-path limits", () => {
     const selected = selectSubsystemSynthesisNotebook("review_ui", [...repositories, ...required]);
     const gaps = synthesisNotebookSourceCoverageGaps([...repositories, ...required], selected);
 
-    expect(selected).toHaveLength(20);
+    expect(selected).toHaveLength(12);
     for (const facet of required) {
       expect(selected.some((candidate) => candidate.statement === facet.statement)).toBe(true);
     }
     expect(fallbackSubsystemSynthesis("review_ui", selected).facts[0]?.statement)
       .toContain("project workspace review UI");
-    expect(gaps).toHaveLength(9);
+    expect(gaps).toHaveLength(17);
     expect(gaps.every((gap) => gap.includes("could not fit"))).toBe(true);
   });
 
@@ -3008,6 +3133,35 @@ describe("repository synthesis model-path limits", () => {
         metadata: { path: ["blobSha"], equals: first.blobSha },
       }),
     ]));
+  });
+
+  it("materializes the exact accepted citation range without dropping supported tail lines", () => {
+    const content = Array.from(
+      { length: 300 },
+      (_unused, index) => `line ${index + 1}`,
+    ).join("\n");
+
+    const excerpt = exactSynthesisCitationExcerpt(content, 160, 285);
+
+    expect(excerpt.split("\n")).toHaveLength(126);
+    expect(excerpt).toMatch(/^line 160\n/u);
+    expect(excerpt).toMatch(/\nline 285$/u);
+    expect(excerpt).toContain("line 260");
+    expect(isCompleteSynthesisCitationExcerpt(excerpt, 160, 285)).toBe(true);
+    expect(isCompleteSynthesisCitationExcerpt(
+      excerpt.split("\n").slice(0, 80).join("\n"),
+      160,
+      285,
+    )).toBe(false);
+    expect(() => exactSynthesisCitationExcerpt(content, 160, 301)).toThrow(
+      "outside the immutable file content",
+    );
+    expect(() => exactSynthesisCitationExcerpt("x".repeat(8 * 1024 + 1), 1, 1)).toThrow(
+      "exceeds the 8192-byte evidence limit",
+    );
+    expect(() => exactSynthesisCitationExcerpt("é".repeat(4_097), 1, 1)).toThrow(
+      "exceeds the 8192-byte evidence limit",
+    );
   });
 
   it("does not turn one matching filename into a broad multi-component capability", () => {
