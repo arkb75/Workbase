@@ -9,6 +9,7 @@ export type RepositoryOperationCommunityMapping = {
 
 export const repositoryOperationCommunityStructuralCapabilityKeys = new Set([
   "repository_area:product_surface",
+  "repository_area:data_model",
   "repository_area:intelligence",
   "repository_area:automation",
   "repository_area:application_core",

@@ -25,6 +25,7 @@ import {
   reusableSemanticAnalysis,
   semanticCoverageAssignmentGaps,
   semanticAnalysisHitCapacityLimit,
+  semanticExtractionModeForFile,
   semanticFileReportSignals,
   semanticOrchestrationUsage,
   semanticPlannerTokenCommitment,
@@ -46,48 +47,66 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 describe("repository semantic orchestration guardrails", () => {
   it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v57-hybrid");
+      .toBe("repository-orchestration-v59-expanded-complex-files");
+  });
+
+  it("uses richer singleton extraction for structurally broad files without project-specific rules", () => {
+    const file = (overrides: {
+      sizeBytes?: number;
+      facts?: number;
+      symbols?: number;
+      dependencies?: number;
+    }) => ({
+      id: "file",
+      path: "src/domain/implementation.ext",
+      sizeBytes: overrides.sizeBytes,
+      analysis: {
+        subsystemKeys: [],
+        facts: Array.from({ length: overrides.facts ?? 1 }, (_, index) => ({
+          statement: `Behavior ${index}`,
+          category: "behavior" as const,
+          confidence: "high" as const,
+          sensitivityFlag: false,
+          lineStart: index + 1,
+          lineEnd: index + 1,
+          productImportance: 1,
+          implementationBreadth: 1,
+          technicalDifficulty: 1,
+          path: "src/domain/implementation.ext",
+        })),
+        symbols: Array.from({ length: overrides.symbols ?? 1 }, (_, index) => `operation${index}`),
+        dependencies: Array.from({ length: overrides.dependencies ?? 1 }, (_, index) => `dependency${index}`),
+        architectureSignals: [],
+        userFacingCapabilities: [],
+      },
+    });
+
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 4_000 }))).toBe("batch");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 13_000 }))).toBe("singleton");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 4_000, facts: 4 }))).toBe("batch");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 4_500, facts: 4 }))).toBe("singleton");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 6_000, dependencies: 6 }))).toBe("singleton");
+    expect(semanticWorkPackageModelCallCount({
+      fileSnapshotIds: ["ordinary-1", "ordinary-2", "ordinary-3", "ordinary-4", "broad-1", "broad-2"],
+      singletonFileSnapshotIds: ["broad-1", "broad-2"],
+    })).toBe(3);
   });
 
   const paths: Record<string, string> = {
-    product_surface: "README.md",
-    domain_data: "prisma/schema.prisma",
-    ai_runtime: "src/lib/bedrock-converse-agent.ts",
-    ingestion_integrations: "src/services/github-client.ts",
-    retrieval_provenance: "src/services/project-knowledge-retrieval-service.ts",
-    workflow_orchestration: "workflows/project-chat.ts",
-    repository_knowledge_lifecycle: "src/services/knowledge-refresh-service.ts",
-    project_chat_grounding: "src/services/project-chat-agent-service.ts",
-    artifact_generation: "src/services/artifact-workflow-service.ts",
-    knowledge_review_lifecycle: "src/services/knowledge-review-service.ts",
-    review_ui: "components/chat/project-chat-workspace.tsx",
-    tests_operations: "src/services/__tests__/project-chat-agent-service.test.ts",
+    product_surface: "app/dashboard/page.tsx",
+    domain_data: "db/schema.sql",
+    application_core: "src/orders/order-service.ts",
+    ai_runtime: "src/ai/model-runtime.ts",
+    ingestion_integrations: "src/integrations/catalog-client.ts",
+    retrieval_provenance: "src/search/retrieval-service.ts",
+    workflow_orchestration: "src/jobs/order-sync-worker.ts",
+    review_ui: "components/reviews/review-panel.tsx",
+    tests_operations: "tests/order-sync.test.ts",
+    "project_domain:payments": "src/payments/settlement-service.ts",
+    "project_domain:search": "src/search/index-service.ts",
+    "project_domain:analytics": "src/analytics/report-service.ts",
+    "project_domain:inventory": "src/inventory/stock-service.ts",
   };
-
-  function manifest() {
-    return Object.entries(paths).map(([key, path]) => ({
-      key,
-      label: key,
-      files: [
-        { id: `${key}-specific`, path, score: 10 },
-        ...(key === "workflow_orchestration"
-          ? [
-              { id: "workflow-start-facet", path: "src/services/agent-run-workflow-start-service.ts", score: 9 },
-              { id: "chat-store-facet", path: "src/services/project-chat-store.ts", score: 8 },
-            ]
-          : key === "project_chat_grounding"
-          ? [{ id: "project-chat-harness-facet", path: "src/services/project-agent-harness.ts", score: 9 }]
-          : key === "repository_knowledge_lifecycle"
-            ? [{ id: "semantic-orchestrator-facet", path: "src/services/repository-semantic-orchestrator-service.ts", score: 9 }]
-            : key === "knowledge_review_lifecycle"
-              ? [{ id: "knowledge-staleness-facet", path: "src/services/knowledge-staleness-service.ts", score: 9 }]
-              : key === "review_ui"
-                ? [{ id: "project-workspace-facet", path: "app/work-items/[id]/page.tsx", score: 9 }]
-                : []),
-        { id: `${key}-generic`, path: "src/services/miscellaneous-service.ts", score: 1_000 },
-      ],
-    }));
-  }
 
   it("commits metered planner usage and contains known or unknown fallback spend", () => {
     expect(semanticPlannerTokenCommitment({
@@ -537,6 +556,59 @@ describe("repository semantic orchestration guardrails", () => {
     expect(loads.reduce((total, load) => total + Math.ceil(load / 4), 0)).toBe(8);
   });
 
+  it("selects repository-derived representatives without filename contracts", () => {
+    const plan = (pathsById: Record<string, string>) => enforceMandatoryCoverage({
+      packages: [{
+        objective: "Inspect the repository's discovered product domains.",
+        capabilityKeys: ["project_domain:payments", "project_domain:search"],
+        fileSnapshotIds: [],
+        questions: ["What behavior is implemented in each domain?"],
+        expectedOutputs: ["Supported exact-line facts"],
+      }],
+      manifest: [
+        {
+          key: "project_domain:payments",
+          label: "Payments",
+          files: [
+            { id: "payments-primary", path: pathsById["payments-primary"]!, score: 20 },
+            { id: "payments-secondary", path: pathsById["payments-secondary"]!, score: 10 },
+          ],
+        },
+        {
+          key: "project_domain:search",
+          label: "Search",
+          files: [
+            { id: "search-primary", path: pathsById["search-primary"]!, score: 20 },
+            { id: "search-secondary", path: pathsById["search-secondary"]!, score: 10 },
+          ],
+        },
+      ],
+    });
+    const selected = (packages: ReturnType<typeof plan>) =>
+      new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
+
+    const conventional = plan({
+      "payments-primary": "src/payments/checkout-service.ts",
+      "payments-secondary": "src/payments/ledger-repository.ts",
+      "search-primary": "src/search/index-service.ts",
+      "search-secondary": "src/search/query-controller.ts",
+    });
+    const renamed = plan({
+      "payments-primary": "src/payments/alpha-service.ts",
+      "payments-secondary": "src/payments/beta-repository.ts",
+      "search-primary": "src/search/gamma-service.ts",
+      "search-secondary": "src/search/delta-controller.ts",
+    });
+
+    expect(selected(conventional)).toEqual(selected(renamed));
+    expect(selected(conventional)).toEqual(new Set([
+      "payments-primary",
+      "payments-secondary",
+      "search-primary",
+      "search-secondary",
+    ]));
+  });
+
   it("minimizes provider calls among feasible bundle assignments", () => {
     const sizes = [5, 5, 3, 3];
     const assignments = packSemanticBundleIndexes({
@@ -558,50 +630,6 @@ describe("repository semantic orchestration guardrails", () => {
     expect(loads.reduce((total, load) => total + (load ? Math.ceil(load / 4) : 0), 0)).toBe(4);
   });
 
-  it("covers every mandatory capability with a target-specific representative file", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: Array.from({ length: 4 }, (_, index) => ({
-        objective: `Planner package ${index}`,
-        capabilityKeys: ["project_chat_grounding"],
-        fileSnapshotIds: ["generic-project-chat-file"],
-        questions: ["What does this package implement?"],
-        expectedOutputs: ["Supported facts"],
-      })),
-      manifest: manifest(),
-    });
-
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(packages).toHaveLength(5);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(selectedIds.size).toBe(18);
-    expect(packages.reduce(
-      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
-      0,
-    )).toBeLessThanOrEqual(5);
-    for (const [primaryId, supplementId] of [
-      ["project_chat_grounding-specific", "project-chat-harness-facet"],
-      ["repository_knowledge_lifecycle-specific", "semantic-orchestrator-facet"],
-      ["knowledge_review_lifecycle-specific", "knowledge-staleness-facet"],
-      ["review_ui-specific", "project-workspace-facet"],
-      ["workflow_orchestration-specific", "workflow-start-facet"],
-      ["workflow_orchestration-specific", "chat-store-facet"],
-    ]) {
-      expect(packages.some((entry) =>
-        entry.fileSnapshotIds.includes(primaryId) &&
-        entry.fileSnapshotIds.includes(supplementId)
-      )).toBe(true);
-    }
-    expect(packages.flatMap((entry) => entry.capabilityKeys).every((key) => key in paths)).toBe(true);
-    for (const key of Object.keys(paths)) expect(selectedIds.has(`${key}-specific`)).toBe(true);
-    for (const supplementalId of [
-      "project-chat-harness-facet",
-      "semantic-orchestrator-facet",
-      "knowledge-staleness-facet",
-      "project-workspace-facet",
-      "workflow-start-facet",
-      "chat-store-facet",
-    ]) expect(selectedIds.has(supplementalId)).toBe(true);
-  });
 
   it("treats selected non-Workbase project domains as mandatory manifest obligations", () => {
     const packages = enforceMandatoryCoverage({
@@ -676,51 +704,6 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([]);
   });
 
-  it("reserves decisive cross-file facets for every full attached repository", () => {
-    const scopedManifest = ["owner/repo-a", "owner/repo-b"].flatMap((scopeKey, repositoryIndex) =>
-      manifest().map((area) => ({
-        ...area,
-        scopeKey,
-        files: area.files.map((file) => ({
-          ...file,
-          id: `repo-${repositoryIndex + 1}:${file.id}`,
-        })),
-      }))
-    );
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect complete capability coverage in both attached repositories.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: [],
-        questions: ["What decisive cross-file behavior does each repository implement?"],
-        expectedOutputs: ["Supported repository-scoped capability facts"],
-      }],
-      manifest: scopedManifest,
-    });
-
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-    expect(selectedIds.size).toBe(32);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
-    expect(packages.reduce(
-      (calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4),
-      0,
-    )).toBe(8);
-    for (const repositoryIndex of [1, 2]) {
-      for (const supplementalId of [
-        "project-chat-harness-facet",
-        "semantic-orchestrator-facet",
-        "knowledge-staleness-facet",
-        "project-workspace-facet",
-      ]) {
-        expect(selectedIds.has(`repo-${repositoryIndex}:${supplementalId}`)).toBe(true);
-      }
-    }
-    expect(semanticCoverageAssignmentGaps({
-      manifest: scopedManifest,
-      packages,
-      expectedScopeKeys: ["owner/repo-a", "owner/repo-b"],
-    })).toEqual([]);
-  });
 
   it("co-locates a review workspace supplement even when it is another capability's primary", () => {
     const packages = enforceMandatoryCoverage({
@@ -782,83 +765,7 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([]);
   });
 
-  it("rebalances mandatory capabilities when the model clusters every key into one package", () => {
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "A badly concentrated model plan.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: ["generic-project-chat-file"],
-        questions: ["What does the repository implement?"],
-        expectedOutputs: ["Supported facts"],
-      }],
-      manifest: manifest(),
-    });
 
-    expect(packages).toHaveLength(5);
-    expect(packages.every((entry) => entry.fileSnapshotIds.length >= 3 && entry.fileSnapshotIds.length <= 4)).toBe(true);
-    expect(packages.map((entry) => entry.fileSnapshotIds.length).sort()).toEqual([3, 3, 4, 4, 4]);
-    expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds))).toEqual(
-      new Set([
-        ...Object.keys(paths).map((key) => `${key}-specific`),
-        "project-chat-harness-facet",
-        "semantic-orchestrator-facet",
-        "knowledge-staleness-facet",
-        "project-workspace-facet",
-        "workflow-start-facet",
-        "chat-store-facet",
-      ]),
-    );
-    for (const key of Object.keys(paths)) {
-      expect(packages.some((entry) =>
-        entry.capabilityKeys.includes(key) && entry.fileSnapshotIds.includes(`${key}-specific`)
-      )).toBe(true);
-    }
-  });
-
-  it("routes retrieval, application tests, and the full workspace to decisive files", () => {
-    const routedManifest = manifest().map((area) => {
-      if (area.key === "retrieval_provenance") {
-        return {
-          ...area,
-          files: [
-            ...area.files,
-            { id: "chat-citation-high-score", path: "src/services/chat-citation-service.ts", score: 9_000 },
-          ],
-        };
-      }
-      if (area.key === "tests_operations") {
-        return {
-          ...area,
-          files: [
-            ...area.files,
-            { id: "application-scenarios", path: "src/evals/__tests__/project-chat-application-runner.test.ts", score: 1 },
-          ],
-        };
-      }
-      return area;
-    });
-
-    const packages = enforceMandatoryCoverage({
-      packages: [{
-        objective: "Inspect broad repository accomplishments.",
-        capabilityKeys: Object.keys(paths),
-        fileSnapshotIds: [],
-        questions: ["What does the project implement?"],
-        expectedOutputs: ["Supported facts"],
-      }],
-      manifest: routedManifest,
-    });
-    const selectedIds = new Set(packages.flatMap((entry) => entry.fileSnapshotIds));
-
-    expect(selectedIds.has("retrieval_provenance-specific")).toBe(true);
-    expect(selectedIds.has("chat-citation-high-score")).toBe(false);
-    expect(selectedIds.has("application-scenarios")).toBe(true);
-    expect(selectedIds.has("tests_operations-specific")).toBe(false);
-    expect(selectedIds.has("review_ui-specific")).toBe(true);
-    expect(selectedIds.has("project-workspace-facet")).toBe(true);
-    expect(selectedIds.size).toBeLessThanOrEqual(18);
-    expect(packages.reduce((calls, entry) => calls + Math.ceil(entry.fileSnapshotIds.length / 4), 0)).toBeLessThanOrEqual(5);
-  });
 
   it("adds repository import beside exploration when the bounded plan has capacity", () => {
     const packages = enforceMandatoryCoverage({
@@ -940,7 +847,7 @@ describe("repository semantic orchestration guardrails", () => {
     expect(packages).toHaveLength(4);
     expect(packages.every((entry) => entry.fileSnapshotIds.length <= 8)).toBe(true);
     expect(new Set(packages.flatMap((entry) => entry.fileSnapshotIds)).size).toBe(32);
-    expect(gaps).toHaveLength(4);
+    expect(gaps).toHaveLength(scopedManifest.length - 32);
     expect(gaps.every((gap) => gap.startsWith("Semantic coverage capacity omitted"))).toBe(true);
   });
 
@@ -1567,34 +1474,6 @@ describe("repository semantic orchestration guardrails", () => {
     expect(candidates.map((candidate) => candidate.key)).toEqual(["retrieval_provenance"]);
   });
 
-  it("does not require a backend review service to prove review UI behavior", () => {
-    const task = buildFileSemanticTask({
-      path: "src/services/knowledge-review-service.ts",
-      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
-      staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
-    });
-
-    expect(task).toMatchObject({
-      capabilityKeys: ["knowledge_review_lifecycle"],
-      semanticSignalKeys: expect.arrayContaining([
-        "knowledge_review_lifecycle.immutable_successors",
-        "knowledge_review_lifecycle.dependent_invalidation",
-        "knowledge_review_lifecycle.restore_retire_modes",
-      ]),
-    });
-    expect(missingAssignedFileCandidateGaps({
-      files: [{
-        id: "knowledge-review-service",
-        path: "src/services/knowledge-review-service.ts",
-        staticSubsystemKeys: ["knowledge_review_lifecycle", "review_ui"],
-      }],
-      workPackageCapabilityKeys: ["knowledge_review_lifecycle", "review_ui"],
-      candidates: [{
-        key: "knowledge_review_lifecycle",
-        evidence: [{ fileSnapshotId: "knowledge-review-service", lineStart: 1, lineEnd: 2 }],
-      }],
-    })).toEqual([]);
-  });
 
   it("does not require specialized persistence files to prove application-core behavior", () => {
     const task = buildFileSemanticTask({
@@ -1675,67 +1554,32 @@ describe("repository semantic orchestration guardrails", () => {
     })).toEqual([]);
   });
 
-  it("provides path-scoped stable semantic signals instead of freeform facet labels", () => {
+
+
+  it("does not manufacture semantic facets from familiar filenames", () => {
     expect(semanticSignalKeysForFile({
-      path: "app/work-items/[id]/page.tsx",
-      capabilityKeys: ["review_ui", "product_surface"],
-    })).toEqual([
-      "review_ui.url_addressable_views",
-      "review_ui.highlight_lifecycle",
-      "review_ui.artifact_highlight_traceability",
-    ]);
+      path: "src/services/knowledge-refresh-service.ts",
+      capabilityKeys: ["project_domain:knowledge"],
+    })).toEqual([]);
     expect(semanticSignalKeysForFile({
-      path: "components/chat/project-chat-workspace.tsx",
-      capabilityKeys: ["review_ui"],
-    })).toEqual([
-      "review_ui.candidate_metadata",
-      "review_ui.citation_navigation",
-    ]);
-    expect(semanticSignalKeysForFile({
-      path: "workflows/project-chat.ts",
-      capabilityKeys: ["workflow_orchestration"],
-    })).toEqual([
-      "workflow_orchestration.chat_workflow",
-      "workflow_orchestration.repository_refresh_workflow",
-      "workflow_orchestration.artifact_workflow",
-      "workflow_orchestration.approval_pause_resume",
-      "workflow_orchestration.reconciliation_retry_boundary",
-      "workflow_orchestration.shared_refresh_owner_recovery",
-    ]);
-    expect(semanticSignalKeysForFile({
-      path: "src/services/agent-run-workflow-start-service.ts",
-      capabilityKeys: ["workflow_orchestration", "ai_runtime"],
-    })).toEqual(["workflow_orchestration.workflow_start_reservation"]);
-    expect(semanticSignalKeysForFile({
-      path: "src/services/project-chat-store.ts",
-      capabilityKeys: ["workflow_orchestration", "project_chat_grounding"],
-    })).toEqual([
-      "workflow_orchestration.chat_run_idempotency",
-      "workflow_orchestration.event_sequence_guard",
-      "workflow_orchestration.terminal_write_guard",
-    ]);
+      path: "src/core/sync.ts",
+      capabilityKeys: ["project_domain:knowledge"],
+    })).toEqual([]);
   });
 
-  it("asks workflow files about retry, idempotency, and recovery without unrelated capabilities", () => {
-    const task = buildFileSemanticTask({
-      path: "src/services/project-chat-store.ts",
-      workPackageCapabilityKeys: ["workflow_orchestration", "ingestion_integrations"],
-      staticSubsystemKeys: ["workflow_orchestration", "project_chat_grounding"],
+  it("asks the same evidence question for renamed workflow modules", () => {
+    const task = (path: string) => buildFileSemanticTask({
+      path,
+      workPackageCapabilityKeys: ["repository_area:automation"],
+      staticSubsystemKeys: ["repository_area:automation"],
     });
 
-    expect(task).toMatchObject({
-      capabilityKeys: ["workflow_orchestration"],
-      semanticSignalKeys: [
-        "workflow_orchestration.chat_run_idempotency",
-        "workflow_orchestration.event_sequence_guard",
-        "workflow_orchestration.terminal_write_guard",
-      ],
-      questions: expect.arrayContaining([
-        expect.stringContaining("terminal finalization"),
-        expect.stringContaining("duplicate or replayed writes"),
-      ]),
-    });
-    expect(JSON.stringify(task)).not.toContain("ingestion_integrations");
+    expect(task("src/workflows/order-run.ts")?.questions).toEqual([
+      "What implemented behavior in this file directly supports repository_area:automation?",
+    ]);
+    expect(task("src/jobs/dispatch.ts")?.questions).toEqual(
+      task("src/workflows/order-run.ts")?.questions,
+    );
   });
 
   it("emits a deliberate candidate for every relevant capability supported by a multi-key fact", () => {

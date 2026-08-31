@@ -19,6 +19,7 @@ import {
   isRepositoryTestPath,
   isProjectDomainCapabilityKey,
   PROJECT_DOMAIN_CAPABILITY_PREFIX,
+  REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
   snapshotRepositorySemanticBudget,
   type RepositoryFileAnalysis,
   type RepositorySemanticBudgetUsage,
@@ -37,7 +38,7 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v57-hybrid";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v59-expanded-complex-files";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
 const MAX_FILES_PER_WORKER = 8;
@@ -326,128 +327,16 @@ export function isRepositorySemanticCartographyEvidencePath(path: string) {
     isRepositorySemanticEvidencePath(path);
 }
 
-const SEMANTIC_FACET_SUPPLEMENTS = [
-  {
-    capabilityKey: "project_chat_grounding",
-    pathPattern: /project-execution-router-service|project-agent-harness/i,
-  },
-  {
-    capabilityKey: "repository_knowledge_lifecycle",
-    pathPattern: /repository-semantic-orchestrator-service/i,
-  },
-  {
-    capabilityKey: "knowledge_review_lifecycle",
-    pathPattern: /knowledge-reconciliation-service|knowledge-staleness-service/i,
-  },
-  {
-    capabilityKey: "review_ui",
-    // The primary representative is the detailed chat workspace. Spend the
-    // existing review/UI supplement on the broader project workspace so the
-    // model also sees Sources, Highlights, Project Facts, Artifacts, and Chat.
-    pathPattern: /^app\/work-items\/\[id\]\/page\.tsx$/i,
-  },
-  {
-    capabilityKey: "workflow_orchestration",
-    pathPattern: /^src\/services\/agent-run-workflow-start-service\.ts$/i,
-  },
-  {
-    capabilityKey: "workflow_orchestration",
-    pathPattern: /^src\/services\/project-chat-store\.ts$/i,
-  },
-  {
-    capabilityKey: "ingestion_integrations",
-    // Pair the bounded exploration representative with the durable import
-    // path so coverage includes what becomes project memory, not only how
-    // individual repository files are read on demand.
-    pathPattern: /^src\/services\/github-repo-import-service\.ts$/i,
-  },
-] as const;
-
-const CAPABILITY_SEMANTIC_QUESTIONS: Partial<Record<string, string[]>> = {
-  retrieval_provenance: [
-    "For retrieval_provenance, how do PostgreSQL lexical ranking, vector similarity, exact identifiers, authority, ownership, freshness, and per-kind top-k hydration combine into hybrid retrieval?",
-    "For retrieval_provenance, how are artifact claims re-grounded and repository excerpts kept as nested provenance instead of peer chat sources?",
-  ],
-  review_ui: [
-    "For review_ui, how does the project workspace expose Sources, Highlights, Project Facts, Artifacts, and Chat, including lifecycle review, citations, progress, and knowledge updates?",
-  ],
-  tests_operations: [
-    "For tests_operations, which application scenarios validate current-head refresh, chat, artifacts, review/resume, retry, cancellation, and zero-call cache reuse?",
-  ],
-  ingestion_integrations: [
-    "For ingestion_integrations, which bounded repository records are fetched and how are they persisted as project-scoped Sources and Evidence?",
-    "For ingestion_integrations, how does durable repository import complement the separate budgeted code-exploration path?",
-  ],
-  workflow_orchestration: [
-    "For workflow_orchestration, where are automatic retry or replay boundaries made explicit, and how can a released shared-refresh owner be replaced without discarding checkpointed work?",
-    "For workflow_orchestration, how do chat-run creation, durable-workflow attachment, and terminal finalization prevent duplicate or replayed writes?",
-  ],
-};
-
-const SEMANTIC_SIGNAL_RULES = [
-  ["product_surface.product_loop", "product_surface", /^README\.md$/i],
-  ["product_surface.safe_auto_apply", "product_surface", /^README\.md$/i],
-  ["product_surface.unsafe_quarantine", "product_surface", /^README\.md$/i],
-  ["product_surface.approved_artifacts", "product_surface", /^README\.md$/i],
-  ["domain_data.typed_provenance", "domain_data", /prisma\/schema\.prisma$/i],
-  ["domain_data.repository_snapshots", "domain_data", /prisma\/schema\.prisma$/i],
-  ["domain_data.vector_embeddings", "domain_data", /prisma\/schema\.prisma$/i],
-  ["ai_runtime.converse_metadata", "ai_runtime", /bedrock-converse-agent/i],
-  ["ai_runtime.execution_budgets", "ai_runtime", /bedrock-converse-agent/i],
-  ["ai_runtime.credential_redaction", "ai_runtime", /bedrock-converse-agent/i],
-  ["ingestion_integrations.bounded_import", "ingestion_integrations", /github-repo-import-service/i],
-  ["ingestion_integrations.project_evidence_persistence", "ingestion_integrations", /github-repo-import-service/i],
-  ["ingestion_integrations.exploration_budgets", "ingestion_integrations", /github-repository-exploration-service/i],
-  ["ingestion_integrations.typed_exploration_failures", "ingestion_integrations", /github-repository-exploration-service/i],
-  ["retrieval_provenance.hybrid_top_k", "retrieval_provenance", /project-knowledge-retrieval-service/i],
-  ["retrieval_provenance.artifact_regrounding", "retrieval_provenance", /project-knowledge-retrieval-service/i],
-  ["retrieval_provenance.nested_repository_provenance", "retrieval_provenance", /project-knowledge-retrieval-service/i],
-  ["workflow_orchestration.chat_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.repository_refresh_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.artifact_workflow", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.approval_pause_resume", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.reconciliation_retry_boundary", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.shared_refresh_owner_recovery", "workflow_orchestration", /^workflows\/project-chat\.ts$/i],
-  ["workflow_orchestration.workflow_start_reservation", "workflow_orchestration", /^src\/services\/agent-run-workflow-start-service\.ts$/i],
-  ["workflow_orchestration.chat_run_idempotency", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
-  ["workflow_orchestration.event_sequence_guard", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
-  ["workflow_orchestration.terminal_write_guard", "workflow_orchestration", /^src\/services\/project-chat-store\.ts$/i],
-  ["repository_knowledge_lifecycle.refresh_analysis", "repository_knowledge_lifecycle", /knowledge-refresh-service/i],
-  ["repository_knowledge_lifecycle.synthesis", "repository_knowledge_lifecycle", /repository-knowledge-synthesis-service/i],
-  ["repository_knowledge_lifecycle.reconciliation", "repository_knowledge_lifecycle", /knowledge-reconciliation-service/i],
-  ["repository_knowledge_lifecycle.staleness", "repository_knowledge_lifecycle", /knowledge-staleness-service/i],
-  ["repository_knowledge_lifecycle.work_packages", "repository_knowledge_lifecycle", /repository-semantic-orchestrator-service/i],
-  ["repository_knowledge_lifecycle.coverage_audit", "repository_knowledge_lifecycle", /repository-semantic-orchestrator-service/i],
-  ["project_chat_grounding.multi_turn_history", "project_chat_grounding", /project-chat-agent-service/i],
-  ["project_chat_grounding.latest_commit_context", "project_chat_grounding", /project-chat-agent-service/i],
-  ["project_chat_grounding.fail_closed_answering", "project_chat_grounding", /project-chat-agent-service/i],
-  ["project_chat_grounding.high_authority_memory", "project_chat_grounding", /project-agent-harness/i],
-  ["project_chat_grounding.deterministic_routing", "project_chat_grounding", /project-execution-router-service/i],
-  ["project_chat_grounding.safety_budget_routing", "project_chat_grounding", /project-execution-router-service/i],
-  ["artifact_generation.metric_brief_detection", "artifact_generation", /artifact-workflow-service/i],
-  ["artifact_generation.authority_backed_metrics", "artifact_generation", /artifact-workflow-service/i],
-  ["artifact_generation.unsupported_metric_hard_stop", "artifact_generation", /artifact-workflow-service/i],
-  ["knowledge_review_lifecycle.immutable_successors", "knowledge_review_lifecycle", /knowledge-review-service/i],
-  ["knowledge_review_lifecycle.dependent_invalidation", "knowledge_review_lifecycle", /knowledge-review-service/i],
-  ["knowledge_review_lifecycle.restore_retire_modes", "knowledge_review_lifecycle", /knowledge-review-service/i],
-  ["review_ui.url_addressable_views", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
-  ["review_ui.highlight_lifecycle", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
-  ["review_ui.artifact_highlight_traceability", "review_ui", /^app\/work-items\/\[id\]\/page\.tsx$/i],
-  ["review_ui.candidate_metadata", "review_ui", /project-chat-workspace/i],
-  ["review_ui.citation_navigation", "review_ui", /project-chat-workspace/i],
-  ["tests_operations.scenario_breadth", "tests_operations", /project-chat-application-runner\.test/i],
-  ["tests_operations.zero_call_cache", "tests_operations", /project-chat-application-runner\.test/i],
-  ["tests_operations.prerequisite_history", "tests_operations", /project-chat-application-runner\.test/i],
-] as const;
-
+/**
+ * Capability keys and evidence questions come from repository cartography.
+ * File names never create repository-specific semantic facets.
+ */
 export function semanticSignalKeysForFile(input: {
   path: string;
   capabilityKeys: string[];
 }) {
-  const capabilities = new Set(input.capabilityKeys);
-  return SEMANTIC_SIGNAL_RULES.flatMap(([signalKey, capabilityKey, pathPattern]) =>
-    capabilities.has(capabilityKey) && pathPattern.test(input.path) ? [signalKey] : []
-  );
+  void input;
+  return [] as string[];
 }
 
 const workPackageSchema = z.object({
@@ -519,7 +408,13 @@ export type CapabilityManifestArea = {
   scopeKey?: string;
   description?: string;
   salience?: number;
-  files: Array<{ id: string; path: string; score: number }>;
+  files: Array<{
+    id: string;
+    path: string;
+    score: number;
+    /** Use the richer one-file notebook when a compressed batch would hide distinct operations. */
+    semanticExtractionMode?: "singleton";
+  }>;
 };
 
 /**
@@ -630,10 +525,37 @@ export function buildRepositorySemanticPlannerRequest(input: {
 export interface RepositoryCartographyFile {
   id: string;
   path: string;
+  sizeBytes?: number;
   changeType?: string;
   analysis: Pick<RepositoryFileAnalysis,
     "subsystemKeys" | "facts" | "symbols" | "dependencies" | "architectureSignals" | "userFacingCapabilities"
   >;
+}
+
+/**
+ * Reserve the richer one-file extraction contract for structurally broad
+ * sources. This is intentionally repository-derived: source size and the
+ * language-neutral static inventory are the only inputs, never filenames,
+ * project identities, or expected fixture capabilities.
+ */
+export function semanticExtractionModeForFile(
+  file: RepositoryCartographyFile,
+): "batch" | "singleton" {
+  const sourceBytes = Math.max(0, file.sizeBytes ?? 0);
+  const declaredBehaviors = Math.max(
+    file.analysis.facts.length,
+    file.analysis.symbols.length,
+  );
+  const exceedsBatchWindow =
+    sourceBytes > REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES;
+  const broadDependencySurface =
+    exceedsBatchWindow &&
+    file.analysis.dependencies.length >= 6;
+  return sourceBytes > REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES * 3 ||
+      (exceedsBatchWindow && declaredBehaviors >= 4) ||
+      broadDependencySurface
+    ? "singleton"
+    : "batch";
 }
 
 function repositoryFileSalience(file: RepositoryCartographyFile) {
@@ -735,7 +657,15 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     };
     const score = repositoryFileSalience(file);
     current.salience = (current.salience ?? 0) + score;
-    current.files.push({ id: file.id, path: file.path, score });
+    const semanticExtractionMode = semanticExtractionModeForFile(file);
+    current.files.push({
+      id: file.id,
+      path: file.path,
+      score,
+      ...(semanticExtractionMode === "singleton"
+        ? { semanticExtractionMode }
+        : {}),
+    });
     groups.set(key, current);
   };
 
@@ -1789,23 +1719,7 @@ export function fileRelevantCapabilityKeys(input: {
     isProjectDomainCapabilityKey(key) || key.startsWith(REPOSITORY_AREA_PREFIX)
   )) return admissibleRelevant;
 
-  const capabilitiesWithPathContracts = new Set<string>(
-    SEMANTIC_SIGNAL_RULES.map(([, capabilityKey]) => capabilityKey),
-  );
-  const pathCapabilities = new Set(
-    semanticSignalKeysForFile({
-      path: input.path,
-      capabilityKeys: admissibleRelevant,
-    }).map((signalKey) => signalKey.split(".")[0]!),
-  );
-  // Keep the static classifier as the fallback for repositories whose files do
-  // not match Workbase's curated path contracts. Once a known path contract
-  // does match, use it to prevent a broad static tag from making a backend
-  // service responsible for an unrelated UI (or vice versa) capability.
-  if (!pathCapabilities.size) return admissibleRelevant;
-  return admissibleRelevant.filter((key) =>
-    !capabilitiesWithPathContracts.has(key) || pathCapabilities.has(key)
-  );
+  return admissibleRelevant;
 }
 
 export function buildFileSemanticTask(input: {
@@ -1824,8 +1738,8 @@ export function buildFileSemanticTask(input: {
     objective: `Establish evidence-backed semantic coverage only for these file-relevant capabilities: ${capabilityKeys.join(", ")}.`,
     capabilityKeys,
     semanticSignalKeys,
-    questions: capabilityKeys.flatMap((key) =>
-      CAPABILITY_SEMANTIC_QUESTIONS[key] ?? [`What implemented behavior in this file directly supports ${key}?`]
+    questions: capabilityKeys.map((key) =>
+      `What implemented behavior in this file directly supports ${key}?`
     ),
     expectedOutputs: [
       "Evidence-backed findings only for the listed file-relevant capabilities.",
@@ -1902,28 +1816,14 @@ export function enforceMandatoryCoverage(input: {
   packages: Array<Omit<SemanticWorkPackage, "id" | "budget">>;
   manifest: CapabilityManifestArea[];
 }) {
-  const pathAffinity: Record<string, RegExp> = {
-    product_surface: /(?:^README\.md$|^app\/work-items\/|^components\/chat\/project-chat-workspace)/i,
-    domain_data: /(?:prisma\/schema\.prisma|src\/domain\/)/i,
-    ai_runtime: /(?:bedrock|structured-llm|llm-config)/i,
-    ingestion_integrations: /(?:github-(?:client|repo|repository)|source-ingestion|api\/github)/i,
-    retrieval_provenance: /(?:project-knowledge-retrieval|chat-citation|provenance|embedding-service)/i,
-    workflow_orchestration: /(?:^workflows\/|artifact-workflow|agent-run-workflow|project-chat-store)/i,
-    repository_knowledge_lifecycle: /(?:knowledge-refresh-service|repository-knowledge-synthesis|knowledge-reconciliation|knowledge-staleness)/i,
-    project_chat_grounding: /(?:project-chat-agent|project-answer-grounding|chat-citation|prior-turn-provenance)/i,
-    artifact_generation: /(?:artifact-workflow|artifact-generation|artifact-persistence|components\/artifacts)/i,
-    knowledge_review_lifecycle: /(?:knowledge-review|knowledge-change|knowledge-update-inbox|candidate-review)/i,
-    review_ui: /(?:^components\/|^app\/work-items\/.*page\.tsx$|knowledge-update-inbox|claim-card)/i,
-    tests_operations: /(?:__tests__|\.(?:test|spec)\.|scripts\/bedrock-preflight)/i,
-  };
-  const affinityScore = (key: string, path: string) => {
-    if (key === "retrieval_provenance" && /src\/services\/project-knowledge-retrieval-service\.ts$/i.test(path)) return 30_000;
-    if (key === "workflow_orchestration" && /^workflows\/project-chat\.ts$/i.test(path)) return 30_000;
-    if (key === "tests_operations" && /src\/evals\/__tests__\/project-chat-application-runner\.test\.ts$/i.test(path)) return 30_000;
-    if (key === "tests_operations" && /src\/(?:services|lib)\/__tests__\/(?:project-chat|repository|github|bedrock|knowledge)/i.test(path)) return 20_000;
-    if (key === "workflow_orchestration" && /src\/services\/knowledge-refresh-service\.ts$/i.test(path)) return 20_000;
-    if (key === "review_ui" && /components\/chat\/project-chat-workspace\.tsx$/i.test(path)) return 20_000;
-    return pathAffinity[key]?.test(path) ? 10_000 : 0;
+  const affinityScore = (_key: string, path: string) => {
+    if (!isRepositorySemanticCartographyEvidencePath(path)) return 0;
+    const layer = semanticImplementationLayer(path);
+    if (layer === "quality") return 1_000;
+    if (["core", "service", "interface", "persistence", "orchestration", "integration", "presentation"].includes(layer)) {
+      return 2_000;
+    }
+    return 500;
   };
   const packages = input.packages.slice(0, REPOSITORY_ORCHESTRATION_MAX_WORKERS).map((entry) => ({
     ...entry,
@@ -2011,21 +1911,16 @@ export function enforceMandatoryCoverage(input: {
     bundlesByPrimaryId.set(representative.id, bundle);
   }
 
-  // One representative per broad capability is enough for a coverage check,
-  // but it misses critical facets inside large systems. Add a small curated
-  // supplement for the execution router, semantic worker/auditor, auto-apply
-  // lifecycle, and complete workspace. Immutable-blob caching keeps these
-  // extra reads free on unchanged commits.
+  // Add a small repository-derived breadth sample. A second file is useful only
+  // when it represents another implementation layer or source-tree branch;
+  // exact filenames and product concepts never receive special treatment.
   const selectedFileIds = new Set(mandatoryLoads.flat());
   const repositoryScopeCount = Math.max(
     1,
-    new Set(input.manifest.flatMap((entry) => entry.scopeKey ? [entry.scopeKey] : [])).size,
+    new Set(input.manifest.flatMap((entry) =>
+      entry.scopeKey ? [entry.scopeKey] : []
+    )).size,
   );
-  // Preserve six decisive cross-file facets per attached repository. A single
-  // Workbase repository may need one extra micro-batch for the workflow-start
-  // and persisted-run boundaries. Additional
-  // repositories may use otherwise-idle worker capacity, but never exceed the
-  // existing four-worker/eight-file hard bound.
   const selectedFileLimit = Math.min(
     MAX_MANDATORY_COVERAGE_FILES,
     Math.max(
@@ -2033,51 +1928,41 @@ export function enforceMandatoryCoverage(input: {
       selectedFileIds.size + (repositoryScopeCount * 6),
     ),
   );
-  for (const facet of SEMANTIC_FACET_SUPPLEMENTS) {
-    for (const manifestEntry of input.manifest.filter((entry) => entry.key === facet.capabilityKey)) {
-      const primaryId = primaryIdByManifestEntry.get(manifestEntry);
-      const bundle = primaryId ? bundlesByPrimaryId.get(primaryId) : null;
-      if (!bundle) continue;
-      const representative = manifestEntry.files
-        .filter((file) => facet.pathPattern.test(file.path))
-        .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))[0];
-      if (!representative) continue;
-
-      if (selectedFileIds.has(representative.id)) {
-        const owningBundle = Array.from(bundlesByPrimaryId.values())
-          .find((candidate) => candidate.fileSnapshotIds.includes(representative.id));
-        if (!owningBundle || owningBundle === bundle) {
-          bundle.capabilityKeys.add(facet.capabilityKey);
-          continue;
-        }
-        const mergedFileIds = Array.from(new Set([
-          ...bundle.fileSnapshotIds,
-          ...owningBundle.fileSnapshotIds,
-        ]));
-        if (mergedFileIds.length <= MAX_FILES_PER_WORKER) {
-          bundle.fileSnapshotIds = mergedFileIds;
-          for (const key of owningBundle.capabilityKeys) bundle.capabilityKeys.add(key);
-          bundle.capabilityKeys.add(facet.capabilityKey);
-          bundle.manifestOrder = Math.min(bundle.manifestOrder, owningBundle.manifestOrder);
-          bundlesByPrimaryId.delete(owningBundle.primaryId);
-          for (const [entry, mappedPrimaryId] of primaryIdByManifestEntry) {
-            if (mappedPrimaryId === owningBundle.primaryId) {
-              primaryIdByManifestEntry.set(entry, bundle.primaryId);
-            }
-          }
-        } else {
-          // Preserve semantic ownership even if an unusually large shared
-          // bundle cannot be co-located within the worker's hard file cap.
-          owningBundle.capabilityKeys.add(facet.capabilityKey);
-        }
-        continue;
-      }
-
-      if (selectedFileIds.size >= selectedFileLimit) continue;
-      bundle.fileSnapshotIds.push(representative.id);
-      bundle.capabilityKeys.add(facet.capabilityKey);
-      selectedFileIds.add(representative.id);
-    }
+  const sourceBranch = (path: string) => path
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("/");
+  for (const manifestEntry of orderedManifest) {
+    if (selectedFileIds.size >= selectedFileLimit) break;
+    const primaryId = primaryIdByManifestEntry.get(manifestEntry);
+    const bundle = primaryId ? bundlesByPrimaryId.get(primaryId) : null;
+    if (!bundle || bundle.fileSnapshotIds.length >= MAX_FILES_PER_WORKER) continue;
+    const primary = manifestEntry.files.find((file) => file.id === primaryId);
+    if (!primary) continue;
+    const primaryLayer = semanticImplementationLayer(primary.path);
+    const primaryBranch = sourceBranch(primary.path);
+    const representative = manifestEntry.files
+      .filter((file) =>
+        !selectedFileIds.has(file.id) &&
+        isCoverageEvidencePath(manifestEntry.key, file.path)
+      )
+      .sort((left, right) => {
+        const leftDiversity =
+          Number(semanticImplementationLayer(left.path) !== primaryLayer) * 4_000 +
+          Number(sourceBranch(left.path) !== primaryBranch) * 2_000;
+        const rightDiversity =
+          Number(semanticImplementationLayer(right.path) !== primaryLayer) * 4_000 +
+          Number(sourceBranch(right.path) !== primaryBranch) * 2_000;
+        return rightDiversity - leftDiversity ||
+          right.score - left.score ||
+          left.path.localeCompare(right.path);
+      })[0];
+    if (!representative) continue;
+    bundle.fileSnapshotIds.push(representative.id);
+    bundle.capabilityKeys.add(manifestEntry.key);
+    selectedFileIds.add(representative.id);
   }
 
   // Repack primary+supplement bundles after selection. Keeping related files
@@ -3932,6 +3817,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       return analysis ? [{
         id: file.id,
         path: file.path,
+        ...(file.sizeBytes != null ? { sizeBytes: file.sizeBytes } : {}),
         changeType: file.changeType,
         analysis,
       }] : [];
@@ -3959,11 +3845,27 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     fallbackUsed: planned.fallbackUsed,
     maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
   });
-  const normalizedPlan = guardedPlan.map((entry) => ({
-    ...entry,
-    capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),
-    fileSnapshotIds: Array.from(new Set(entry.fileSnapshotIds)).sort().slice(0, MAX_FILES_PER_WORKER),
-  }));
+  const singletonSemanticFileIds = new Set(manifest.flatMap((area) =>
+    area.files.flatMap((file) =>
+      file.semanticExtractionMode === "singleton" ? [file.id] : []
+    )
+  ));
+  const normalizedPlan = guardedPlan.map((entry) => {
+    const fileSnapshotIds = Array.from(new Set(entry.fileSnapshotIds))
+      .sort()
+      .slice(0, MAX_FILES_PER_WORKER);
+    const singletonFileSnapshotIds = fileSnapshotIds.filter((fileSnapshotId) =>
+      singletonSemanticFileIds.has(fileSnapshotId)
+    );
+    return {
+      ...entry,
+      capabilityKeys: Array.from(new Set(entry.capabilityKeys)).sort(),
+      fileSnapshotIds,
+      ...(singletonFileSnapshotIds.length
+        ? { singletonFileSnapshotIds }
+        : {}),
+    };
+  });
   const modelCallCounts = normalizedPlan.map(semanticWorkPackageModelCallCount);
   const availableWorkerTokens = Math.max(
     0,
@@ -3979,7 +3881,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   });
   const packages: SemanticWorkPackage[] = normalizedPlan.map((entry, index) => ({
     ...entry,
-    id: stablePackageId(refreshRunId, entry.capabilityKeys, entry.fileSnapshotIds),
+    id: stablePackageId(
+      refreshRunId,
+      entry.capabilityKeys,
+      entry.fileSnapshotIds,
+      entry.singletonFileSnapshotIds,
+    ),
     budget: {
       scope: "shared_wave" as const,
       maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,

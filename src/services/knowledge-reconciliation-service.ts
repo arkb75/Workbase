@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  mergeRepositoryCapabilityFunnelTraces,
+  reconcileRepositoryCapabilityFunnelMaterialization,
+} from "@/src/domain/repository-capability-funnel";
 import { Prisma } from "@/src/generated/prisma/client";
 import { inferHighlightTags } from "@/src/lib/highlight-tags";
 import type { HighlightTagValue } from "@/src/lib/highlight-taxonomy";
@@ -428,12 +432,13 @@ export function synthesisReconciliationScopeKey(
 
 export function synthesisCandidateReconciliationKey(
   kind: "fact" | "highlight",
-  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">,
+  subsystem: Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey" | "synthesisKey">,
   index: number,
 ) {
   return JSON.stringify([
     subsystem.sourceId,
     subsystem.subsystemKey,
+    subsystem.synthesisKey ?? null,
     kind,
     index,
   ]);
@@ -451,12 +456,29 @@ export function synthesisProducedEntityLedgerWhere(
 }
 
 export function synthesisProducedEntityBuckets(
-  synthesis: Array<Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey">>,
+  synthesis: Array<Pick<SynthesizedKnowledge, "sourceId" | "subsystemKey" | "capabilityFunnel">>,
 ) {
-  return new Map(synthesis.map((subsystem) => [
-    synthesisReconciliationScopeKey(subsystem),
-    { projectFactIds: [] as string[], highlightIds: [] as string[] },
-  ]));
+  const buckets = new Map<string, {
+    projectFactIds: string[];
+    highlightIds: string[];
+    capabilityFunnel?: SynthesizedKnowledge["capabilityFunnel"];
+  }>();
+  for (const subsystem of synthesis) {
+    const key = synthesisReconciliationScopeKey(subsystem);
+    const current = buckets.get(key) ?? {
+      projectFactIds: [],
+      highlightIds: [],
+    };
+    const capabilityFunnel = mergeRepositoryCapabilityFunnelTraces([
+      current.capabilityFunnel,
+      subsystem.capabilityFunnel,
+    ]);
+    buckets.set(key, {
+      ...current,
+      ...(capabilityFunnel ? { capabilityFunnel } : {}),
+    });
+  }
+  return buckets;
 }
 
 async function persistSynthesisCoverageGaps(
@@ -1289,7 +1311,23 @@ type PreparedHighlightReconciliation = {
   commitSha: string;
   validationHeads: Record<string, string>;
   sourceEntries: SynthesisNotebookEntry[];
+  funnelCandidateRef?: string;
 };
+
+function repositoryHighlightFunnelCandidateRef(
+  subsystem: SynthesizedKnowledge,
+  highlight: SynthesizedKnowledge["highlights"][number],
+) {
+  const factIndex = subsystem.facts.findIndex((fact) =>
+    normalizeWhitespace(fact.statement).toLowerCase() ===
+      normalizeWhitespace(highlight.summary).toLowerCase() &&
+    JSON.stringify(fact.citationIndexes) === JSON.stringify(highlight.citationIndexes)
+  );
+  if (factIndex < 0) return undefined;
+  return subsystem.capabilityFunnel?.highlights.decisions.find((decision) =>
+    decision.factIndex === factIndex && decision.outcome === "selected"
+  )?.candidateRef;
+}
 
 type NewProjectFactInput = PreparedFactReconciliation & {
   runId: string;
@@ -2087,6 +2125,7 @@ export async function reconcileRepositoryKnowledge(runId: string) {
         commitSha: citedEntries[0]?.commitSha ?? targets[0]?.commitSha ?? "",
         validationHeads,
         sourceEntries: citedEntries,
+        funnelCandidateRef: repositoryHighlightFunnelCandidateRef(subsystem, candidate),
       };
     })
   );
@@ -2123,6 +2162,15 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     enqueueEmbedding,
   });
   const producedByScope = synthesisProducedEntityBuckets(synthesis);
+  const materializedHighlightIdByCandidateRef = new Map<string, string>();
+  const recordMaterializedHighlight = (
+    entry: PreparedHighlightReconciliation,
+    highlightId: string,
+  ) => {
+    if (entry.funnelCandidateRef) {
+      materializedHighlightIdByCandidateRef.set(entry.funnelCandidateRef, highlightId);
+    }
+  };
   for (const entry of preparedFacts) {
     const batchedId = batchedRevalidations.appliedFactIdsByKey.get(entry.key);
     if (batchedId) {
@@ -2153,11 +2201,13 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     const batchedId = batchedRevalidations.appliedHighlightIdsByKey.get(entry.key);
     if (batchedId) {
       producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(batchedId);
+      recordMaterializedHighlight(entry, batchedId);
       continue;
     }
     const coldCreatedId = batchedColdCreates.createdHighlightIdsByKey.get(entry.key);
     if (coldCreatedId) {
       producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(coldCreatedId);
+      recordMaterializedHighlight(entry, coldCreatedId);
       continue;
     }
     if (batchedRevalidations.matchedKeys.has(entry.key)) continue;
@@ -2170,16 +2220,27 @@ export async function reconcileRepositoryKnowledge(runId: string) {
     });
     if (highlightId) {
       producedByScope.get(synthesisReconciliationScopeKey(entry.subsystem))?.highlightIds.push(highlightId);
+      recordMaterializedHighlight(entry, highlightId);
     }
   }
   finishStage("knowledgeApplication");
-  const results = synthesis.map((subsystem) => ({
-    subsystem,
-    produced: producedByScope.get(synthesisReconciliationScopeKey(subsystem)) ?? {
+  const results = synthesis.map((subsystem) => {
+    const produced = producedByScope.get(synthesisReconciliationScopeKey(subsystem)) ?? {
       projectFactIds: [],
       highlightIds: [],
-    },
-  }));
+    };
+    const capabilityFunnel = reconcileRepositoryCapabilityFunnelMaterialization(
+      produced.capabilityFunnel,
+      materializedHighlightIdByCandidateRef,
+    );
+    return {
+      subsystem,
+      produced: {
+        ...produced,
+        ...(capabilityFunnel ? { capabilityFunnel } : {}),
+      },
+    };
+  });
   await withKnowledgeRefreshGenerationFence(runId, async (tx) => {
     for (const { subsystem, produced } of results) {
       await tx.repositoryCapabilityLedger.updateMany({

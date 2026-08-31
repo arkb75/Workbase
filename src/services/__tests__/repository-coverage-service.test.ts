@@ -105,8 +105,9 @@ describe("complete repository coverage", () => {
     }));
   });
 
-  it("classifies persisted chat-run coordination as workflow orchestration", () => {
-    expect(inferSubsystemsFromPath("src/services/project-chat-store.ts")).toContain("workflow_orchestration");
+  it("classifies conventional workflow paths without product-name exceptions", () => {
+    expect(inferSubsystemsFromPath("src/workflows/run-store.ts")).toContain("workflow_orchestration");
+    expect(inferSubsystemsFromPath("src/workers/payment-job.ts")).toContain("workflow_orchestration");
     expect(inferSubsystemsFromPath("src/services/unrelated-store.ts")).not.toContain("workflow_orchestration");
   });
 
@@ -323,110 +324,7 @@ describe("complete repository coverage", () => {
     }));
   });
 
-  it("extracts exact workflow retry, startup, and persisted-run guards without path-only inference", async () => {
-    const [workflow, startup, store] = await analyzeRepositoryFiles([
-      {
-        repository: "workbase/demo",
-        commitSha: "a".repeat(40),
-        path: "workflows/project-chat.ts",
-        content: [
-          "const claimed = await claimRequiredKnowledgeRefresh(runId, refreshRunId);",
-          'const message = "resuming its checkpointed repository work";',
-          "if (checkpoint.status === 'completed') return checkpoint;",
-          "reconcileRequiredKnowledge.maxRetries = 2;",
-        ].join("\n"),
-      },
-      {
-        repository: "workbase/demo",
-        commitSha: "a".repeat(40),
-        path: "src/services/agent-run-workflow-start-service.ts",
-        content: [
-          'if (current.workflowId && !current.workflowId.startsWith("starting:")) return current.workflowId;',
-          "const reservation = `starting:${randomUUID()}`;",
-          "const where = { workflowId: null, status: 'queued' };",
-          "const reserve = { data: { workflowId: reservation } };",
-          "await getRun(workflow.runId).cancel();",
-          "const cleanup = { data: { workflowId: null } };",
-        ].join("\n"),
-      },
-      {
-        repository: "workbase/demo",
-        commitSha: "a".repeat(40),
-        path: "src/services/project-chat-store.ts",
-        content: [
-          "export async function createProjectChatRun() {",
-          '  const lock = `FROM "ChatThread" FOR UPDATE`;',
-          "  const existing = { userId_idempotencyKey: {} };",
-          "  if (existingRun) return existingRun;",
-          '  throw new Error("Finish or cancel the active thread run");',
-          "}",
-          "export async function appendAgentRunEvent() {",
-          '  const lock = `FROM "AgentRun" WHERE "id" = runId FOR UPDATE`;',
-          '  if ([\"completed\", \"insufficient_context\", \"failed\", \"cancelled\"].includes(runs[0].status)) return;',
-          "  const next = { sequence: (max._max.sequence ?? 0) + 1 };",
-          "}",
-          "export async function completeAgentRun() {",
-          '  const row = `FROM "AgentRun"`;',
-          '  const lock = `FOR UPDATE`;',
-          '  if ([\"completed\", \"insufficient_context\", \"failed\", \"cancelled\"].includes(runs[0].status)) return;',
-          "}",
-        ].join("\n"),
-      },
-    ]);
-
-    expect(workflow?.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        statement: expect.stringContaining("replays completed repository reconciliation"),
-        lineStart: 3,
-        lineEnd: 4,
-      }),
-      expect.objectContaining({
-        statement: expect.stringContaining("claim a released shared refresh"),
-        lineStart: 1,
-        lineEnd: 2,
-      }),
-    ]));
-    expect(startup?.facts).toContainEqual(expect.objectContaining({
-      statement: expect.stringContaining("conditionally reserves an unstarted queued run"),
-      lineStart: 1,
-      lineEnd: 6,
-    }));
-    expect(store?.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        statement: expect.stringContaining("serializes chat-run creation"),
-        lineStart: 1,
-        lineEnd: 5,
-      }),
-      expect.objectContaining({
-        statement: expect.stringContaining("serializes agent-run event appends"),
-        lineStart: 7,
-        lineEnd: 10,
-      }),
-      expect.objectContaining({
-        statement: expect.stringContaining("locks persisted run state during completion"),
-        lineStart: 12,
-        lineEnd: 15,
-      }),
-    ]));
-
-    const [incompleteStartup] = await analyzeRepositoryFiles([{
-      repository: "workbase/demo",
-      commitSha: "a".repeat(40),
-      path: "src/services/agent-run-workflow-start-service.ts",
-      content: [
-        'if (current.workflowId && !current.workflowId.startsWith("starting:")) return current.workflowId;',
-        "const reservation = `starting:${randomUUID()}`;",
-        "const where = { workflowId: null, status: 'queued' };",
-        "const reserve = { data: { workflowId: reservation } };",
-        "const cleanup = { data: { workflowId: null } };",
-      ].join("\n"),
-    }]);
-    expect(incompleteStartup?.facts.some((fact) =>
-      fact.statement.includes("conditionally reserves an unstarted queued run")
-    )).toBe(false);
-  });
-
-  it("adds zero project-domain targets when every Workbase base capability already applies", () => {
+  it("adds zero project-domain targets when every base capability already applies", () => {
     const baseAreas = BASE_COVERAGE_TARGETS.map((target) => coverageArea(target.key));
     const selected = selectRequiredSemanticCoverageAreas([
       ...baseAreas,
@@ -583,7 +481,7 @@ describe("complete repository coverage", () => {
     expect(analysis?.facts.some((fact) => fact.statement.includes("invalidates downstream dependents"))).toBe(false);
   });
 
-  it("retains static signals from imports, code and configuration values, and executable behavior", async () => {
+  it("uses generic executable syntax rather than vendor names as static signals", async () => {
     const [importedClient, codeString, configuration, inlineCode, preprocessor, retryPolicy, invalidation] = await analyzeRepositoryFiles([
       {
         repository: "example/integrations",
@@ -632,34 +530,35 @@ describe("complete repository coverage", () => {
     expect(importedClient).toMatchObject({
       dependencies: ["octokit"],
       symbols: ["GitHubClient"],
-      architectureSignals: expect.arrayContaining(["GitHub integration"]),
+      architectureSignals: [],
     });
-    expect(codeString?.architectureSignals).toContain("GitHub integration");
-    expect(configuration?.architectureSignals).toContain("GitHub integration");
+    expect(codeString?.architectureSignals).toEqual([]);
+    expect(configuration?.architectureSignals).toEqual([]);
     expect(inlineCode?.architectureSignals).toContain("external integration");
-    expect(preprocessor?.architectureSignals).toContain("GitHub integration");
+    expect(preprocessor?.architectureSignals).toEqual([]);
     expect(retryPolicy?.facts.some((fact) => fact.statement.includes("bounds retry behavior"))).toBe(true);
-    expect(invalidation?.facts.some((fact) => fact.statement.includes("invalidates downstream dependents"))).toBe(true);
+    expect(invalidation?.facts.some((fact) => fact.statement.includes("invalidates downstream dependents"))).toBe(false);
   });
 
-  it("preserves project-specific architecture areas instead of collapsing every service into one module", async () => {
+  it("preserves repository-derived domains instead of product-specific service names", async () => {
     const analyses = await analyzeRepositoryFiles([
       {
-        repository: "workbase/demo",
+        repository: "example/commerce",
         commitSha: "d".repeat(40),
-        path: "src/services/knowledge-refresh-service.ts",
-        content: "export async function startKnowledgeRefresh() { return true; }",
+        path: "src/payments/charge-service.ts",
+        content: "export async function chargePayment() { return true; }",
       },
       {
-        repository: "workbase/demo",
+        repository: "example/commerce",
         commitSha: "d".repeat(40),
-        path: "src/services/project-chat-agent-service.ts",
-        content: "export async function runProjectChatAgent() { return true; }",
+        path: "src/search/index-service.ts",
+        content: "export async function indexCatalog() { return true; }",
       },
     ]);
 
-    expect(analyses[0]?.subsystemKeys).toContain("repository_knowledge_lifecycle");
-    expect(analyses[1]?.subsystemKeys).toContain("project_chat_grounding");
+    expect(analyses[0]?.subsystemKeys).toContain("project_domain:payments");
+    expect(analyses[1]?.subsystemKeys).toContain("project_domain:search");
+    expect(analyses.every((analysis) => analysis.subsystemKeys.includes("application_core"))).toBe(true);
   });
 
   it("selects one bounded semantic notebook per large file", () => {

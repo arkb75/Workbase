@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { reconcileRepositoryCapabilityFunnelMaterialization } from "@/src/domain/repository-capability-funnel";
 import {
   applySynthesisCoverageGapsToRefreshState,
   allowsCanonicalKnowledgeReplacement,
@@ -563,6 +564,119 @@ describe("repository knowledge auto-apply policy", () => {
       refreshRunId: "refresh-1",
       capabilityKey: "data_model",
       snapshot: { sourceId: "source-b" },
+    });
+  });
+
+  it("keeps sibling operation-community candidate keys distinct within one capability", () => {
+    const first = {
+      sourceId: "source-a",
+      subsystemKey: "project_domain:billing",
+      synthesisKey: "project_domain:billing#community-1",
+    };
+    const second = {
+      ...first,
+      synthesisKey: "project_domain:billing#community-2",
+    };
+
+    expect(synthesisCandidateReconciliationKey("fact", first, 0)).not.toBe(
+      synthesisCandidateReconciliationKey("fact", second, 0),
+    );
+    expect(synthesisCandidateReconciliationKey("highlight", first, 0)).not.toBe(
+      synthesisCandidateReconciliationKey("highlight", second, 0),
+    );
+  });
+
+  it("merges capability-funnel traces instead of overwriting sibling synthesis communities", () => {
+    const trace = (candidateRef: string, selected: boolean) => ({
+      version: 1 as const,
+      observations: { admittedToSynthesis: 3 },
+      facts: { verified: 1 },
+      highlights: {
+        eligibleCandidates: 1,
+        selected: selected ? 1 : 0,
+        decisions: [{
+          candidateRef,
+          factIndex: 0,
+          outcome: selected ? "selected" as const : "omitted" as const,
+          reasons: selected ? [] : ["selector_lower_relative_salience" as const],
+        }],
+      },
+      auditRefs: {
+        selectionGenerationRunId: "selection-run",
+        criticGenerationRunIds: selected ? ["critic-run"] : [],
+      },
+    });
+    const buckets = synthesisProducedEntityBuckets([
+      {
+        sourceId: "source-a",
+        subsystemKey: "project_domain:billing",
+        capabilityFunnel: trace("candidate-a", true),
+      },
+      {
+        sourceId: "source-a",
+        subsystemKey: "project_domain:billing",
+        capabilityFunnel: trace("candidate-b", false),
+      },
+    ]);
+
+    expect(buckets.get(JSON.stringify(["source-a", "project_domain:billing"])))
+      .toMatchObject({
+        capabilityFunnel: {
+          observations: { admittedToSynthesis: 6 },
+          facts: { verified: 2 },
+          highlights: {
+            eligibleCandidates: 2,
+            selected: 1,
+            decisions: [
+              expect.objectContaining({ candidateRef: "candidate-a", outcome: "selected" }),
+              expect.objectContaining({ candidateRef: "candidate-b", reasons: ["selector_lower_relative_salience"] }),
+            ],
+          },
+          auditRefs: {
+            selectionGenerationRunId: "selection-run",
+            criticGenerationRunIds: ["critic-run"],
+          },
+        },
+      });
+  });
+
+  it("records which selected Highlights actually materialized", () => {
+    const trace = {
+      version: 1 as const,
+      observations: { admittedToSynthesis: 2 },
+      facts: { verified: 2 },
+      highlights: {
+        eligibleCandidates: 2,
+        selected: 2,
+        decisions: ["candidate-a", "candidate-b"].map((candidateRef, factIndex) => ({
+          candidateRef,
+          factIndex,
+          outcome: "selected" as const,
+          reasons: [],
+        })),
+      },
+      auditRefs: { criticGenerationRunIds: [] },
+    };
+
+    expect(reconcileRepositoryCapabilityFunnelMaterialization(
+      trace,
+      new Map([["candidate-a", "highlight-a"]]),
+    )).toMatchObject({
+      highlights: {
+        selected: 2,
+        materialized: 1,
+        decisions: [
+          expect.objectContaining({
+            candidateRef: "candidate-a",
+            materialization: { status: "materialized", entityId: "highlight-a" },
+          }),
+          expect.objectContaining({
+            candidateRef: "candidate-b",
+            reasons: ["not_materialized"],
+            materialization: { status: "not_materialized" },
+          }),
+        ],
+      },
     });
   });
 });

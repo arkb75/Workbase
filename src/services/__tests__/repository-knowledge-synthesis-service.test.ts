@@ -4,8 +4,6 @@ import type { SynthesisNotebookEntry } from "@/src/services/repository-knowledge
 import {
   allocateRepositorySynthesisClaimLimits,
   buildRepositorySynthesisBatches,
-  deterministicSynthesisAnchorSubsystems,
-  derivedRepositoryKnowledgeLifecycleFact,
   exactSinglePathProjectDomainSynthesis,
   exactSynthesisCitationExcerpt,
   isCompleteSynthesisCitationExcerpt,
@@ -13,12 +11,10 @@ import {
   isRepositoryOperationCommunityScope,
   fallbackSubsystemSynthesis,
   finalizeRepositorySubsystemSynthesis,
-  isBroadSemanticRepositoryLifecycleFact,
-  isWorkbaseRepositoryIdentity,
   materializeRepositoryOperationCommunities,
-  matchesWorkbaseDeterministicDefinitionIdentity,
   modelEligibleSynthesisNotebook,
   mergeRepositorySynthesisCriticAfterRevision,
+  naturalRepositorySynthesisClaimLimits,
   normalizeRepositoryHighlightText,
   projectRepositorySynthesisClaimBudget,
   applyRepositorySynthesisCritic,
@@ -29,7 +25,6 @@ import {
   repositoryOperationCommunityCountForScope,
   repositoryOperationCommunityValidationErrors,
   repositoryEvidenceBoundaryGuidance,
-  repositoryHighlightSelectionGuidance,
   repositoryModelEligibleSynthesisInputCount,
   repositorySynthesisCriticClaims,
   repositorySynthesisCriticPayload,
@@ -44,7 +39,6 @@ import {
   repositorySynthesisStructuralErrors,
   repositoryUserFacingCapabilityGuidance,
   reusableSynthesisEvidenceFilters,
-  requiredSemanticBaselineFacts,
   resolveRepositorySynthesisMode,
   repositorySynthesisSafetyGuidance,
   repositorySynthesisSchema,
@@ -55,8 +49,6 @@ import {
   selectSubsystemSynthesisNotebook,
   semanticFactsForSubsystem,
   selectedProjectDomainKeysFromOrchestration,
-  groundedHighlightCandidateFloor,
-  synthesisNotebookSourceCoverageGaps,
   synthesisNotebookReferenceKey,
   synthesizeRepositoryKnowledge,
 } from "@/src/services/repository-knowledge-synthesis-service";
@@ -158,13 +150,13 @@ describe("repository operation communities", () => {
     }
   });
 
-  it("admits broad product, runtime, and discovered domain scopes", () => {
+  it("admits broad product, data-flow, runtime, and discovered domain scopes", () => {
     expect(isRepositoryOperationCommunityScope("project_domain:orders")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:product_surface")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:intelligence")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:automation")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:application_core")).toBe(true);
-    expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(false);
+    expect(isRepositoryOperationCommunityScope("repository_area:data_model")).toBe(true);
     expect(isRepositoryOperationCommunityScope("repository_area:integrations")).toBe(false);
     expect(isRepositoryOperationCommunityScope("repository_area:quality")).toBe(false);
   });
@@ -190,7 +182,7 @@ describe("repository operation communities", () => {
     expect(isRepositoryOperationCommunityCandidate(
       "repository_area:data_model",
       multiplePaths,
-    )).toBe(false);
+    )).toBe(true);
     expect(isRepositoryOperationCommunityCandidate(
       "repository_area:product_surface",
       multiplePaths,
@@ -217,7 +209,7 @@ describe("repository operation communities", () => {
     expect(repositoryOperationCommunityCountForScope(
       "repository_area:data_model",
       multiplePaths.length,
-    )).toBe(1);
+    )).toBe(2);
     expect(repositoryOperationCommunityCountForScope(
       "project_domain:orders",
       multiplePaths.length,
@@ -581,16 +573,6 @@ describe("repository synthesis model-path limits", () => {
     expect(repositorySynthesisSafetyGuidance).toContain("narrower non-absolute description");
     expect(repositorySynthesisSafetyGuidance).toContain("exact positive condition");
     expect(repositorySynthesisSafetyGuidance).toContain("global prevention or prohibition");
-  });
-
-  it("prioritizes broad implemented workflows over low-level highlight candidates", () => {
-    expect(repositoryHighlightSelectionGuidance).toContain("end-to-end state-changing workflows");
-    expect(repositoryHighlightSelectionGuidance).toContain("single-page parameter wiring");
-    expect(repositoryHighlightSelectionGuidance).toContain("one cross-layer Highlight");
-    expect(repositoryHighlightSelectionGuidance).toContain("every claimed stage has implementation evidence");
-    expect(repositoryHighlightSelectionGuidance).toContain("do not emit duplicate layer-specific Highlights");
-    expect(repositoryHighlightSelectionGuidance).toContain("Never combine sibling entity workflows");
-    expect(repositoryHighlightSelectionGuidance).toContain("two broadest distinct supported capabilities");
   });
 
   it("requires product-surface synthesis to name the interface and supported user workflow", () => {
@@ -983,12 +965,7 @@ describe("repository synthesis model-path limits", () => {
       true,
       false,
     ]);
-    expect(finalized.highlights).toEqual([
-      expect.objectContaining({
-        summary: safeStatement,
-        sensitivityFlag: true,
-      }),
-    ]);
+    expect(finalized.highlights).toEqual([]);
   });
 
   it("retains source scope after anchor-only evidence is removed from the model notebook", () => {
@@ -1191,7 +1168,7 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
-  it("packs at most two synthesis scopes by projected bytes without splitting an oversized scope", () => {
+  it("keeps every synthesis scope in its own deterministic batch", () => {
     const input = (subsystemKey: string, excerptLength: number) => ({
       subsystemKey,
       synthesisKey: `${subsystemKey}#scope`,
@@ -1214,9 +1191,11 @@ describe("repository synthesis model-path limits", () => {
       [first, second, oversized, fourth, fifth],
       pairBytes,
     ).map((batch) => batch.map((candidate) => candidate.subsystemKey))).toEqual([
-      ["first", "second"],
+      ["first"],
+      ["second"],
       ["oversized"],
-      ["fourth", "fifth"],
+      ["fourth"],
+      ["fifth"],
     ]);
     expect(buildRepositorySynthesisBatches(
       [first, second],
@@ -1230,7 +1209,7 @@ describe("repository synthesis model-path limits", () => {
     );
   });
 
-  it("backfills later small scopes into the first compatible singleton batch", () => {
+  it("does not backfill later scopes into an existing batch", () => {
     const input = (subsystemKey: string, excerptLength: number) => ({
       subsystemKey,
       synthesisKey: `${subsystemKey}#scope`,
@@ -1258,8 +1237,10 @@ describe("repository synthesis model-path limits", () => {
       [first, second, third, fourth],
       maxInputBytes,
     ).map((batch) => batch.map((candidate) => candidate.subsystemKey))).toEqual([
-      ["first", "third"],
-      ["second", "fourth"],
+      ["first"],
+      ["second"],
+      ["third"],
+      ["fourth"],
     ]);
   });
 
@@ -1298,15 +1279,13 @@ describe("repository synthesis model-path limits", () => {
     }
   });
 
-  it("allocates a stable 30-claim target while retaining every scope Fact floor", () => {
+  it("allocates a stable Facts-only target while retaining every scope floor", () => {
     const ten = allocateRepositorySynthesisClaimLimits(
       Array.from({ length: 10 }, (_entry, index) => `scope-${index + 1}`),
     );
-    expect(ten.map((entry) => entry.claimLimits)).toEqual([
-      ...Array.from({ length: 4 }, () => ({ maxFacts: 3, maxHighlights: 1 })),
-      ...Array.from({ length: 2 }, () => ({ maxFacts: 2, maxHighlights: 1 })),
-      ...Array.from({ length: 4 }, () => ({ maxFacts: 2, maxHighlights: 0 })),
-    ]);
+    expect(ten.map((entry) => entry.claimLimits)).toEqual(
+      Array.from({ length: 10 }, () => ({ maxFacts: 3, maxHighlights: 0 })),
+    );
     expect(ten.reduce(
       (total, entry) => total + entry.claimLimits.maxFacts + entry.claimLimits.maxHighlights,
       0,
@@ -1314,14 +1293,27 @@ describe("repository synthesis model-path limits", () => {
     expect(allocateRepositorySynthesisClaimLimits(["a", "b"]).map(
       (entry) => entry.claimLimits
     )).toEqual([
-      { maxFacts: 3, maxHighlights: 2 },
-      { maxFacts: 3, maxHighlights: 2 },
+      { maxFacts: 3, maxHighlights: 0 },
+      { maxFacts: 3, maxHighlights: 0 },
     ]);
     expect(allocateRepositorySynthesisClaimLimits(
       Array.from({ length: 31 }, (_entry, index) => index),
     ).every((entry) =>
       entry.claimLimits.maxFacts === 1 && entry.claimLimits.maxHighlights === 0
     )).toBe(true);
+  });
+
+  it("scales each production Fact ceiling to its own verified evidence", () => {
+    expect([1, 2, 3, 12].map((count) => naturalRepositorySynthesisClaimLimits({
+      notebook: Array.from({ length: count }, (_entry, index) =>
+        entry(`src/operation-${index + 1}.ts`)
+      ),
+    }))).toEqual([
+      { maxFacts: 1, maxHighlights: 0 },
+      { maxFacts: 2, maxHighlights: 0 },
+      { maxFacts: 3, maxHighlights: 0 },
+      { maxFacts: 3, maxHighlights: 0 },
+    ]);
   });
 
   it("round-robins first-pass Highlight eligibility across allocation groups", () => {
@@ -1529,62 +1521,6 @@ describe("repository synthesis model-path limits", () => {
     expect(repositorySynthesisStructuralErrors(projected, inputs)).toEqual([]);
   });
 
-  it("requires each Highlight to promote one emitted Fact without broadening it", () => {
-    const fact = {
-      statement: "The service records an idempotency key before publishing a receipt.",
-      category: "behavior" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [2, 1],
-      reviewNotes: null,
-      productImportance: 5,
-      implementationBreadth: 3,
-      technicalDifficulty: 4,
-      distinctiveness: 4,
-    };
-    const promoted = {
-      text: "Publishes idempotent receipts",
-      summary: fact.statement,
-      confidence: fact.confidence,
-      sensitivityFlag: fact.sensitivityFlag,
-      visibility: "private" as const,
-      citationIndexes: [1, 2],
-      productImportance: fact.productImportance,
-      implementationBreadth: fact.implementationBreadth,
-      technicalDifficulty: fact.technicalDifficulty,
-      distinctiveness: fact.distinctiveness,
-    };
-    const input = [{
-      subsystemKey: "project_domain:payments",
-      synthesisKey: "project_domain:payments#scope",
-      notebook: [
-        { ...entry("src/payments/key.ts"), evidenceMode: "semantic" as const },
-        { ...entry("src/payments/receipt.ts"), evidenceMode: "semantic" as const },
-      ],
-    }];
-    const synthesis = (highlight: typeof promoted) => ({
-      subsystems: [{
-        subsystemKey: "project_domain:payments#scope",
-        facts: [fact],
-        highlights: [highlight],
-        unresolvedQuestions: [],
-      }],
-    });
-
-    expect(repositorySynthesisStructuralErrors(synthesis(promoted), input)).toEqual([]);
-    expect(repositorySynthesisStructuralErrors(synthesis({
-      ...promoted,
-      summary: `${fact.statement} It also encrypts every receipt.`,
-    }), input)).toEqual([
-      "project_domain:payments#scope Highlight 1 must promote exactly one emitted Fact with matching summary, normalized citations, confidence, sensitivity, and scores.",
-    ]);
-    expect(repositorySynthesisStructuralErrors(synthesis({
-      ...promoted,
-      technicalDifficulty: 5,
-    }), input)).toEqual([
-      "project_domain:payments#scope Highlight 1 must promote exactly one emitted Fact with matching summary, normalized citations, confidence, sensitivity, and scores.",
-    ]);
-  });
 
   it("finishes every primary batch before starting serialized optional refinement", async () => {
     const events: string[] = [];
@@ -2257,97 +2193,7 @@ describe("repository synthesis model-path limits", () => {
     }).success).toBe(false);
   });
 
-  it("applies the title bound before a model Highlight reaches reconciliation", () => {
-    const statement = "The payment workflow records idempotency before publishing a receipt.";
-    const longTitle = `Implemented an idempotent payment workflow ${"with durable receipt publication and bounded retry coordination ".repeat(6)}`;
-    const finalized = finalizeRepositorySubsystemSynthesis({
-      sourceId: "source-1",
-      repository: "arkb75/Workbase",
-      subsystemKey: "project_domain:payments",
-      notebook: [{
-        ...entry("src/payments/charge-service.ts", statement),
-        evidenceMode: "semantic",
-        semanticStatus: "succeeded",
-      }],
-      coverageGaps: [],
-      result: {
-        facts: [{
-          statement,
-          category: "behavior",
-          confidence: "high",
-          sensitivityFlag: false,
-          citationIndexes: [1],
-          reviewNotes: null,
-          productImportance: 5,
-          implementationBreadth: 4,
-          technicalDifficulty: 4,
-          distinctiveness: 4,
-        }],
-        highlights: [{
-          text: longTitle,
-          summary: statement,
-          confidence: "high",
-          sensitivityFlag: false,
-          visibility: "private",
-          citationIndexes: [1],
-          productImportance: 5,
-          implementationBreadth: 4,
-          technicalDifficulty: 4,
-          distinctiveness: 4,
-        }],
-        unresolvedQuestions: [],
-      },
-      tokenUsage: null,
-    });
 
-    expect(finalized.highlights[0]?.text.length).toBeLessThanOrEqual(240);
-    expect(finalized.highlights[0]?.summary).toBe(statement);
-  });
-
-  it("admits only exact high-confidence static lifecycle anchors", () => {
-    const anchor = {
-      path: "src/services/knowledge-refresh-service.ts",
-      statement: "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh.",
-      category: "code_location" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      lineStart: 10,
-      lineEnd: 10,
-      productImportance: 2,
-      implementationBreadth: 2,
-      technicalDifficulty: 2,
-      subsystemKeys: ["repository_knowledge_lifecycle"],
-      evidenceMode: "static" as const,
-    };
-
-    expect(deterministicSynthesisAnchorSubsystems(anchor, anchor.path)).toEqual(["repository_knowledge_lifecycle"]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "workflows/project-chat.ts uses a durable approval hook to pause and resume work.",
-    }, "workflows/project-chat.ts")).toEqual(["workflow_orchestration"]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "src/services/agent-run-workflow-start-service.ts conditionally reserves an unstarted queued run, reuses an attached workflow identifier, cancels an unattached workflow after a terminal-state race, and clears its reservation when startup fails.",
-    }, "src/services/agent-run-workflow-start-service.ts")).toEqual(["workflow_orchestration"]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "src/services/project-chat-store.ts serializes chat-run creation by locking the thread, returning an existing user-scoped idempotency-key run, and rejecting a second active run.",
-    }, "src/services/project-chat-store.ts")).toEqual(["workflow_orchestration"]);
-    expect(deterministicSynthesisAnchorSubsystems({ ...anchor, evidenceMode: "semantic" }, anchor.path)).toEqual([]);
-    expect(deterministicSynthesisAnchorSubsystems(anchor, "src/services/unrelated-service.ts")).toEqual([]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "src/services/misc.ts defines the symbol unrelatedUtility.",
-    }, anchor.path)).toEqual([]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "README.md states: 5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory",
-    }, "README.md")).toEqual(["product_surface"]);
-    expect(deterministicSynthesisAnchorSubsystems({
-      ...anchor,
-      statement: "README.md states: An arbitrary project promise that has not been explicitly allowlisted",
-    }, "README.md")).toEqual([]);
-  });
 
   it("retains a selected one-file project domain as an exact fact without inventing an umbrella claim", () => {
     const statement = "The charge service idempotently records a payment before publishing its receipt.";
@@ -2364,350 +2210,13 @@ describe("repository synthesis model-path limits", () => {
     expect(exactSinglePathProjectDomainSynthesis("ai_runtime", [entry("src/payments/charge-service.ts", statement)])).toBeNull();
   });
 
-  it("promotes one substantial semantic fact when model synthesis returns no Highlight", () => {
-    const notebook = [
-      {
-        ...entry(
-          "src/auth/session-service.ts",
-          "The session service validates signed credentials and rotates durable refresh state across requests.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-      },
-      {
-        ...entry(
-          "src/auth/policy.ts",
-          "The authorization policy enforces scoped access before protected project data is returned.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-      },
-    ];
-    const highlights = groundedHighlightCandidateFloor([{
-      statement:
-        "The application combines signed-session rotation with scoped authorization for protected project data.",
-      category: "architecture",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1, 2],
-      productImportance: 5,
-      implementationBreadth: 4,
-      technicalDifficulty: 4,
-      distinctiveness: 4,
-      reviewNotes: null,
-    }], notebook);
 
-    expect(highlights).toEqual([expect.objectContaining({
-      text: expect.stringContaining("signed-session rotation"),
-      citationIndexes: [1, 2],
-      visibility: "private",
-      confidence: "high",
-    })]);
-  });
 
-  it("keeps one verified data-flow highlight for a corroborated project domain", () => {
-    const statement =
-      "AVG and SUM accumulate values with Decimal and return numbers rounded to two decimal places.";
-    const fact = {
-      statement,
-      category: "data_flow" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      distinctiveness: 3,
-      reviewNotes: null,
-    };
-    const notebook = [
-      {
-        ...entry("src/query/Calculations.ts", statement),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticKind: "data_flow" as const,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-      },
-      {
-        ...entry(
-          "src/query/QueryExecutor.ts",
-          "The query executor applies validated transformations to matching data.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticKind: "data_flow" as const,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-      },
-    ];
 
-    const finalized = finalizeRepositorySubsystemSynthesis({
-      sourceId: "source-1",
-      repository: "example/dataset-platform",
-      subsystemKey: "project_domain:query",
-      notebook,
-      coverageGaps: [],
-      result: { facts: [fact], highlights: [], unresolvedQuestions: [] },
-      tokenUsage: null,
-    });
 
-    expect(finalized.highlights).toEqual([expect.objectContaining({
-      text: statement,
-      summary: statement,
-      citationIndexes: [1],
-      visibility: "private",
-    })]);
-  });
 
-  it("keeps the Resume workflow fallback stable across synthesis score drift", () => {
-    const statement =
-      "The documented resume-tailoring workflow starts from a job description, reviews available resume branches, and selects the closest existing variant as the basis for adaptation.";
-    const notebook = [{
-      ...entry(
-        "README.md",
-        "The documented product workflow is: take a job description, inspect all branches, and choose the closest existing resume variant.",
-      ),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSignals: ["product_surface.product_loop"],
-      productImportance: 4,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-    }];
-    const variants = [
-      { productImportance: 4, implementationBreadth: 2, technicalDifficulty: 3, distinctiveness: 3 },
-      { productImportance: 2, implementationBreadth: 1, technicalDifficulty: 1, distinctiveness: 1 },
-      { productImportance: 3, implementationBreadth: 5, technicalDifficulty: 2, distinctiveness: 2 },
-    ];
 
-    for (const scores of variants) {
-      const fact = {
-        statement,
-        category: "behavior" as const,
-        confidence: "high" as const,
-        sensitivityFlag: false,
-        citationIndexes: [1],
-        reviewNotes: null,
-        ...scores,
-      };
-      const original = structuredClone(fact);
 
-      expect(groundedHighlightCandidateFloor([fact], notebook)).toEqual([
-        expect.objectContaining({
-          text: statement,
-          citationIndexes: [1],
-          visibility: "private",
-        }),
-      ]);
-      expect(fact).toEqual(original);
-    }
-  });
-
-  it("does not infer automatic product salience from two ordinary behavior findings", () => {
-    const statement =
-      "The repository manages resume variants through long-lived branches and selects the closest variant before making minimal edits.";
-    const notebook = [
-      {
-        ...entry(
-          "README.md",
-          "Each resume variant lives on its own long-lived branch with main.tex as its source of truth.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        lineStart: 8,
-        lineEnd: 10,
-      },
-      {
-        ...entry(
-          "README.md",
-          "The agent finds the closest existing resume branch before choosing minimal edits or a justified new variant.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        lineStart: 12,
-        lineEnd: 18,
-      },
-    ];
-
-    expect(groundedHighlightCandidateFloor([{
-      statement,
-      category: "behavior",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1, 2],
-      reviewNotes: null,
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      distinctiveness: 3,
-    }], notebook)).toEqual([]);
-  });
-
-  it("keeps a corroborated product fallback when synthesis distributes citations across facts", () => {
-    const notebook = [
-      {
-        ...entry(
-          "README.md",
-          "Each resume variant lives on its own branch with main.tex as its source of truth.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticSignals: ["product_surface.product_loop"],
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        lineStart: 3,
-        lineEnd: 4,
-      },
-      {
-        ...entry(
-          "README.md",
-          "The agent selects the closest existing branch before making minimal edits.",
-        ),
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticSignals: ["product_surface.product_loop"],
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        lineStart: 12,
-        lineEnd: 18,
-      },
-    ];
-    const firstStatement =
-      "The repository organizes resume variants by branch, each with a branch-specific main.tex source file.";
-    const secondStatement =
-      "The tailoring workflow selects a close resume branch before applying minimal edits.";
-
-    expect(groundedHighlightCandidateFloor([
-      {
-        statement: firstStatement,
-        category: "architecture",
-        confidence: "high",
-        sensitivityFlag: false,
-        citationIndexes: [1],
-        reviewNotes: null,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 2,
-        distinctiveness: 2,
-      },
-      {
-        statement: secondStatement,
-        category: "behavior",
-        confidence: "high",
-        sensitivityFlag: false,
-        citationIndexes: [2],
-        reviewNotes: null,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        distinctiveness: 3,
-      },
-    ], notebook)).toEqual([expect.objectContaining({
-      text: firstStatement,
-      citationIndexes: [1],
-      visibility: "private",
-    })]);
-  });
-
-  it("does not promote one medium-value product signal without corroboration", () => {
-    const notebook = [{
-      ...entry("README.md", "The README describes one small product behavior."),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSignals: ["product_surface.product_loop"],
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-    }];
-
-    expect(groundedHighlightCandidateFloor([{
-      statement: "The product exposes one small documented behavior.",
-      category: "behavior",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      reviewNotes: null,
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      distinctiveness: 2,
-    }], notebook)).toEqual([]);
-  });
-
-  it("does not borrow product corroboration from another repository", () => {
-    const first = {
-      ...entry("README.md", "Repository one documents a single product behavior."),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSignals: ["product_surface.product_loop"],
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      repository: "example/one",
-    };
-    const second = {
-      ...entry("README.md", "Repository two documents a different product behavior."),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSignals: ["product_surface.product_loop"],
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      repository: "example/two",
-    };
-
-    expect(groundedHighlightCandidateFloor([{
-      statement: "Repository one exposes one documented product behavior.",
-      category: "behavior",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      reviewNotes: null,
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      distinctiveness: 2,
-    }], [first, second])).toEqual([]);
-  });
-
-  it("does not use duplicate citations as corroboration", () => {
-    const repeated = {
-      ...entry(
-        "README.md",
-        "The agent finds the closest resume branch before making minimal edits.",
-      ),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      semanticSignals: ["product_surface.product_loop"],
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-    };
-
-    expect(groundedHighlightCandidateFloor([{
-      statement: "The product documents one resume-selection behavior.",
-      category: "behavior",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1, 2],
-      reviewNotes: null,
-      productImportance: 3,
-      implementationBreadth: 2,
-      technicalDifficulty: 3,
-      distinctiveness: 2,
-    }], [repeated, { ...repeated }])).toEqual([]);
-  });
 
   it("preserves the model's no-Highlight decision for candidate-level reconciliation", () => {
     const statement =
@@ -2759,43 +2268,6 @@ describe("repository synthesis model-path limits", () => {
     });
   });
 
-  it("does not prepend deterministic baselines to a model synthesis result", () => {
-    const notebook = [
-      {
-        ...entry("src/workflows/job-runner.ts", "The runner resumes a checkpointed job."),
-        semanticSignals: ["workflow_orchestration.shared_refresh_owner_recovery"],
-      },
-      {
-        ...entry("src/workflows/job-policy.ts", "The policy bounds automatic retry."),
-        semanticSignals: ["workflow_orchestration.reconciliation_retry_boundary"],
-      },
-    ];
-    expect(requiredSemanticBaselineFacts("workflow_orchestration", notebook)).not.toEqual([]);
-    const modelFact = {
-      statement: "The workflow resumes checkpointed jobs under a bounded retry policy.",
-      category: "architecture" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [1, 2],
-      productImportance: 4,
-      implementationBreadth: 3,
-      technicalDifficulty: 3,
-      distinctiveness: 3,
-      reviewNotes: null,
-    };
-
-    const finalized = finalizeRepositorySubsystemSynthesis({
-      sourceId: "source-1",
-      repository: "arkb75/Workbase",
-      subsystemKey: "workflow_orchestration",
-      notebook,
-      coverageGaps: [],
-      result: { facts: [modelFact], highlights: [], unresolvedQuestions: [] },
-      tokenUsage: null,
-    });
-
-    expect(finalized.facts).toEqual([modelFact]);
-  });
 
   it("turns synthesis fallback into a repository-scoped coverage gap", () => {
     const statement =
@@ -2832,143 +2304,8 @@ describe("repository synthesis model-path limits", () => {
     expect(finalized.unresolvedQuestions).toEqual(expect.arrayContaining(finalized.coverageGaps));
   });
 
-  it("does not promote low-value or deterministic-anchor facts", () => {
-    const lowValue = {
-      statement: "The repository includes a small formatting helper.",
-      category: "behavior" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      productImportance: 2,
-      implementationBreadth: 1,
-      technicalDifficulty: 1,
-      distinctiveness: 1,
-      reviewNotes: null,
-    };
-    expect(groundedHighlightCandidateFloor(
-      [lowValue],
-      [{
-        ...entry("src/format.ts"),
-        evidenceMode: "semantic",
-        semanticStatus: "succeeded",
-        semanticSignals: [],
-        productImportance: 2,
-        implementationBreadth: 1,
-        technicalDifficulty: 1,
-      }],
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{
-        ...lowValue,
-        productImportance: 5,
-        implementationBreadth: 5,
-        technicalDifficulty: 5,
-        distinctiveness: 5,
-      }],
-      [{
-        ...entry("src/format.ts"),
-        evidenceMode: "semantic",
-        semanticStatus: "succeeded",
-        semanticSignals: [],
-        productImportance: 2,
-        implementationBreadth: 1,
-        technicalDifficulty: 1,
-      }],
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{
-        ...lowValue,
-        productImportance: 5,
-        implementationBreadth: 5,
-        technicalDifficulty: 5,
-        distinctiveness: 5,
-      }],
-      [{
-        ...entry("src/format.ts"),
-        evidenceMode: "semantic",
-        semanticStatus: "succeeded",
-        semanticSignals: ["product_surface.product_loop"],
-        productImportance: 1,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-      }],
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{
-        ...lowValue,
-        productImportance: 5,
-        implementationBreadth: 4,
-        technicalDifficulty: 4,
-        distinctiveness: 4,
-      }],
-      [{ ...entry("README.md"), evidenceMode: "deterministic_anchor" }],
-    )).toEqual([]);
-  });
 
-  it("fails closed for sensitive, uncertain, degraded, invalid, or overlong fact promotion", () => {
-    const semanticNotebook = [{
-      ...entry("src/auth/session-service.ts"),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-    }];
-    const substantial = {
-      statement: "The session service rotates durable signed-session state across authenticated requests.",
-      category: "architecture" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      productImportance: 5,
-      implementationBreadth: 4,
-      technicalDifficulty: 4,
-      distinctiveness: 4,
-      reviewNotes: null,
-    };
 
-    expect(groundedHighlightCandidateFloor(
-      [{ ...substantial, sensitivityFlag: true }],
-      semanticNotebook,
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{ ...substantial, confidence: "medium" }],
-      semanticNotebook,
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [substantial],
-      [{ ...semanticNotebook[0]!, semanticStatus: "degraded" }],
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{ ...substantial, citationIndexes: [2] }],
-      semanticNotebook,
-    )).toEqual([]);
-    expect(groundedHighlightCandidateFloor(
-      [{ ...substantial, statement: `A substantial claim ${"with supported detail ".repeat(20)}` }],
-      semanticNotebook,
-    )).toEqual([]);
-  });
-
-  it("promotes a substantial exact fact for a generic selected project domain", () => {
-    const notebook = [{
-      ...entry(
-        "src/payments/charge-service.ts",
-        "The charge service idempotently records a payment before publishing its receipt.",
-      ),
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-    }];
-    const synthesis = exactSinglePathProjectDomainSynthesis(
-      "project_domain:payments",
-      notebook,
-    );
-
-    expect(groundedHighlightCandidateFloor(
-      synthesis?.facts ?? [],
-      notebook,
-    )).toEqual([expect.objectContaining({
-      text: notebook[0]!.statement,
-      citationIndexes: [1],
-      visibility: "private",
-    })]);
-  });
 
   it("admits only project domains persisted by the bounded orchestration plan", () => {
     expect(selectedProjectDomainKeysFromOrchestration({
@@ -3002,308 +2339,13 @@ describe("repository synthesis model-path limits", () => {
     expect(semanticFactsForSubsystem({ ...base, path: "fixtures/server.ts" }, "ai_runtime")).toEqual([]);
   });
 
-  it("creates a capability-level AI runtime fact from clause-level semantic observations", () => {
-    const result = fallbackSubsystemSynthesis("ai_runtime", [
-      entry("src/lib/openrouter-client.ts", "OpenRouter chat and tool-loop transports enforce strict ZDR and required-parameter routing with reported usage cost."),
-      entry("src/services/bedrock-runtime.ts", "Configured OpenRouter profiles are primary while the Bedrock transport remains a controlled rollback."),
-      entry("src/lib/bedrock-converse-agent.ts", "Provider-neutral stop and usage normalization enforces maxIterations, maxToolCalls, and maxTotalTokens."),
-      entry("src/lib/bedrock-converse-agent.ts", "Credential-safe event telemetry removes credentials before events are exposed."),
-    ]);
 
-    expect(result.facts).toEqual([expect.objectContaining({
-      statement: expect.stringContaining("supports OpenRouter"),
-      confidence: "high",
-      citationIndexes: [1, 2, 3, 4],
-    })]);
-    expect(result.highlights).toEqual([
-      expect.objectContaining({
-        text: expect.stringContaining("supports OpenRouter"),
-        visibility: "private",
-        confidence: "high",
-        citationIndexes: [1, 2, 3, 4],
-      }),
-    ]);
-  });
 
-  it("grounds retrieval/provenance synthesis in distinct supported behaviors", () => {
-    const result = fallbackSubsystemSynthesis("retrieval_provenance", [
-      entry("src/services/project-knowledge-retrieval-service.ts", "Per-kind candidates merge vector and lexical top-k IDs."),
-      entry("src/services/project-knowledge-retrieval-service.ts", "Broad and public artifact requests trigger re-grounding through direct provenance."),
-      entry("src/services/project-knowledge-retrieval-service.ts", "Repository excerpts are retained as nested provenance subordinate to reviewed memory."),
-    ]);
 
-    expect(result.facts[0]?.citationIndexes).toHaveLength(3);
-    expect(result.facts[0]?.statement).toContain("vector and lexical top-k");
-    expect(result.highlights[0]?.text).not.toContain("...");
-    expect(result.highlights[0]?.summary).toContain("nested beneath reviewed memory");
-  });
 
-  it("synthesizes durable GitHub import and bounded exploration as one integration accomplishment", () => {
-    const result = fallbackSubsystemSynthesis("ingestion_integrations", [
-      entry("src/services/github-repo-import-service.ts", "The GitHub repo import fetches README content, commits, pull requests, issues, releases, and repository activity within configured limits."),
-      entry("src/services/github-repo-import-service.ts", "The GitHub repo import persists a project-scoped Source and normalized Evidence items."),
-      entry("src/services/github-repository-exploration-service.ts", "Repository exploration enforces tree lookups, searches, file reads, byte budgets, and a timeout."),
-      entry("src/services/github-repository-exploration-service.ts", "Repository exploration returns budget_exhausted, file_too_large, and binary_file failures."),
-    ]);
 
-    expect(result.facts[0]).toMatchObject({
-      statement: expect.stringContaining("GitHub ingestion fetches bounded repository metadata"),
-      productImportance: 5,
-      implementationBreadth: 5,
-      citationIndexes: [1, 2, 3],
-    });
-    expect(result.facts[1]?.statement).toContain("Repository exploration enforces");
-    expect(result.highlights[0]).toMatchObject({
-      text: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
-      summary: expect.stringContaining("project-scoped Sources and Evidence"),
-    });
-  });
 
-  it("retains the cross-file repository knowledge lifecycle as a ranked fact", () => {
-    const structuralEntries = [
-      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
-      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
-      entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
-      entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
-      entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
-    ];
-    const result = derivedRepositoryKnowledgeLifecycleFact([
-      ...structuralEntries,
-      entry("src/services/knowledge-refresh-service.ts", "repairKnowledgeCoverageGaps attempts semantic orchestration and uses the legacy implementation as a fallback."),
-    ]);
 
-    expect(result).toMatchObject({
-      category: "architecture",
-      confidence: "high",
-      productImportance: 5,
-      implementationBreadth: 5,
-      distinctiveness: 5,
-      citationIndexes: [1, 2, 3, 4, 5, 6],
-    });
-    expect(result?.statement).toContain("orchestrated semantic coverage repair");
-    expect(derivedRepositoryKnowledgeLifecycleFact(structuralEntries)).toBeNull();
-
-    const synthesisSupported = derivedRepositoryKnowledgeLifecycleFact([
-      ...structuralEntries,
-      entry(
-        "src/services/repository-knowledge-synthesis-service.ts",
-        "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
-      ),
-    ]);
-    expect(synthesisSupported?.statement).toContain("commit-pinned file and line provenance");
-    expect(synthesisSupported?.citationIndexes).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(derivedRepositoryKnowledgeLifecycleFact([
-      ...structuralEntries,
-      {
-        ...entry(
-          "src/services/repository-knowledge-synthesis-service.ts",
-          "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
-        ),
-        confidence: "low",
-      },
-    ])).toBeNull();
-    expect(derivedRepositoryKnowledgeLifecycleFact([
-      ...structuralEntries,
-      {
-        ...entry(
-          "src/services/repository-knowledge-synthesis-service.ts",
-          "SynthesisNotebookEntry tracks full provenance for repository, commitSha, blobSha, path, line range, and changeType supporting incremental knowledge updates.",
-        ),
-        sensitivityFlag: true,
-      },
-    ])).toBeNull();
-  });
-
-  it("admits Workbase system memory only for the canonical repository identity", () => {
-    expect(isWorkbaseRepositoryIdentity("arkb75/Workbase")).toBe(true);
-    expect(isWorkbaseRepositoryIdentity("/ARKB75/Workbase.git/")).toBe(true);
-    expect(isWorkbaseRepositoryIdentity("attacker/Workbase")).toBe(false);
-
-    const statement = "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.";
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "project_fact",
-      subsystemKey: "product_surface",
-      statement,
-    })).toBe(true);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "highlight",
-      subsystemKey: "product_surface",
-      text: "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow",
-      summary: statement,
-    })).toBe(true);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "highlight",
-      subsystemKey: "ingestion_integrations",
-      text: "Built project-scoped GitHub evidence ingestion with bounded repository import and code exploration",
-      summary: "Repository exploration enforces tree/search/read/byte/time budgets and returns typed failures for exhausted budgets, oversized or binary files, unsupported encodings, and unavailable paths.",
-    })).toBe(true);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "highlight",
-      subsystemKey: "review_ui",
-      text: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
-      summary: "The project workspace review UI combines URL-addressable views, multi-field Highlight lifecycle state, artifact-to-Highlight traceability, structured candidate-review metadata, and inline citation navigation to project evidence.",
-    })).toBe(true);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "project_fact",
-      subsystemKey: "product_surface",
-      statement: `${statement} User note.`,
-    })).toBe(false);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "project_fact",
-      subsystemKey: "product_surface",
-      statement: "Workbase is a career-content application that ingests project evidence, supports human review, and generates resume bullets, LinkedIn entries, and project summaries.",
-    })).toBe(true);
-    expect(matchesWorkbaseDeterministicDefinitionIdentity({
-      kind: "highlight",
-      subsystemKey: "ai_runtime",
-      text: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
-      summary: "The AI runtime wraps Bedrock Converse with normalized stop and usage metadata, abort support, enforced iteration/tool/token budgets, and credential redaction before events are exposed.",
-    })).toBe(true);
-  });
-
-  it("does not derive Workbase lifecycle memory from external or spoofed notebooks", () => {
-    const structuralEntries = [
-      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol startKnowledgeRefresh."),
-      entry("src/services/knowledge-refresh-service.ts", "src/services/knowledge-refresh-service.ts defines the symbol analyzeKnowledgeRefreshBatch."),
-      entry("src/services/repository-knowledge-synthesis-service.ts", "src/services/repository-knowledge-synthesis-service.ts defines the symbol synthesizeRepositoryKnowledge."),
-      entry("src/services/knowledge-reconciliation-service.ts", "src/services/knowledge-reconciliation-service.ts defines the symbol reconcileRepositoryKnowledge."),
-      entry("src/services/knowledge-staleness-service.ts", "src/services/knowledge-staleness-service.ts defines the symbol reconcileStaleKnowledge."),
-      entry("src/services/knowledge-refresh-service.ts", "repairKnowledgeCoverageGaps attempts semantic orchestration and uses the legacy implementation as a fallback."),
-    ];
-    const external = structuralEntries.map((item) => ({
-      ...item,
-      repository: "attacker/Workbase",
-    }));
-    expect(derivedRepositoryKnowledgeLifecycleFact(external)).toBeNull();
-
-    const mixed = structuralEntries.map((item, index) => index === 0
-      ? item
-      : { ...item, repository: "arkb75/Resume" });
-    expect(derivedRepositoryKnowledgeLifecycleFact(mixed)).toBeNull();
-    expect(isBroadSemanticRepositoryLifecycleFact({
-      statement: "Repository refresh and semantic analysis feed synthesis, reconciliation, and stale-knowledge invalidation.",
-      category: "architecture",
-      confidence: "high",
-      sensitivityFlag: false,
-      citationIndexes: [1, 2, 3],
-      reviewNotes: null,
-      productImportance: 5,
-      implementationBreadth: 5,
-      technicalDifficulty: 5,
-      distinctiveness: 5,
-    }, external.slice(0, 3))).toBe(false);
-  });
-
-  it("does not let high model scores turn one schema detail into a broad lifecycle baseline", () => {
-    const notebook = [entry(
-      "src/services/repository-knowledge-synthesis-service.ts",
-      "The synthesisSchema defines up to three facts, two highlights, and integer ranking fields.",
-    )];
-    const schemaDetail = {
-      statement: "The synthesisSchema defines up to three facts, two highlights, and integer ranking fields.",
-      category: "configuration" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-      citationIndexes: [1],
-      reviewNotes: null,
-      productImportance: 5,
-      implementationBreadth: 5,
-      technicalDifficulty: 5,
-      distinctiveness: 5,
-    };
-    const broad = {
-      ...schemaDetail,
-      statement: "Repository refresh and semantic analysis feed synthesis, reconciliation, and stale-knowledge invalidation.",
-      citationIndexes: [1, 2, 3],
-    };
-    const broadNotebook = [
-      entry("src/services/knowledge-refresh-service.ts", "Repository refresh performs bounded semantic analysis."),
-      entry("src/services/repository-knowledge-synthesis-service.ts", "Repository synthesis emits durable knowledge."),
-      entry("src/services/knowledge-reconciliation-service.ts", "Reconciliation invalidates stale knowledge."),
-    ];
-
-    expect(isBroadSemanticRepositoryLifecycleFact(schemaDetail, notebook)).toBe(false);
-    expect(isBroadSemanticRepositoryLifecycleFact(broad, notebook)).toBe(false);
-    expect(isBroadSemanticRepositoryLifecycleFact(broad, broadNotebook)).toBe(true);
-    expect(isBroadSemanticRepositoryLifecycleFact({
-      ...broad,
-      citationIndexes: [1, 9],
-    }, broadNotebook)).toBe(false);
-    expect(isBroadSemanticRepositoryLifecycleFact(broad, [{
-      ...notebook[0]!,
-      evidenceMode: "deterministic_anchor",
-    }])).toBe(false);
-  });
-
-  it.each([
-    [
-      "project_chat_grounding",
-      [
-        entry("src/services/project-chat-agent-service.ts", "selectHistory retains the latest 12 messages within a bounded history budget."),
-        entry("src/services/project-agent-harness.ts", "highAuthorityMemory admits verified_highlight and verified_project_fact sources."),
-        entry("src/services/project-chat-agent-service.ts", "The latest-commit refresh target SHAs ground current answers."),
-        entry("src/services/project-chat-agent-service.ts", "A retry request without supporting evidence fails closed, preventing hallucinated behavior."),
-      ],
-      "bounded multi-turn history",
-    ],
-    [
-      "artifact_generation",
-      [
-        entry("src/services/artifact-workflow-service.ts", "artifactBriefRequiresMeasuredImpact detects metric-bearing briefs."),
-        entry("src/services/artifact-workflow-service.ts", "hasMeasuredImpactEvidence requires authority-backed numeric evidence."),
-        entry("src/services/artifact-workflow-service.ts", "After bounded research the workflow requests the actual metric and enforces a hard stop instead of producing unsupported output."),
-      ],
-      "fails closed",
-    ],
-    [
-      "knowledge_review_lifecycle",
-      [
-        entry("src/services/knowledge-review-service.ts", "An edit creates a new immutable EvidenceItem and marks the prior item superseded."),
-        entry("src/services/knowledge-review-service.ts", "The edit invalidates downstream dependents and regenerates its embedding."),
-        entry("src/services/knowledge-review-service.ts", "knowledgeRevertMode selects restore_retired, restore_in_place, or retire_applied_revision."),
-      ],
-      "immutable successors",
-    ],
-    [
-      "review_ui",
-      [
-        entry("app/work-items/[id]/page.tsx", "URL search params drive tab selection and context within the project workspace."),
-        entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
-        entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
-        entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models kind, status, and candidate-review metadata."),
-        entry("components/chat/project-chat-workspace.tsx", "citationHref maps citations to a work-item tab URL for review evidence."),
-      ],
-      "review UI",
-    ],
-    [
-      "workflow_orchestration",
-      [
-        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol projectChatTurnWorkflow."),
-        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol repositoryKnowledgeRefreshWorkflow."),
-        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines the symbol artifactGenerationWorkflow."),
-        entry("workflows/project-chat.ts", "workflows/project-chat.ts defines a durable workflow entrypoint."),
-        entry("workflows/project-chat.ts", "workflows/project-chat.ts uses a durable approval hook to pause and resume work."),
-      ],
-      "durable workflow entrypoints",
-    ],
-    [
-      "tests_operations",
-      [
-        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner test asserts exactly 11 scenario IDs."),
-        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner zeroMetrics fixture enforces zero-call cache-reuse behavior."),
-        entry("src/evals/__tests__/project-chat-application-runner.test.ts", "The project-chat-application-runner automatically prepends prerequisite conversation turns."),
-      ],
-      "Application-level automated tests",
-    ],
-  ])("creates a broad deterministic baseline for %s", (subsystemKey, notebook, expected) => {
-    const result = fallbackSubsystemSynthesis(subsystemKey, notebook);
-
-    expect(result.facts).toEqual([expect.objectContaining({
-      statement: expect.stringContaining(expected),
-      confidence: "high",
-    })]);
-    expect(result.facts[0]?.citationIndexes.length).toBeGreaterThanOrEqual(3);
-  });
 
   it("does not promote anchor-only inventory into an open-ended Highlight", () => {
     const notebook = [
@@ -3319,67 +2361,13 @@ describe("repository synthesis model-path limits", () => {
     expect(modelEligibleSynthesisNotebook(notebook)).toEqual([]);
     const semantic = { ...entry("src/workflows/run.ts"), evidenceMode: "semantic" as const };
     expect(modelEligibleSynthesisNotebook([entry("unknown.ts"), semantic])).toEqual([semantic]);
-    expect(result.facts[0]?.statement).toContain("defines durable workflow entrypoints");
+    expect(result.facts).toEqual([]);
     expect(result.highlights).toEqual([]);
+    expect(result.unresolvedQuestions).toEqual([
+      "No successful semantic evidence was available for deterministic synthesis.",
+    ]);
   });
 
-  it("synthesizes the canonical product flow from exact README anchors without creating a Highlight", async () => {
-    const readme = [
-      "# Workbase",
-      "",
-      "## Product loop",
-      "",
-      "2. Create a Work Item",
-      "3. Attach manual notes and import a real GitHub repository",
-      "4. Refresh commit-pinned repository knowledge and cluster Evidence into work themes",
-      "5. Auto-apply supported, non-sensitive Project Facts and Highlights as private project memory",
-      "6. Surface every new, revised, stale, or superseded item in the review inbox while quarantining unsafe or insufficiently supported candidates",
-      "8. Generate resume bullets, a LinkedIn-style entry, or a short project summary from approved, non-sensitive Highlights only",
-    ].join("\n");
-    const [analysis] = await analyzeRepositoryFiles([{
-      repository: "arkb75/Workbase",
-      commitSha: "a".repeat(40),
-      path: "README.md",
-      content: readme,
-    }]);
-    const anchorFacts = (analysis?.facts ?? []).filter((fact) =>
-      deterministicSynthesisAnchorSubsystems(fact, "README.md").includes("product_surface")
-    );
-    const notebook = anchorFacts.map((fact) => ({
-      ...entry("README.md", fact.statement),
-      lineStart: fact.lineStart,
-      lineEnd: fact.lineEnd,
-      category: fact.category,
-      evidenceMode: "deterministic_anchor" as const,
-    }));
-
-    expect(anchorFacts).toHaveLength(6);
-    expect(requiredSemanticBaselineFacts("product_surface", notebook)).toEqual([
-      expect.objectContaining({
-        statement: expect.stringContaining("connects Work Items and attached sources"),
-        confidence: "high",
-        citationIndexes: [1, 4, 5, 6, 2, 3],
-      }),
-    ]);
-    const result = fallbackSubsystemSynthesis("product_surface", notebook);
-    expect(result.facts).toEqual([
-      expect.objectContaining({
-        statement: expect.stringContaining("generates career artifacts from approved non-sensitive Highlights"),
-        citationIndexes: [1, 4, 5, 6, 2, 3],
-      }),
-    ]);
-    expect(result.highlights).toEqual([]);
-
-    const incompleteHybridNotebook = [
-      {
-        ...notebook[0]!,
-        evidenceMode: "semantic" as const,
-        semanticSignals: ["product_surface.product_loop"],
-      },
-      ...notebook.slice(1, 4),
-    ];
-    expect(requiredSemanticBaselineFacts("product_surface", incompleteHybridNotebook)).toEqual([]);
-  });
 
   it("does not inject product-specific anchors without a cartographer-selected runtime domain", async () => {
     const readme = [
@@ -3523,293 +2511,12 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
-  it("never injects Workbase product memory into another repository", () => {
-    const notebook = [
-      {
-        ...entry(
-          "README.md",
-          "The resume agent selects the closest branch for a job description and edits main.tex with minimal changes.",
-        ),
-        repository: "arkb75/Resume",
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticSignals: ["product_surface.product_loop"],
-      },
-      {
-        ...entry(
-          "README.md",
-          "Compiled PDFs are build artifacts; main.tex is the approved source artifact.",
-        ),
-        repository: "arkb75/Resume",
-        evidenceMode: "semantic" as const,
-        semanticStatus: "succeeded" as const,
-        semanticSignals: [
-          "product_surface.safe_auto_apply",
-          "product_surface.unsafe_quarantine",
-          "product_surface.approved_artifacts",
-        ],
-      },
-    ];
 
-    expect(requiredSemanticBaselineFacts("product_surface", notebook)).toEqual([]);
-    const fallback = fallbackSubsystemSynthesis("product_surface", notebook);
-    expect(fallback.facts).toEqual([
-      expect.objectContaining({
-        statement: notebook[0]!.statement,
-        citationIndexes: [1],
-      }),
-    ]);
-    expect(fallback.facts.map((fact) => fact.statement).join(" "))
-      .not.toMatch(/Workbase|career artifacts|Work Items/u);
 
-    const finalized = finalizeRepositorySubsystemSynthesis({
-      sourceId: "source-1",
-      repository: "arkb75/Resume",
-      subsystemKey: "product_surface",
-      notebook,
-      coverageGaps: [],
-      result: {
-        facts: [{
-          statement: notebook[0]!.statement,
-          category: "behavior",
-          confidence: "high",
-          sensitivityFlag: false,
-          citationIndexes: [1],
-          reviewNotes: null,
-          productImportance: 3,
-          implementationBreadth: 2,
-          technicalDifficulty: 3,
-          distinctiveness: 3,
-        }],
-        highlights: [],
-        unresolvedQuestions: [],
-      },
-      tokenUsage: null,
-    });
-    expect(finalized.facts.map((fact) => fact.statement).join(" "))
-      .not.toMatch(/Workbase|career artifacts|Work Items/u);
-  });
 
-  it("preserves supported workflow retry, idempotency, and recovery facets across all three boundaries", () => {
-    const withSignal = (
-      path: string,
-      statement: string,
-      semanticSignals: string[],
-    ) => ({ ...entry(path, statement), semanticSignals });
-    const notebook = [
-      withSignal("workflows/project-chat.ts", "Project chat runs as a durable workflow.", ["workflow_orchestration.chat_workflow"]),
-      withSignal("workflows/project-chat.ts", "Repository refresh runs as a durable workflow.", ["workflow_orchestration.repository_refresh_workflow"]),
-      withSignal("workflows/project-chat.ts", "Artifact generation runs as a durable workflow.", ["workflow_orchestration.artifact_workflow"]),
-      withSignal("workflows/project-chat.ts", "A durable review hook pauses and resumes work.", ["workflow_orchestration.approval_pause_resume"]),
-      withSignal("workflows/project-chat.ts", "Repository reconciliation disables automatic retries because its versioned knowledge writes are not independently checkpointed.", ["workflow_orchestration.reconciliation_retry_boundary"]),
-      withSignal("workflows/project-chat.ts", "A waiting workflow can claim a released shared refresh and resume checkpointed work.", ["workflow_orchestration.shared_refresh_owner_recovery"]),
-      withSignal("src/services/agent-run-workflow-start-service.ts", "Workflow startup conditionally reserves an unstarted queued run and reuses an attached workflow identifier.", ["workflow_orchestration.workflow_start_reservation"]),
-      withSignal("src/services/project-chat-store.ts", "Chat-run creation locks the thread, returns a user-scoped idempotency-key match, and rejects another active run.", ["workflow_orchestration.chat_run_idempotency"]),
-      withSignal("src/services/project-chat-store.ts", "Agent-run event appends are serialized under a run lock.", ["workflow_orchestration.event_sequence_guard"]),
-      withSignal("src/services/project-chat-store.ts", "Completion locks persisted state and does not rewrite terminal runs.", ["workflow_orchestration.terminal_write_guard"]),
-    ];
 
-    const result = fallbackSubsystemSynthesis("workflow_orchestration", notebook);
-    expect(result.facts).toEqual([
-      expect.objectContaining({
-        statement: expect.stringContaining("durable workflow entrypoints"),
-        citationIndexes: [1, 2, 3, 4],
-      }),
-      expect.objectContaining({
-        statement: expect.stringContaining("persistence boundaries"),
-        citationIndexes: [7, 8, 9, 10],
-      }),
-      expect.objectContaining({
-        statement: expect.stringContaining("released shared refresh"),
-        citationIndexes: [6, 5],
-      }),
-    ]);
 
-    // Explicit deterministic mode can still recover every supported facet.
-    expect(requiredSemanticBaselineFacts("workflow_orchestration", notebook))
-      .toEqual(result.facts);
 
-    const withoutTerminalGuard = notebook.filter((entry) =>
-      !entry.semanticSignals?.includes("workflow_orchestration.terminal_write_guard")
-    );
-    const partial = requiredSemanticBaselineFacts("workflow_orchestration", withoutTerminalGuard);
-    expect(partial.some((fact) => fact.statement.includes("persistence boundaries"))).toBe(false);
-    expect(partial.some((fact) => fact.statement.includes("released shared refresh"))).toBe(true);
-  });
-
-  it("rebuilds the broad review workspace from current semantic concepts instead of promoting one narrow source action", () => {
-    const notebook = [
-      {
-        ...entry(
-          "app/work-items/[id]/page.tsx",
-          "GitHub repository sources can be attached or re-imported through a source-row action.",
-        ),
-        productImportance: 5,
-        implementationBreadth: 5,
-        technicalDifficulty: 5,
-      },
-      entry(
-        "app/work-items/[id]/page.tsx",
-        "Highlights are mapped with a multi-field lifecycle model supporting per-highlight review decisions in the UI.",
-      ),
-      entry(
-        "app/work-items/[id]/page.tsx",
-        "URL search params fully drive tab selection and context within the workspace.",
-      ),
-      entry(
-        "app/work-items/[id]/page.tsx",
-        "Artifact results track usedHighlightIds, linking generated artifacts back to their contributing Highlights.",
-      ),
-      entry(
-        "components/chat/project-chat-workspace.tsx",
-        "ChatWorkspaceCandidate models knowledge-update candidate kind, status, visibility, sensitivity, and confidence metadata.",
-      ),
-      entry(
-        "components/chat/project-chat-workspace.tsx",
-        "citationHref routes each citation kind to a specific work-item tab, exposing durable memory as navigable review targets.",
-      ),
-    ];
-
-    const result = fallbackSubsystemSynthesis("review_ui", notebook);
-
-    expect(result.facts[0]).toMatchObject({
-      statement: expect.stringContaining("project workspace review UI"),
-      productImportance: 5,
-      implementationBreadth: 5,
-    });
-    expect(new Set(result.facts[0]?.citationIndexes)).toEqual(new Set([2, 3, 4, 5, 6]));
-    expect(result.facts[0]?.statement).not.toContain("attached or re-imported");
-    expect(result.highlights[0]).toMatchObject({
-      summary: expect.stringContaining("artifact-to-Highlight traceability"),
-    });
-    expect(new Set(result.highlights[0]?.citationIndexes)).toEqual(new Set([2, 3, 4, 5, 6]));
-    expect(result.highlights[0]?.text.length).toBeLessThanOrEqual(240);
-  });
-
-  it("rebuilds broad capabilities from stable semantic signals despite model paraphrasing", () => {
-    const notebook = [
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Query parameters preserve the selected project view across navigation."),
-        semanticSignals: ["review_ui.url_addressable_views"],
-      },
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Each accomplishment carries independent review and lifecycle attributes."),
-        semanticSignals: ["review_ui.highlight_lifecycle"],
-      },
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Generated outputs retain links to the accomplishments that supplied them."),
-        semanticSignals: ["review_ui.artifact_highlight_traceability"],
-      },
-      {
-        ...entry("components/chat/project-chat-workspace.tsx", "Review rows expose typed state and policy fields for proposed knowledge."),
-        semanticSignals: ["review_ui.candidate_metadata"],
-      },
-      {
-        ...entry("components/chat/project-chat-workspace.tsx", "Source badges navigate into the relevant project evidence view."),
-        semanticSignals: ["review_ui.citation_navigation"],
-      },
-    ];
-
-    const result = fallbackSubsystemSynthesis("review_ui", notebook);
-
-    expect(result.facts[0]).toMatchObject({
-      statement: expect.stringContaining("project workspace review UI"),
-      citationIndexes: [1, 2, 3, 4, 5],
-    });
-    expect(result.highlights[0]?.summary).toContain("inline citation navigation");
-  });
-
-  it("completes a partially signaled broad capability with per-facet regex fallback", () => {
-    const notebook = [
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Query parameters preserve the selected project view across navigation."),
-        semanticSignals: ["review_ui.url_addressable_views"],
-      },
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Each accomplishment carries independent review and lifecycle attributes."),
-        semanticSignals: ["review_ui.highlight_lifecycle"],
-      },
-      {
-        ...entry("app/work-items/[id]/page.tsx", "Generated outputs retain links to the accomplishments that supplied them."),
-        semanticSignals: ["review_ui.artifact_highlight_traceability"],
-      },
-      {
-        ...entry("components/chat/project-chat-workspace.tsx", "Review rows expose typed state and policy fields for proposed knowledge."),
-        semanticSignals: ["review_ui.candidate_metadata"],
-      },
-      entry(
-        "components/chat/project-chat-workspace.tsx",
-        "citationHref routes each citation to a work-item tab with review evidence.",
-      ),
-    ];
-
-    const selected = selectSubsystemSynthesisNotebook("review_ui", notebook);
-    const result = fallbackSubsystemSynthesis("review_ui", selected);
-
-    expect(selected).toHaveLength(5);
-    expect(result.facts[0]?.statement).toContain("project workspace review UI");
-    expect(new Set(result.facts[0]?.citationIndexes)).toEqual(
-      new Set([1, 2, 3, 4, 5]),
-    );
-  });
-
-  it("reserves project-derived semantic facets before high-scoring notebook distractors", () => {
-    const required = [
-      entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
-      entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
-      entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
-      entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
-      entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
-    ].map((candidate, index) => ({
-      ...candidate,
-      semanticSignals: [`project_surface.facet_${index + 1}`],
-    }));
-    const distractors = Array.from({ length: 20 }, (_, index) => ({
-      ...entry(`components/unrelated-${index}.tsx`, `A high-scoring unrelated UI observation ${index}.`),
-      productImportance: 5,
-      implementationBreadth: 5,
-      technicalDifficulty: 5,
-    }));
-
-    const selected = selectSubsystemSynthesisNotebook("review_ui", [...distractors, ...required]);
-
-    expect(selected).toHaveLength(12);
-    for (const facet of required) {
-      expect(selected.some((entry) => entry.statement === facet.statement)).toBe(true);
-    }
-    expect(fallbackSubsystemSynthesis("review_ui", selected).facts[0]?.statement)
-      .toContain("project workspace review UI");
-  });
-
-  it("reserves multiple project-derived facets without recognizing their names", () => {
-    const required = [
-      entry("src/services/project-chat-agent-service.ts", "selectHistory retains the latest 12 messages within a bounded history budget."),
-      entry("src/services/project-agent-harness.ts", "highAuthorityMemory admits verified_highlight and verified_project_fact sources."),
-      entry("src/services/project-chat-agent-service.ts", "The latest-commit refresh target SHAs ground current answers."),
-      entry("src/services/project-chat-agent-service.ts", "A retry request without supporting evidence fails closed, preventing hallucinated behavior."),
-      entry("src/services/project-execution-router-service.ts", "The project execution router uses deterministic rules for high-confidence intent."),
-      entry("src/services/project-execution-router-service.ts", "The project execution router selects routes within safety, budget, and attached-repository constraints."),
-    ].map((candidate, index) => ({
-      ...candidate,
-      semanticSignals: [`agent_platform.facet_${index + 1}`],
-    }));
-    const distractors = Array.from({ length: 24 }, (_, index) => ({
-      ...entry(`src/services/unrelated-${index}.ts`, `A high-scoring unrelated chat observation ${index}.`),
-      productImportance: 5,
-      implementationBreadth: 5,
-      technicalDifficulty: 5,
-    }));
-
-    const selected = selectSubsystemSynthesisNotebook("project_chat_grounding", [...distractors, ...required]);
-    const synthesis = fallbackSubsystemSynthesis("project_chat_grounding", selected);
-
-    for (const facet of required) {
-      expect(selected.some((candidate) => candidate.statement === facet.statement)).toBe(true);
-    }
-    expect(synthesis.facts.some((fact) =>
-      fact.statement.includes("deterministic intent and safety constraints")
-    )).toBe(true);
-  });
 
   it("reserves semantic evidence before deterministic anchors across many repositories", () => {
     const semantic = Array.from({ length: 10 }, (_, index) => ({
@@ -3848,38 +2555,6 @@ describe("repository synthesis model-path limits", () => {
       .toHaveLength(2);
   });
 
-  it("balances project-derived facets with per-source representatives and reports overflow", () => {
-    const required = [
-      entry("app/work-items/[id]/page.tsx", "URL search params fully drive tab selection and context within the workspace."),
-      entry("app/work-items/[id]/page.tsx", "Highlights use a multi-field lifecycle model supporting per-highlight review decisions."),
-      entry("app/work-items/[id]/page.tsx", "Artifact results track usedHighlightIds and their contributing Highlights."),
-      entry("components/chat/project-chat-workspace.tsx", "ChatWorkspaceCandidate models candidate kind, status, and candidate-review metadata."),
-      entry("components/chat/project-chat-workspace.tsx", "citationHref routes each citation to a work-item tab with review evidence."),
-    ].map((candidate, index) => ({
-      ...candidate,
-      semanticSignals: [`workspace.facet_${index + 1}`],
-    }));
-    const repositories = Array.from({ length: 24 }, (_, index) => ({
-      ...entry(`src/repository-${index}.ts`, `Repository ${index} contributes a current-head semantic observation.`),
-      sourceId: `source-${index.toString().padStart(2, "0")}`,
-      repository: `owner/repository-${index}`,
-      productImportance: 5,
-      implementationBreadth: 5,
-      technicalDifficulty: 5,
-    }));
-
-    const selected = selectSubsystemSynthesisNotebook("review_ui", [...repositories, ...required]);
-    const gaps = synthesisNotebookSourceCoverageGaps([...repositories, ...required], selected);
-
-    expect(selected).toHaveLength(12);
-    for (const facet of required) {
-      expect(selected.some((candidate) => candidate.statement === facet.statement)).toBe(true);
-    }
-    expect(fallbackSubsystemSynthesis("review_ui", selected).facts[0]?.statement)
-      .toContain("project workspace review UI");
-    expect(gaps).toHaveLength(17);
-    expect(gaps.every((gap) => gap.includes("could not fit"))).toBe(true);
-  });
 
   it("keeps immutable provenance distinct and deterministically ordered across repositories", () => {
     const statement = "The workspace exposes reviewed project knowledge.";
@@ -3992,6 +2667,6 @@ describe("repository synthesis model-path limits", () => {
     expect(result.facts[0]?.statement).toBe("src/lib/bedrock-converse-agent.ts defines supported repository behavior.");
     expect(result.facts[0]?.statement).not.toContain("structured generation");
     expect(result.highlights).toEqual([]);
-    expect(result.unresolvedQuestions[0]).toContain("clause-level evidence");
+    expect(result.unresolvedQuestions).toEqual([]);
   });
 });

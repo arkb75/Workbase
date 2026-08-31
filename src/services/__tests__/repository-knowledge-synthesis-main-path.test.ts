@@ -23,9 +23,39 @@ vi.mock("@/src/lib/llm-config", () => ({
 }));
 vi.mock("@/src/services/bedrock-runtime", () => ({
   getStructuredLlmClient: (profile: string) => {
-    requestedClientProfiles.push(profile);
     return ({
-    generateStructured: generateStructuredMock,
+      generateStructured: async (input: {
+        schemaName: string;
+        userPrompt: string;
+        extraValidation?: (value: unknown) => string[];
+      }) => {
+        if (input.schemaName === "repository_highlight_selection") {
+          const prompt = JSON.parse(input.userPrompt) as {
+            candidates: Array<{ candidateId: string }>;
+          };
+          const data = {
+            selections: [],
+            omissions: prompt.candidates.map(({ candidateId }) => ({
+              candidateId,
+              reason: "lower_relative_salience",
+            })),
+          };
+          const errors = input.extraValidation?.(data) ?? [];
+          if (errors.length) throw new Error(errors.join(" "));
+          return {
+            data,
+            rawOutput: JSON.stringify(data),
+            parsedOutput: data,
+            tokenUsage: null,
+            provider: "bedrock",
+            modelId: "synthesis-model",
+            transportMode: "bedrock_json_schema",
+            attempts: [{ status: "success" }],
+          };
+        }
+        requestedClientProfiles.push(profile);
+        return generateStructuredMock(input);
+      },
     });
   },
 }));
@@ -247,8 +277,8 @@ describe("repository synthesis model main path", () => {
     const synthesisPrompt = JSON.parse(generateStructuredMock.mock.calls[0]![0].userPrompt);
     const criticPrompt = JSON.parse(generateStructuredMock.mock.calls[1]![0].userPrompt);
     expect(synthesisPrompt.subsystems[0].claimLimits).toEqual({
-      maxFacts: 3,
-      maxHighlights: 2,
+      maxFacts: 2,
+      maxHighlights: 0,
     });
     expect(synthesisPrompt.subsystems[0].notebook[0].sourceExcerpt).toBe(sourceExcerpt);
     expect(synthesisPrompt.subsystems[0].notebook[0]).not.toHaveProperty("sourceId");
@@ -266,7 +296,7 @@ describe("repository synthesis model main path", () => {
       "sourceExcerpt contains the exact bounded source fragments",
     );
     expect(generateStructuredMock.mock.calls[0]![0].systemPrompt).toContain(
-      "Each Highlight must promote exactly one emitted Fact",
+      "Return an empty highlights array",
     );
     expect(synthesis).toEqual([
       expect.objectContaining({
@@ -290,6 +320,11 @@ describe("repository synthesis model main path", () => {
         refreshRunId: "refresh-1",
         subsystemKeys: [expect.stringMatching(/^project_domain:payments#/)],
         claimCount: 1,
+      }),
+      expect.objectContaining({
+        phase: "repository_highlight_selection",
+        refreshRunId: "refresh-1",
+        candidateCount: 1,
       }),
     ]);
     const persisted = prismaMock.generationRun.update.mock.calls.map(([input]) =>
@@ -441,6 +476,8 @@ describe("repository synthesis model main path", () => {
       "repository_operation_communities",
       "repository_architecture_synthesis",
       "repository_architecture_synthesis",
+      "repository_architecture_synthesis",
+      "repository_synthesis_entailment_critic",
       "repository_synthesis_entailment_critic",
       "repository_synthesis_entailment_critic",
     ]);
@@ -596,7 +633,8 @@ describe("repository synthesis model main path", () => {
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([input]) =>
       input.create.inputSummary
     );
-    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+    expect(summaries.filter((summary) => summary.phase !== "repository_highlight_selection")
+      .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
       ["synthesis", 1],
@@ -672,497 +710,6 @@ describe("repository synthesis model main path", () => {
     expect(summaries[3]?.claimContentDigest).toBe(
       persistedRevision.resultRefs.resultAttestation.criticClaimContentDigest,
     );
-  });
-
-  it("persists a long revised highlight claim and patch losslessly", async () => {
-    const longSummary = (
-      "The charge service records an idempotency key before publishing a payment receipt. " +
-      "This bounded repository claim remains directly supported by the cited implementation. ".repeat(12)
-    ).slice(0, 480);
-    let criticRound = 0;
-    generateStructuredMock.mockReset();
-    generateStructuredMock.mockImplementation(async (input) => {
-      const request = input as {
-        schemaName: string;
-        userPrompt: string;
-        budget?: StructuredGenerationBudget;
-        extraValidation?: (value: never) => string[];
-      };
-      chargeBudget(request.budget);
-      const prompt = JSON.parse(request.userPrompt) as {
-        subsystems: Array<{
-          subsystemKey: string;
-          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
-          rejectedClaims?: Array<{ claimKey: string; revisionSlot: string }>;
-        }>;
-      };
-      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
-      const highlight = (text: string, summary: string) => ({
-        text,
-        summary,
-        confidence: "high" as const,
-        sensitivityFlag: false,
-        visibility: "resume_safe" as const,
-        citationIndexes: [1],
-        productImportance: 5,
-        implementationBreadth: 3,
-        technicalDifficulty: 4,
-        distinctiveness: 4,
-      });
-      let data: unknown;
-      if (request.schemaName === "repository_architecture_synthesis") {
-        data = {
-          subsystems: [{
-            subsystemKey,
-            facts: [{
-              statement: longSummary,
-              category: "behavior",
-              confidence: "high",
-              sensitivityFlag: false,
-              citationIndexes: [1],
-              reviewNotes: null,
-              productImportance: 5,
-              implementationBreadth: 3,
-              technicalDifficulty: 4,
-              distinctiveness: 4,
-            }],
-            highlights: [highlight(
-              "Encrypts every receipt through the full payment lifecycle",
-              longSummary,
-            )],
-            unresolvedQuestions: [],
-          }],
-        };
-      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
-        data = {
-          factReplacements: {},
-          highlightTitleReplacements: {
-            [prompt.subsystems[0]!.rejectedClaims![0]!.revisionSlot]: {
-              text: "Publishes idempotent payment receipts",
-            },
-          },
-        };
-      } else {
-        criticRound += 1;
-        data = {
-          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
-            claimKey: claim.claimKey,
-            supported: claim.kind === "fact" || criticRound === 2,
-            issues: claim.kind === "highlight" && criticRound === 1
-              ? ["unsupported_broad_qualifier"]
-              : [],
-          })),
-        };
-      }
-      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
-      return {
-        data,
-        rawOutput: JSON.stringify(data),
-        parsedOutput: data,
-        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        provider: "bedrock",
-        modelId: "synthesis-model",
-        transportMode: "bedrock_json_schema",
-        attempts: [{ status: "success" }],
-      };
-    });
-
-    await synthesizeRepositoryKnowledge("refresh-1");
-
-    const revisionBudget = generateStructuredMock.mock.calls[2]![0]
-      .budget as StructuredGenerationBudget;
-    const reCriticBudget = generateStructuredMock.mock.calls[3]![0]
-      .budget as StructuredGenerationBudget;
-    expect(revisionBudget.limits.maxModelCalls).toBe(
-      reCriticBudget.limits.maxModelCalls - 1,
-    );
-    expect(revisionBudget.limits.maxTotalTokens).toBeLessThan(
-      reCriticBudget.limits.maxTotalTokens,
-    );
-    expect(reCriticBudget.limits.maxTotalTokens).toBe(80_000);
-    const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0]
-      .data.parsedOutput;
-    expect(persistedRevision).toEqual(expect.objectContaining({
-      subsystems: [expect.objectContaining({
-        highlights: [expect.objectContaining({
-          text: "Publishes idempotent payment receipts",
-          summary: longSummary,
-          citationIndexes: [1],
-        })],
-      })],
-      revisionPatch: [{
-        claimKey: expect.stringMatching(/:highlight:1$/u),
-        kind: "highlight",
-        replacement: expect.objectContaining({
-          text: "Publishes idempotent payment receipts",
-          summary: longSummary,
-          visibility: "resume_safe",
-          citationIndexes: [1],
-          confidence: "high",
-          sensitivityFlag: false,
-          productImportance: 5,
-          implementationBreadth: 3,
-          technicalDifficulty: 4,
-          distinctiveness: 4,
-        }),
-      }],
-    }));
-  });
-
-  it("repairs the live SoloPilot title without asking the model to recreate its accepted Fact", async () => {
-    const promotedFact =
-      "The web UI can amend a reply as HTML through the reply-amendment API, then invokes its approval handler and clears the editing state.";
-    const revisedTitle = "Amend replies and invoke an approval handler";
-    let criticRound = 0;
-    generateStructuredMock.mockReset();
-    generateStructuredMock.mockImplementation(async (input) => {
-      const request = input as {
-        schemaName: string;
-        userPrompt: string;
-        schema: { safeParse: (value: unknown) => { success: boolean; error?: { issues: Array<{ message: string }> } } };
-        budget?: StructuredGenerationBudget;
-        extraValidation?: (value: never) => string[];
-      };
-      chargeBudget(request.budget);
-      const prompt = JSON.parse(request.userPrompt) as {
-        subsystems: Array<{
-          subsystemKey: string;
-          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
-          rejectedClaims?: Array<{
-            revisionSlot: string;
-            kind: "fact" | "highlight";
-            promotedFact?: { statement: string } | null;
-          }>;
-        }>;
-      };
-      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
-      const fact = {
-        statement: promotedFact,
-        category: "behavior" as const,
-        confidence: "high" as const,
-        sensitivityFlag: false,
-        citationIndexes: [1],
-        reviewNotes: null,
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        distinctiveness: 3,
-      };
-      const highlight = {
-        text: "Amend and approve email replies from the web UI",
-        summary: promotedFact,
-        confidence: fact.confidence,
-        sensitivityFlag: fact.sensitivityFlag,
-        visibility: "private" as const,
-        citationIndexes: [1],
-        productImportance: fact.productImportance,
-        implementationBreadth: fact.implementationBreadth,
-        technicalDifficulty: fact.technicalDifficulty,
-        distinctiveness: fact.distinctiveness,
-      };
-      let data: unknown;
-      if (request.schemaName === "repository_architecture_synthesis") {
-        data = {
-          subsystems: [{
-            subsystemKey,
-            facts: [fact],
-            highlights: [highlight],
-            unresolvedQuestions: [],
-          }],
-        };
-      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
-        const rejected = prompt.subsystems[0]!.rejectedClaims!;
-        expect(rejected).toEqual([
-          expect.objectContaining({
-            revisionSlot: "H1",
-            kind: "highlight",
-            promotedFact: expect.objectContaining({ statement: promotedFact }),
-          }),
-        ]);
-        const wrongCount = request.schema.safeParse({
-          factReplacements: {},
-          highlightTitleReplacements: {},
-        });
-        expect(wrongCount.success).toBe(false);
-        expect(wrongCount.error?.issues.map((issue) => issue.message)).toContain(
-          "Highlight title replacement count must be exactly 1; returned 0.",
-        );
-        data = {
-          factReplacements: {},
-          highlightTitleReplacements: { H1: { text: revisedTitle } },
-        };
-      } else {
-        criticRound += 1;
-        data = {
-          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
-            claimKey: claim.claimKey,
-            supported: claim.kind === "fact" || criticRound === 2,
-            issues: claim.kind === "highlight" && criticRound === 1
-              ? ["unsupported_detail"]
-              : [],
-          })),
-        };
-      }
-      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
-      return {
-        data,
-        rawOutput: JSON.stringify(data),
-        parsedOutput: data,
-        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        provider: "bedrock",
-        modelId: "synthesis-model",
-        transportMode: "bedrock_json_schema",
-        attempts: [{ status: "success" }],
-      };
-    });
-
-    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
-
-    expect(synthesis[0]?.facts).toEqual([
-      expect.objectContaining({ statement: promotedFact }),
-    ]);
-    expect(synthesis[0]?.highlights).toEqual([
-      expect.objectContaining({
-        text: revisedTitle,
-        summary: promotedFact,
-        citationIndexes: [1],
-        visibility: "private",
-        confidence: "high",
-        productImportance: 3,
-        implementationBreadth: 2,
-        technicalDifficulty: 3,
-        distinctiveness: 3,
-      }),
-    ]);
-    const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0]
-      .data.parsedOutput;
-    expect(persistedRevision.revisionPatch).toEqual([
-      expect.objectContaining({
-        claimKey: expect.stringMatching(/:highlight:1$/u),
-        kind: "highlight",
-        replacement: expect.objectContaining({
-          text: revisedTitle,
-          summary: promotedFact,
-          visibility: "private",
-          citationIndexes: [1],
-          confidence: "high",
-          sensitivityFlag: false,
-          productImportance: 3,
-          implementationBreadth: 2,
-          technicalDifficulty: 3,
-          distinctiveness: 3,
-        }),
-      }),
-    ]);
-  });
-
-  it("rebinds and re-critiques an accepted Highlight after its Fact is revised", async () => {
-    const priorStatement = `${statement} It encrypts every receipt.`;
-    const revisedTitle = "Publishes receipts with idempotency keys";
-    let criticRound = 0;
-    generateStructuredMock.mockReset();
-    generateStructuredMock.mockImplementation(async (input) => {
-      const request = input as {
-        schemaName: string;
-        userPrompt: string;
-        budget?: StructuredGenerationBudget;
-        extraValidation?: (value: never) => string[];
-      };
-      chargeBudget(request.budget);
-      const prompt = JSON.parse(request.userPrompt) as {
-        subsystems: Array<{
-          subsystemKey: string;
-          claims?: Array<{
-            claimKey: string;
-            kind: "fact" | "highlight";
-            claim: { statement?: string; summary?: string };
-          }>;
-          rejectedClaims?: Array<{ revisionSlot: string; kind: "fact" | "highlight" }>;
-        }>;
-      };
-      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
-      const fact = (factStatement: string) => ({
-        statement: factStatement,
-        category: "behavior" as const,
-        confidence: "high" as const,
-        sensitivityFlag: false,
-        citationIndexes: [1],
-        reviewNotes: null,
-        productImportance: 5,
-        implementationBreadth: 3,
-        technicalDifficulty: 4,
-        distinctiveness: 4,
-      });
-      let data: unknown;
-      if (request.schemaName === "repository_architecture_synthesis") {
-        data = {
-          subsystems: [{
-            subsystemKey,
-            facts: [fact(priorStatement)],
-            highlights: [{
-              text: revisedTitle,
-              summary: priorStatement,
-              confidence: "high",
-              sensitivityFlag: false,
-              visibility: "private",
-              citationIndexes: [1],
-              productImportance: 5,
-              implementationBreadth: 3,
-              technicalDifficulty: 4,
-              distinctiveness: 4,
-            }],
-            unresolvedQuestions: [],
-          }],
-        };
-      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
-        const rejected = prompt.subsystems[0]!.rejectedClaims!;
-        expect(rejected.map((claim) => [claim.revisionSlot, claim.kind])).toEqual([
-          ["F1", "fact"],
-        ]);
-        data = {
-          factReplacements: { F1: fact(statement) },
-          highlightTitleReplacements: {},
-        };
-      } else {
-        criticRound += 1;
-        data = {
-          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
-            claimKey: claim.claimKey,
-            supported: criticRound === 2 || claim.kind === "highlight",
-            issues:
-              criticRound === 1 && claim.kind === "fact"
-                ? ["unsupported_detail"]
-                : [],
-          })),
-        };
-        if (criticRound === 2) {
-          expect(prompt.subsystems[0]!.claims).toHaveLength(2);
-          const changedHighlight = prompt.subsystems[0]!.claims!.find((claim) =>
-            claim.kind === "highlight"
-          );
-          expect(changedHighlight?.claim.summary).toBe(statement);
-        }
-      }
-      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
-      return {
-        data,
-        rawOutput: JSON.stringify(data),
-        parsedOutput: data,
-        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        provider: "bedrock",
-        modelId: "synthesis-model",
-        transportMode: "bedrock_json_schema",
-        attempts: [{ status: "success" }],
-      };
-    });
-
-    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
-
-    expect(synthesis[0]?.facts).toEqual([
-      expect.objectContaining({ statement }),
-    ]);
-    expect(synthesis[0]?.highlights).toEqual([
-      expect.objectContaining({ text: revisedTitle, summary: statement }),
-    ]);
-    expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
-      "repository_architecture_synthesis",
-      "repository_synthesis_entailment_critic",
-      "repository_synthesis_claim_revisions",
-      "repository_synthesis_entailment_critic",
-    ]);
-  });
-
-  it("removes a bound Highlight when its Fact revision is null", async () => {
-    generateStructuredMock.mockReset();
-    generateStructuredMock.mockImplementation(async (input) => {
-      const request = input as {
-        schemaName: string;
-        userPrompt: string;
-        budget?: StructuredGenerationBudget;
-        extraValidation?: (value: never) => string[];
-      };
-      chargeBudget(request.budget);
-      const prompt = JSON.parse(request.userPrompt) as {
-        subsystems: Array<{
-          subsystemKey: string;
-          claims?: Array<{ claimKey: string; kind: "fact" | "highlight" }>;
-        }>;
-      };
-      const subsystemKey = prompt.subsystems[0]!.subsystemKey;
-      const fact = {
-        statement,
-        category: "behavior" as const,
-        confidence: "high" as const,
-        sensitivityFlag: false,
-        citationIndexes: [1],
-        reviewNotes: null,
-        productImportance: 5,
-        implementationBreadth: 3,
-        technicalDifficulty: 4,
-        distinctiveness: 4,
-      };
-      let data: unknown;
-      if (request.schemaName === "repository_architecture_synthesis") {
-        data = {
-          subsystems: [{
-            subsystemKey,
-            facts: [fact],
-            highlights: [{
-              text: "Publishes idempotent payment receipts",
-              summary: statement,
-              confidence: "high",
-              sensitivityFlag: false,
-              visibility: "private",
-              citationIndexes: [1],
-              productImportance: 5,
-              implementationBreadth: 3,
-              technicalDifficulty: 4,
-              distinctiveness: 4,
-            }],
-            unresolvedQuestions: [],
-          }],
-        };
-      } else if (request.schemaName === "repository_synthesis_claim_revisions") {
-        data = {
-          factReplacements: { F1: null },
-          highlightTitleReplacements: {},
-        };
-      } else {
-        data = {
-          assessments: prompt.subsystems[0]!.claims!.map((claim) => ({
-            claimKey: claim.claimKey,
-            supported: claim.kind === "highlight",
-            issues: claim.kind === "highlight" ? [] : ["unsupported_detail"],
-          })),
-        };
-      }
-      expect(request.extraValidation?.(data as never) ?? []).toEqual([]);
-      return {
-        data,
-        rawOutput: JSON.stringify(data),
-        parsedOutput: data,
-        tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        provider: "bedrock",
-        modelId: "synthesis-model",
-        transportMode: "bedrock_json_schema",
-        attempts: [{ status: "success" }],
-      };
-    });
-
-    const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
-
-    expect(synthesis[0]?.facts).toEqual([]);
-    expect(synthesis[0]?.highlights).toEqual([]);
-    expect(synthesis[0]?.unresolvedQuestions).toContain(
-      "Removed a Highlight because its promoted Project Fact was removed or no longer uniquely bound.",
-    );
-    expect(generateStructuredMock).toHaveBeenCalledTimes(3);
-    const revisionPatch = prismaMock.generationRun.update.mock.calls[2]![0]
-      .data.parsedOutput.revisionPatch;
-    expect(revisionPatch).toEqual([
-      expect.objectContaining({ kind: "fact", replacement: null }),
-      expect.objectContaining({ kind: "highlight", replacement: null }),
-    ]);
   });
 
   it("maps two same-kind replacements by server slot rather than object order", async () => {
@@ -1389,13 +936,13 @@ describe("repository synthesis model main path", () => {
     expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual([
       latencyStatement,
       correctedPaymentStatement,
-      receiptStatement,
     ]);
     expect(synthesis[0]?.coverageGaps).toEqual([]);
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
     );
-    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+    expect(summaries.filter((summary) => summary.phase !== "repository_highlight_selection")
+      .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
       ["synthesis", 1],
@@ -1408,7 +955,7 @@ describe("repository synthesis model main path", () => {
       revisionContract: "rejected_claim_patch_v3_server_slots",
     }));
     expect(summaries[1]).toEqual(expect.objectContaining({
-      claimCount: 3,
+      claimCount: 2,
       criticScope: "full_payload",
     }));
     expect(summaries[3]).toEqual(expect.objectContaining({
@@ -1462,7 +1009,6 @@ describe("repository synthesis model main path", () => {
         facts: [
           expect.objectContaining({ statement: latencyStatement }),
           expect.objectContaining({ statement: correctedPaymentStatement }),
-          expect.objectContaining({ statement: receiptStatement }),
         ],
       })],
       revisionPatch: [{
@@ -1584,7 +1130,8 @@ describe("repository synthesis model main path", () => {
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
     );
-    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+    expect(summaries.filter((summary) => summary.phase !== "repository_highlight_selection")
+      .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
       ["synthesis", 1],
@@ -1713,7 +1260,8 @@ describe("repository synthesis model main path", () => {
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
     );
-    expect(summaries.map((summary) => [summary.phase, summary.revisionRound])).toEqual([
+    expect(summaries.filter((summary) => summary.phase !== "repository_highlight_selection")
+      .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
       ["synthesis", 1],

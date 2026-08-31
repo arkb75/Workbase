@@ -94,7 +94,9 @@ function requestIds(resultRefs: unknown) {
 type RepositorySynthesisGenerationPhase =
   | "synthesis"
   | "entailment_critic"
-  | "operation_community_mapping";
+  | "operation_community_mapping"
+  | "repository_highlight_selection"
+  | "repository_highlight_critic";
 
 function repositorySynthesisGenerationPhase(
   inputSummary: unknown,
@@ -102,7 +104,9 @@ function repositorySynthesisGenerationPhase(
   const phase = record(inputSummary)?.phase;
   return phase === "synthesis" ||
       phase === "entailment_critic" ||
-      phase === "operation_community_mapping"
+      phase === "operation_community_mapping" ||
+      phase === "repository_highlight_selection" ||
+      phase === "repository_highlight_critic"
     ? phase
     : null;
 }
@@ -1473,6 +1477,14 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     repositorySynthesisGenerationPhase(run.inputSummary) ===
       "operation_community_mapping"
   );
+  const highlightSelectionRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) ===
+      "repository_highlight_selection"
+  );
+  const highlightCriticRuns = capabilitySynthesisRuns.filter((run) =>
+    repositorySynthesisGenerationPhase(run.inputSummary) ===
+      "repository_highlight_critic"
+  );
   const requiredCounts = {
     semanticPlanning: input.generationRuns.filter((run) =>
       run.kind === "execution_routing"
@@ -1482,6 +1494,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     ).length,
     capabilitySynthesis: synthesisRuns.length,
     entailmentCritic: criticRuns.length,
+    highlightSelection: highlightSelectionRuns.length,
+    highlightTitleCritic: highlightCriticRuns.length,
   };
   if (!requiredCounts.semanticPlanning) {
     issues.push("No audited semantic planning generation ran.");
@@ -1494,7 +1508,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   }
 
   const missingPhaseAttestation = capabilitySynthesisRuns.length -
-    synthesisRuns.length - criticRuns.length - operationCommunityMappingRuns.length;
+    synthesisRuns.length - criticRuns.length - operationCommunityMappingRuns.length -
+    highlightSelectionRuns.length - highlightCriticRuns.length;
   if (missingPhaseAttestation) {
     issues.push(
       `${missingPhaseAttestation} capability synthesis generation(s) have no valid synthesis-phase attestation.`,
@@ -1506,12 +1521,125 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     return phase === "operation_community_mapping"
       ? repositoryOperationCommunityMappingDescriptor(run.inputSummary)
           ?.batchKey === undefined
+      : phase === "repository_highlight_selection" ||
+          phase === "repository_highlight_critic"
+        ? false
       : repositorySynthesisBatchKey(run.inputSummary) === null;
   }).length;
   if (missingBatchAttestation) {
     issues.push(
       `${missingBatchAttestation} capability synthesis generation(s) have no valid subsystem-batch attestation.`,
     );
+  }
+
+  const highlightSelections = highlightSelectionRuns.flatMap((run) => {
+    const summary = record(run.inputSummary);
+    const output = record(run.parsedOutput);
+    const attestation = record(record(run.resultRefs)?.resultAttestation);
+    const rawOutputHash = record(run.resultRefs)?.rawOutputHash;
+    const refreshRunId = typeof summary?.refreshRunId === "string"
+      ? summary.refreshRunId
+      : "";
+    const candidateCount = typeof summary?.candidateCount === "number"
+      ? summary.candidateCount
+      : -1;
+    const candidateDigest = typeof summary?.candidateDigest === "string"
+      ? summary.candidateDigest
+      : "";
+    const selectedIds = Array.isArray(output?.selections)
+      ? output.selections.flatMap((value) => {
+          const selection = record(value);
+          return typeof selection?.candidateId === "string"
+            ? [selection.candidateId]
+            : [];
+        })
+      : [];
+    const omittedIds = Array.isArray(output?.omissions)
+      ? output.omissions.flatMap((value) => {
+          const omission = record(value);
+          return typeof omission?.candidateId === "string" &&
+              typeof omission?.reason === "string"
+            ? [omission.candidateId]
+            : [];
+        })
+      : [];
+    const allIds = [...selectedIds, ...omittedIds];
+    const attestedSelectedIds = Array.isArray(attestation?.selectedCandidateIds)
+      ? attestation.selectedCandidateIds.filter((value): value is string =>
+          typeof value === "string"
+        )
+      : [];
+    const valid = run.status === "success" &&
+      Boolean(refreshRunId) &&
+      candidateCount > 0 &&
+      summary?.maximumSelections === candidateCount &&
+      /^[a-f0-9]{64}$/u.test(candidateDigest) &&
+      allIds.length === candidateCount &&
+      new Set(allIds).size === candidateCount &&
+      sameUniqueKeys(selectedIds, attestedSelectedIds) &&
+      attestation?.candidateDigest === candidateDigest &&
+      typeof rawOutputHash === "string" &&
+      attestation?.selectionDigest === rawOutputHash;
+    return valid ? [{ refreshRunId, selectedIds }] : [];
+  });
+  if (highlightSelections.length !== highlightSelectionRuns.length) {
+    issues.push(
+      `${highlightSelectionRuns.length - highlightSelections.length} repository Highlight selection generation(s) lack an exact candidate partition and output attestation.`,
+    );
+  }
+  const highlightCritics = highlightCriticRuns.flatMap((run) => {
+    const summary = record(run.inputSummary);
+    const output = record(run.parsedOutput);
+    const attestation = record(record(run.resultRefs)?.resultAttestation);
+    const rawOutputHash = record(run.resultRefs)?.rawOutputHash;
+    const refreshRunId = typeof summary?.refreshRunId === "string"
+      ? summary.refreshRunId
+      : "";
+    const claimCount = typeof summary?.claimCount === "number"
+      ? summary.claimCount
+      : -1;
+    const assessmentIds = Array.isArray(output?.assessments)
+      ? output.assessments.flatMap((value) => {
+          const assessment = record(value);
+          return typeof assessment?.candidateId === "string"
+            ? [assessment.candidateId]
+            : [];
+        })
+      : [];
+    const criticInputDigest = typeof summary?.criticInputDigest === "string"
+      ? summary.criticInputDigest
+      : "";
+    const valid = run.status === "success" &&
+      Boolean(refreshRunId) &&
+      Number.isInteger(summary?.batchIndex) &&
+      claimCount > 0 &&
+      assessmentIds.length === claimCount &&
+      new Set(assessmentIds).size === claimCount &&
+      /^[a-f0-9]{64}$/u.test(criticInputDigest) &&
+      attestation?.criticInputDigest === criticInputDigest &&
+      typeof rawOutputHash === "string" &&
+      attestation?.assessmentDigest === rawOutputHash;
+    return valid ? [{ refreshRunId, assessmentIds }] : [];
+  });
+  if (highlightCritics.length !== highlightCriticRuns.length) {
+    issues.push(
+      `${highlightCriticRuns.length - highlightCritics.length} repository Highlight title critic generation(s) lack exact batch and output attestation.`,
+    );
+  }
+  for (const selection of highlightSelections) {
+    const assessedIds = highlightCritics
+      .filter((critic) => critic.refreshRunId === selection.refreshRunId)
+      .flatMap((critic) => critic.assessmentIds);
+    if (!sameUniqueKeys(selection.selectedIds, assessedIds)) {
+      issues.push(
+        "Repository Highlight selections do not have exactly one independently attested title assessment each.",
+      );
+    }
+  }
+  if (highlightCritics.some((critic) => !highlightSelections.some((selection) =>
+    selection.refreshRunId === critic.refreshRunId
+  ))) {
+    issues.push("A repository Highlight title critic has no matching selection generation.");
   }
   const invalidOperationCommunityPartitions = operationCommunityMappingRuns
     .filter((run) => {
@@ -2078,8 +2206,9 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
   input.generationRuns.forEach((run, index) => {
     const label = `${run.kind} generation ${index + 1}`;
     const refs = record(run.resultRefs);
+    const phase = repositorySynthesisGenerationPhase(run.inputSummary);
     const expected = run.kind === "capability_synthesis" &&
-        repositorySynthesisGenerationPhase(run.inputSummary) === "entailment_critic"
+        (phase === "entailment_critic" || phase === "repository_highlight_critic")
       ? input.expectedSynthesisCriticIdentity ?? expectedIdentityFor(run.kind, input.expectedIdentities)
       : expectedIdentityFor(run.kind, input.expectedIdentities);
     if (run.status !== "success") {

@@ -477,6 +477,8 @@ describe("repository knowledge main-path integrity", () => {
         semanticExtraction: 1,
         capabilitySynthesis: 1,
         entailmentCritic: 1,
+        highlightSelection: 0,
+        highlightTitleCritic: 0,
         claimfulSynthesis: 1,
         criticCoveredSynthesis: 1,
         successfulGenerations: 4,
@@ -489,6 +491,100 @@ describe("repository knowledge main-path integrity", () => {
         deterministicSynthesis: false,
         budgetExhausted: false,
       },
+    });
+  });
+
+  it("accepts an exact adaptive Highlight partition and independently assessed titles", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const selectionOutput = {
+      selections: [{ candidateId: "HC1", title: "Persists payment receipts" }],
+      omissions: [{ candidateId: "HC2", reason: "routine_supporting_detail" }],
+    };
+    const selection = generation("capability_synthesis", "synthesis-model", {
+      id: "generation-highlight-selection",
+      inputSummary: {
+        phase: "repository_highlight_selection",
+        refreshRunId: "refresh-1",
+        candidateCount: 2,
+        candidateDigest: "a".repeat(64),
+        maximumSelections: 2,
+      },
+      parsedOutput: selectionOutput,
+      resultRefs: {
+        configuredModelId: "synthesis-model",
+        requestIds: ["request-highlight-selection"],
+        usageComplete: true,
+        failedProviderAttempts: [],
+        providerAttemptCount: 1,
+        transportMode: "json_schema",
+        rawOutputHash: "c".repeat(64),
+        resultAttestation: {
+          candidateDigest: "a".repeat(64),
+          selectedCandidateIds: ["HC1"],
+          selectionDigest: "c".repeat(64),
+        },
+      },
+    });
+    const criticOutput = {
+      assessments: [{ candidateId: "HC1", supported: true, issues: [] }],
+    };
+    const critic = generation("capability_synthesis", "synthesis-model", {
+      id: "generation-highlight-critic",
+      inputSummary: {
+        phase: "repository_highlight_critic",
+        refreshRunId: "refresh-1",
+        batchIndex: 0,
+        claimCount: 1,
+        criticInputDigest: "b".repeat(64),
+      },
+      parsedOutput: criticOutput,
+      resultRefs: {
+        configuredModelId: "synthesis-model",
+        requestIds: ["request-highlight-critic"],
+        usageComplete: true,
+        failedProviderAttempts: [],
+        providerAttemptCount: 1,
+        transportMode: "json_schema",
+        rawOutputHash: "d".repeat(64),
+        resultAttestation: {
+          criticInputDigest: "b".repeat(64),
+          assessmentDigest: "d".repeat(64),
+        },
+      },
+    });
+
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(synthesis),
+        entailmentCritic(synthesis),
+        selection,
+        critic,
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.metrics).toMatchObject({
+      highlightSelection: 1,
+      highlightTitleCritic: 1,
     });
   });
 
