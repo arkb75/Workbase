@@ -544,7 +544,7 @@ describe("repository-derived cartographer and coverage critic", () => {
   it("keeps the established audit-depth curve while the first pass stays bounded", () => {
     const cases = [
       [0, 0], [1, 1], [2, 2], [3, 2], [6, 2],
-      [7, 3], [15, 3], [16, 4], [30, 4], [31, 14],
+      [7, 3], [15, 3], [16, 4], [30, 4], [31, 17],
     ] as const;
 
     for (const [fileCount, auditTarget] of cases) {
@@ -581,7 +581,7 @@ describe("repository-derived cartographer and coverage critic", () => {
         score: 31 - index,
       })),
     };
-    const inspectedFileSnapshotIds = area.files.slice(0, 14).map((file) => file.id);
+    const inspectedFileSnapshotIds = area.files.slice(0, 17).map((file) => file.id);
     const critique = critiqueRepositoryCoverage({
       manifest: [area],
       reports: [{
@@ -595,7 +595,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     });
 
     expect(critique.domains[0]).toMatchObject({
-      targetSamples: 14,
+      targetSamples: 17,
       requiredSupportedCandidates: 8,
       requiredSupportedFiles: 8,
       status: "covered",
@@ -626,7 +626,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     });
 
     expect(limited.domains[0]).toMatchObject({
-      targetSamples: 14,
+      targetSamples: 17,
       inspectedSamples: 11,
       supportedCandidates: 8,
       requiredSupportedFiles: 8,
@@ -634,10 +634,10 @@ describe("repository-derived cartographer and coverage critic", () => {
     });
     expect(limited.gaps).toEqual([]);
     expect(limited.capacityLimitations).toEqual([
-      expect.stringContaining("11 of 14 desired samples"),
+      expect.stringContaining("11 of 17 desired samples"),
     ]);
 
-    const fullyInspectedFileSnapshotIds = area.files.slice(0, 14).map((file) => file.id);
+    const fullyInspectedFileSnapshotIds = area.files.slice(0, 17).map((file) => file.id);
     const capacityRetry = critiqueRepositoryCoverage({
       manifest: [area],
       reports: [{
@@ -751,10 +751,10 @@ describe("repository-derived cartographer and coverage critic", () => {
       entry.fileSnapshotIds
     );
 
-    expect(selected).toHaveLength(6);
+    expect(selected).toHaveLength(8);
     expect(selected.filter((fileId) =>
       runtimeFiles.some((file) => file.id === fileId)
-    )).toHaveLength(5);
+    )).toHaveLength(6);
     expect(selected).toEqual(expect.arrayContaining([
       "requirement-extractor",
       "response-reviser",
@@ -844,7 +844,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     const critique = critiqueRepositoryCoverage({ manifest: [area], reports: [], allowRepair: true });
 
     expect(critique.domains[0]).toMatchObject({
-      targetSamples: 14,
+      targetSamples: 17,
       requiredSupportedCandidates: 8,
       requiredSupportedFiles: 8,
       status: "missing",
@@ -2099,7 +2099,7 @@ describe("repository-derived cartographer and coverage critic", () => {
       .toHaveLength(4);
   });
 
-  it("requires up to six distinct operation roles in a broad project domain", () => {
+  it("requires up to eight distinct operation roles in a broad project domain", () => {
     const roles = [
       "Parser",
       "Executor",
@@ -2138,9 +2138,9 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: true,
     });
 
-    expect(semanticAuditTarget(area)).toBe(14);
+    expect(semanticAuditTarget(area)).toBe(17);
     expect(critique.domains[0]?.diversityGapDescriptions)
-      .toContain("2/6 operational roles");
+      .toContain("2/8 operational roles");
     const repairIds = critique.repairPackages.flatMap((entry) =>
       entry.fileSnapshotIds
     );
@@ -2736,6 +2736,63 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(successful.repairPackages).toEqual([]);
   });
 
+  it("repairs an evidence-floor deficit before higher-salience sample-only debt", () => {
+    const knowledge = {
+      key: "project_domain:knowledge",
+      label: "Knowledge",
+      scopeKey: "example/general-project",
+      salience: 10,
+      files: Array.from({ length: 17 }, (_, index) => ({
+        id: `knowledge-${index}`,
+        path: `src/knowledge/operation-${index}.ts`,
+        score: 30 - index,
+        operationSignalKeys: [`static-operation:topic:knowledge-${index}`],
+      })),
+    };
+    const chat = {
+      key: "project_domain:chat",
+      label: "Chat",
+      scopeKey: "example/general-project",
+      salience: 100,
+      files: Array.from({ length: 7 }, (_, index) => ({
+        id: `chat-${index}`,
+        path: `src/chat/operation-${index}.ts`,
+        score: 20 - index,
+      })),
+    };
+    const uniqueCandidate = (key: string, fileSnapshotId: string) => ({
+      ...candidate(key, fileSnapshotId),
+      statement: `${fileSnapshotId} implements a distinct supported operation.`,
+    });
+    const reports = [{
+      inspectedFileSnapshotIds: [
+        ...knowledge.files.slice(0, 8).map((file) => file.id),
+        ...chat.files.slice(0, 2).map((file) => file.id),
+      ],
+      candidates: [
+        ...knowledge.files.slice(0, 5).map((file) =>
+          uniqueCandidate(knowledge.key, file.id)
+        ),
+        ...chat.files.slice(0, 2).map((file) =>
+          uniqueCandidate(chat.key, file.id)
+        ),
+      ],
+    }];
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [chat, knowledge],
+      reports,
+      allowRepair: true,
+    });
+
+    expect(critique.domains.find((domain) => domain.key === knowledge.key))
+      .toMatchObject({ supportedFileCount: 5, requiredSupportedFiles: 6 });
+    expect(critique.domains.find((domain) => domain.key === chat.key))
+      .toMatchObject({ supportedFileCount: 2, requiredSupportedFiles: 1 });
+    expect(critique.repairPackages[0]?.fileSnapshotIds[0])
+      .toMatch(/^knowledge-/);
+  });
+
   it("retries a request-wide four-file failure as one bounded micro-batch", () => {
     const area = {
       key: "project_domain:orders",
@@ -2860,7 +2917,7 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: true,
       selectedFileSnapshotIds: [
         "retry-selected",
-        ...Array.from({ length: 35 }, (_, index) => `assigned-${index}`),
+        ...Array.from({ length: 39 }, (_, index) => `assigned-${index}`),
       ],
     });
 

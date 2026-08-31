@@ -612,6 +612,31 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.recoveredCapabilityKeys).toContain("visual_insights");
   });
 
+  it("recognizes panel language grounded by a rendered JSX container", () => {
+    const path = "src/components/circle-dashboard.tsx";
+    const content =
+      '<div className="invite"><span>Invite code</span>{circle.inviteCode}</div>';
+    const fixture = withEvidenceFile(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+      path,
+      content,
+    );
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "jsx-invite-panel",
+      kind: "highlight",
+      text: "Circle invite-code panel",
+      summary: "The UI renders the circle invite code in an invite-code panel.",
+      claimState: "implemented",
+      domain: "circle",
+      evidence: [{ path, lineStart: 1, lineEnd: 1, quote: content }],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain("jsx-invite-panel");
+  });
+
   it.each([
     {
       name: "founder onboarding is not investor onboarding",
@@ -1253,6 +1278,70 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.unsupportedItems).toContain("filename-only-settlement");
     expect(report.metrics.evidencePrecision).toBeLessThan(1);
     expect(report.metrics.capabilityRecall).toBe(0);
+  });
+
+  it("uses a source path to disambiguate a grounded implementation excerpt", () => {
+    const sourceFixture = repositoryKnowledgeFixture("amazon-marketplace-analytics")!;
+    const path = "src/main/model/ProductDetailsList.java";
+    const content =
+      "public void add(String asin, String category) { products.add(new ProductDetails(asin, category)); }";
+    const fixture = withEvidenceFile(sourceFixture, path, content);
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "path-disambiguated-product-details",
+      kind: "fact",
+      text: "The product-details collection adds records by ASIN and category.",
+      claimState: "implemented",
+      domain: "inventory",
+      evidence: [{ path, lineStart: 1, lineEnd: 1, quote: content }],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).not.toContain(
+      "path-disambiguated-product-details",
+    );
+    expect(report.recoveredCapabilityKeys).toContain("product_catalog");
+  });
+
+  it("does not let one shared term plus a descriptive path ground a claim", () => {
+    const sourceFixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const path = "src/settlement-engine.ts";
+    const content = "export const settlementStatus = true;";
+    const fixture = withEvidenceFile(sourceFixture, path, content);
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "single-term-path-laundering",
+      kind: "fact",
+      text: "Implemented a settlement engine.",
+      claimState: "implemented",
+      domain: "payments",
+      evidence: [{ path, lineStart: 1, lineEnd: 1, quote: content }],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toContain("single-term-path-laundering");
+  });
+
+  it("does not let a path ground a claim with no distinctive terms", () => {
+    const sourceFixture = repositoryKnowledgeFixture("workbase-project-knowledge")!;
+    const path = "src/system-workflow-service.ts";
+    const content = "export const enabled = true;";
+    const fixture = withEvidenceFile(sourceFixture, path, content);
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "generic-path-laundering",
+      kind: "fact",
+      text: "Implemented the system workflow service.",
+      claimState: "implemented",
+      domain: "platform",
+      evidence: [{ path, lineStart: 1, lineEnd: 1, quote: content }],
+    }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.unsupportedItems).toContain("generic-path-laundering");
   });
 
   it("rejects an exact curated quote outside its declared line range", () => {

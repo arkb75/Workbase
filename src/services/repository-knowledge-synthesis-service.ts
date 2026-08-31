@@ -854,7 +854,7 @@ export function repositoryOperationCommunityBudgetLimits(mappingCount: number) {
   return {
     maxModelCalls: mappingCount,
     maxRepairPasses: 0,
-    maxOutputTokens: 1_000,
+    maxOutputTokens: 2_500,
     // A mapping request contains at most 36 compact observations. Twelve
     // thousand tokens per request bounds both that input and its small index
     // partition without borrowing from evidence synthesis or critic calls.
@@ -952,6 +952,7 @@ async function mapRepositoryOperationCommunities(input: {
         `Return exactly ${expectedCommunityCount} nonempty communities, assign every supplied index exactly once, and keep each community at or below ${REPOSITORY_SYNTHESIS_OPERATION_COMMUNITY_SIZE} members.`,
         "Group observations by the same implemented user or system goal, state transition, or end-to-end workflow rather than by language, directory, framework, or technical layer.",
         "Place interface, service, persistence, and integration observations for the same operation together when their actions align; keep sibling entity workflows and unrelated actions separate even when they share a screen or helper.",
+        "semanticSignals are repository-derived routing facets rather than evidence. Keep observations with the same supported signal together when practical, and avoid placing every distinct signal in one community when the bounded partition can preserve them across communities.",
         "For data-model scopes, partition by independently meaningful data flows such as persistence, transformation, or lifecycle behavior—not merely by class, entity name, or neighboring CRUD method.",
         "Use a concise, concrete operation or domain noun phrase for each label; avoid generic labels such as workflow, feature, data, or other unless a more specific evidence-grounded name is unavailable.",
         "Prefer coherent operation boundaries, but balance communities enough to respect the hard member limit. Do not summarize, rewrite, rank, omit, or add observations.",
@@ -965,6 +966,7 @@ async function mapRepositoryOperationCommunities(input: {
           path: entry.path,
           statement: entry.statement,
           semanticKind: entry.semanticKind ?? null,
+          semanticSignals: [...(entry.semanticSignals ?? [])],
           category: entry.category,
           productImportance: entry.productImportance,
           implementationBreadth: entry.implementationBreadth,
@@ -975,7 +977,7 @@ async function mapRepositoryOperationCommunities(input: {
       schemaName: "repository_operation_communities",
       schemaDescription: "An exact partition of bounded repository observations into implemented-operation communities.",
       jsonSchema: repositoryOperationCommunityJsonSchema,
-      maxTokens: 1_000,
+      maxTokens: 2_500,
       temperature: 0,
       effort: "low",
       enablePromptCaching: false,
@@ -2540,6 +2542,7 @@ async function synthesizeSubsystemBase(
           "Prefer cross-file systems, data flows, safety invariants, durable workflows, integrations, and user-visible capabilities over filenames, stack lists, boilerplate, or routine helpers.",
           "When operationCommunity is supplied, treat it as an organizational scope rather than evidence: synthesize only the implemented operations represented by that community's cited notebook, and do not turn the community label into a claim.",
           "Preserve operation breadth inside each supplied community before emitting another variant of an operation already covered. Treat semanticKind as descriptive extraction metadata only: it may break ties between observations of the same operation, but must never rank one distinct operation above another solely by kind; sourceExcerpt remains the sole authority for factual details.",
+          "semanticSignals are repository-derived routing facets, not factual evidence and never claim text. When claimLimits permit, cover distinct supported semanticSignals before producing another Fact for a signal already represented; every emitted detail must still be entailed by cited sourceExcerpt text.",
           "When a notebook supports several distinct user or system operations, preserve breadth by covering different operations before emitting another variation of an already-covered operation.",
           "Set a claim's sensitivityFlag true whenever any cited notebook entry is sensitive, or when the claim itself discloses concrete secret, credential, personal or customer data, an exploitable weakness, or an operational-control detail whose disclosure creates a concrete risk. Ordinary authentication, authorization, validation, session, encryption, and safety behavior is not sensitive merely because it is security-related when no protected detail is disclosed. Never clear sensitivity inherited from cited evidence.",
           repositoryUserFacingCapabilityGuidance,
@@ -2643,7 +2646,11 @@ async function synthesizeSubsystemBase(
           // not occur, which can otherwise block older in-flight batches.
           enablePromptCaching: false,
           transportPreference: ["json_schema"],
-          maxProviderAttempts: 1,
+          // Verification already has a separately quality-gated cross-family
+          // model. Let a transient provider failure or 429 use that one
+          // bounded attempt; ordinary successful critics stay on the primary
+          // model, while synthesis itself remains single-model and fail-closed.
+          maxProviderAttempts: 2,
           budget: input.budget,
           extraValidation: (value) =>
             repositorySynthesisCriticValidationErrors(value, expectedClaimKeys),

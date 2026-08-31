@@ -2,7 +2,7 @@ export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
 /** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
 export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
-  "repository-knowledge-evaluator-v6" as const;
+  "repository-knowledge-evaluator-v7" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
@@ -479,6 +479,9 @@ function groundingToken(value: string) {
   if (["display", "render", "visualization", "visualize"].includes(normalized)) {
     return "render";
   }
+  if (["card", "container", "div", "panel", "section"].includes(normalized)) {
+    return "container";
+  }
   return normalized;
 }
 
@@ -533,6 +536,36 @@ function lexicallyRelated(left: string, right: string, minimumCoverage = 0.6) {
       claimCoverage >= Math.max(0.6, minimumCoverage);
   }
   return matches.length >= 2 && claimCoverage >= Math.max(0.7, minimumCoverage);
+}
+
+function hasSufficientDistinctiveGroundingOverlap(left: string, right: string) {
+  const rightTokens = groundingTokens(right);
+  const distinctiveLeft = groundingTokens(left).filter((leftToken) =>
+    !isGenericGroundingToken(leftToken)
+  );
+  const distinctiveMatches = distinctiveLeft.filter((leftToken) =>
+    rightTokens.some((rightToken) => groundingTokensMatch(leftToken, rightToken))
+  );
+  return distinctiveLeft.length > 0 &&
+    distinctiveMatches.length >= Math.min(2, distinctiveLeft.length);
+}
+
+/**
+ * A checked-out source path can disambiguate identifiers in a cited excerpt
+ * (for example, `ProductDetailsList` around an `add` method), but it cannot
+ * prove a claim by itself. Require the excerpt to share a distinctive claim
+ * term before allowing its path to contribute the remaining lexical context.
+ */
+function lexicallyRelatedToEvidence(
+  claim: string,
+  excerpt: string,
+  path: string,
+  minimumCoverage = 0.6,
+) {
+  return lexicallyRelated(claim, excerpt, minimumCoverage) || (
+    hasSufficientDistinctiveGroundingOverlap(claim, excerpt) &&
+    lexicallyRelated(claim, `${path} ${excerpt}`, minimumCoverage)
+  );
 }
 
 function claimClauses(value: string) {
@@ -832,34 +865,44 @@ export function evaluateRepositoryKnowledgeRun(input: {
     const excerpt = groundingEvidenceExcerpt(file, reference);
     // Curated certification must be grounded by checked-out source content.
     // A descriptive filename is useful context, but cannot prove the claim.
+    const path = normalizedPath(reference.path);
     const evidenceSurface = requireContentGrounding
       ? excerpt
-      : `${normalizedPath(reference.path)} ${excerpt}`;
+      : `${path} ${excerpt}`;
     if (!evidenceSurface.trim()) return false;
     return itemClaimSurfaces(item).some((claim) =>
       citationClaimClauses(claim).some((clause) =>
-        lexicallyRelated(clause, evidenceSurface, 0.35)
+        requireContentGrounding
+          ? lexicallyRelatedToEvidence(clause, excerpt, path, 0.35)
+          : lexicallyRelated(clause, evidenceSurface, 0.35)
       )
     );
   }
 
   function evidenceSetGroundsItem(item: RepositoryKnowledgeEvaluationItem) {
-    const evidenceSurface = item.evidence.flatMap((reference) => {
+    const evidence = item.evidence.flatMap((reference) => {
       const file = repositoryFileForPath(reference.path);
       if (
         !file ||
         !quoteSupported(file, reference, requireContentGrounding)
       ) return [];
       const excerpt = groundingEvidenceExcerpt(file, reference);
-      return [requireContentGrounding
-        ? excerpt
-        : `${normalizedPath(reference.path)} ${excerpt}`];
-    }).join(" ").slice(0, 120_000);
-    if (!evidenceSurface) return false;
-    const surfaceGrounded = (claim: string) =>
-      claimClauses(claim).every((clause) =>
-        lexicallyRelated(clause, evidenceSurface, 0.35)
+      return [{ path: normalizedPath(reference.path), excerpt }];
+    });
+    const excerptSurface = evidence.map(({ excerpt }) => excerpt)
+      .join(" ").slice(0, 120_000);
+    const pathSurface = evidence.map(({ path }) => path)
+      .join(" ").slice(0, 20_000);
+    if (!excerptSurface) return false;
+    const surfaceGrounded = (claim: string) => {
+      const clauses = claimClauses(claim);
+      const results = clauses.map((clause) =>
+        requireContentGrounding
+          ? lexicallyRelatedToEvidence(clause, excerptSurface, pathSurface, 0.2)
+          : lexicallyRelated(clause, `${pathSurface} ${excerptSurface}`, 0.2)
       );
+      return results.every(Boolean);
+    };
     const summary = item.summary?.trim();
     if (!summary) return surfaceGrounded(item.text);
     return surfaceGrounded(summary) && (

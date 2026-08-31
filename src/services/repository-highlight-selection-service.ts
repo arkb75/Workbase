@@ -441,6 +441,12 @@ export async function selectRepositoryHighlightsFromVerifiedFacts(input: {
     resultAttestation: (generation) => ({
       candidateDigest,
       selectedCandidateIds: generation.data.selections.map(({ candidateId }) => candidateId),
+      selectedCandidateCount: generation.data.selections.length,
+      selectedCandidateDigest: digest(
+        generation.data.selections
+          .map(({ candidateId }) => candidateId)
+          .sort(),
+      ),
       selectionDigest: digest(generation.data),
     }),
     exactParsedOutput: (generation) => generation.data,

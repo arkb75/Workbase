@@ -5,6 +5,7 @@ import {
 } from "@/src/lib/bedrock-structured-llm-client";
 import {
   admitSemanticRepairPackagesForTokenPool,
+  admitSemanticInitialPackagesForTokenPool,
   aggregateSemanticModelBudgetUsage,
   boundedSemanticRepairPackagesForModelCalls,
   buildRepositorySemanticPlannerRequest,
@@ -38,6 +39,8 @@ import {
   updateSemanticRepairCapacityDebt,
   unresolvedSemanticExecutionGaps,
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
+  repositorySemanticRepairModelCallLimit,
+  repositorySemanticTokenLimit,
   type CapabilityManifestArea,
   type CapabilityReport,
   type SemanticWorkPackage,
@@ -47,18 +50,37 @@ import { REPOSITORY_SEMANTIC_ANALYZER_VERSION } from "@/src/services/repository-
 describe("repository semantic orchestration guardrails", () => {
   it("versions the contextual data-model and repair-admission policy", () => {
     expect(REPOSITORY_ORCHESTRATION_POLICY_VERSION)
-      .toBe("repository-orchestration-v59-expanded-complex-files");
+      .toBe("repository-orchestration-v68-bounded-exact-retry");
+  });
+
+  it("scales semantic capacity from the repository evidence denominator", () => {
+    expect(repositorySemanticTokenLimit(0)).toBe(80_000);
+    expect(repositorySemanticTokenLimit(100)).toBe(85_000);
+    expect(repositorySemanticTokenLimit(112)).toBe(95_200);
+    expect(repositorySemanticTokenLimit(175)).toBe(148_750);
+    expect(repositorySemanticTokenLimit(212)).toBe(180_000);
+    expect(repositorySemanticTokenLimit(10_000)).toBe(180_000);
+    expect(repositorySemanticRepairModelCallLimit(94)).toBe(8);
+    expect(repositorySemanticRepairModelCallLimit(100)).toBe(9);
+    expect(repositorySemanticRepairModelCallLimit(112)).toBe(9);
+    expect(repositorySemanticRepairModelCallLimit(175)).toBe(11);
+    expect(repositorySemanticRepairModelCallLimit(225)).toBe(12);
+    expect(() => repositorySemanticTokenLimit(-1)).toThrow(
+      "Semantic evidence file count must be a non-negative integer.",
+    );
   });
 
   it("uses richer singleton extraction for structurally broad files without project-specific rules", () => {
     const file = (overrides: {
       sizeBytes?: number;
       facts?: number;
+      factLineSpacing?: number;
       symbols?: number;
       dependencies?: number;
+      path?: string;
     }) => ({
       id: "file",
-      path: "src/domain/implementation.ext",
+      path: overrides.path ?? "src/domain/implementation.ext",
       sizeBytes: overrides.sizeBytes,
       analysis: {
         subsystemKeys: [],
@@ -67,8 +89,8 @@ describe("repository semantic orchestration guardrails", () => {
           category: "behavior" as const,
           confidence: "high" as const,
           sensitivityFlag: false,
-          lineStart: index + 1,
-          lineEnd: index + 1,
+          lineStart: index * (overrides.factLineSpacing ?? 1) + 1,
+          lineEnd: index * (overrides.factLineSpacing ?? 1) + 1,
           productImportance: 1,
           implementationBreadth: 1,
           technicalDifficulty: 1,
@@ -84,8 +106,24 @@ describe("repository semantic orchestration guardrails", () => {
     expect(semanticExtractionModeForFile(file({ sizeBytes: 4_000 }))).toBe("batch");
     expect(semanticExtractionModeForFile(file({ sizeBytes: 13_000 }))).toBe("singleton");
     expect(semanticExtractionModeForFile(file({ sizeBytes: 4_000, facts: 4 }))).toBe("batch");
-    expect(semanticExtractionModeForFile(file({ sizeBytes: 4_500, facts: 4 }))).toBe("singleton");
-    expect(semanticExtractionModeForFile(file({ sizeBytes: 6_000, dependencies: 6 }))).toBe("singleton");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 4_500, facts: 4 }))).toBe("batch");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 9_000, facts: 4 }))).toBe("batch");
+    expect(semanticExtractionModeForFile(file({
+      sizeBytes: 9_000,
+      facts: 4,
+      factLineSpacing: 30,
+    }))).toBe("singleton");
+    expect(semanticExtractionModeForFile(file({ sizeBytes: 9_000, dependencies: 6 }))).toBe("singleton");
+    expect(semanticExtractionModeForFile(file({
+      sizeBytes: 30_000,
+      facts: 8,
+      path: "tests/workflow.test.ts",
+    }))).toBe("batch");
+    expect(semanticExtractionModeForFile(file({
+      sizeBytes: 30_000,
+      facts: 8,
+      path: "prisma/migrations/001_initial/migration.sql",
+    }))).toBe("batch");
     expect(semanticWorkPackageModelCallCount({
       fileSnapshotIds: ["ordinary-1", "ordinary-2", "ordinary-3", "ordinary-4", "broad-1", "broad-2"],
       singletonFileSnapshotIds: ["broad-1", "broad-2"],
@@ -200,7 +238,7 @@ describe("repository semantic orchestration guardrails", () => {
     expect(2_310 + 38_483 + repairUsage.totalTokens + remaining).toBe(80_000);
   });
 
-  it("admits at most four repair waves, stops early, and deducts prior usage", () => {
+  it("admits at most five repair waves, stops early, and deducts prior usage", () => {
     const usage = (totalTokens: number) => ({
       modelCalls: 1,
       repairPasses: 0,
@@ -235,6 +273,11 @@ describe("repository semantic orchestration guardrails", () => {
     expect(decision(3, true, [usage(10_000), usage(15_000), usage(5_000)]))
       .toEqual({ shouldRun: true, tokenPool: 15_000, modelCallPool: 5 });
     expect(decision(4, true, [])).toEqual({
+      shouldRun: true,
+      tokenPool: 45_000,
+      modelCallPool: 8,
+    });
+    expect(decision(5, true, [])).toEqual({
       shouldRun: false,
       tokenPool: 45_000,
       modelCallPool: 8,
@@ -244,7 +287,7 @@ describe("repository semantic orchestration guardrails", () => {
     expect(decision(1, true, [usage(45_000)]))
       .toEqual({ shouldRun: false, tokenPool: 0, modelCallPool: 7 });
     expect(decision(2, true, [usage(10_000), { ...usage(0), modelCalls: 0 }]))
-      .toEqual({ shouldRun: false, tokenPool: 35_000, modelCallPool: 7 });
+      .toEqual({ shouldRun: true, tokenPool: 35_000, modelCallPool: 7 });
   });
 
   it("admits all native repair-wave primaries without inline schema fallbacks", () => {
@@ -307,7 +350,36 @@ describe("repository semantic orchestration guardrails", () => {
       "reviewer",
     ]);
     expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper"]);
-    expect(admitted.remainingTokens).toBe(501);
+    expect(admitted.remainingTokens).toBe(1);
+  });
+
+  it("admits ordinary initial packages and trims an impossible all-singleton tail", () => {
+    const ordinary = {
+      objective: "Inspect the main workflows.",
+      capabilityKeys: ["project_domain:operations"],
+      fileSnapshotIds: ["a", "b", "c", "d"],
+      questions: [],
+      expectedOutputs: [],
+    } satisfies Omit<SemanticWorkPackage, "id" | "budget">;
+    const singletons = {
+      ...ordinary,
+      objective: "Inspect broad implementations.",
+      fileSnapshotIds: ["e", "f", "g", "h"],
+      singletonFileSnapshotIds: ["e", "f", "g", "h"],
+    };
+
+    expect(admitSemanticInitialPackagesForTokenPool(
+      [ordinary, singletons],
+      17_500,
+    )).toEqual({
+      packages: [ordinary, {
+        ...singletons,
+        fileSnapshotIds: ["e", "f"],
+        singletonFileSnapshotIds: ["e", "f"],
+      }],
+      capacityLimitedFileSnapshotIds: ["g", "h"],
+      remainingTokens: 2_500,
+    });
   });
 
   it("trims a two-file repair to one file when schema framing cannot fit both", () => {
@@ -328,7 +400,29 @@ describe("repository semantic orchestration guardrails", () => {
         fileSnapshotIds: ["response-reviser"],
       }],
       capacityLimitedFileSnapshotIds: ["wireframe-patcher"],
-      remainingTokens: 1_836,
+      remainingTokens: 336,
+    });
+  });
+
+  it("does not admit the live two-file request boundary that the structured client cannot dispatch", () => {
+    const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
+      objective: "Close the last evidence-floor deficit.",
+      capabilityKeys: ["project_domain:knowledge", "project_domain:chat"],
+      fileSnapshotIds: ["knowledge-retrieval", "chat-highlights"],
+      questions: ["Which implemented operations are supported?"],
+      expectedOutputs: ["Evidence-backed implemented capabilities"],
+    };
+
+    expect(admitSemanticRepairPackagesForTokenPool(
+      [repairPackage],
+      9_128,
+    )).toEqual({
+      packages: [{
+        ...repairPackage,
+        fileSnapshotIds: ["knowledge-retrieval"],
+      }],
+      capacityLimitedFileSnapshotIds: ["chat-highlights"],
+      remainingTokens: 878,
     });
   });
 
@@ -1565,6 +1659,22 @@ describe("repository semantic orchestration guardrails", () => {
       path: "src/core/sync.ts",
       capabilityKeys: ["project_domain:knowledge"],
     })).toEqual([]);
+  });
+
+  it("derives operation routing facets only from corroborated static inventory", () => {
+    expect(semanticSignalKeysForFile({
+      path: "src/services/document-revision-service.ts",
+      capabilityKeys: ["project_domain:documents"],
+      staticAnalysis: {
+        symbols: ["reviseDocument", "loadDocument", "helper"],
+        dependencies: ["database"],
+        architectureSignals: [],
+      },
+    })).toEqual([
+      "static-operation:topic:document-revision",
+      "static-operation:symbol:load-document",
+      "static-operation:symbol:revise-document",
+    ]);
   });
 
   it("asks the same evidence question for renamed workflow modules", () => {

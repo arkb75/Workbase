@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   repositorySynthesisClaimContentDigest as computedRepositorySynthesisClaimContentDigest,
   repositorySynthesisCriticClaimContentDigest,
@@ -1438,6 +1439,25 @@ function sameUniqueKeys(left: readonly string[], right: readonly string[]) {
     left.every((key) => right.includes(key));
 }
 
+function digestCanonicalStrings(values: readonly string[]) {
+  return createHash("sha256")
+    .update(JSON.stringify([...values].sort()))
+    .digest("hex");
+}
+
+function legacySelectedCandidateAttestationMatches(
+  parsedSelectedIds: readonly string[],
+  attestedValues: readonly unknown[],
+) {
+  const exactIds = attestedValues.filter((value): value is string =>
+    typeof value === "string"
+  );
+  // A sanitized preview such as `[2 more items]` cannot authenticate the
+  // omitted IDs. Legacy records remain verifiable only when they persist the
+  // complete exact set; current records use count + canonical SHA-256 digest.
+  return sameUniqueKeys(parsedSelectedIds, exactIds);
+}
+
 function expectedIdentityFor(
   kind: string,
   expected: Partial<Record<RepositoryKnowledgeModelGenerationKind, RepositoryKnowledgeExpectedModelIdentity>>,
@@ -1565,10 +1585,19 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       : [];
     const allIds = [...selectedIds, ...omittedIds];
     const attestedSelectedIds = Array.isArray(attestation?.selectedCandidateIds)
-      ? attestation.selectedCandidateIds.filter((value): value is string =>
-          typeof value === "string"
-        )
+      ? attestation.selectedCandidateIds
       : [];
+    const hasDigestAttestation =
+      typeof attestation?.selectedCandidateCount === "number" &&
+      Number.isInteger(attestation.selectedCandidateCount) &&
+      typeof attestation?.selectedCandidateDigest === "string";
+    const selectedAttestationMatches = hasDigestAttestation
+      ? attestation.selectedCandidateCount === selectedIds.length &&
+        attestation.selectedCandidateDigest === digestCanonicalStrings(selectedIds)
+      : legacySelectedCandidateAttestationMatches(
+          selectedIds,
+          attestedSelectedIds,
+        );
     const valid = run.status === "success" &&
       Boolean(refreshRunId) &&
       candidateCount > 0 &&
@@ -1576,7 +1605,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       /^[a-f0-9]{64}$/u.test(candidateDigest) &&
       allIds.length === candidateCount &&
       new Set(allIds).size === candidateCount &&
-      sameUniqueKeys(selectedIds, attestedSelectedIds) &&
+      selectedAttestationMatches &&
       attestation?.candidateDigest === candidateDigest &&
       typeof rawOutputHash === "string" &&
       attestation?.selectionDigest === rawOutputHash;

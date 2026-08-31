@@ -290,6 +290,22 @@ describe("repository-wide Highlight selection", () => {
       "repository_highlight_critic",
       "repository_highlight_critic",
     ]);
+    const selectionAudit = mocks.audited.mock.calls[0]![0] as unknown as {
+      resultAttestation: (generation: {
+        data: { selections: Array<{ candidateId: string }> };
+      }) => Record<string, unknown>;
+    };
+    const selectionAttestation = selectionAudit.resultAttestation({
+      data: {
+        selections: Array.from({ length: distinctActions.length }, (_, index) => ({
+          candidateId: `HC${index + 1}`,
+        })),
+      },
+    });
+    expect(selectionAttestation).toMatchObject({
+      selectedCandidateCount: 14,
+      selectedCandidateDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
   });
 
   it("returns zero Highlights without a floor when no Fact is eligible", async () => {

@@ -38,9 +38,10 @@ import {
 import { appendAgentRunEvent } from "@/src/services/project-chat-store";
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
-export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v59-expanded-complex-files";
+export const REPOSITORY_ORCHESTRATION_POLICY_VERSION = "repository-orchestration-v68-bounded-exact-retry";
 export const REPOSITORY_ORCHESTRATION_MAX_WORKERS = 5;
 export const REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS = 80_000;
+const REPOSITORY_ORCHESTRATION_LARGE_REPOSITORY_MAX_TOTAL_TOKENS = 180_000;
 const MAX_FILES_PER_WORKER = 8;
 const SEMANTIC_MICRO_BATCH_SIZE = 4;
 const REPAIR_MICRO_BATCH_SIZE = SEMANTIC_MICRO_BATCH_SIZE;
@@ -52,28 +53,40 @@ const MAX_MANDATORY_COVERAGE_FILES = 32;
 // Five four-file breadth batches plus two bounded two-package repair batches.
 // Calls and tokens remain the controlling hard limits; this ceiling must not
 // prevent a small final repair that those budgets can still admit.
-const MAX_SELECTED_SEMANTIC_FILES = 36;
+const MAX_SELECTED_SEMANTIC_FILES =
+  REPOSITORY_ORCHESTRATION_MAX_WORKERS * MAX_FILES_PER_WORKER;
 const MAX_DISCOVERED_DOMAINS_PER_REPOSITORY = 10;
 const MAX_REPAIR_PACKAGES = 2;
 const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
-// Large, diverse repositories can use a fourth model-led pass when a file in
-// the third wave itself degrades and leaves evidence debt. This does not grow
-// the hard call, token, or selected-file budgets; it only lets an exact retry
-// spend capacity that is already available. Smaller repositories stop as soon
-// as the critic reports coverage.
-const MAX_SEMANTIC_REPAIR_WAVES = 4;
-const MAX_SEMANTIC_REPAIR_MODEL_CALLS = 8;
+// Large, diverse repositories can use a fifth model-led pass when a singleton
+// first selected in the fourth wave degrades and leaves exact evidence debt.
+// This does not grow the hard call or selected-file budgets; it only lets the
+// last already-budgeted call retry that immutable file. Smaller repositories
+// stop as soon as the critic reports coverage.
+const MAX_SEMANTIC_REPAIR_WAVES = 5;
+const BASE_SEMANTIC_REPAIR_MODEL_CALLS = 8;
+const LARGE_REPOSITORY_SEMANTIC_REPAIR_MODEL_CALLS = 12;
 const REPAIR_TOKEN_RESERVE = 16_000;
 const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 2_500;
 // Repair admission reserves the full structured output plus a bounded prompt
 // envelope before dispatch. The semantic batcher supplies at most 4 KiB per
-// file, but JSON/schema/task framing is material too; charging 2,250 tokens per
-// file plus 4,500 fixed tokens keeps a low remaining pool from admitting a
-// request that the structured client must reject before dispatch. When only a
-// prefix fits, admission preserves that useful main-path extraction and records
-// the remainder as explicit capacity debt.
-const REPAIR_PACKAGE_FIXED_TOKEN_RESERVE = SEMANTIC_WORKER_MAX_OUTPUT_TOKENS + 2_000;
-const REPAIR_FILE_TOKEN_RESERVE = 2_250;
+// file, but JSON/schema/task framing and the coverage questions are material
+// too. Live admission showed that 5,500 fixed tokens could price a two-file,
+// 11.9 KiB request at 9,000 tokens even though the structured client correctly
+// needed more than a 9,128-token pool. The extra 1,000-token envelope makes
+// that boundary admit one useful file instead of scheduling a request that is
+// guaranteed to fail before provider dispatch. When only a prefix fits,
+// admission preserves that useful main-path extraction and records the
+// remainder as explicit capacity debt.
+const REPAIR_PACKAGE_FIXED_TOKEN_RESERVE = SEMANTIC_WORKER_MAX_OUTPUT_TOKENS + 4_000;
+const REPAIR_FILE_TOKEN_RESERVE = 1_750;
+// Initial planning needs an expected charged-usage fence, not the repair
+// path's conservative one-wave reservation. The shared structured budget is
+// still the authoritative per-request admission check. This estimate only
+// prevents an extreme all-singleton plan from scheduling work that cannot fit
+// inside the repository-wide ceiling at all.
+const INITIAL_PACKAGE_TOKEN_RESERVE = 4_000;
+const INITIAL_FILE_TOKEN_RESERVE = 500;
 const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
 const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const SEMANTIC_PLANNER_REPRESENTATIVES_PER_CAPABILITY = 1;
@@ -135,7 +148,7 @@ const repositoryAreaRules = [
 
 type RepositoryAreaStaticSignals = Pick<
   RepositoryFileAnalysis,
-  "symbols" | "dependencies" | "architectureSignals"
+  "facts" | "symbols" | "dependencies" | "architectureSignals"
 >;
 
 function repositorySignalTokens(value: string) {
@@ -328,15 +341,20 @@ export function isRepositorySemanticCartographyEvidencePath(path: string) {
 }
 
 /**
- * Capability keys and evidence questions come from repository cartography.
- * File names never create repository-specific semantic facets.
+ * Operation facets are inferred only when static inventory corroborates that
+ * a path contains implementation. They remain routing hints: exact cited
+ * source lines are still the sole authority for every semantic finding.
  */
 export function semanticSignalKeysForFile(input: {
   path: string;
   capabilityKeys: string[];
+  staticAnalysis?: Partial<RepositoryAreaStaticSignals>;
 }) {
-  void input;
-  return [] as string[];
+  void input.capabilityKeys;
+  return repositoryStaticOperationSignalKeys({
+    path: input.path,
+    staticAnalysis: input.staticAnalysis,
+  });
 }
 
 const workPackageSchema = z.object({
@@ -412,6 +430,8 @@ export type CapabilityManifestArea = {
     id: string;
     path: string;
     score: number;
+    /** Static, repository-derived operation facets used only for coverage routing. */
+    operationSignalKeys?: string[];
     /** Use the richer one-file notebook when a compressed batch would hide distinct operations. */
     semanticExtractionMode?: "singleton";
   }>;
@@ -542,17 +562,34 @@ export function semanticExtractionModeForFile(
   file: RepositoryCartographyFile,
 ): "batch" | "singleton" {
   const sourceBytes = Math.max(0, file.sizeBytes ?? 0);
+  const normalizedPath = file.path.replace(/\\/g, "/");
+  const supportingEvidencePath =
+    isRepositoryTestPath(normalizedPath) ||
+    /(?:^|\/)(?:migrations?|seeds?)(?:\/|$)|(?:^|\/)(?:seed|seeds)\.[^/]+$/iu.test(
+      normalizedPath,
+    );
+  if (supportingEvidencePath) return "batch";
   const declaredBehaviors = Math.max(
     file.analysis.facts.length,
     file.analysis.symbols.length,
   );
-  const exceedsBatchWindow =
-    sourceBytes > REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES;
+  const factLines = file.analysis.facts
+    .flatMap((fact) => [fact.lineStart, fact.lineEnd])
+    .filter((line) => Number.isInteger(line) && line > 0);
+  const factSpan = factLines.length
+    ? Math.max(...factLines) - Math.min(...factLines)
+    : 0;
+  const exceedsTwoBatchWindows =
+    sourceBytes > REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES * 2;
+  const distributedBehaviorSurface =
+    exceedsTwoBatchWindows &&
+    declaredBehaviors >= 4 &&
+    factSpan >= 60;
   const broadDependencySurface =
-    exceedsBatchWindow &&
+    exceedsTwoBatchWindows &&
     file.analysis.dependencies.length >= 6;
   return sourceBytes > REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES * 3 ||
-      (exceedsBatchWindow && declaredBehaviors >= 4) ||
+      distributedBehaviorSurface ||
       broadDependencySurface
     ? "singleton"
     : "batch";
@@ -658,10 +695,15 @@ export function buildRepositoryDerivedCapabilityManifest(input: {
     const score = repositoryFileSalience(file);
     current.salience = (current.salience ?? 0) + score;
     const semanticExtractionMode = semanticExtractionModeForFile(file);
+    const operationSignalKeys = repositoryStaticOperationSignalKeys({
+      path: file.path,
+      staticAnalysis: file.analysis,
+    });
     current.files.push({
       id: file.id,
       path: file.path,
       score,
+      ...(operationSignalKeys.length ? { operationSignalKeys } : {}),
       ...(semanticExtractionMode === "singleton"
         ? { semanticExtractionMode }
         : {}),
@@ -915,6 +957,19 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
   const surfaceDiversityFloor = surfaceDiversity >= 4
     ? Math.min(6, surfaceDiversity)
     : 0;
+  const operationDiversity = isProjectDomainCapabilityKey(area.key)
+    ? new Set(area.files
+        .filter((file) => isCoverageEvidencePath(area.key, file.path))
+        .map((file) => file.operationSignalKeys?.[0] ?? semanticPathOperationSignal(file.path))
+        .filter(Boolean)).size
+    : 0;
+  // Product domains commonly keep sibling operations in one directory and
+  // language layer. Scale depth sublinearly with the number of distinct
+  // repository-derived operation families, preserving a bounded sample while
+  // preventing four generic helpers from certifying a much broader domain.
+  const operationDiversityFloor = evidenceCount > 10 && operationDiversity >= 8
+    ? Math.min(8, Math.ceil(Math.sqrt(operationDiversity * 3)))
+    : 0;
   // Migration histories can contain dozens of immutable files while still
   // describing only a handful of current persisted concepts. Data-model depth
   // therefore follows concrete entity diversity and retains a strict bounded
@@ -927,16 +982,23 @@ export function semanticAuditTarget(area: Pick<CapabilityManifestArea, "key" | "
         : 4;
     return Math.min(6, Math.max(structuralDepth, entityDiversityFloor));
   }
-  if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor);
-  if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor);
-  if (evidenceCount <= 30) return 4;
+  if (evidenceCount <= 6) return Math.max(2, entityDiversityFloor, surfaceDiversityFloor, operationDiversityFloor);
+  if (evidenceCount <= 15) return Math.max(3, entityDiversityFloor, surfaceDiversityFloor, operationDiversityFloor);
+  if (evidenceCount <= 30) return Math.max(4, operationDiversityFloor);
   // A very broad repository-derived product domain can contain many distinct
-  // operations in one flat source tree. Eight samples proved sufficient for
-  // structural areas, but let a 47-file product domain appear complete after
-  // generic API/state/client roles while extractors, reviewers, and revisers
-  // remained unseen. Fourteen remains bounded by the repository-wide 32-file
-  // ceiling and uses only existing repair waves and token budgets.
-  if (isProjectDomainCapabilityKey(area.key)) return 14;
+  // operations in one flat source tree. Scale depth sublinearly with observed
+  // implementation size rather than assigning every large domain the same
+  // sample count. The worker/file/token ceilings remain the hard bounds.
+  if (isProjectDomainCapabilityKey(area.key)) {
+    return Math.min(
+      20,
+      Math.max(
+        8,
+        operationDiversityFloor,
+        Math.ceil(Math.sqrt(evidenceCount) * 3),
+      ),
+    );
+  }
   // Very broad surfaces may use both bounded repair micro-batches after the
   // two-file breadth pass. Eight total samples remains far below adaptive
   // repository-wide waves while representing more than the busiest endpoints.
@@ -1001,6 +1063,45 @@ export function semanticRepairTokenPool(input: {
   return Math.max(
     0,
     input.maxTotalTokens - input.plannerTokenCommitment - input.initialWorkerTokens,
+  );
+}
+
+/**
+ * Scale semantic headroom with the repository-derived evidence denominator.
+ * Small repositories retain the established floor; broader repositories can
+ * fund the extra domains and repair samples their independent coverage audit
+ * requires, while selected-file, call, and absolute token ceilings remain
+ * bounded. The model never chooses this allowance and repository identity is
+ * not an input.
+ */
+export function repositorySemanticTokenLimit(evidenceFileCount: number) {
+  if (!Number.isInteger(evidenceFileCount) || evidenceFileCount < 0) {
+    throw new Error("Semantic evidence file count must be a non-negative integer.");
+  }
+  return Math.max(
+    REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+    Math.min(
+      REPOSITORY_ORCHESTRATION_LARGE_REPOSITORY_MAX_TOTAL_TOKENS,
+      evidenceFileCount * 850,
+    ),
+  );
+}
+
+/**
+ * Scale repair-call headroom smoothly with the same repository-derived token
+ * curve. Each additional 25K semantic tokens earns one call, up to four,
+ * avoiding a hard size cliff while ordinary repositories remain at eight.
+ * File, wave, and token limits still bound the run independently.
+ */
+export function repositorySemanticRepairModelCallLimit(evidenceFileCount: number) {
+  const scaledTokens = repositorySemanticTokenLimit(evidenceFileCount);
+  const additionalCalls = Math.ceil(
+    Math.max(0, scaledTokens - REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS) /
+      25_000,
+  );
+  return Math.min(
+    LARGE_REPOSITORY_SEMANTIC_REPAIR_MODEL_CALLS,
+    BASE_SEMANTIC_REPAIR_MODEL_CALLS + additionalCalls,
   );
 }
 
@@ -1109,10 +1210,6 @@ export function semanticRepairWaveDecision(input: {
       input.waveIndex >= 0 &&
       input.waveIndex < MAX_SEMANTIC_REPAIR_WAVES &&
       input.hasRepairPackages &&
-      (
-        input.waveIndex === 0 ||
-        (input.priorRepairUsages.at(-1)?.modelCalls ?? 0) > 0
-      ) &&
       priorRepairUsage.modelCalls < input.maxModelCalls &&
       tokenPool > 0,
     tokenPool,
@@ -1172,9 +1269,10 @@ export function boundedSemanticRepairPackagesForModelCalls(
  * an omitted file remains explicit bounded-capacity debt, not a fabricated
  * provider failure, and a later refresh may inspect it with a fresh budget.
  */
-export function admitSemanticRepairPackagesForTokenPool(
+function admitSemanticPackagesForTokenPool(
   packages: readonly Omit<SemanticWorkPackage, "id" | "budget">[],
   tokenPool: number,
+  reserve: { packageTokens: number; fileTokens: number },
 ) {
   const admitted: Array<Omit<SemanticWorkPackage, "id" | "budget">> = [];
   const capacityLimitedFileSnapshotIds: string[] = [];
@@ -1198,8 +1296,8 @@ export function admitSemanticRepairPackagesForTokenPool(
           : {}),
       };
       const projectedTokens =
-        semanticWorkPackageModelCallCount(next) * REPAIR_PACKAGE_FIXED_TOKEN_RESERVE +
-        fileSnapshotIds.length * REPAIR_FILE_TOKEN_RESERVE;
+        semanticWorkPackageModelCallCount(next) * reserve.packageTokens +
+        fileSnapshotIds.length * reserve.fileTokens;
       if (projectedTokens <= remainingTokens) {
         candidate = next;
         remainingTokens -= projectedTokens;
@@ -1220,6 +1318,26 @@ export function admitSemanticRepairPackagesForTokenPool(
     )).sort(),
     remainingTokens,
   };
+}
+
+export function admitSemanticInitialPackagesForTokenPool(
+  packages: readonly Omit<SemanticWorkPackage, "id" | "budget">[],
+  tokenPool: number,
+) {
+  return admitSemanticPackagesForTokenPool(packages, tokenPool, {
+    packageTokens: INITIAL_PACKAGE_TOKEN_RESERVE,
+    fileTokens: INITIAL_FILE_TOKEN_RESERVE,
+  });
+}
+
+export function admitSemanticRepairPackagesForTokenPool(
+  packages: readonly Omit<SemanticWorkPackage, "id" | "budget">[],
+  tokenPool: number,
+) {
+  return admitSemanticPackagesForTokenPool(packages, tokenPool, {
+    packageTokens: REPAIR_PACKAGE_FIXED_TOKEN_RESERVE,
+    fileTokens: REPAIR_FILE_TOKEN_RESERVE,
+  });
 }
 
 export function updateSemanticRepairCapacityDebt(input: {
@@ -1733,6 +1851,7 @@ export function buildFileSemanticTask(input: {
   const semanticSignalKeys = semanticSignalKeysForFile({
     path: input.path,
     capabilityKeys,
+    staticAnalysis: input.staticAnalysis,
   });
   return {
     objective: `Establish evidence-backed semantic coverage only for these file-relevant capabilities: ${capabilityKeys.join(", ")}.`,
@@ -2319,6 +2438,92 @@ function semanticOperationalModuleProfile(path: string, layer: string) {
   };
 }
 
+const semanticStaticOperationNoiseTokens = new Set([
+  "constructor", "default", "factory", "helper", "index", "init", "main",
+  "registry", "shared", "type", "types", "util", "utils",
+]);
+
+function semanticPathOperationSignal(path: string) {
+  const profile = semanticPathProfile(path);
+  const topic = semanticPathOperationTopic(path);
+  const subject = topic || profile.role || profile.module || profile.surface || profile.entity ||
+    (profile.behavior.startsWith("boundary:") ? profile.behavior : "");
+  return subject ? `static-operation:${subject}` : "";
+}
+
+function semanticPathOperationTopic(path: string) {
+  const profile = semanticPathProfile(path);
+  // Role-only filenames such as Parser/Executor already have a dedicated
+  // diversity dimension. Do not invent a second topic from arbitrary subject
+  // adjectives (primary/secondary), which would reward near-duplicates.
+  if (profile.role) return "";
+  const candidate = profile.behavior.startsWith("interface:")
+    ? profile.behavior.slice("interface:".length)
+    : (profile.module || profile.surface || profile.entity)
+        .replace(/^(?:module|surface|entity):/u, "");
+  const tokens = semanticOperationalTokens(candidate)
+    .map((token) => token === "repo" ? "repository" : token)
+    .filter((token) =>
+      !semanticOperationalContainerTokens.has(token) &&
+      !semanticOperationalScaffoldingTokens.has(token)
+    );
+  return new Set(tokens).size >= 2 ? `topic:${tokens.join("-")}` : "";
+}
+
+/**
+ * Derive a small operation signature from language-neutral static inventory.
+ * Symbols and paths only decide what deserves semantic attention; they never
+ * become facts without a model finding tied to exact source lines.
+ */
+export function repositoryStaticOperationSignalKeys(input: {
+  path: string;
+  staticAnalysis?: Partial<RepositoryAreaStaticSignals>;
+}) {
+  const analysis = input.staticAnalysis;
+  const hasImplementationInventory = Boolean(
+    analysis && (
+      (analysis.symbols?.length ?? 0) > 0 ||
+      (analysis.dependencies?.length ?? 0) > 0 ||
+      (analysis.architectureSignals?.length ?? 0) > 0 ||
+      (analysis.facts?.length ?? 0) > 0
+    ),
+  );
+  if (!hasImplementationInventory) return [];
+
+  const pathSignal = semanticPathOperationSignal(input.path);
+  const pathSubjectTokens = new Set(
+    semanticOperationalTokens(pathSignal.replace(/^static-operation:/u, "")),
+  );
+  const symbolSignals = Array.from(new Set(analysis?.symbols ?? []))
+    .flatMap((symbol) => {
+      if (!symbol || /^_/u.test(symbol)) return [];
+      const tokens = semanticOperationalTokens(symbol).filter((token) =>
+        !semanticStaticOperationNoiseTokens.has(token) &&
+        !semanticOperationalContainerTokens.has(token) &&
+        !semanticOperationalScaffoldingTokens.has(token)
+      );
+      if (tokens.length < 2) return [];
+      const key = `static-operation:symbol:${tokens.join("-")}`;
+      const overlap = tokens.filter((token) => pathSubjectTokens.has(token)).length;
+      return [{ key, overlap, specificity: new Set(tokens).size }];
+    })
+    .filter((candidate, index, all) =>
+      all.findIndex((other) => other.key === candidate.key) === index
+    )
+    .sort((left, right) =>
+      right.overlap - left.overlap ||
+      right.specificity - left.specificity ||
+      left.key.localeCompare(right.key)
+    )
+    .slice(0, 5)
+    .map((candidate) => candidate.key);
+
+  return Array.from(new Set([
+    ...(pathSignal ? [pathSignal] : []),
+    ...symbolSignals,
+  ])).slice(0, 6);
+}
+
 function semanticPresentationSurfaceFamily(path: string, layer: string) {
   const normalizedPath = path.replace(/\\/g, "/");
   const isPresentationRoute = layer === "interface" &&
@@ -2467,9 +2672,16 @@ function semanticOperationalSamplingFiles(
 ) {
   if (!isProjectDomainCapabilityKey(areaKey) || !preferRuntimeOperations) return files;
   const runtimeOperations = files.filter((file) =>
-    !isSemanticProjectDomainMaintenancePath(file.path)
+    !isSemanticProjectDomainMaintenancePath(file.path) &&
+    !["migration", "model", "quality", "support"].includes(
+      semanticImplementationLayer(file.path),
+    )
   );
   return runtimeOperations.length >= target ? runtimeOperations : files;
+}
+
+function prefersRuntimeOperationSampling(areaKey: string, target: number) {
+  return isProjectDomainCapabilityKey(areaKey) && target >= 5;
 }
 
 function diverseSemanticFiles(
@@ -2496,6 +2708,14 @@ function diverseSemanticFiles(
   const selected: typeof ranked = [];
   const selectedIds = new Set<string>();
   const profiles = seedPaths.map(semanticPathProfile);
+  const operationLayers = new Map<string, Set<string>>();
+  seedPaths.forEach((path, index) => {
+    const topic = semanticPathOperationTopic(path);
+    if (!topic) return;
+    const layers = operationLayers.get(topic) ?? new Set<string>();
+    layers.add(profiles[index]!.layer);
+    operationLayers.set(topic, layers);
+  });
   const covered = {
     behaviors: new Set(profiles.map((profile) => profile.behavior)),
     layers: new Set(profiles.map((profile) => profile.layer)),
@@ -2511,6 +2731,13 @@ function diverseSemanticFiles(
     const next = remaining
       .map((file) => {
         const profile = semanticPathProfile(file.path);
+        const operationTopic = semanticPathOperationTopic(file.path);
+        const operationTopicLayers = operationTopic
+          ? operationLayers.get(operationTopic)
+          : undefined;
+        const crossLayerOperationContinuation = Boolean(
+          operationTopicLayers && !operationTopicLayers.has(profile.layer),
+        );
         const newBehavior = !covered.behaviors.has(profile.behavior);
         const newOperationalRole = Boolean(profile.role) &&
           !covered.roles.has(profile.role);
@@ -2525,6 +2752,8 @@ function diverseSemanticFiles(
             (isProjectDomainCapabilityKey(areaKey) ? 2 : 0.25) +
           Number(newOperationalModule) *
             (isProjectDomainCapabilityKey(areaKey) ? 4 : 1) +
+          Number(crossLayerOperationContinuation) *
+            (isProjectDomainCapabilityKey(areaKey) ? 8 : 2) +
           Number(
             !newBehavior &&
             Boolean(profile.variant) &&
@@ -2540,6 +2769,7 @@ function diverseSemanticFiles(
         return {
           file,
           profile,
+          operationTopic,
           concreteEntityPriority: semanticConcreteEntityPriority(file.path, profile.entity),
           novelty,
           // Salience and diversity contribute continuously. A no-novelty
@@ -2567,6 +2797,11 @@ function diverseSemanticFiles(
     if (next.profile.surface) covered.surfaces.add(next.profile.surface);
     if (next.profile.role) covered.roles.add(next.profile.role);
     if (next.profile.module) covered.modules.add(next.profile.module);
+    if (next.operationTopic) {
+      const layers = operationLayers.get(next.operationTopic) ?? new Set<string>();
+      layers.add(next.profile.layer);
+      operationLayers.set(next.operationTopic, layers);
+    }
   }
   return selected;
 }
@@ -2613,14 +2848,14 @@ export function buildRepositoryDerivedSemanticPlan(input: {
           target,
           [],
           area.key,
-          semanticAuditTarget(area) === 14,
+          prefersRuntimeOperationSampling(area.key, semanticAuditTarget(area)),
         )
       : diverseSemanticFiles(
           contextualFiles,
           target,
           [],
           area.key,
-          semanticAuditTarget(area) === 14,
+          prefersRuntimeOperationSampling(area.key, semanticAuditTarget(area)),
         );
     const selectedIds = selectedFiles.map((file) => file.id);
     if (!selectedIds.length) continue;
@@ -2830,7 +3065,7 @@ export function critiqueRepositoryCoverage(input: {
       targetSamples,
       [],
       area.key,
-      targetSamples === 14,
+      prefersRuntimeOperationSampling(area.key, targetSamples),
     );
     const idealProfiles = idealFiles.map((file) => semanticPathProfile(file.path));
     const availableProfiles = auditEvidenceFiles
@@ -2891,7 +3126,7 @@ export function critiqueRepositoryCoverage(input: {
     ).size;
     const boundedDiversityTarget = Math.min(6, targetSamples);
     const boundedOperationalDiversityTarget = Math.min(
-      6,
+      8,
       Math.max(3, targetSamples),
     );
     const diversityDimensions = shouldRequireDiversity
@@ -2967,7 +3202,7 @@ export function critiqueRepositoryCoverage(input: {
       auditEvidenceFiles,
       targetSamples,
       area.key,
-      targetSamples === 14,
+      prefersRuntimeOperationSampling(area.key, targetSamples),
     );
     const substantiveDiversityFiles = operationalDiversityFiles.filter((file) =>
       !isSemanticSamplingScaffoldingPath(file.path)
@@ -3006,6 +3241,36 @@ export function critiqueRepositoryCoverage(input: {
         const value = next.profile[entry.dimension];
         if (value && value !== "unknown") simulatedValues.get(entry.dimension)?.add(value);
       }
+    }
+    const inspectedOperationLayers = new Map<string, Set<string>>();
+    auditEvidenceFiles.filter((file) => inspected.has(file.id)).forEach((file) => {
+      const topic = semanticPathOperationTopic(file.path);
+      if (!topic) return;
+      const layers = inspectedOperationLayers.get(topic) ?? new Set<string>();
+      layers.add(semanticImplementationLayer(file.path));
+      inspectedOperationLayers.set(topic, layers);
+    });
+    const operationContinuationFileIds: string[] = [];
+    const continuedTopics = new Set<string>();
+    for (const file of [...auditEvidenceFiles]
+      .filter((candidate) => !inspected.has(candidate.id))
+      .sort((left, right) =>
+        right.score - left.score ||
+        left.path.localeCompare(right.path) ||
+        left.id.localeCompare(right.id)
+      )) {
+      const topic = semanticPathOperationTopic(file.path);
+      const priorLayers = topic ? inspectedOperationLayers.get(topic) : undefined;
+      const layer = semanticImplementationLayer(file.path);
+      if (
+        !topic ||
+        continuedTopics.has(topic) ||
+        !priorLayers ||
+        priorLayers.has(layer)
+      ) continue;
+      operationContinuationFileIds.push(file.id);
+      continuedTopics.add(topic);
+      if (operationContinuationFileIds.length >= 2) break;
     }
     const supportedCandidates = supportedCandidateStatements.size;
     // A broad area is not covered merely because many files were inspected,
@@ -3062,6 +3327,7 @@ export function critiqueRepositoryCoverage(input: {
       priorityAuditFileIds: Array.from(new Set([
         ...missingBranchVariantFileIds,
         ...missingBoundaryBehaviors.map(({ file }) => file.id),
+        ...operationContinuationFileIds,
         ...diversityRepairFileIds,
       ])),
       supportedFileCount: supportedFileIds.size,
@@ -3125,11 +3391,30 @@ export function critiqueRepositoryCoverage(input: {
     .filter(({ area }) => area.files.some((file) =>
       !inspected.has(file.id) && isCoverageEvidencePath(area.key, file.path)
     ))
-    .sort((left, right) =>
-      (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
-      Number(right.domain.status === "missing") - Number(left.domain.status === "missing") ||
-      left.area.key.localeCompare(right.area.key)
-    );
+    .sort((left, right) => {
+      const missingDelta =
+        Number(right.domain.status === "missing") -
+        Number(left.domain.status === "missing");
+      if (missingDelta) return missingDelta;
+      const leftEvidenceDeficit =
+        Math.max(0, left.domain.requiredSupportedCandidates - left.domain.supportedCandidates) +
+        Math.max(0, left.domain.requiredSupportedFiles - left.domain.supportedFileCount);
+      const rightEvidenceDeficit =
+        Math.max(0, right.domain.requiredSupportedCandidates - right.domain.supportedCandidates) +
+        Math.max(0, right.domain.requiredSupportedFiles - right.domain.supportedFileCount);
+      const evidenceDeficitDelta = rightEvidenceDeficit - leftEvidenceDeficit;
+      if (evidenceDeficitDelta) return evidenceDeficitDelta;
+      // Repository-derived product domains describe cohesive implemented
+      // operations, while broad structural areas intentionally overlap them.
+      // Once the evidence deficit is equal, fund the cohesive domain first so
+      // one bounded read can usually satisfy both obligations.
+      const projectDomainDelta =
+        Number(isProjectDomainCapabilityKey(right.domain.key)) -
+        Number(isProjectDomainCapabilityKey(left.domain.key));
+      if (projectDomainDelta) return projectDomainDelta;
+      return (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
+        left.area.key.localeCompare(right.area.key);
+    });
   const repairRequests = repairAreas.map(({ domain, area }) => {
     const desired = Math.max(
       1,
@@ -3171,7 +3456,7 @@ export function critiqueRepositoryCoverage(input: {
         ...priorityAuditFiles.map((file) => file.path),
       ],
       area.key,
-      domain.targetSamples === 14,
+      prefersRuntimeOperationSampling(area.key, domain.targetSamples),
     );
     const repairFiles = [...priorityAuditFiles, ...additionalFiles];
     return {
@@ -3272,7 +3557,17 @@ export function critiqueRepositoryCoverage(input: {
       }
     }
   }
+  const retryEvidenceDeficit = (capabilityKeys: Set<string>) => Math.max(
+    0,
+    ...domains
+      .filter((domain) => capabilityKeys.has(domain.key))
+      .map((domain) =>
+        Math.max(0, domain.requiredSupportedCandidates - domain.supportedCandidates) +
+        Math.max(0, domain.requiredSupportedFiles - domain.supportedFileCount)
+      ),
+  );
   for (const retry of Array.from(exactRetryFiles.values()).sort((left, right) =>
+    retryEvidenceDeficit(right.capabilityKeys) - retryEvidenceDeficit(left.capabilityKeys) ||
     right.salience - left.salience ||
     right.file.score - left.file.score ||
     left.file.path.localeCompare(right.file.path) ||
@@ -3830,6 +4125,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const semanticEvidenceUniverse = semanticEvidenceUniverseFromFiles(
     run.snapshots.flatMap((snapshot) => snapshot.files),
   );
+  const semanticTokenLimit = repositorySemanticTokenLimit(
+    semanticEvidenceUniverse.fileCount,
+  );
+  const semanticRepairModelCallLimit = repositorySemanticRepairModelCallLimit(
+    semanticEvidenceUniverse.fileCount,
+  );
   const planned = await planWorkPackages({ refreshRunId, workItemId: run.workItem.id, projectTitle: run.workItem.title, manifest });
   const guardedPlan = buildRepositoryDerivedSemanticPlan({
     manifest,
@@ -3843,7 +4144,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const plannerTokenCommitment = semanticPlannerTokenCommitment({
     ...planned.usage,
     fallbackUsed: planned.fallbackUsed,
-    maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+    maxTotalTokens: semanticTokenLimit,
   });
   const singletonSemanticFileIds = new Set(manifest.flatMap((area) =>
     area.files.flatMap((file) =>
@@ -3866,20 +4167,25 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         : {}),
     };
   });
-  const modelCallCounts = normalizedPlan.map(semanticWorkPackageModelCallCount);
   const availableWorkerTokens = Math.max(
     0,
-    REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS - plannerTokenCommitment,
+    semanticTokenLimit - plannerTokenCommitment,
   );
   const minimumRepairTokenReserve = Math.min(REPAIR_TOKEN_RESERVE, Math.floor(availableWorkerTokens / 2));
   const workerTokenPool = Math.max(0, availableWorkerTokens - minimumRepairTokenReserve);
+  const initialAdmission = admitSemanticInitialPackagesForTokenPool(
+    normalizedPlan,
+    workerTokenPool,
+  );
+  const admittedPlan = initialAdmission.packages;
+  const modelCallCounts = admittedPlan.map(semanticWorkPackageModelCallCount);
   const workerModelBudget = createStructuredGenerationBudget({
     maxModelCalls: modelCallCounts.reduce((total, value) => total + value, 0),
     maxRepairPasses: 0,
     maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
     maxTotalTokens: workerTokenPool,
   });
-  const packages: SemanticWorkPackage[] = normalizedPlan.map((entry, index) => ({
+  const packages: SemanticWorkPackage[] = admittedPlan.map((entry, index) => ({
     ...entry,
     id: stablePackageId(
       refreshRunId,
@@ -3914,15 +4220,18 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         generationRunId: planned.generationRunId,
         semanticEvidenceUniverse,
         packages,
+        initialCapacityLimitedFileSnapshotIds:
+          initialAdmission.capacityLimitedFileSnapshotIds,
       }),
       budgetUsage: inputJson({
         maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
-        maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
-        maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
+        maxTotalTokens: semanticTokenLimit,
+        maxRefreshGenerationTokens: semanticTokenLimit * 2,
         plannerTokenLimit: plannerTokenReserve,
         plannerTokenCommitment,
         measuredPlannerTokens: plannerTokenUsage,
         initialWorkerTokenCeiling: workerTokenPool,
+        initialAdmissionRemainingTokens: initialAdmission.remainingTokens,
         workerBudgetScope: "shared_wave",
         minimumRepairTokenReserve,
       }),
@@ -3963,12 +4272,12 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     area.files.map((file) => [file.id, file.path] as const)
   ));
   const initialRepairTokenPool = semanticRepairTokenPool({
-    maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+    maxTotalTokens: semanticTokenLimit,
     plannerTokenCommitment,
     initialWorkerTokens: initialWorkerUsage.totalTokens,
   });
   const repairModelBudget = createStructuredGenerationBudget({
-    maxModelCalls: MAX_SEMANTIC_REPAIR_MODEL_CALLS,
+    maxModelCalls: semanticRepairModelCallLimit,
     // Raised per wave only by capacity left after all admitted primary calls.
     maxRepairPasses: 0,
     maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
@@ -3983,15 +4292,17 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     capacityLimitedFileSnapshotIds: string[];
   }> = [];
   const repairReports: CapabilityReport[] = [];
-  const repairCapacityOmittedFileSnapshotIds = new Set<string>();
+  const repairCapacityOmittedFileSnapshotIds = new Set<string>(
+    initialAdmission.capacityLimitedFileSnapshotIds,
+  );
   let effectiveReports = initialReports;
   let nextRepairCritique = initialCritique;
   for (let waveIndex = 0; waveIndex < MAX_SEMANTIC_REPAIR_WAVES; waveIndex += 1) {
     const repairDecision = semanticRepairWaveDecision({
       waveIndex,
       hasRepairPackages: nextRepairCritique.repairPackages.length > 0,
-      maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
-      maxModelCalls: MAX_SEMANTIC_REPAIR_MODEL_CALLS,
+      maxTotalTokens: semanticTokenLimit,
+      maxModelCalls: semanticRepairModelCallLimit,
       plannerTokenCommitment,
       initialWorkerTokens: initialWorkerUsage.totalTokens,
       priorRepairUsages: repairWaves.map((wave) => wave.usage),
@@ -4125,7 +4436,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     repairModelBudget,
   );
   const remainingRepairTokenPool = semanticRepairTokenPool({
-    maxTotalTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
+    maxTotalTokens: semanticTokenLimit,
     plannerTokenCommitment,
     initialWorkerTokens:
       initialWorkerUsage.totalTokens + repairBudgetUsage.totalTokens,
@@ -4138,7 +4449,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
   const semanticCapacityReached =
     capacityLimitedFileSnapshotIds.length > 0 ||
     selectedFileSnapshotIds.size >= MAX_SELECTED_SEMANTIC_FILES ||
-    repairBudgetUsage.modelCalls >= MAX_SEMANTIC_REPAIR_MODEL_CALLS ||
+    repairBudgetUsage.modelCalls >= semanticRepairModelCallLimit ||
     remainingRepairTokenPool <= 0 ||
     (
       repairWaves.length >= MAX_SEMANTIC_REPAIR_WAVES &&
@@ -4256,6 +4567,8 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         semanticEvidenceUniverse,
         cartography: manifest,
         packages,
+        initialCapacityLimitedFileSnapshotIds:
+          initialAdmission.capacityLimitedFileSnapshotIds,
         repairPackages,
         repairWaveCount: repairWaves.length,
         repairWaves,
@@ -4268,20 +4581,22 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
       budgetUsage: inputJson({
         limits: {
           maxWorkers: REPOSITORY_ORCHESTRATION_MAX_WORKERS,
-          maxSemanticTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
-          maxSynthesisTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS,
-          maxRefreshGenerationTokens: REPOSITORY_ORCHESTRATION_MAX_TOTAL_TOKENS * 2,
+          maxSemanticTokens: semanticTokenLimit,
+          maxSynthesisTokens: semanticTokenLimit,
+          maxRefreshGenerationTokens: semanticTokenLimit * 2,
         },
         allocations: {
           plannerTokenLimit: plannerTokenReserve,
           plannerTokenCommitment,
           plannerTokens: plannerTokenUsage,
           initialWorkerTokenCeiling: workerTokenPool,
+          initialAdmissionRemainingTokens: initialAdmission.remainingTokens,
           workerBudgetScope: "shared_wave",
           minimumRepairTokenReserve,
           repairTokenCeiling: initialRepairTokenPool,
           repairWaveTokenCeilings: repairWaves.map((wave) => wave.tokenCeiling),
           repairBudgetScope: "shared_wave",
+          repairModelCallLimit: semanticRepairModelCallLimit,
         },
         waveUsage: {
           initialWorkers: initialWorkerUsage,

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   repositorySynthesisClaimContentDigest,
@@ -530,6 +531,10 @@ describe("repository knowledge main-path integrity", () => {
         resultAttestation: {
           candidateDigest: "a".repeat(64),
           selectedCandidateIds: ["HC1"],
+          selectedCandidateCount: 1,
+          selectedCandidateDigest: createHash("sha256")
+            .update(JSON.stringify(["HC1"]))
+            .digest("hex"),
           selectionDigest: "c".repeat(64),
         },
       },
@@ -586,6 +591,118 @@ describe("repository knowledge main-path integrity", () => {
       highlightSelection: 1,
       highlightTitleCritic: 1,
     });
+  });
+
+  it("requires scalar digests for sanitized large selected sets", () => {
+    const synthesis = {
+      subsystems: [{
+        subsystemKey: "project_domain:payments#scope",
+        facts: [{
+          statement: "The payment service persists receipts.",
+          citationIndexes: [1],
+        }],
+        highlights: [],
+      }],
+    };
+    const selectedIds = Array.from({ length: 22 }, (_entry, index) =>
+      `HC${index + 1}`
+    );
+    const selectionOutput = {
+      selections: selectedIds.map((candidateId) => ({
+        candidateId,
+        title: `Capability ${candidateId}`,
+      })),
+      omissions: [],
+    };
+    const criticOutput = {
+      assessments: selectedIds.map((candidateId) => ({
+        candidateId,
+        supported: true,
+        issues: [],
+      })),
+    };
+    const critic = generation("capability_synthesis", "synthesis-model", {
+      id: "generation-highlight-critic-large",
+      inputSummary: {
+        phase: "repository_highlight_critic",
+        refreshRunId: "refresh-1",
+        batchIndex: 0,
+        claimCount: selectedIds.length,
+        criticInputDigest: "b".repeat(64),
+      },
+      parsedOutput: criticOutput,
+      resultRefs: {
+        configuredModelId: "synthesis-model",
+        requestIds: ["request-highlight-critic-large"],
+        usageComplete: true,
+        failedProviderAttempts: [],
+        providerAttemptCount: 1,
+        transportMode: "json_schema",
+        rawOutputHash: "d".repeat(64),
+        resultAttestation: {
+          criticInputDigest: "b".repeat(64),
+          assessmentDigest: "d".repeat(64),
+        },
+      },
+    });
+    const evaluateSelection = (resultAttestation: Record<string, unknown>) =>
+      evaluateRepositoryKnowledgeMainPath({
+        generationRuns: [
+          generation("execution_routing", "routing-model"),
+          generation("semantic_extraction", "semantic-model"),
+          synthesisGeneration(synthesis),
+          entailmentCritic(synthesis),
+          generation("capability_synthesis", "synthesis-model", {
+            id: "generation-highlight-selection-large",
+            inputSummary: {
+              phase: "repository_highlight_selection",
+              refreshRunId: "refresh-1",
+              candidateCount: selectedIds.length,
+              candidateDigest: "a".repeat(64),
+              maximumSelections: selectedIds.length,
+            },
+            parsedOutput: selectionOutput,
+            resultRefs: {
+              configuredModelId: "synthesis-model",
+              requestIds: ["request-highlight-selection-large"],
+              usageComplete: true,
+              failedProviderAttempts: [],
+              providerAttemptCount: 1,
+              transportMode: "json_schema",
+              rawOutputHash: "c".repeat(64),
+              resultAttestation,
+            },
+          }),
+          critic,
+        ],
+        expectedIdentities,
+        coverage: null,
+        orchestration: {
+          fallbackUsed: false,
+          generationRunId: "generation-execution_routing",
+        },
+        warnings: null,
+      });
+
+    const selectedCandidateDigest = createHash("sha256")
+      .update(JSON.stringify([...selectedIds].sort()))
+      .digest("hex");
+    expect(evaluateSelection({
+      candidateDigest: "a".repeat(64),
+      selectedCandidateIds: [...selectedIds.slice(0, 20), "[2 more items]"],
+      selectedCandidateCount: selectedIds.length,
+      selectedCandidateDigest,
+      selectionDigest: "c".repeat(64),
+    }).passed).toBe(true);
+    const legacySanitized = evaluateSelection({
+      candidateDigest: "a".repeat(64),
+      selectedCandidateIds: [...selectedIds.slice(0, 20), "[2 more items]"],
+      selectionDigest: "c".repeat(64),
+    });
+    expect(legacySanitized.passed).toBe(false);
+    expect(legacySanitized.issues).toContain(
+      "1 repository Highlight selection generation(s) lack an exact candidate partition and output attestation.",
+    );
   });
 
   it("accepts an attested operation-community mapping without requiring its own critic", () => {
