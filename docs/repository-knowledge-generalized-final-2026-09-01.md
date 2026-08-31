@@ -4,14 +4,18 @@ Date: 2026-09-01
 
 ## Decision
 
-The generalized main path is a quality improvement over both the original
-`main` / `feature/highlights-atlas-coverage` extractor and the v69 orchestrated
-checkpoint. It should replace the current extractor for product testing.
+The generalized main path at `b777b27` is the release candidate. It is a
+quality improvement over both the original `main` /
+`feature/highlights-atlas-coverage` extractor and the v69 orchestrated
+checkpoint, and should replace the current extractor for product testing.
 
-It is not yet an efficiency improvement. The final six-repository suite passes
-execution-integrity certification but still fails the existing model-call,
-token, and duration ceilings. Those limits have not been relaxed to make the
-result appear green.
+The subsequent efficiency candidate was rejected. It reduced calls, tokens,
+and duration, but its clean six-repository run regressed repository knowledge
+and Highlight quality. It also cost more after the unavailable Luna route
+forced quality-critical work onto Terra, so it did not provide an exact-model
+non-inferiority result. The release therefore retains the certified
+pre-efficiency implementation. No budget or quality threshold was relaxed to
+make the experiment appear green.
 
 ## What changed
 
@@ -56,6 +60,15 @@ recertified rather than trusted from serialized JSON.
 
 Final database-certified report SHA-256:
 `db351fcbf58ca796e660922e2410c524eb03fa948e5abe0d6b6ced8ed6e34c58`.
+
+## Release checkpoints
+
+| Checkpoint | Ref | Purpose |
+|---|---|---|
+| Original main | `checkpoint/repository-knowledge-main` (`e470dcb`) | Pre-orchestration implementation |
+| Current orchestrated baseline | `checkpoint/repository-knowledge-current-v69` (`dcfe725`) | General v69 comparison point |
+| Pre-efficiency quality release | `checkpoint/repository-knowledge-pre-efficiency-v86` (`b777b27`) | Certified generalized implementation |
+| Final | `checkpoint/repository-knowledge-final` | Same production code as v86, plus this final decision record |
 
 ## Progression on the five projects completed by original main
 
@@ -109,6 +122,40 @@ runs, deterministic semantic fallbacks, deterministic synthesis fallbacks, or
 planner fallbacks in the certified runs. The added cost buys materially broader
 knowledge and Highlights, but it is too high to call the efficiency work done.
 
+## Rejected efficiency experiment
+
+The experiment preserved one-subsystem synthesis, but batched up to three
+independent initial entailment critics with exact claim-key, subsystem, count,
+and content-digest partitions. It also increased the already bounded Highlight
+title-critic batch from 10 to 20. This followed the same partition-and-attest
+pattern used by the evaluator rather than weakening evidence checks.
+
+The exact-model comparison could not complete because the Luna route repeatedly
+returned 429 responses, including with five-second pacing, and also produced one
+unrepairable structured planner response. A clean Terra-routed six-project run
+passed execution-integrity certification, but failed the quality gate:
+
+| Six-project outcome | Certified release | Rejected candidate | Change |
+|---|---:|---:|---:|
+| Overall score | 0.870 | 0.853 | -0.017 |
+| Repository knowledge | 0.880 | 0.845 | -0.035 |
+| Highlight generation | 0.826 | 0.743 | -0.083 |
+| Model calls | 364 | 269 | -26% |
+| Tokens | 1,191,701 | 1,085,929 | -9% |
+| Estimated cost | $2.239 | $2.731 | +22% |
+| Duration | 2,481,160 ms | 2,125,163 ms | -14% |
+
+The rejected database-certified report SHA-256 is
+`0644f0464838e8f895ec5d560bfc725f8edc4695c730cb95e0e2b9824983f210`.
+Its integrity status passed on all six repositories; the rejection is about
+measured product quality and cost, not an invalid observation. OpenRouter's
+error guidance identifies 429 as a platform or upstream rate-limit condition
+and recommends honoring `Retry-After` with exponential backoff. That should be
+implemented and separately certified before critic batching is reconsidered.
+[Errors and debugging](https://openrouter.ai/docs/api/reference/errors-and-debugging)
+and [rate limits](https://openrouter.ai/docs/api/reference/limits) document those
+behaviors.
+
 ## Known residual gaps
 
 - Backer still misses feed-model training, the investment-commitment workflow,
@@ -122,9 +169,11 @@ knowledge and Highlights, but it is too high to call the efficiency work done.
 - Amazon still misses purchase-order management.
 - Lower-ranked semantic observations can remain outside the bounded synthesis
   notebook even when coverage certification passes.
+- The current Luna route can fail closed under sustained 429s. Same-model,
+  `Retry-After`-aware bounded backoff is the next reliability change; switching
+  all quality-critical work to Terra is not an acceptable substitute.
 
-The next change should be an isolated efficiency experiment: batch compatible
-claim verification while preserving claim-level digests and verdicts, then
-rerun this exact six-project gate. It should not reduce sampling, weaken
-entailment, introduce a deterministic fallback, or reinstate a fixed Highlight
-count.
+After that reliability gate, critic transport batching can be reconsidered in
+isolation with the exact same models and pinned six-project suite. It should not
+reduce sampling, weaken entailment, introduce a deterministic content fallback,
+or reinstate a fixed Highlight count.
