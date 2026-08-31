@@ -15,6 +15,10 @@ npm run --silent eval:repository-knowledge:compare -- \
 
 It aligns fixtures by `fixtureId` and compares:
 
+- repository knowledge and Highlight generation as independent aggregate and
+  per-fixture outcomes;
+- the coverage, grounding, salience, presentation, and non-redundancy
+  components that explain those outcomes;
 - aggregate score, macro average, worst-project floor, and passing-fixture rate;
 - per-fixture score, capability recall, knowledge-item and evidence precision,
   claim-state correctness, and inventory hygiene;

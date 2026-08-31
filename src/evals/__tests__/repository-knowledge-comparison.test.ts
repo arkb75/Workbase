@@ -8,6 +8,8 @@ interface FixtureInput {
   fixtureId: string;
   passed?: boolean;
   score: number;
+  repositoryKnowledgeScore?: number;
+  highlightGenerationScore?: number;
   capabilityRecall?: number;
   majorCapabilityRecall?: number;
   highlightCapabilityRecall?: number;
@@ -36,9 +38,24 @@ function evaluatorReport(fixtures: FixtureInput[], passed = true) {
       passed: fixture.passed ?? true,
       score: fixture.score,
       metrics: {
+        repositoryKnowledgeScore: fixture.repositoryKnowledgeScore ?? fixture.score,
+        repositoryKnowledgeCoverageScore:
+          fixture.repositoryKnowledgeScore ?? fixture.score,
+        repositoryKnowledgeGroundingScore:
+          fixture.repositoryKnowledgeScore ?? fixture.score,
+        highlightGenerationScore: fixture.highlightGenerationScore ?? fixture.score,
+        highlightSalienceCoverage: fixture.highlightGenerationScore ?? fixture.score,
+        highlightGroundingScore: fixture.highlightGenerationScore ?? fixture.score,
+        highlightPresentationScore: fixture.highlightGenerationScore ?? fixture.score,
         capabilityRecall: fixture.capabilityRecall ?? fixture.score,
         majorCapabilityRecall: fixture.majorCapabilityRecall ?? fixture.score,
         highlightCapabilityRecall: fixture.highlightCapabilityRecall ?? fixture.score,
+        majorHighlightCapabilityRecall:
+          fixture.highlightCapabilityRecall ?? fixture.score,
+        highlightDomainRecall: fixture.highlightGenerationScore ?? fixture.score,
+        highlightEvidencePrecision: fixture.highlightGenerationScore ?? fixture.score,
+        highlightItemPrecision: fixture.highlightGenerationScore ?? fixture.score,
+        highlightNonRedundancy: fixture.highlightGenerationScore ?? fixture.score,
         domainRecall: fixture.domainRecall ?? fixture.score,
         knowledgeItemPrecision: fixture.knowledgeItemPrecision ?? fixture.score,
         evidencePrecision: fixture.evidencePrecision ?? fixture.score,
@@ -387,6 +404,38 @@ describe("repository knowledge report comparison", () => {
         scope: "suite",
         metric: "executionIntegrity",
         reason: expect.stringContaining("new-project"),
+      }),
+    ]));
+  });
+
+  it("surfaces a Highlight regression even when the legacy blended score is flat", () => {
+    const baseline = evaluatorReport([{
+      fixtureId: "alpha",
+      score: 0.8,
+      repositoryKnowledgeScore: 0.8,
+      highlightGenerationScore: 0.8,
+    }]);
+    const candidate = evaluatorReport([{
+      fixtureId: "alpha",
+      score: 0.8,
+      repositoryKnowledgeScore: 0.9,
+      highlightGenerationScore: 0.6,
+    }]);
+
+    const result = compareRepositoryKnowledgeReports({
+      candidate: { name: "candidate", report: candidate },
+      baselines: [{ name: "control", report: baseline }],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.comparisons[0]!.aggregateQuality).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: "repositoryKnowledgeScore",
+        status: "improved",
+      }),
+      expect.objectContaining({
+        metric: "highlightGenerationScore",
+        status: "regressed",
       }),
     ]));
   });

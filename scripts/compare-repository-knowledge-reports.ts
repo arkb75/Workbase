@@ -4,11 +4,17 @@ import { pathToFileURL } from "node:url";
 
 const SCHEMA_VERSION = "repository-knowledge-comparison-v1" as const;
 const AGGREGATE_METRICS = [
-  "score", "macroAverageScore", "minimumProjectScore", "passingFixtureRate",
+  "score", "repositoryKnowledgeScore", "highlightGenerationScore",
+  "macroAverageScore", "minimumProjectScore", "passingFixtureRate",
 ] as const;
 const QUALITY_METRICS = [
-  "score", "capabilityRecall", "majorCapabilityRecall", "highlightCapabilityRecall",
-  "domainRecall", "knowledgeItemPrecision", "evidencePrecision",
+  "score", "repositoryKnowledgeScore", "repositoryKnowledgeCoverageScore",
+  "repositoryKnowledgeGroundingScore", "highlightGenerationScore",
+  "highlightSalienceCoverage", "highlightGroundingScore",
+  "highlightPresentationScore", "capabilityRecall", "majorCapabilityRecall",
+  "highlightCapabilityRecall", "majorHighlightCapabilityRecall",
+  "highlightDomainRecall", "highlightEvidencePrecision", "highlightItemPrecision",
+  "highlightNonRedundancy", "domainRecall", "knowledgeItemPrecision", "evidencePrecision",
   "claimStateCorrectness", "inventoryHygiene", "duplicateRate", "coverageCalibration",
 ] as const;
 const OPERATIONAL_METRICS = [
@@ -229,9 +235,30 @@ function normalize(input: NamedReport): Report {
       passed: requiredBoolean(fixture.passed, `${input.name}/${fixtureId}.passed`),
       quality: {
         score,
+        repositoryKnowledgeScore: number(metrics, "repositoryKnowledgeScore"),
+        repositoryKnowledgeCoverageScore: number(
+          metrics,
+          "repositoryKnowledgeCoverageScore",
+        ),
+        repositoryKnowledgeGroundingScore: number(
+          metrics,
+          "repositoryKnowledgeGroundingScore",
+        ),
+        highlightGenerationScore: number(metrics, "highlightGenerationScore"),
+        highlightSalienceCoverage: number(metrics, "highlightSalienceCoverage"),
+        highlightGroundingScore: number(metrics, "highlightGroundingScore"),
+        highlightPresentationScore: number(metrics, "highlightPresentationScore"),
         capabilityRecall: number(metrics, "capabilityRecall"),
         majorCapabilityRecall: number(metrics, "majorCapabilityRecall"),
         highlightCapabilityRecall: number(metrics, "highlightCapabilityRecall"),
+        majorHighlightCapabilityRecall: number(
+          metrics,
+          "majorHighlightCapabilityRecall",
+        ),
+        highlightDomainRecall: number(metrics, "highlightDomainRecall"),
+        highlightEvidencePrecision: number(metrics, "highlightEvidencePrecision"),
+        highlightItemPrecision: number(metrics, "highlightItemPrecision"),
+        highlightNonRedundancy: number(metrics, "highlightNonRedundancy"),
         domainRecall: number(metrics, "domainRecall"),
         knowledgeItemPrecision: number(metrics, "knowledgeItemPrecision", "itemPrecision"),
         evidencePrecision: number(metrics, "evidencePrecision"),
@@ -269,12 +296,25 @@ function summarizeQuality(fixtures: readonly Fixture[]) {
   const scores = fixtures.map(({ quality }) => quality.score!);
   const macroAverageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   const minimumProjectScore = Math.min(...scores);
+  const repositoryKnowledgeScores = fixtures.map(
+    ({ quality }) => quality.repositoryKnowledgeScore,
+  );
+  const highlightGenerationScores = fixtures.map(
+    ({ quality }) => quality.highlightGenerationScore,
+  );
+  const aggregateOutcome = (values: Array<number | null>) => {
+    if (!values.every((value): value is number => value !== null)) return null;
+    const macro = values.reduce((sum, value) => sum + value, 0) / values.length;
+    return round(macro * 0.7 + Math.min(...values) * 0.3);
+  };
   return {
     score: round(macroAverageScore * 0.7 + minimumProjectScore * 0.3),
+    repositoryKnowledgeScore: aggregateOutcome(repositoryKnowledgeScores),
+    highlightGenerationScore: aggregateOutcome(highlightGenerationScores),
     macroAverageScore: round(macroAverageScore),
     minimumProjectScore: round(minimumProjectScore),
     passingFixtureRate: round(fixtures.filter(({ passed }) => passed).length / fixtures.length),
-  } satisfies Record<AggregateMetric, number>;
+  } satisfies Record<AggregateMetric, number | null>;
 }
 
 function summarizeOperations(fixtures: readonly Fixture[]) {

@@ -29,6 +29,14 @@ future CSV, broader visualization, loading, cache, and history work.
 
 ## What it scores
 
+- a separate **repository knowledge score**, defined as the harmonic mean of:
+  - implemented capability/domain coverage;
+  - claim-to-source and supported-item grounding;
+  - implemented-versus-planned correctness when coverage is measurable;
+- a separate **Highlight generation score**, defined as the harmonic mean of:
+  - expected and major-capability salience coverage;
+  - Highlight-specific evidence and item grounding;
+  - expected-domain coverage and non-redundancy;
 - weighted, major, and Highlight-specific implemented-capability recall;
 - domain recall without requiring one fixed taxonomy;
 - repository-path and exact-quote validity (including bounded, explicit secret
@@ -49,10 +57,44 @@ future CSV, broader visualization, loading, cache, and history work.
   not automatically an AI runtime);
 - bounded duration, model calls, tokens, and estimated cost.
 
+The two outcome scores are not averaged together. Both the component axes and
+the outcome scores use harmonic means, so a zero in a required leaf component
+makes the corresponding outcome score zero. This prevents strong repository
+Facts from hiding missing or irrelevant Highlights, and prevents polished
+Highlights from hiding weak repository coverage. The outcome scores participate
+in fixture and suite pass/fail; the older blended `score` remains in the JSON
+only for compatibility with stored reports.
+
+The fixture catalog audit requires every project profile to define at least one
+expected domain, one implemented major capability, one expected Highlight
+capability, and one major expected Highlight capability. A missing denominator
+is therefore a fixture-authoring error rather than an indistinguishable zero
+product outcome.
+
 The aggregate is a macro average with a worst-project floor. A strong score on
 Workbase cannot hide a failure on a small finance app or a Java repository.
 Reports retain raw Highlights/Facts, capability assignments, and provenance
 paths so a scalar score is always auditable.
+
+## Compare against the product baseline
+
+The control for an architectural experiment is the extraction implementation
+on `main`. A UI-only branch may stand in for `main` only after a source diff
+confirms that repository inventory, analysis, synthesis, reconciliation, and
+provider code are identical. Intermediate experiment checkpoints are useful
+for debugging but are not the product baseline.
+
+Run the unchanged control and candidate against the same pinned repository
+commits and score both observations under the same evaluator policy. Report:
+
+- repository knowledge score and each of its coverage/grounding components;
+- Highlight generation score, capability salience, grounding, domain coverage,
+  non-redundancy, and raw Highlight count;
+- project completion or pre-analysis failures;
+- model calls, tokens, cost, duration, and execution-integrity attestations.
+
+A failed project is reported as a failed lifecycle outcome; it is never omitted
+from the completion rate or replaced with inferred knowledge.
 
 ## Run the production lifecycle end to end
 

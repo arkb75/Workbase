@@ -2,7 +2,7 @@ export const REPOSITORY_KNOWLEDGE_EVALUATION_SCHEMA_VERSION =
   "repository-knowledge-evaluation-v1" as const;
 /** Fingerprints scorer semantics and curated fixture expectations, not JSON shape. */
 export const REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION =
-  "repository-knowledge-evaluator-v5" as const;
+  "repository-knowledge-evaluator-v6" as const;
 
 export type RepositoryKnowledgeItemKind = "highlight" | "fact";
 export type RepositoryKnowledgeClaimState =
@@ -137,11 +137,28 @@ export interface RepositoryKnowledgeEvaluationReport {
   repository: string | null;
   passed: boolean;
   executionIntegrityStatus: "passed" | "failed" | "unreported" | "not_required";
+  /** Legacy blended score retained for report compatibility. */
   score: number;
   metrics: {
+    repositoryKnowledgeScore: number;
+    repositoryKnowledgeCoverageScore: number;
+    repositoryKnowledgeGroundingScore: number;
+    highlightGenerationScore: number;
+    highlightSalienceCoverage: number;
+    highlightGroundingScore: number;
+    highlightPresentationScore: number;
     capabilityRecall: number;
     majorCapabilityRecall: number;
     highlightCapabilityRecall: number;
+    majorHighlightCapabilityRecall: number;
+    highlightDomainRecall: number;
+    highlightEvidencePrecision: number;
+    highlightCitationPathPrecision: number;
+    highlightItemPrecision: number;
+    highlightNonRedundancy: number;
+    highlightCount: number;
+    expectedHighlightCapabilityCount: number;
+    recoveredHighlightCapabilityCount: number;
     domainRecall: number;
     evidencePrecision: number;
     citationPathPrecision: number;
@@ -188,9 +205,16 @@ export interface RepositoryKnowledgeSuiteReport {
   passed: boolean;
   hardBudgetPassed: boolean;
   executionIntegrityPassed: boolean;
+  /** Legacy blended score retained for report compatibility. */
   score: number;
   macroAverageScore: number;
   minimumProjectScore: number;
+  repositoryKnowledgeScore: number;
+  macroAverageRepositoryKnowledgeScore: number;
+  minimumProjectRepositoryKnowledgeScore: number;
+  highlightGenerationScore: number;
+  macroAverageHighlightGenerationScore: number;
+  minimumProjectHighlightGenerationScore: number;
   passingFixtureCount: number;
   fixtureCount: number;
   catalog: RepositoryKnowledgeCatalogAudit;
@@ -237,6 +261,11 @@ function average(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : 0;
+}
+
+function harmonicMean(values: number[]) {
+  if (!values.length || values.some((value) => value <= 0)) return 0;
+  return values.length / values.reduce((sum, value) => sum + 1 / value, 0);
 }
 
 function ratio(numerator: number, denominator: number) {
@@ -662,6 +691,17 @@ export function auditRepositoryKnowledgeFixtureCatalog(
       (capability) => capability.implementationState === "planned",
     )
   );
+  const outcomesAreMeasurable = fixtures.every((fixture) => {
+    const implemented = fixture.expectedCapabilities.filter(
+      (capability) => capability.implementationState === "implemented",
+    );
+    return fixture.expectedDomains.length > 0 &&
+      implemented.some((capability) => capability.importance === "major") &&
+      implemented.some((capability) => capability.expectedInHighlights) &&
+      implemented.some((capability) =>
+        capability.expectedInHighlights && capability.importance === "major"
+      );
+  });
   const uniqueFixtureIds = new Set(fixtures.map((fixture) => fixture.id)).size;
   const checks: RepositoryKnowledgeMetricCheck[] = [
     metricCheck("catalog spans at least six repository archetypes", archetypes.size, 6, "minimum"),
@@ -671,6 +711,12 @@ export function auditRepositoryKnowledgeFixtureCatalog(
       name: "catalog includes implemented and explicitly planned behavior",
       passed: hasPlannedAndImplemented,
       actual: hasPlannedAndImplemented,
+      expected: true,
+    },
+    {
+      name: "every fixture defines measurable knowledge and Highlight outcomes",
+      passed: outcomesAreMeasurable,
+      actual: outcomesAreMeasurable,
       expected: true,
     },
     {
@@ -937,17 +983,30 @@ export function evaluateRepositoryKnowledgeRun(input: {
   const expectedHighlightCapabilities = implementedCapabilities.filter(
     (capability) => capability.expectedInHighlights,
   );
-  const highlightCapabilityRecall = ratio(
-    expectedHighlightCapabilities.filter((capability) =>
+  const recoveredHighlightCapabilities = expectedHighlightCapabilities.filter(
+    (capability) =>
       (capabilityMatches.get(capability.key) ?? []).some((itemIndex) => {
         const item = run.items[itemIndex]!;
         return item.kind === "highlight" &&
           supportedItemIds.has(item.id) &&
           inferredClaimState(item) !== "planned" &&
           evidenceSupportsCapability(item, capability);
-      })
-    ).length,
+      }),
+  );
+  const highlightCapabilityRecall = ratio(
+    recoveredHighlightCapabilities.length,
     expectedHighlightCapabilities.length,
+  );
+  const expectedMajorHighlightCapabilities = expectedHighlightCapabilities.filter(
+    (capability) => capability.importance === "major",
+  );
+  const majorHighlightCapabilityRecall = ratio(
+    expectedMajorHighlightCapabilities.filter((capability) =>
+      recoveredHighlightCapabilities.some((recovered) =>
+        recovered.key === capability.key
+      )
+    ).length,
+    expectedMajorHighlightCapabilities.length,
   );
 
   const recoveredDomains = fixture.expectedDomains.filter((domain) => {
@@ -1035,6 +1094,87 @@ export function evaluateRepositoryKnowledgeRun(input: {
   }
   const duplicateRate = ratio(duplicateIndexes.size, highlights.length);
   const diversity = average([1 - duplicateRate, domainRecall]);
+  const highlightDomainRecall = ratio(
+    fixture.expectedDomains.filter((domain) =>
+      recoveredHighlightCapabilities.some((capability) =>
+        capability.domainKey === domain.key
+      ) || highlights.some((item) => {
+        const itemMatchesDomain = item.domain === domain.key || anyPattern(
+          itemSearchText(item),
+          domain.matchPatterns,
+        );
+        return supportedItemIds.has(item.id) && itemMatchesDomain &&
+          item.evidence.some((reference) => {
+            const path = normalizedPath(reference.path);
+            return groundedEvidenceReferences.has(reference) &&
+              validRepositoryReference(reference) &&
+              anyPattern(path, domain.evidencePathPatterns);
+          });
+      })
+    ).length,
+    fixture.expectedDomains.length,
+  );
+  const highlightEvidenceReferences = highlights.flatMap((item) => item.evidence);
+  const validHighlightEvidenceReferences = highlightEvidenceReferences.filter(
+    validRepositoryReference,
+  );
+  const highlightCitationPathPrecision = ratio(
+    validHighlightEvidenceReferences.length,
+    highlightEvidenceReferences.length,
+  );
+  const highlightClaimEvidencePrecision = ratio(
+    highlightEvidenceReferences.filter((reference) =>
+      groundedEvidenceReferences.has(reference)
+    ).length,
+    highlightEvidenceReferences.length,
+  );
+  const highlightEvidencePrecision = average([
+    highlightCitationPathPrecision,
+    highlightClaimEvidencePrecision,
+  ]);
+  const highlightItemPrecision = ratio(
+    highlights.filter((item) => supportedItemIds.has(item.id)).length,
+    highlights.length,
+  );
+  const highlightNonRedundancy = highlights.length ? 1 - duplicateRate : 0;
+  const highlightSalienceCoverage = harmonicMean([
+    highlightCapabilityRecall,
+    majorHighlightCapabilityRecall,
+  ]);
+  const highlightGroundingScore = harmonicMean([
+    highlightEvidencePrecision,
+    highlightItemPrecision,
+  ]);
+  const highlightPresentationScore = harmonicMean([
+    highlightDomainRecall,
+    highlightNonRedundancy,
+  ]);
+  const highlightGenerationScore = harmonicMean([
+    highlightSalienceCoverage,
+    highlightGroundingScore,
+    highlightPresentationScore,
+  ]);
+
+  // Keep repository knowledge and user-facing Highlights as separate outcomes.
+  // Each outcome is the harmonic mean of required, separately reported axes.
+  // This prevents strong grounding from hiding absent coverage or salience.
+  const repositoryKnowledgeCoverageScore = harmonicMean([
+    capabilityRecall,
+    majorCapabilityRecall,
+    domainRecall,
+  ]);
+  const repositoryKnowledgeGroundingScore = harmonicMean([
+    evidencePrecision,
+    knowledgeItemPrecision,
+  ]);
+  const measurableClaimStateCorrectness = recoveredCapabilities.length
+    ? claimStateCorrectness
+    : 0;
+  const repositoryKnowledgeScore = harmonicMean([
+    repositoryKnowledgeCoverageScore,
+    repositoryKnowledgeGroundingScore,
+    measurableClaimStateCorrectness,
+  ]);
 
   const analyzedPaths = run.inventory.analyzedPaths ?? [];
   const semanticAnalyzedPaths = run.inventory.semanticAnalyzedPaths ?? [];
@@ -1188,7 +1328,8 @@ export function evaluateRepositoryKnowledgeRun(input: {
     metricCheck("capability granularity", capabilityGranularity, 0.75, "minimum"),
     metricCheck("generic-token false-positive rate", genericTokenFalsePositiveRate, 0.05, "maximum"),
     metricCheck("structural observation completeness", structuralReportingCompleteness, 1, "minimum"),
-    metricCheck("overall fixture score", score, 0.68, "minimum"),
+    metricCheck("repository knowledge outcome", repositoryKnowledgeScore, 0.68, "minimum"),
+    metricCheck("Highlight generation outcome", highlightGenerationScore, 0.5, "minimum"),
   ];
   const unsupportedItems = run.items
     .filter((item) => !supportedItemIds.has(item.id))
@@ -1206,9 +1347,25 @@ export function evaluateRepositoryKnowledgeRun(input: {
     ),
     score: round(score),
     metrics: {
+      repositoryKnowledgeScore: round(repositoryKnowledgeScore),
+      repositoryKnowledgeCoverageScore: round(repositoryKnowledgeCoverageScore),
+      repositoryKnowledgeGroundingScore: round(repositoryKnowledgeGroundingScore),
+      highlightGenerationScore: round(highlightGenerationScore),
+      highlightSalienceCoverage: round(highlightSalienceCoverage),
+      highlightGroundingScore: round(highlightGroundingScore),
+      highlightPresentationScore: round(highlightPresentationScore),
       capabilityRecall: round(capabilityRecall),
       majorCapabilityRecall: round(majorCapabilityRecall),
       highlightCapabilityRecall: round(highlightCapabilityRecall),
+      majorHighlightCapabilityRecall: round(majorHighlightCapabilityRecall),
+      highlightDomainRecall: round(highlightDomainRecall),
+      highlightEvidencePrecision: round(highlightEvidencePrecision),
+      highlightCitationPathPrecision: round(highlightCitationPathPrecision),
+      highlightItemPrecision: round(highlightItemPrecision),
+      highlightNonRedundancy: round(highlightNonRedundancy),
+      highlightCount: highlights.length,
+      expectedHighlightCapabilityCount: expectedHighlightCapabilities.length,
+      recoveredHighlightCapabilityCount: recoveredHighlightCapabilities.length,
       domainRecall: round(domainRecall),
       evidencePrecision: round(evidencePrecision),
       citationPathPrecision: round(citationPathPrecision),
@@ -1279,6 +1436,24 @@ export function evaluateRepositoryKnowledgeSuite(input: {
   );
   const macroAverageScore = average(results.map((result) => result.score));
   const minimumProjectScore = Math.min(...results.map((result) => result.score));
+  const macroAverageRepositoryKnowledgeScore = average(
+    results.map((result) => result.metrics.repositoryKnowledgeScore),
+  );
+  const minimumProjectRepositoryKnowledgeScore = Math.min(
+    ...results.map((result) => result.metrics.repositoryKnowledgeScore),
+  );
+  const repositoryKnowledgeScore =
+    macroAverageRepositoryKnowledgeScore * 0.7 +
+    minimumProjectRepositoryKnowledgeScore * 0.3;
+  const macroAverageHighlightGenerationScore = average(
+    results.map((result) => result.metrics.highlightGenerationScore),
+  );
+  const minimumProjectHighlightGenerationScore = Math.min(
+    ...results.map((result) => result.metrics.highlightGenerationScore),
+  );
+  const highlightGenerationScore =
+    macroAverageHighlightGenerationScore * 0.7 +
+    minimumProjectHighlightGenerationScore * 0.3;
   const passingFixtureCount = results.filter((result) => result.passed).length;
   const requiredPassingFixtures = Math.ceil(results.length * 0.75);
   const hardBudgetPassed = input.fixtures.every((fixture) =>
@@ -1299,8 +1474,10 @@ export function evaluateRepositoryKnowledgeSuite(input: {
     evaluatorPolicyVersion: REPOSITORY_KNOWLEDGE_EVALUATOR_POLICY_VERSION,
     passed:
       catalog.passed &&
-      macroAverageScore >= 0.68 &&
-      minimumProjectScore >= 0.55 &&
+      macroAverageRepositoryKnowledgeScore >= 0.68 &&
+      minimumProjectRepositoryKnowledgeScore >= 0.55 &&
+      macroAverageHighlightGenerationScore >= 0.5 &&
+      minimumProjectHighlightGenerationScore >= 0.3 &&
       hardBudgetPassed &&
       executionIntegrityPassed &&
       passingFixtureCount >= requiredPassingFixtures,
@@ -1309,6 +1486,20 @@ export function evaluateRepositoryKnowledgeSuite(input: {
     score: round(score),
     macroAverageScore: round(macroAverageScore),
     minimumProjectScore: round(minimumProjectScore),
+    repositoryKnowledgeScore: round(repositoryKnowledgeScore),
+    macroAverageRepositoryKnowledgeScore: round(
+      macroAverageRepositoryKnowledgeScore,
+    ),
+    minimumProjectRepositoryKnowledgeScore: round(
+      minimumProjectRepositoryKnowledgeScore,
+    ),
+    highlightGenerationScore: round(highlightGenerationScore),
+    macroAverageHighlightGenerationScore: round(
+      macroAverageHighlightGenerationScore,
+    ),
+    minimumProjectHighlightGenerationScore: round(
+      minimumProjectHighlightGenerationScore,
+    ),
     passingFixtureCount,
     fixtureCount: results.length,
     catalog,

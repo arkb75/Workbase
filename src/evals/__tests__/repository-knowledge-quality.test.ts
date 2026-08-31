@@ -200,6 +200,32 @@ describe("generalized repository knowledge evaluation", () => {
     ]));
   });
 
+  it("rejects fixture catalogs with non-measurable outcome denominators", () => {
+    const withoutMajorHighlights = repositoryKnowledgeFixtures.map(
+      (fixture, index) => index === 0
+        ? {
+            ...fixture,
+            expectedCapabilities: fixture.expectedCapabilities.map((capability) => ({
+              ...capability,
+              importance: "supporting" as const,
+            })),
+          }
+        : fixture,
+    );
+    const withoutDomains = repositoryKnowledgeFixtures.map(
+      (fixture, index) => index === 0 ? { ...fixture, expectedDomains: [] } : fixture,
+    );
+
+    for (const fixtures of [withoutMajorHighlights, withoutDomains]) {
+      const audit = auditRepositoryKnowledgeFixtureCatalog(fixtures);
+      expect(audit.passed).toBe(false);
+      expect(audit.checks).toContainEqual(expect.objectContaining({
+        name: "every fixture defines measurable knowledge and Highlight outcomes",
+        passed: false,
+      }));
+    }
+  });
+
   it("matches email-intake implementations without crediting the entire UI directory", () => {
     const fixture = repositoryKnowledgeFixture("solopilot-agent-documents")!;
     const capability = fixture.expectedCapabilities.find(({ key }) =>
@@ -753,6 +779,8 @@ describe("generalized repository knowledge evaluation", () => {
     )).toBe(true);
     expect(report.passingFixtureCount).toBe(repositoryKnowledgeFixtures.length);
     expect(report.minimumProjectScore).toBeGreaterThanOrEqual(0.9);
+    expect(report.repositoryKnowledgeScore).toBeGreaterThanOrEqual(0.9);
+    expect(report.highlightGenerationScore).toBeGreaterThanOrEqual(0.9);
     expect(report.results.every((result) =>
       result.rawItems.length > 0 && result.metrics.evidencePrecision >= 0.9
     )).toBe(true);
@@ -810,6 +838,56 @@ describe("generalized repository knowledge evaluation", () => {
     expect(report.recoveredCapabilityKeys).not.toContain("feed_ranking");
     expect(report.metrics.capabilityRecall).toBe(0);
     expect(report.metrics.highlightCapabilityRecall).toBe(0);
+  });
+
+  it("does not let strong repository Facts hide a missing Highlight outcome", () => {
+    const fixture = withRepresentativeContent(
+      repositoryKnowledgeFixture("circlefund-fintech")!,
+    );
+    const run = representativeRun(fixture);
+    run.items = run.items.map((item) => ({ ...item, kind: "fact" }));
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.repositoryKnowledgeScore).toBeGreaterThan(0.9);
+    expect(report.metrics.highlightCount).toBe(0);
+    expect(report.metrics.recoveredHighlightCapabilityCount).toBe(0);
+    expect(report.metrics.highlightGenerationScore).toBe(0);
+    expect(report.metrics.highlightEvidencePrecision).toBe(0);
+    expect(report.metrics.highlightNonRedundancy).toBe(0);
+    expect(report.passed).toBe(false);
+  });
+
+  it("does not let a grounded, non-redundant Highlight hide zero repository coverage", () => {
+    const content = "The application renders a responsive navigation shell.";
+    const fixture = withEvidenceFile(
+      withRepresentativeContent(repositoryKnowledgeFixture("circlefund-fintech")!),
+      "README.md",
+      content,
+    );
+    const run = representativeRun(fixture);
+    run.items = [{
+      id: "polished-but-irrelevant-highlight",
+      kind: "highlight",
+      text: content,
+      claimState: "implemented",
+      domain: "other",
+      evidence: [{ path: "README.md", lineStart: 1, lineEnd: 1, quote: content }],
+    }];
+    run.domains = [{ key: "other", label: "Other" }];
+
+    const report = evaluateRepositoryKnowledgeRun({ fixture, run });
+
+    expect(report.metrics.highlightEvidencePrecision).toBe(1);
+    expect(report.metrics.highlightItemPrecision).toBe(1);
+    expect(report.metrics.highlightNonRedundancy).toBe(1);
+    expect(report.metrics.repositoryKnowledgeCoverageScore).toBe(0);
+    expect(report.metrics.repositoryKnowledgeScore).toBe(0);
+    expect(report.metrics.highlightSalienceCoverage).toBe(0);
+    expect(report.metrics.highlightDomainRecall).toBe(0);
+    expect(report.metrics.highlightPresentationScore).toBe(0);
+    expect(report.metrics.highlightGenerationScore).toBe(0);
+    expect(report.passed).toBe(false);
   });
 
   it("collectively grounds one capability claim across exact expected-path citations", () => {
