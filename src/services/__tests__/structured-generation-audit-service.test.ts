@@ -26,7 +26,10 @@ vi.mock("@/src/lib/llm-config", () => ({
   resolveActiveTextModelIdentity: () => activeIdentityMock.value,
 }));
 
-import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
+import {
+  EXACT_PARSED_OUTPUT_MAX_BYTES,
+  runAuditedStructuredGeneration,
+} from "@/src/services/structured-generation-audit-service";
 
 const modelId = "us.anthropic.claude-sonnet-4-6-v1:0";
 
@@ -53,6 +56,68 @@ describe("structured generation audit usage", () => {
     prismaMock.generationRun.update.mockResolvedValue({});
   });
 
+  it("persists an opted-in bounded projection losslessly", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-exact",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    });
+    const longSummary = "x".repeat(700);
+    const result = {
+      ...structuredResult(null),
+      parsedOutput: { summary: longSummary },
+    };
+
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:exact",
+      inputSummary: { phase: "synthesis" },
+      exactParsedOutput: (generation) => generation.parsedOutput,
+      execute: async () => result,
+    });
+    await runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:sanitized",
+      inputSummary: { phase: "synthesis" },
+      execute: async () => result,
+    });
+
+    expect(prismaMock.generationRun.update.mock.calls[0]![0].data.parsedOutput)
+      .toEqual({ summary: longSummary });
+    expect(prismaMock.generationRun.update.mock.calls[1]![0].data.parsedOutput)
+      .toEqual({
+        summary: `${"x".repeat(512)}…[truncated 188 chars]`,
+      });
+  });
+
+  it("fails closed when an exact projection exceeds its UTF-8 byte cap", async () => {
+    prismaMock.generationRun.upsert.mockResolvedValue({
+      id: "generation-oversized",
+      modelId,
+      tokenUsage: null,
+      resultRefs: null,
+      estimatedCostUsd: null,
+    });
+
+    await expect(runAuditedStructuredGeneration({
+      workItemId: "work-item-1",
+      kind: "capability_synthesis",
+      idempotencyKey: "synthesis:oversized",
+      inputSummary: { phase: "synthesis" },
+      exactParsedOutput: (generation) => generation.parsedOutput,
+      execute: async () => ({
+        ...structuredResult(null),
+        parsedOutput: { summary: "x".repeat(EXACT_PARSED_OUTPUT_MAX_BYTES) },
+      }),
+    })).rejects.toThrow(
+      `exceeds ${EXACT_PARSED_OUTPUT_MAX_BYTES} UTF-8 bytes`,
+    );
+  });
+
   it("aggregates token usage and cost when a durable idempotency key is retried", async () => {
     prismaMock.generationRun.upsert.mockResolvedValue({
       id: "generation-1",
@@ -77,6 +142,9 @@ describe("structured generation audit usage", () => {
       kind: "semantic_extraction",
       idempotencyKey: "semantic:retry",
       inputSummary: { path: "src/service.ts" },
+      resultAttestation: (result) => ({
+        answerDigest: result.data.answer === "ok" ? "verified" : "invalid",
+      }),
       execute: async () => structuredResult({
         inputTokens: 50,
         outputTokens: 10,
@@ -115,6 +183,7 @@ describe("structured generation audit usage", () => {
       unknownUsageAttempts: 0,
       usageComplete: true,
       knownEstimatedCostUsd: 0.00105,
+      resultAttestation: { answerDigest: "verified" },
     }));
   });
 
@@ -870,12 +939,17 @@ describe("structured generation audit usage", () => {
           "token_budget_exhausted",
           "The request did not fit before dispatch.",
           {
-            modelCalls: 0,
+            modelCalls: 6,
             repairPasses: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
+            inputTokens: 48_000,
+            outputTokens: 12_000,
+            totalTokens: 60_000,
             unknownUsageCalls: 0,
+          },
+          {
+            providerAttemptCount: 0,
+            unknownUsageAttempts: 0,
+            tokenUsage: null,
           },
         );
       },
@@ -883,12 +957,15 @@ describe("structured generation audit usage", () => {
 
     const data = prismaMock.generationRun.update.mock.calls[0]![0].data;
     expect(data.estimatedCostUsd).toBe(0);
+    expect(data.tokenUsage).toBe(Prisma.JsonNull);
     expect(data.resultRefs).toEqual(expect.objectContaining({
       auditAttemptCount: 0,
+      providerAttemptCount: 0,
       unknownUsageAttempts: 0,
       usageComplete: true,
       admissionFailure: true,
       budgetCode: "token_budget_exhausted",
+      message: "Structured generation stopped before dispatch: token_budget_exhausted.",
     }));
   });
 
@@ -915,12 +992,21 @@ describe("structured generation audit usage", () => {
           "token_budget_exhausted",
           "The provider response crossed the cumulative token ceiling.",
           {
-            modelCalls: 1,
+            modelCalls: 6,
             repairPasses: 0,
-            inputTokens: 120,
-            outputTokens: 30,
-            totalTokens: 150,
+            inputTokens: 48_120,
+            outputTokens: 12_030,
+            totalTokens: 60_150,
             unknownUsageCalls: 0,
+          },
+          {
+            providerAttemptCount: 1,
+            unknownUsageAttempts: 0,
+            tokenUsage: {
+              inputTokens: 120,
+              outputTokens: 30,
+              totalTokens: 150,
+            },
           },
         );
       },
@@ -951,6 +1037,7 @@ describe("structured generation audit usage", () => {
       knownEstimatedCostUsd: null,
       admissionFailure: false,
       budgetCode: "token_budget_exhausted",
+      message: "Structured generation stopped after provider dispatch: token_budget_exhausted.",
     }));
   });
 

@@ -21,12 +21,17 @@ import {
   OpenRouterConverseTransport,
   RetryableFallbackConverseTransport,
   RetryableFallbackTextRuntime,
+  RetryableSameModelTextRuntime,
 } from "@/src/lib/openrouter-client";
 
 const cachedClients = new Map<TextModelProfile, BedrockStructuredLlmClient>();
 
 function openRouterTextRuntime(config: OpenRouterTextConfig): ConverseTextRuntime {
-  const primary = new OpenRouterChatCompletionsRuntime(config);
+  const primary = new RetryableSameModelTextRuntime(
+    new OpenRouterChatCompletionsRuntime(config),
+    config,
+    config.modelId,
+  );
   return config.fallbackModelId
     ? new RetryableFallbackTextRuntime(
         primary,

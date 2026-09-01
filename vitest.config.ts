@@ -12,6 +12,8 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "components/**/*.test.tsx"],
     env: {
       WORKBASE_LLM_PROVIDER: "mock",
+      WORKBASE_SEMANTIC_PLANNER_MODE: "deterministic",
+      WORKBASE_REPOSITORY_SYNTHESIS_MODE: "deterministic",
       VITEST: "true",
     },
     coverage: {

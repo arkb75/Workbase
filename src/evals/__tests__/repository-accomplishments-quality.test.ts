@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRepositoryAccomplishmentsReport,
   buildRepositoryAccomplishmentsScenarioCatalog,
+  buildGeneralizedRepositoryAccomplishmentsProfileCatalog,
   parseRepositoryAccomplishmentsProfile,
   repositoryAccomplishmentsComparisonKey,
   resolveExactRepositoryAccomplishmentsTarget,
@@ -118,6 +119,20 @@ function scenarioResult(
 }
 
 describe("repository accomplishments quality harness", () => {
+  it("uses a multi-project catalog as the default repository-quality comparison", () => {
+    const catalog = buildGeneralizedRepositoryAccomplishmentsProfileCatalog();
+    expect(catalog).toHaveLength(6);
+    expect(catalog.map((entry) => entry.repository)).toEqual(expect.arrayContaining([
+      "arkb75/Workbase",
+      "arkb75/SoloPilot",
+      "arkb75/CircleFund",
+      "arkb75/Backer",
+      "arkb75/InsightUBC",
+      "arkb75/Amazon-Marketplace-Analytic-Software",
+    ]));
+    expect(new Set(catalog.flatMap((entry) => entry.requiredCapabilityPatterns)).size)
+      .toBeGreaterThan(12);
+  });
   it("maps short and long threshold flags into the same explicit profile fields", () => {
     const short = parseProjectChatApplicationCliOptions([
       "--provider", "openrouter",
@@ -347,7 +362,7 @@ Designed fund recovery through idempotent lending commands and a durable operati
     });
 
     expect(report).toMatchObject({
-      schemaVersion: "workbase-repository-accomplishments-report-v2",
+      schemaVersion: "repository-accomplishments-report-v3",
       passed: true,
       provider: "openrouter",
       target: { repository: "arkb75/CircleFund", commitSha: sha },

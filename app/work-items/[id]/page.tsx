@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
-import type { ReactNode } from "react";
 import {
   FolderGit2,
 } from "lucide-react";
@@ -24,6 +23,7 @@ import { HighlightSuggestionToast } from "@/components/claims/highlight-suggesti
 import { ProjectChatWorkspace } from "@/components/chat/project-chat-workspace";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { GenerationTracePanel } from "@/components/generation-trace-panel";
+import { HighlightWorkspace } from "@/components/highlights/highlight-workspace";
 import { KnowledgeUpdateInbox } from "@/components/knowledge/knowledge-update-inbox";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
@@ -461,6 +461,7 @@ function mapHighlightForCard(
     missingInfo: highlight.missingInfo,
     rejectionReason: highlight.rejectionReason,
     verificationNotes: highlight.verificationNotes,
+    updatedAt: highlight.updatedAt.toISOString(),
     evidence: {
       summary: highlight.summary,
       verificationNotes: highlight.verificationNotes,
@@ -645,33 +646,6 @@ function readCandidateSnapshot(value: unknown): {
         : null,
     partial: snapshot.partial === true,
   };
-}
-
-function ClaimSection({
-  title,
-  description,
-  count,
-  tone,
-  children,
-}: {
-  title: string;
-  description: string;
-  count: number;
-  tone: "warning" | "success" | "danger" | "neutral";
-  children: ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>{title}</CardTitle>
-          <Badge tone={tone}>{count} highlights</Badge>
-        </div>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
 }
 
 function WorkspacePaginationNav({
@@ -952,6 +926,8 @@ export default async function WorkItemDetailPage({
     evidenceTypeCounts,
     highlightCounts,
     highlightCount,
+    highlightOverview,
+    highlightOverviewLimit,
     pendingHighlightSuggestionCount,
     approvedProjectFactCount,
     projectFactCount,
@@ -986,20 +962,6 @@ export default async function WorkItemDetailPage({
 
   const activeHighlights = workItem.highlights.filter(
     (highlight) => highlight.lifecycleStatus === "active",
-  );
-  const lifecycleHighlights = workItem.highlights.filter(
-    (highlight) => highlight.lifecycleStatus !== "active",
-  );
-  const pendingHighlights = activeHighlights.filter(
-    (highlight) =>
-      highlight.verificationStatus === "draft" ||
-      highlight.verificationStatus === "flagged",
-  );
-  const approvedHighlights = activeHighlights.filter(
-    (highlight) => highlight.verificationStatus === "approved",
-  );
-  const rejectedHighlights = activeHighlights.filter(
-    (highlight) => highlight.verificationStatus === "rejected",
   );
   const canApproveAllPendingHighlights = highlightCounts.bulkApprovable > 0;
   const visibleSources = workItem.sources.filter(
@@ -1753,120 +1715,100 @@ export default async function WorkItemDetailPage({
           </section> : null
         }
         highlightsPanel={
-          activeTab === "highlights" ? <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr] xl:items-start">
-            <div className="grid gap-5">
-              <Card>
-                <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-2">
-                    <CardTitle>Highlight pipeline</CardTitle>
-                    <CardDescription>
-                      Generate, review, approve, reject, and trace highlights from this Work Item.
-                    </CardDescription>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {canApproveAllPendingHighlights ? (
-                      <form action={approveAllPendingHighlightsAction}>
-                        <input type="hidden" name="workItemId" value={workItem.id} />
-                        <input type="hidden" name="returnTo" value={highlightsReturnTo} />
-                        <SubmitButton pendingLabel="Approving highlights..." variant="secondary">
-                          Accept all pending
-                        </SubmitButton>
-                      </form>
-                    ) : null}
-                    <form action={generateHighlights}>
-                      <SubmitButton pendingLabel="Generating highlights..." variant="primary">
-                        Generate highlights
+          activeTab === "highlights" ? <section className="grid gap-6">
+            <section className="overflow-hidden rounded-[24px] border border-black/8 bg-white shadow-[0_16px_48px_rgba(16,33,43,0.06)]">
+              <div className="flex flex-wrap items-start justify-between gap-5 px-5 py-5 sm:px-6">
+                <div className="max-w-2xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--accent)]">
+                    Project memory
+                  </p>
+                  <h2 className="mt-2 font-display text-3xl font-semibold tracking-[-0.055em] text-[color:var(--ink-strong)]">
+                    Understand the work. Then decide what survives.
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-[color:var(--ink-soft)]">
+                    Atlas reveals grounded relationships. Coverage exposes review gaps. Both views use the same highlights and focused inspector.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canApproveAllPendingHighlights ? (
+                    <form action={approveAllPendingHighlightsAction}>
+                      <input type="hidden" name="workItemId" value={workItem.id} />
+                      <input type="hidden" name="returnTo" value={highlightsReturnTo} />
+                      <SubmitButton pendingLabel="Approving highlights…" variant="secondary">
+                        Approve eligible
                       </SubmitButton>
                     </form>
+                  ) : null}
+                  <form action={generateHighlights}>
+                    <SubmitButton pendingLabel="Generating highlights…" variant="primary">
+                      Generate highlights
+                    </SubmitButton>
+                  </form>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 border-t border-black/8 bg-[color:var(--surface)] sm:grid-cols-3 lg:grid-cols-6">
+                {[
+                  ["Approved", highlightCounts.approved],
+                  ["Needs review", highlightCounts.pending],
+                  ["Suggestions", pendingSuggestionCount],
+                  ["Lifecycle", highlightCounts.lifecycle],
+                  ["Rejected", highlightCounts.rejected],
+                  ["Sensitive", highlightCounts.sensitive],
+                ].map(([label, value], index) => (
+                  <div
+                    key={String(label)}
+                    className={`px-4 py-3 ${index ? "border-l border-black/7" : ""}`}
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ink-muted)]">
+                      {label}
+                    </p>
+                    <p className="mt-1 text-xl font-semibold tracking-[-0.04em] text-[color:var(--ink-strong)]">
+                      {value}
+                    </p>
                   </div>
-                </CardHeader>
-                <CardContent className="grid gap-3 sm:grid-cols-5">
-                  <KeyValue label="Active approved" value={highlightCounts.approved} />
-                  <KeyValue label="Pending" value={highlightCounts.pending} />
-                  <KeyValue label="Suggested" value={pendingSuggestionCount} />
-                  <KeyValue label="Lifecycle review" value={highlightCounts.lifecycle} />
-                  <KeyValue label="Rejected" value={highlightCounts.rejected} />
-                </CardContent>
-              </Card>
+                ))}
+              </div>
+            </section>
 
-              <WorkspacePaginationNav
-                label="Project knowledge"
-                page={workspacePagination.knowledge.page}
-                totalPages={workspacePagination.knowledge.totalPages}
-                totalItems={workspacePagination.knowledge.totalItems}
-                summary={`${highlightCount} highlights · ${projectFactCount} project facts`}
-                previousHref={
-                  workspacePagination.knowledge.page > 1
-                    ? knowledgePageHref(workspacePagination.knowledge.page - 1)
-                    : null
-                }
-                nextHref={
-                  workspacePagination.knowledge.page < workspacePagination.knowledge.totalPages
-                    ? knowledgePageHref(workspacePagination.knowledge.page + 1)
-                    : null
-                }
-              />
-
-              {pendingSuggestionCount ? (
-                <Card id="suggested-updates">
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle>Suggested updates</CardTitle>
-                      <Badge tone="accent">{pendingSuggestionCount} pending</Badge>
-                    </div>
-                    <CardDescription>
-                      Review proposed revisions from new import evidence before approved highlights change.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {workItem.highlightSuggestions.map((suggestion) => (
-                        <HighlightSuggestionCard
-                          key={suggestion.id}
-                          suggestion={suggestion}
-                          returnTo={highlightsReturnTo}
-                        />
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              <ClaimSection
-                title="Pending review"
-                description="These are the active highlights that still need a human decision."
-                count={highlightCounts.pending}
-                tone="warning"
-              >
-                {pendingHighlights.length ? (
+            {pendingSuggestionCount ? (
+              <section id="suggested-updates" className="scroll-mt-24">
+                <CollapsibleCard
+                  title="Suggested updates"
+                  description="New evidence proposed revisions to approved highlights. These remain separate from the map until you decide."
+                  meta={<Badge tone="accent">{pendingSuggestionCount} pending</Badge>}
+                  defaultOpen
+                >
                   <div className="space-y-4">
-                    {pendingHighlights.map((highlight, index) => (
-                      <ClaimCard
-                        key={highlight.id}
-                        defaultOpen={index === 0}
-                        claim={mapHighlightForCard(workItem.id, highlight)}
+                    {workItem.highlightSuggestions.map((suggestion) => (
+                      <HighlightSuggestionCard
+                        key={suggestion.id}
+                        suggestion={suggestion}
                         returnTo={highlightsReturnTo}
                       />
                     ))}
                   </div>
-                ) : (
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    {highlightCounts.pending
-                      ? "No pending highlights are shown on this page."
-                      : "No pending highlights right now."}
-                  </p>
-                )}
-              </ClaimSection>
+                </CollapsibleCard>
+              </section>
+            ) : null}
 
-              <ClaimSection
-                title="Approved"
-                description="Only approved highlights with an active lifecycle appear here and participate in normal retrieval when visibility allows."
-                count={highlightCounts.approved}
-                tone="success"
+            <HighlightWorkspace
+              items={highlightOverview.map((highlight) =>
+                mapHighlightForCard(workItem.id, highlight))}
+              totalCount={highlightCount}
+              overviewLimit={highlightOverviewLimit}
+              returnTo={highlightsReturnTo}
+            />
+
+            <section id="highlight-ledger" className="scroll-mt-24">
+              <CollapsibleCard
+                title="Highlight ledger"
+                description="The exact paginated records remain available for detailed audit and historical review."
+                meta={<Badge>{highlightCount} records</Badge>}
+                bodyClassName="space-y-5"
               >
-                {approvedHighlights.length ? (
-                  <div className="space-y-4">
-                    {approvedHighlights.map((highlight) => (
+                {workItem.highlights.length ? (
+                  <div className="space-y-3">
+                    {workItem.highlights.map((highlight) => (
                       <ClaimCard
                         key={highlight.id}
                         claim={mapHighlightForCard(workItem.id, highlight)}
@@ -1876,159 +1818,63 @@ export default async function WorkItemDetailPage({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    {highlightCounts.approved
-                      ? "No approved highlights are shown on this page."
-                      : "No approved highlights yet."}
+                    {highlightCount
+                      ? "No highlight records are shown on this page."
+                      : "No highlights have been generated yet."}
                   </p>
                 )}
-              </ClaimSection>
+                <WorkspacePaginationNav
+                  label="Project knowledge"
+                  page={workspacePagination.knowledge.page}
+                  totalPages={workspacePagination.knowledge.totalPages}
+                  totalItems={workspacePagination.knowledge.totalItems}
+                  summary={`${highlightCount} highlights · ${projectFactCount} project facts`}
+                  previousHref={
+                    workspacePagination.knowledge.page > 1
+                      ? knowledgePageHref(workspacePagination.knowledge.page - 1)
+                      : null
+                  }
+                  nextHref={
+                    workspacePagination.knowledge.page < workspacePagination.knowledge.totalPages
+                      ? knowledgePageHref(workspacePagination.knowledge.page + 1)
+                      : null
+                  }
+                />
+              </CollapsibleCard>
+            </section>
 
-              <ClaimSection
-                title="Lifecycle review"
-                description="Needs-validation, stale, quarantined, superseded, and retired versions stay outside the ordinary active lanes and remain visible for audit or successor edits."
-                count={highlightCounts.lifecycle}
-                tone="warning"
-              >
-                {lifecycleHighlights.length ? (
-                  <div className="space-y-4">
-                    {lifecycleHighlights.map((highlight) => (
-                      <ClaimCard
-                        key={highlight.id}
-                        claim={mapHighlightForCard(workItem.id, highlight)}
-                        returnTo={highlightsReturnTo}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    {highlightCounts.lifecycle
-                      ? "No lifecycle highlights are shown on this page."
-                      : "No highlights need lifecycle attention right now."}
-                  </p>
-                )}
-              </ClaimSection>
+            <ProjectFactSection
+              facts={workItem.projectFacts}
+              workItemId={workItem.id}
+              approvedCount={approvedProjectFactCount}
+              totalCount={projectFactCount}
+            />
 
-              <ClaimSection
-                title="Rejected"
-                description="Rejected highlights stay stored so future generations can avoid weak framing."
-                count={highlightCounts.rejected}
-                tone="danger"
-              >
-                {rejectedHighlights.length ? (
-                  <div className="space-y-4">
-                    {rejectedHighlights.map((highlight) => (
-                      <ClaimCard
-                        key={highlight.id}
-                        claim={mapHighlightForCard(workItem.id, highlight)}
-                        returnTo={highlightsReturnTo}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm leading-6 text-[color:var(--ink-soft)]">
-                    {highlightCounts.rejected
-                      ? "No rejected highlights are shown on this page."
-                      : "No rejected highlights for this Work Item."}
-                  </p>
-                )}
-              </ClaimSection>
+            <KnowledgeUpdateInbox
+              workItemId={workItem.id}
+              refreshes={workItem.knowledgeRefreshRuns.map((refresh) => ({
+                id: refresh.id,
+                status: refresh.status,
+                trigger: refresh.trigger,
+                targetHeads: refresh.targetHeads,
+                progress: refresh.progress,
+                error: refresh.error,
+                qualityStatus: refresh.qualityStatus,
+                coverage: refresh.coverage,
+                orchestration: refresh.orchestration,
+                budgetUsage: refresh.budgetUsage,
+                createdAt: refresh.createdAt.toISOString(),
+                finishedAt: refresh.finishedAt?.toISOString() ?? null,
+              }))}
+              changes={workItem.knowledgeChanges.map(mapKnowledgeChangeForInbox)}
+              counts={workItem.knowledgeChangeCounts}
+            />
 
-              <ProjectFactSection
-                facts={workItem.projectFacts}
-                workItemId={workItem.id}
-                approvedCount={approvedProjectFactCount}
-                totalCount={projectFactCount}
-              />
-
-              <WorkspacePaginationNav
-                label="Project knowledge"
-                page={workspacePagination.knowledge.page}
-                totalPages={workspacePagination.knowledge.totalPages}
-                totalItems={workspacePagination.knowledge.totalItems}
-                summary={`${highlightCount} highlights · ${projectFactCount} project facts`}
-                previousHref={
-                  workspacePagination.knowledge.page > 1
-                    ? knowledgePageHref(workspacePagination.knowledge.page - 1)
-                    : null
-                }
-                nextHref={
-                  workspacePagination.knowledge.page < workspacePagination.knowledge.totalPages
-                    ? knowledgePageHref(workspacePagination.knowledge.page + 1)
-                    : null
-                }
-              />
-
-              <KnowledgeUpdateInbox
-                workItemId={workItem.id}
-                refreshes={workItem.knowledgeRefreshRuns.map((refresh) => ({
-                  id: refresh.id,
-                  status: refresh.status,
-                  trigger: refresh.trigger,
-                  targetHeads: refresh.targetHeads,
-                  progress: refresh.progress,
-                  error: refresh.error,
-                  qualityStatus: refresh.qualityStatus,
-                  coverage: refresh.coverage,
-                  orchestration: refresh.orchestration,
-                  budgetUsage: refresh.budgetUsage,
-                  createdAt: refresh.createdAt.toISOString(),
-                  finishedAt: refresh.finishedAt?.toISOString() ?? null,
-                }))}
-                changes={workItem.knowledgeChanges.map(mapKnowledgeChangeForInbox)}
-                counts={workItem.knowledgeChangeCounts}
-              />
-
-              <GenerationTracePanel
-                traces={highlightTraces}
-                title="Generation traces"
-                description="Provider responses, parsed payloads, validation failures, and persisted result refs."
-              />
-            </div>
-
-            <aside className="space-y-5 xl:sticky xl:top-24 xl:self-start">
-              <Card className="overflow-hidden bg-[color:var(--ink-strong)] text-white shadow-[0_24px_60px_rgba(16,33,43,0.18)]">
-                <CardHeader>
-                  <CardTitle className="text-white">Review summary</CardTitle>
-                  <CardDescription className="text-white/72">
-                    Scan the queue, decide what survives, and keep approved material quiet.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                    <a
-                      href="#knowledge-updates"
-                      aria-label={`Jump to ${workItem.knowledgeChangeCounts.totalKnowledgeCount} knowledge updates`}
-                      className="group block cursor-pointer rounded-[24px] bg-white/8 p-4 transition hover:bg-white/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                    >
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Knowledge updates</p>
-                      <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white transition group-hover:translate-x-0.5">
-                        {workItem.knowledgeChangeCounts.totalKnowledgeCount}
-                      </p>
-                    </a>
-                    <div className="rounded-[24px] bg-white/8 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/60">Sensitive</p>
-                      <p className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-white">
-                        {highlightCounts.sensitive}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Work Item context</CardTitle>
-                  <CardDescription>
-                    Highlights on this tab are grounded in the current sources and evidence pool.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <KeyValue label="Type" value={titleCase(workItem.type)} />
-                  <KeyValue label="Sources" value={`${visibleSourceCount} attached`} />
-                  <KeyValue label="Evidence" value={`${includedEvidenceCount} included`} />
-                </CardContent>
-              </Card>
-            </aside>
+            <GenerationTracePanel
+              traces={highlightTraces}
+              title="Generation traces"
+              description="Provider responses, parsed payloads, validation failures, and persisted result refs."
+            />
           </section> : null
         }
         chatPanel={

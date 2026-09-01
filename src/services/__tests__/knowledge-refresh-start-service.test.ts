@@ -32,6 +32,7 @@ vi.mock("@/src/lib/llm-config", () => ({
   resolveWorkbaseLlmProvider: () => "mock",
 }));
 vi.mock("@/src/services/repository-knowledge-sync-service", () => ({
+  REPOSITORY_INVENTORY_POLICY_VERSION: "repository-inventory-v2-hybrid",
   REPOSITORY_SEMANTIC_ANALYZER_VERSION: "repository-coverage-v14",
   REPOSITORY_STATIC_ANALYZER_VERSION: "repository-coverage-v14",
   repositoryKnowledgeSyncService: {

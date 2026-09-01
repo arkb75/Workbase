@@ -15,6 +15,9 @@ import {
   analyzeRepositoryFile,
   analyzeRepositoryFileBatch,
   createRepositorySemanticBudget,
+  repositorySemanticFindingGuidance,
+  REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+  selectSemanticWindows,
 } from "@/src/services/repository-coverage-service";
 
 describe("repository semantic task and budget", () => {
@@ -51,6 +54,505 @@ describe("repository semantic task and budget", () => {
         attempts: [{ status: "success" }],
       };
     });
+  });
+
+  it("prioritizes executed primary behavior over interface affordances", () => {
+    expect(repositorySemanticFindingGuidance).toContain("primary executed action, mutation, or result");
+    expect(repositorySemanticFindingGuidance).toContain("before navigation, control visibility, empty-state copy");
+    expect(repositorySemanticFindingGuidance).toContain("Prefer domain mutations such as create, update, or delete");
+    expect(repositorySemanticFindingGuidance).toContain("generic load, save, back-navigation");
+    expect(repositorySemanticFindingGuidance).toContain("visible button or field proves an affordance");
+    expect(repositorySemanticFindingGuidance).toContain("cite the action handler or mutation");
+  });
+
+  it("allocates a batch notebook to a small number of cohesive operation ranges", () => {
+    const content = Array.from({ length: 360 }, (_unused, index) =>
+      `export function operation${index}() { return ${index}; }`
+    ).join("\n");
+
+    const [window] = selectSemanticWindows(
+      content,
+      REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+      {
+        path: "src/operations.ts",
+        task: {
+          objective: "Identify distinct implemented operations.",
+          capabilityKeys: ["project_domain:operations"],
+          questions: [],
+          expectedOutputs: ["Exact-line supported operation behavior"],
+        },
+      },
+    );
+    const ranges = window!.content.split("\n").reduce<Array<[number, number]>>(
+      (result, line) => {
+        const lineNumber = Number(/^([0-9]+):/u.exec(line)?.[1]);
+        const prior = result.at(-1);
+        if (prior && lineNumber === prior[1] + 1) prior[1] = lineNumber;
+        else result.push([lineNumber, lineNumber]);
+        return result;
+      },
+      [],
+    );
+
+    expect(ranges.length).toBeLessThanOrEqual(4);
+    expect(Buffer.byteLength(window!.content, "utf8")).toBeLessThanOrEqual(
+      REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+    );
+  });
+
+  it("retains the exact cited source lines with accepted semantic facts", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The handler removes a selected record.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The handler removes the selected record by identifier.",
+          kind: "user_capability",
+          capabilityKeys: ["product_surface"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 2,
+          lineEnd: 3,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/inventory",
+      commitSha: "e".repeat(40),
+      path: "src/ui/remove-record.ts",
+      content: [
+        "button.onClick(() => {",
+        "  const id = selectedRecordId();",
+        "  records.remove(id);",
+        "});",
+      ].join("\n"),
+      task: {
+        objective: "Identify the implemented record-removal action.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["The executed mutation and its identifier"],
+      },
+    });
+
+    expect(analysis.facts[0]).toMatchObject({
+      lineStart: 2,
+      lineEnd: 3,
+      semanticKind: "user_capability",
+      evidenceExcerpt: "2:   const id = selectedRecordId();\n3:   records.remove(id);",
+    });
+    const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt) as {
+      suppliedLineRanges: Array<[number, number]>;
+      lineRange?: unknown;
+    };
+    expect(prompt).not.toHaveProperty("lineRange");
+    expect(prompt.suppliedLineRanges).toEqual([[1, 4]]);
+  });
+
+  it("accepts a contiguous exact range from a CRLF repository file", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The handler validates and stores the submitted record.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The handler validates the submitted record before storing it.",
+          kind: "behavior",
+          capabilityKeys: ["product_surface"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 2,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/windows-project",
+      commitSha: "c".repeat(40),
+      path: "src/record-handler.ts",
+      content: "validate(record);\r\nstore(record);",
+      task: {
+        objective: "Identify the implemented record flow.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["The exact validated operation"],
+      },
+    });
+
+    expect(analysis.facts).toEqual([
+      expect.objectContaining({ lineStart: 1, lineEnd: 2 }),
+    ]);
+    expect(analysis.unresolvedQuestions.join(" ")).not.toContain("were not supplied");
+  });
+
+  it("rejects a citation that crosses lines omitted from a sparse semantic notebook", async () => {
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        suppliedLineRanges: Array<[number, number]>;
+        content: string;
+        lineRange?: unknown;
+      };
+      expect(prompt).not.toHaveProperty("lineRange");
+      expect(prompt.suppliedLineRanges.length).toBeGreaterThan(1);
+      const suppliedLineNumbers = prompt.content.split("\n").map((line) =>
+        Number(/^(\d+):/u.exec(line)?.[1])
+      );
+      const advertisedLineNumbers = prompt.suppliedLineRanges.flatMap(([start, end]) =>
+        Array.from({ length: end - start + 1 }, (_unused, index) => start + index)
+      );
+      expect(advertisedLineNumbers).toEqual(suppliedLineNumbers);
+      const laterRange = prompt.suppliedLineRanges[1]!;
+      return {
+        data: {
+          summary: "The module exposes many repository operations.",
+          subsystemKeys: ["product_surface"],
+          findings: [
+            {
+              statement: "The module exposes the operations represented across the selected range.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: prompt.suppliedLineRanges[0]![0],
+              lineEnd: prompt.suppliedLineRanges.at(-1)![1],
+            },
+            {
+              statement: "The later supplied range exports an implemented operation.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: laterRange[0],
+              lineEnd: laterRange[0],
+            },
+          ],
+          unresolvedQuestions: [],
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: null,
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const content = Array.from({ length: 320 }, (_, index) =>
+      `export const operation${index} = () => "${"implementation".repeat(5)}";`
+    ).join("\n");
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/general-project",
+      commitSha: "a".repeat(40),
+      path: "src/operations.ts",
+      content,
+      task: {
+        objective: "Identify implemented project operations.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: ["Exact-line supported operations"],
+      },
+    });
+
+    expect(analysis.facts).toEqual([
+      expect.objectContaining({
+        statement: "The later supplied range exports an implemented operation.",
+      }),
+    ]);
+    expect(analysis.architectureSignals).toEqual(["user capability"]);
+    expect(analysis.userFacingCapabilities).toEqual([
+      "The later supplied range exports an implemented operation.",
+    ]);
+    expect(analysis.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
+    const diagnostic = analysis.semanticDiagnostics?.[0];
+    expect(diagnostic).not.toHaveProperty("lineRange");
+    expect(diagnostic).toHaveProperty("suppliedLineRanges");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("same suppliedLineRanges entry");
+  });
+
+  it("forces redacted cited ranges sensitive while leaving ordinary authentication unflagged", async () => {
+    const response = (statement: string) => ({
+      data: {
+        summary: statement,
+        subsystemKeys: ["security_boundary"],
+        findings: [{
+          statement,
+          kind: "behavior",
+          capabilityKeys: ["security_boundary"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+    generateStructuredMock
+      .mockResolvedValueOnce(response("The configuration contains service credential material."))
+      .mockResolvedValueOnce(response("The handler verifies a signed session cookie before continuing."));
+    const task = {
+      objective: "Identify the implemented security boundary.",
+      capabilityKeys: ["security_boundary"],
+      questions: [],
+      expectedOutputs: ["An exact-line supported finding"],
+    };
+
+    const redacted = await analyzeRepositoryFile({
+      repository: "example/security",
+      commitSha: "f".repeat(40),
+      path: "src/runtime/config.ts",
+      content: "const serviceToken = '[REDACTED API TOKEN]';",
+      task,
+    });
+    const ordinaryAuthentication = await analyzeRepositoryFile({
+      repository: "example/security",
+      commitSha: "f".repeat(40),
+      path: "src/auth/session.ts",
+      content: "export const readSession = (cookie) => verifySignedCookie(cookie);",
+      task,
+    });
+
+    expect(redacted.facts[0]).toMatchObject({
+      sensitivityFlag: true,
+      semanticKind: "behavior",
+      evidenceExcerpt: "1: const serviceToken = '[REDACTED API TOKEN]';",
+    });
+    expect(ordinaryAuthentication.facts[0]).toMatchObject({
+      semanticKind: "behavior",
+    });
+    expect(ordinaryAuthentication.facts[0]?.sensitivityFlag).toBe(false);
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain(
+      "When uncertain whether cited material is protected",
+    );
+  });
+
+  it("forces redacted cited ranges sensitive in semantic micro-batches", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The configuration contains credential material.",
+            subsystemKeys: ["security_boundary"],
+            findings: [{
+              statement: "The configuration contains credential material.",
+              kind: "configuration",
+              capabilityKeys: ["security_boundary"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The handler verifies a signed session cookie.",
+            subsystemKeys: ["security_boundary"],
+            findings: [{
+              statement: "The handler verifies a signed session cookie.",
+              kind: "behavior",
+              capabilityKeys: ["security_boundary"],
+              signalKeys: [],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+    const task = {
+      objective: "Identify the implemented security boundary.",
+      capabilityKeys: ["security_boundary"],
+      questions: [],
+      expectedOutputs: ["An exact-line supported finding"],
+    };
+
+    const [redacted, ordinaryAuthentication] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/security",
+        commitSha: "f".repeat(40),
+        path: "src/runtime/config.ts",
+        content: "const serviceToken = '[REDACTED API TOKEN]';",
+        task,
+      },
+      {
+        repository: "example/security",
+        commitSha: "f".repeat(40),
+        path: "src/auth/session.ts",
+        content: "export const readSession = (cookie) => verifySignedCookie(cookie);",
+        task,
+      },
+    ]);
+
+    expect(redacted?.facts[0]).toMatchObject({
+      sensitivityFlag: true,
+      semanticKind: "configuration",
+    });
+    expect(ordinaryAuthentication?.facts[0]).toMatchObject({
+      sensitivityFlag: false,
+      semanticKind: "behavior",
+    });
+  });
+
+  it("rejects planned documentation findings in single-file semantic extraction", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The roadmap describes future semantic recommendations.",
+        subsystemKeys: ["product_surface"],
+        findings: [{
+          statement: "The product provides semantic recommendations.",
+          kind: "user_capability",
+          capabilityKeys: ["product_surface"],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 4,
+          lineEnd: 4,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/product",
+      commitSha: "a".repeat(40),
+      path: "README.md",
+      content: [
+        "# Product",
+        "Current ingestion is available.",
+        "## Roadmap",
+        "Semantic recommendations will add personalized discovery.",
+      ].join("\n"),
+      task: {
+        objective: "Identify implemented product behavior.",
+        capabilityKeys: ["product_surface"],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.unresolvedQuestions.join(" ")).toContain("Rejected planned documentation finding at 4-4");
+  });
+
+  it("rejects planned documentation findings in semantic micro-batches", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        files: {
+          "file-1": {
+            summary: "The roadmap describes future semantic recommendations.",
+            subsystemKeys: ["product_surface"],
+            findings: [{
+              statement: "The product provides semantic recommendations.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 4,
+              lineEnd: 4,
+            }],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The implementation exposes a current product surface.",
+            subsystemKeys: ["product_surface"],
+            findings: [{
+              statement: "The current implementation renders the product surface.",
+              kind: "user_capability",
+              capabilityKeys: ["product_surface"],
+              confidence: "high",
+              sensitivityFlag: false,
+              lineStart: 1,
+              lineEnd: 1,
+            }],
+            unresolvedQuestions: [],
+          },
+        },
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "bedrock",
+      modelId: "us.anthropic.claude-sonnet-4-6",
+      transportMode: "bedrock_json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const task = {
+      objective: "Identify implemented product behavior.",
+      capabilityKeys: ["product_surface"],
+      questions: [],
+      expectedOutputs: [],
+    };
+    const [analysis] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "README.md",
+        content: [
+          "# Product",
+          "Current ingestion is available.",
+          "## Roadmap",
+          "Semantic recommendations will add personalized discovery.",
+        ].join("\n"),
+        task,
+      },
+      {
+        repository: "example/product",
+        commitSha: "b".repeat(40),
+        path: "src/app/page.tsx",
+        content: "export default function Page() { return <main>Current product</main>; }",
+        task,
+      },
+    ]);
+
+    expect(analysis?.facts).toEqual([]);
+    expect(analysis?.unresolvedQuestions.join(" ")).toContain("Rejected planned documentation finding at 4-4");
   });
 
   it("salvages bounded prose that slightly exceeds provider maxLength output", async () => {
@@ -177,6 +679,9 @@ describe("repository semantic task and budget", () => {
     expect(analyses.map((analysis) => analysis.path)).toEqual(paths);
     expect(analyses.every((analysis) => analysis.semanticStatus === "succeeded")).toBe(true);
     expect(analyses.every((analysis) => analysis.facts[0]?.lineStart === 1 && analysis.facts[0]?.lineEnd === 1)).toBe(true);
+    expect(analyses.every((analysis) =>
+      analysis.facts[0]?.evidenceExcerpt === "1: export const operation = () => true;"
+    )).toBe(true);
     expect(analyses.every((analysis) => {
       const diagnostic = analysis.semanticDiagnostics?.[0];
       return Boolean(
@@ -196,6 +701,12 @@ describe("repository semantic task and budget", () => {
     });
     expect(Object.keys(request.jsonSchema.properties.files.properties)).toEqual(["file-1", "file-2", "file-3"]);
     expect(request.jsonSchema.$defs.semanticFileAnalysis).toBeDefined();
+    expect(request.jsonSchema.$defs.semanticFileAnalysis.properties.subsystemKeys.items.enum).toEqual([
+      "project_chat_grounding",
+    ]);
+    expect(
+      request.jsonSchema.$defs.semanticFileAnalysis.properties.findings.items.properties.capabilityKeys.items.enum,
+    ).toEqual(["project_chat_grounding"]);
     expect(request.jsonSchema.properties.files.properties).toEqual({
       "file-1": { $ref: "#/$defs/semanticFileAnalysis" },
       "file-2": { $ref: "#/$defs/semanticFileAnalysis" },
@@ -204,6 +715,282 @@ describe("repository semantic task and budget", () => {
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("fileKey");
     expect(request.exampleOutput.files["file-1"]).not.toHaveProperty("path");
     expect(request.effort).toBe("low");
+    expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.systemPrompt).toContain("primary executed action, mutation, or result");
+    expect(request.systemPrompt).toContain("visible button or field proves an affordance");
+    expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
+    expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
+    expect(request.systemPrompt).toContain("opaque identifier");
+    expect(request.systemPrompt).toContain("preserving punctuation such as ':'");
+    expect(request.transportPreference).toEqual([
+      "json_schema",
+      "text_repair_fallback",
+    ]);
+    expect(request.enablePromptCaching).toBe(false);
+    expect(request.minimumOutputTokens).toBe(request.maxTokens);
+  });
+
+  it("uses an exact shared capability-key enum while keeping batch results file-local", async () => {
+    const fileAnalysis = (
+      capabilityKeys: string[],
+      statement: string,
+      subsystemKeys = capabilityKeys,
+    ) => ({
+      summary: statement,
+      subsystemKeys,
+      findings: [{
+        statement,
+        kind: "data_flow" as const,
+        capabilityKeys,
+        signalKeys: [],
+        confidence: "high" as const,
+        sensitivityFlag: false as const,
+        lineStart: 1,
+        lineEnd: 1,
+      }],
+      unresolvedQuestions: [],
+    });
+    const result = (files: Record<string, ReturnType<typeof fileAnalysis>>) => ({
+      data: { files },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+    generateStructuredMock
+      .mockResolvedValueOnce(result({
+        "file-1": fileAnalysis(
+          ["project_domain:payments", "repository_area:data_model"],
+          "The payment operation persists the completed charge.",
+          ["repository_area:data_model"],
+        ),
+        "file-2": fileAnalysis(
+          ["repository_area:data_model"],
+          "The persistence operation stores the repository record.",
+        ),
+      }))
+      .mockResolvedValueOnce(result({
+        "file-1": fileAnalysis(
+          ["project_domain:shipping"],
+          "The shipping operation dispatches the selected parcel.",
+        ),
+        "file-2": fileAnalysis(
+          ["project_domain:shipping"],
+          "The queue stores the parcel dispatch request.",
+        ),
+      }));
+
+    const batchInput = (path: string, capabilityKey: string) => ({
+      repository: "example/project",
+      commitSha: "a".repeat(40),
+      path,
+      content: "export const operation = () => true;",
+      task: {
+        objective: `Determine how ${capabilityKey} executes.`,
+        capabilityKeys: [capabilityKey],
+        questions: [],
+        expectedOutputs: [],
+      },
+    });
+    const first = await analyzeRepositoryFileBatch([
+      batchInput("src/payments.ts", "project_domain:payments"),
+      batchInput("src/persistence.ts", "repository_area:data_model"),
+    ]);
+    await analyzeRepositoryFileBatch([
+      batchInput("src/shipping.ts", "project_domain:shipping"),
+      batchInput("src/shipping-queue.ts", "project_domain:shipping"),
+    ]);
+
+    const firstRequest = generateStructuredMock.mock.calls[0]?.[0];
+    const secondRequest = generateStructuredMock.mock.calls[1]?.[0];
+    const enumAt = (request: typeof firstRequest) =>
+      request.jsonSchema.$defs.semanticFileAnalysis.properties.subsystemKeys.items.enum;
+    expect(enumAt(firstRequest)).toEqual([
+      "project_domain:payments",
+      "repository_area:data_model",
+    ]);
+    expect(enumAt(secondRequest)).toEqual(["project_domain:shipping"]);
+    expect(enumAt(firstRequest)).toEqual([
+      "project_domain:payments",
+      "repository_area:data_model",
+    ]);
+    expect(first[0]?.facts[0]?.subsystemKeys).toEqual(["project_domain:payments"]);
+    expect(first[0]?.subsystemKeys).not.toContain("repository_area:data_model");
+    expect(first[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        strippedUnsupportedCapabilityKeys: ["repository_area:data_model"],
+        strippedUnsupportedSubsystemKeys: ["repository_area:data_model"],
+      }),
+    ]));
+    expect(first[1]?.facts[0]?.subsystemKeys).toEqual(["repository_area:data_model"]);
+  });
+
+  it("isolates a sparse cross-gap citation without discarding a valid batch sibling", async () => {
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        files: Array<{
+          fileKey: string;
+          suppliedLineRanges: Array<[number, number]>;
+          lineRange?: unknown;
+        }>;
+      };
+      expect(prompt.files.every((file) => !("lineRange" in file))).toBe(true);
+      expect(prompt.files[0]!.suppliedLineRanges.length).toBeGreaterThan(1);
+      expect(prompt.files[1]!.suppliedLineRanges).toEqual([[1, 1]]);
+      const invalidRanges = prompt.files[0]!.suppliedLineRanges;
+      const validRange = prompt.files[1]!.suppliedLineRanges[0]!;
+      return {
+        data: {
+          files: {
+            "file-1": {
+              summary: "The large module exposes many operations.",
+              subsystemKeys: ["product_surface"],
+              findings: [{
+                statement: "The large module exposes operations across the selected range.",
+                kind: "user_capability",
+                capabilityKeys: ["product_surface"],
+                signalKeys: [],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: invalidRanges[0]![0],
+                lineEnd: invalidRanges.at(-1)![1],
+              }],
+              unresolvedQuestions: [],
+            },
+            "file-2": {
+              summary: "The focused module exposes one operation.",
+              subsystemKeys: ["product_surface"],
+              findings: [{
+                statement: "The focused module exports the implemented operation.",
+                kind: "user_capability",
+                capabilityKeys: ["product_surface"],
+                signalKeys: [],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: validRange[0],
+                lineEnd: validRange[0],
+              }],
+              unresolvedQuestions: [],
+            },
+          },
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: null,
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const largeContent = Array.from({ length: 320 }, (_, index) =>
+      `export const operation${index} = () => "${"implementation".repeat(5)}";`
+    ).join("\n");
+    const task = {
+      objective: "Identify implemented project operations.",
+      capabilityKeys: ["product_surface"],
+      questions: [],
+      expectedOutputs: ["Exact-line supported operations"],
+    };
+
+    const [invalid, valid] = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/many-operations.ts",
+        content: largeContent,
+        task,
+      },
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/focused-operation.ts",
+        content: "export const operation = () => true;",
+        task,
+      },
+    ]);
+
+    expect(invalid?.facts).toEqual([]);
+    expect(invalid?.unresolvedQuestions.join(" ")).toContain("spans source lines that were not supplied");
+    expect(valid?.facts).toHaveLength(1);
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("never span a numbering gap");
+    expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("same suppliedLineRanges entry");
+  });
+
+  it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 3_000,
+      maxTotalTokens: 54_000,
+    });
+    budget.usageScope = "shared_wave";
+    const paths = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
+    generateStructuredMock.mockImplementationOnce(async (request: { userPrompt: string }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        files: Array<{ fileKey: string; suppliedLineRanges: Array<[number, number]> }>;
+      };
+      return {
+        data: {
+          files: Object.fromEntries(prompt.files.map((file) => [
+            file.fileKey,
+            {
+              summary: "The selected window implements a bounded operation.",
+              subsystemKeys: ["project_domain:operations"],
+              findings: [{
+                statement: "The selected window exports an implemented operation.",
+                kind: "behavior",
+                capabilityKeys: ["project_domain:operations"],
+                confidence: "high",
+                sensitivityFlag: false,
+                lineStart: file.suppliedLineRanges[0]![0],
+                lineEnd: file.suppliedLineRanges[0]![0],
+              }],
+              unresolvedQuestions: [],
+            },
+          ])),
+        },
+        rawOutput: "{}",
+        parsedOutput: {},
+        tokenUsage: { inputTokens: 4_500, outputTokens: 900, totalTokens: 6_400 },
+        provider: "bedrock",
+        modelId: "us.anthropic.claude-sonnet-4-6",
+        transportMode: "bedrock_json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const content = Array.from({ length: 240 }, (_, index) =>
+      `export const operation${index} = () => "${"source".repeat(8)}";`
+    ).join("\n");
+
+    const analyses = await analyzeRepositoryFileBatch(paths.map((path) => ({
+      repository: "example/general-project",
+      commitSha: "f".repeat(40),
+      path,
+      content,
+      task: {
+        objective: "Determine the implemented operation.",
+        capabilityKeys: ["project_domain:operations"],
+        questions: [],
+        expectedOutputs: ["An exact-line supported finding"],
+      },
+      budget,
+    })));
+
+    const request = generateStructuredMock.mock.calls[0]?.[0];
+    const prompt = JSON.parse(request.userPrompt) as { files: Array<{ content: string }> };
+    const sourceBytes = prompt.files.map((file) => Buffer.byteLength(file.content, "utf8"));
+    expect(sourceBytes.every((bytes) => bytes <= REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES)).toBe(true);
+    expect(sourceBytes.reduce((total, bytes) => total + bytes, 0)).toBeLessThanOrEqual(
+      4 * REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+    );
+    expect(request.maxTokens).toBe(3_000);
+    expect(analyses.every((analysis) => analysis.semanticSource === "model")).toBe(true);
+    expect(analyses.every((analysis) => analysis.semanticBudgetUsage === undefined)).toBe(true);
   });
 
   it("degrades only missing or invalid file members and retains their exact gaps", async () => {
@@ -450,7 +1237,7 @@ describe("repository semantic task and budget", () => {
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
   });
 
-  it("degrades a valid batch member when any assigned capability has no supported finding", async () => {
+  it("keeps usable partial capability coverage successful and reports missing keys separately", async () => {
     generateStructuredMock.mockResolvedValueOnce({
       data: {
         files: Object.fromEntries(["src/incomplete.ts", "src/complete.ts"].map((_path, index) => [
@@ -513,10 +1300,18 @@ describe("repository semantic task and budget", () => {
       budget,
     }]);
 
-    expect(analyses[0]).toMatchObject({ semanticStatus: "degraded" });
-    expect(analyses[0]?.unresolvedQuestions.join(" ")).toContain("required capabilities: retrieval_provenance");
+    expect(analyses[0]).toMatchObject({
+      semanticStatus: "succeeded",
+      semanticSource: "model",
+      facts: [expect.objectContaining({ subsystemKeys: ["ai_runtime"] })],
+    });
+    expect(analyses[0]?.unresolvedQuestions.join(" ")).not.toContain("retrieval_provenance");
     expect(analyses[0]?.semanticDiagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ missingCapabilityKeys: ["retrieval_provenance"] }),
+      expect.objectContaining({
+        status: "partial_capability_coverage",
+        rejectedFindings: 0,
+        missingCapabilityKeys: ["retrieval_provenance"],
+      }),
     ]));
     expect(analyses[1]).toMatchObject({ semanticStatus: "succeeded" });
   });
@@ -651,7 +1446,7 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {
+  it("keeps capability routing context cohesive and schema-authoritative", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
       maxModelCalls: 2,
@@ -679,6 +1474,7 @@ describe("repository semantic task and budget", () => {
       researchTask: {
         objective: "Determine how project retrieval is grounded.",
         capabilityKeys: ["retrieval_provenance"],
+        semanticSignalKeys: [],
         questions: ["How is retrieval scoped?"],
         expectedOutputs: ["A supported data-flow finding"],
       },
@@ -686,8 +1482,79 @@ describe("repository semantic task and budget", () => {
     });
     expect(request.maxTokens).toBe(777);
     expect(request.budget).toBe(budget.model);
+    expect(request.systemPrompt).toContain("query-parameter plumbing");
+    expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
+    expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
+    expect(request.transportPreference).toEqual([
+      "json_schema",
+      "text_repair_fallback",
+    ]);
+    expect(request.enablePromptCaching).toBe(false);
+    expect(request.minimumOutputTokens).toBe(request.maxTokens);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
     expect(analysis.semanticBudgetUsage).toMatchObject({ modelCalls: 1, totalTokens: 40 });
+  });
+
+  it("treats colon-delimited capability keys as opaque provider-schema values", async () => {
+    generateStructuredMock.mockResolvedValueOnce({
+      data: {
+        summary: "The script persists repository knowledge.",
+        // Provider schema enforcement should prevent this normalized metadata,
+        // but the redundant file-level label must not poison a supported fact
+        // if a provider returns it anyway.
+        subsystemKeys: ["repository_area_data_model"],
+        findings: [{
+          statement: "The script persists repository knowledge records.",
+          kind: "data_flow",
+          capabilityKeys: ["repository_area:data_model"],
+          signalKeys: [],
+          confidence: "high",
+          sensitivityFlag: false,
+          lineStart: 1,
+          lineEnd: 1,
+        }],
+        unresolvedQuestions: [],
+      },
+      rawOutput: "{}",
+      parsedOutput: {},
+      tokenUsage: null,
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+      transportMode: "json_schema",
+      attempts: [{ status: "success" }],
+    });
+
+    const analysis = await analyzeRepositoryFile({
+      repository: "example/project",
+      commitSha: "a".repeat(40),
+      path: "scripts/backfill.ts",
+      content: "await persistRepositoryKnowledge();",
+      task: {
+        objective: "Determine how repository knowledge is persisted.",
+        capabilityKeys: ["repository_area:data_model"],
+        questions: [],
+        expectedOutputs: ["An exact-line persistence observation"],
+      },
+    });
+
+    const request = generateStructuredMock.mock.calls[0]?.[0];
+    expect(request.systemPrompt).not.toContain("snake_case subsystem keys");
+    expect(request.systemPrompt).toContain("opaque identifier");
+    expect(request.systemPrompt).toContain("preserving punctuation such as ':'");
+    expect(request.jsonSchema.properties.subsystemKeys.items.enum).toEqual([
+      "repository_area:data_model",
+    ]);
+    expect(request.jsonSchema.properties.findings.items.properties.capabilityKeys.items.enum).toEqual([
+      "repository_area:data_model",
+    ]);
+    expect(analysis.subsystemKeys).toContain("repository_area:data_model");
+    expect(analysis.subsystemKeys).not.toContain("repository_area_data_model");
+    expect(analysis.facts[0]?.subsystemKeys).toEqual(["repository_area:data_model"]);
+    expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        strippedUnsupportedSubsystemKeys: ["repository_area_data_model"],
+      }),
+    ]));
   });
 
   it("uses task and static-analysis hints when a singleton large file is windowed", async () => {
@@ -745,7 +1612,10 @@ describe("repository semantic task and budget", () => {
 
     const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt);
     expect(prompt.content).toContain("720: export function routeCitationToReviewEvidence");
-    expect(prompt.researchTask.semanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
+    expect(prompt.allowedSemanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
+    expect(prompt.researchTask.semanticSignalKeys).toEqual([
+      "review_ui.citation_navigation",
+    ]);
   });
 
   it("returns an explicit gap without calling the provider when the input-byte budget is exhausted", async () => {
@@ -812,7 +1682,7 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("recovers safe capability coverage from exact-line deterministic facts after structured extraction fails", async () => {
+  it("does not replace a model extraction failure with deterministic static facts", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("Bedrock temporarily unavailable"));
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
@@ -840,25 +1710,18 @@ describe("repository semantic task and budget", () => {
       budget,
     });
 
-    expect(analysis.semanticStatus).toBe("degraded");
-    expect(analysis.semanticSource).toBe("deterministic_fallback");
+    expect(analysis.semanticStatus).toBe("failed");
+    expect(analysis.semanticSource).toBeUndefined();
     expect(analysis.unresolvedQuestions).toEqual(expect.arrayContaining([
-      expect.stringContaining("partial coverage"),
       expect.stringContaining("Bedrock temporarily unavailable"),
     ]));
-    expect(analysis.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        evidenceMode: "deterministic_fallback",
-        subsystemKeys: ["workflow_orchestration"],
-      }),
-    ]));
+    expect(analysis.facts).toEqual([]);
     expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "provider_error" }),
-      expect.objectContaining({ status: "deterministic_exact_line_fallback" }),
     ]));
   });
 
-  it("recovers review lifecycle semantics from decisions, restoration, invalidation, and revalidation patterns", async () => {
+  it("keeps rich static lifecycle evidence out of the model failure path", async () => {
     generateStructuredMock.mockRejectedValueOnce(new Error("structured extraction failed"));
     const analysis = await analyzeRepositoryFile({
       repository: "workbase/demo",
@@ -891,12 +1754,12 @@ describe("repository semantic task and budget", () => {
       },
     });
 
-    expect(analysis.semanticStatus).toBe("degraded");
-    expect(analysis.semanticSource).toBe("deterministic_fallback");
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/dispatches keep, edit-and-keep, revert, and retire/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/repository revalidation pass/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/restores validation state and exact Project Fact evidence relations/);
-    expect(analysis.facts.map((fact) => fact.statement).join(" ")).toMatch(/invalidates downstream dependents/);
+    expect(analysis.semanticStatus).toBe("failed");
+    expect(analysis.semanticSource).toBeUndefined();
+    expect(analysis.facts).toEqual([]);
+    expect(analysis.semanticDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "provider_error" }),
+    ]));
   });
 
   it("does not mark lifecycle coverage complete from generic Prisma and symbol observations alone", async () => {

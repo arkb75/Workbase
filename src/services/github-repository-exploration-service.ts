@@ -180,6 +180,7 @@ const ignoredDirectoryNames = new Set([
   ".cache",
   ".git",
   ".gradle",
+  ".idea",
   ".next",
   ".nuxt",
   ".parcel-cache",
@@ -187,6 +188,7 @@ const ignoredDirectoryNames = new Set([
   ".terraform",
   ".turbo",
   ".venv",
+  ".vscode",
   "__generated__",
   "__pycache__",
   "bower_components",
@@ -205,6 +207,7 @@ const ignoredDirectoryNames = new Set([
 ]);
 
 const generatedFileNames = new Set([
+  ".ds_store",
   "bun.lock",
   "bun.lockb",
   "cargo.lock",
@@ -245,6 +248,7 @@ const binaryExtensions = new Set([
   "so",
   "sqlite",
   "sqlite3",
+  "svg",
   "tar",
   "tiff",
   "ttf",
@@ -487,14 +491,26 @@ function extensionForPath(path: string) {
 function classifyExcludedPath(path: string, size: number | null): ExclusionReason | null {
   const parts = path.toLowerCase().split("/");
   const fileName = parts.at(-1) ?? "";
+  const extension = extensionForPath(path);
+  const hiddenAgentSkillPackage = parts.some((part, index) =>
+    (part === ".agents" || part === ".codex" || part === ".claude") &&
+    parts[index + 1] === "skills"
+  );
 
-  if (parts.slice(0, -1).some((part) => ignoredDirectoryNames.has(part))) {
+  if (
+    hiddenAgentSkillPackage ||
+    parts.slice(0, -1).some((part) => ignoredDirectoryNames.has(part))
+  ) {
     return "generated";
   }
 
   if (
     generatedFileNames.has(fileName) ||
-    /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/.test(fileName)
+    /(?:\.min\.(?:css|js)|\.bundle\.js|\.map|\.snap)$/.test(fileName) ||
+    (
+      parts[0] === "data" &&
+      ["avro", "csv", "json", "jsonl", "parquet", "tsv"].includes(extension)
+    )
   ) {
     return "generated";
   }
@@ -509,7 +525,7 @@ function classifyExcludedPath(path: string, size: number | null): ExclusionReaso
     return "sensitive";
   }
 
-  if (binaryExtensions.has(extensionForPath(path))) {
+  if (binaryExtensions.has(extension)) {
     return "binary";
   }
 
@@ -605,32 +621,315 @@ function isSecretAssignmentKey(key: string) {
   ].some((suffix) => normalized === suffix || normalized.endsWith(suffix));
 }
 
-function redactAssignedSecret(line: string, categories: Set<string>) {
+type TypeAnnotationBoundary = {
+  delimiter: "=" | "," | ")" | ";" | "}" | "end";
+  typeExpression: string;
+  remainder: string;
+};
+
+function typeAnnotationAfterColon(value: string): TypeAnnotationBoundary {
+  let quote: "\"" | "'" | "`" | null = null;
+  let escaped = false;
+  let angleDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let parenthesisDepth = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\"" || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "<") angleDepth += 1;
+    else if (character === ">" && angleDepth > 0) angleDepth -= 1;
+    else if (character === "{") braceDepth += 1;
+    else if (character === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+      continue;
+    }
+    else if (character === "[") bracketDepth += 1;
+    else if (character === "]" && bracketDepth > 0) bracketDepth -= 1;
+    else if (character === "(") parenthesisDepth += 1;
+    else if (character === ")" && parenthesisDepth > 0) {
+      parenthesisDepth -= 1;
+      continue;
+    }
+
+    if (angleDepth || braceDepth || bracketDepth || parenthesisDepth) continue;
+    if (character === "=" && value[index + 1] === ">") continue;
+    if (!["=", ",", ")", ";", "}"].includes(character)) continue;
+    return {
+      delimiter: character as TypeAnnotationBoundary["delimiter"],
+      typeExpression: value.slice(0, index).trim(),
+      remainder: value.slice(index + 1).trimStart(),
+    };
+  }
+  return {
+    delimiter: "end",
+    typeExpression: value.trim(),
+    remainder: "",
+  };
+}
+
+function looksLikeTypeExpression(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (/=>/u.test(normalized)) return true;
+  if (/^(?:readonly\s+)?(?:\[[\s\S]*\]|\{[\s\S]*\})$/u.test(normalized)) {
+    return true;
+  }
+  if (/^["'][^"']*["']$/u.test(normalized)) {
+    return true;
+  }
+  const typeAtom = String.raw`(?:["'][^"']*["']|(?:readonly\s+)?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?(?:<[\s\S]+>)?(?:\[\])?)`;
+  if (new RegExp(`^${typeAtom}(?:\\s*[|&]\\s*${typeAtom})+$`, "u").test(normalized)) {
+    return true;
+  }
+  return /^(?:readonly\s+)?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?(?:<[\s\S]+>)?(?:\[\])?(?:\s*[|&]\s*(?:readonly\s+)?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?(?:<[\s\S]+>)?(?:\[\])?)*$/u
+    .test(normalized);
+}
+
+function codeWithoutComments(line: string, startsInsideBlockComment = false) {
+  let insideBlockComment = startsInsideBlockComment;
+  let quote: "\"" | "'" | "`" | null = null;
+  let escaped = false;
+  let code = "";
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    const nextCharacter = line[index + 1];
+    if (insideBlockComment) {
+      if (character === "*" && nextCharacter === "/") {
+        insideBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      code += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\"" || character === "'" || character === "`") {
+      quote = character;
+      code += character;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "/") break;
+    if (character === "/" && nextCharacter === "*") {
+      insideBlockComment = true;
+      index += 1;
+      continue;
+    }
+    code += character;
+  }
+
+  return { code, insideBlockComment };
+}
+
+function isExecutableCodePosition(
+  line: string,
+  position: number,
+  startsInsideBlockComment: boolean,
+) {
+  let insideBlockComment = startsInsideBlockComment;
+  let quote: "\"" | "'" | "`" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < position; index += 1) {
+    const character = line[index]!;
+    const nextCharacter = line[index + 1];
+    if (insideBlockComment) {
+      if (character === "*" && nextCharacter === "/") {
+        insideBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\"" || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && nextCharacter === "/") return false;
+    if (character === "/" && nextCharacter === "*") {
+      insideBlockComment = true;
+      index += 1;
+    }
+  }
+
+  return !insideBlockComment && quote === null;
+}
+
+function hasConcreteSecretInitializer(value: string) {
+  const nonEmptyQuotedLiteral = /"(?:\\.|[^"\\])+"|'(?:\\.|[^'\\])+'|`(?:\\.|[^`\\])+`/u;
+  const numericLiteral = /(?:^|[^A-Za-z0-9_$])(?:0[xob][0-9a-f](?:_?[0-9a-f]){3,}|\d(?:_?\d){3,})(?:n)?\b/iu;
+  return nonEmptyQuotedLiteral.test(value) || numericLiteral.test(value);
+}
+
+function isTypeAnnotationContext(input: {
+  beforeKey: string;
+  annotation: TypeAnnotationBoundary;
+  multilineTypeContext: boolean;
+}) {
+  const declaration = /\b(?:const|let|var)\s+$/u.test(input.beforeKey) ||
+    /(?:^\s*|[;{}]\s*)(?:(?:declare|public|private|protected|static|readonly|abstract|override)\s+)+$/u
+      .test(input.beforeKey);
+  const openParameterList = input.beforeKey.lastIndexOf("(") >
+    Math.max(input.beforeKey.lastIndexOf(")"), input.beforeKey.lastIndexOf("{"));
+  const openedValueBlock = input.beforeKey.lastIndexOf("{") >
+    input.beforeKey.lastIndexOf("}");
+  const inlineTypeBlock = /\b(?:interface\s+[A-Za-z_$][A-Za-z0-9_$]*[^{}]*|type\s+[A-Za-z_$][A-Za-z0-9_$]*[^{}]*=)\s*\{[^}]*$/u
+    .test(input.beforeKey);
+  const multilineTypeContext = input.multilineTypeContext && !openedValueBlock;
+  if (["end", "}"].includes(input.annotation.delimiter)) {
+    return looksLikeTypeExpression(input.annotation.typeExpression) &&
+      (declaration || openParameterList || inlineTypeBlock || multilineTypeContext);
+  }
+  return (input.annotation.delimiter === ";" &&
+      looksLikeTypeExpression(input.annotation.typeExpression)) ||
+    ((declaration || openParameterList || inlineTypeBlock || multilineTypeContext) &&
+      looksLikeTypeExpression(input.annotation.typeExpression) &&
+      ["=", ",", ")"].includes(input.annotation.delimiter));
+}
+
+type AssignedSecretRedaction = {
+  content: string;
+  pendingTypedInitializer: boolean;
+  initializerInsideBlockComment: boolean;
+};
+
+function redactAssignedSecret(
+  line: string,
+  categories: Set<string>,
+  multilineTypeContext: boolean,
+  startsInsideBlockComment: boolean,
+): AssignedSecretRedaction {
   const assignmentPattern =
-    /(?:^|[\s,({;\[])(["']?([A-Za-z_][A-Za-z0-9_.-]{0,100})["']?\s*[:=]\s*)/g;
+    /(?:^|[\s,({;\[])(["']?([A-Za-z_][A-Za-z0-9_.-]{0,100})["']?\s*([:=])\s*)/g;
   let match: RegExpExecArray | null;
 
   while ((match = assignmentPattern.exec(line))) {
     const prefix = match[1];
     const key = match[2];
+    const separator = match[3];
 
-    if (!prefix || !key || !isSecretAssignmentKey(key)) {
+    if (!prefix || !key || !separator || !isSecretAssignmentKey(key)) {
       continue;
     }
 
-    categories.add("assigned_secret");
     const prefixStart = match.index + match[0].length - prefix.length;
-    return `${line.slice(0, prefixStart)}${prefix}[REDACTED]`;
+    if (!isExecutableCodePosition(line, prefixStart, startsInsideBlockComment)) {
+      continue;
+    }
+
+    if (separator === ":") {
+      const valueStart = match.index + match[0].length;
+      const annotation = typeAnnotationAfterColon(line.slice(valueStart));
+      if (isTypeAnnotationContext({
+        beforeKey: line.slice(0, prefixStart),
+        annotation,
+        multilineTypeContext,
+      })) {
+        const uncommentedInitializer = codeWithoutComments(annotation.remainder);
+        const concreteInitializer = annotation.delimiter === "=" &&
+          hasConcreteSecretInitializer(uncommentedInitializer.code);
+        if (!concreteInitializer) {
+          return {
+            content: line,
+            pendingTypedInitializer: annotation.delimiter === "=" &&
+              !uncommentedInitializer.code.trim(),
+            initializerInsideBlockComment: uncommentedInitializer.insideBlockComment,
+          };
+        }
+      }
+    }
+
+    categories.add("assigned_secret");
+    return {
+      content: `${line.slice(0, prefixStart)}${prefix}[REDACTED]`,
+      pendingTypedInitializer: false,
+      initializerInsideBlockComment: false,
+    };
   }
 
-  return line;
+  return {
+    content: line,
+    pendingTypedInitializer: false,
+    initializerInsideBlockComment: false,
+  };
+}
+
+const secretInitializerContinuationLimit = 8;
+
+function structureOnlyLine(line: string) {
+  return codeWithoutComments(line).code
+    .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/gu, "");
+}
+
+function delimiterDelta(value: string, open: string, close: string) {
+  let depth = 0;
+  for (const character of value) {
+    if (character === open) depth += 1;
+    else if (character === close) depth -= 1;
+  }
+  return depth;
+}
+
+function nextCodeLineStartsContinuation(lines: string[], index: number) {
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const candidate = structureOnlyLine(lines[cursor] ?? "").trim();
+    if (!candidate) continue;
+    return /^(?:[.?+:,]|&&|\|\||[+*/%&|^])/u.test(candidate);
+  }
+  return false;
+}
+
+function continuationExpressionEnds(input: {
+  code: string;
+  lines: string[];
+  lineIndex: number;
+}) {
+  const normalized = input.code.trim();
+  if (!normalized) return false;
+  if (/;/u.test(normalized)) return true;
+  const structure = structureOnlyLine(normalized);
+  const openDelimiters = delimiterDelta(structure, "(", ")") +
+    delimiterDelta(structure, "[", "]") + delimiterDelta(structure, "{", "}");
+  if (openDelimiters > 0 || /(?:[.?+:,=]|&&|\|\||[+*/%&|^])$/u.test(normalized)) {
+    return false;
+  }
+  return !nextCodeLineStartsContinuation(input.lines, input.lineIndex);
 }
 
 function redactSecrets(content: string) {
   const categories = new Set<string>();
   let insidePrivateKey = false;
+  let openParenthesisDepth = 0;
+  let openBraceDepth = 0;
+  let parenthesisBaseBraceDepth: number | null = null;
+  let typeBlockDepth = 0;
+  let awaitingTypeBlock = false;
+  let secretInitializerContinuation = 0;
+  let initializerInsideBlockComment = false;
+  let insideSourceBlockComment = false;
+  const sourceLines = content.split("\n");
 
-  const lines = content.split("\n").map((line) => {
+  const lines = sourceLines.map((line, lineIndex) => {
     if (/-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/.test(line)) {
       insidePrivateKey = true;
       categories.add("private_key");
@@ -686,7 +985,58 @@ function redactSecrets(content: string) {
         return `${prefix}[REDACTED]@`;
       },
     );
-    redacted = redactAssignedSecret(redacted, categories);
+
+    if (secretInitializerContinuation > 0) {
+      const uncommented = codeWithoutComments(redacted, initializerInsideBlockComment);
+      initializerInsideBlockComment = uncommented.insideBlockComment;
+      if (hasConcreteSecretInitializer(uncommented.code)) {
+        categories.add("assigned_secret");
+        redacted = "[REDACTED]";
+      }
+      secretInitializerContinuation -= 1;
+      if (continuationExpressionEnds({
+        code: uncommented.code,
+        lines: sourceLines,
+        lineIndex,
+      }) || secretInitializerContinuation === 0) {
+        secretInitializerContinuation = 0;
+        initializerInsideBlockComment = false;
+      }
+    }
+
+    const multilineTypeContext = typeBlockDepth > 0 ||
+      (openParenthesisDepth > 0 && parenthesisBaseBraceDepth === openBraceDepth);
+    const assignment = redactAssignedSecret(
+      redacted,
+      categories,
+      multilineTypeContext,
+      insideSourceBlockComment,
+    );
+    redacted = assignment.content;
+    if (assignment.pendingTypedInitializer) {
+      secretInitializerContinuation = secretInitializerContinuationLimit;
+      initializerInsideBlockComment = assignment.initializerInsideBlockComment;
+    }
+
+    const structure = structureOnlyLine(line);
+    const beginsTypeBlock = /\binterface\s+[A-Za-z_$][A-Za-z0-9_$]*/u.test(structure) ||
+      /\btype\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\s*<[^>]+>)?\s*=/u.test(structure);
+    if (beginsTypeBlock && !structure.includes("{")) awaitingTypeBlock = true;
+    if ((beginsTypeBlock || awaitingTypeBlock) && structure.includes("{")) {
+      typeBlockDepth = Math.max(0, delimiterDelta(structure, "{", "}"));
+      awaitingTypeBlock = false;
+    } else if (typeBlockDepth > 0) {
+      typeBlockDepth = Math.max(0, typeBlockDepth + delimiterDelta(structure, "{", "}"));
+    }
+    const parenthesisDelta = delimiterDelta(structure, "(", ")");
+    if (openParenthesisDepth === 0 && parenthesisDelta > 0) {
+      parenthesisBaseBraceDepth = openBraceDepth;
+    }
+    openParenthesisDepth = Math.max(0, openParenthesisDepth + parenthesisDelta);
+    openBraceDepth = Math.max(0, openBraceDepth + delimiterDelta(structure, "{", "}"));
+    if (openParenthesisDepth === 0) parenthesisBaseBraceDepth = null;
+    insideSourceBlockComment = codeWithoutComments(line, insideSourceBlockComment)
+      .insideBlockComment;
 
     return redacted;
   });

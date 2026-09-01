@@ -26,6 +26,9 @@
     "eval:project-chat:semantic-robustness": "tsx scripts/evaluate-project-chat-semantic-robustness.ts",
     "eval:embeddings": "tsx --env-file=.env scripts/evaluate-embedding-index.ts",
     "eval:openrouter:profiles": "tsx --env-file=.env scripts/evaluate-openrouter-profiles.ts",
+    "eval:repository-knowledge": "tsx --env-file=.env scripts/evaluate-repository-knowledge.ts",
+    "eval:repository-knowledge:compare": "tsx scripts/compare-repository-knowledge-reports.ts",
+    "eval:repository-knowledge:live": "tsx --env-file=.env scripts/run-live-repository-knowledge-evaluation.ts",
     "test:eval": "vitest run src/evals/__tests__",
     "bedrock:preflight": "tsx scripts/bedrock-preflight.ts",
     "openrouter:preflight": "tsx --env-file=.env scripts/openrouter-preflight.ts"

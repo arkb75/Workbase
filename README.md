@@ -1,8 +1,8 @@
 # Workbase
 
-Workbase is an internal MVP for early-career CS students and engineers who want to turn real technical work into verified career content.
+Workbase helps early-career CS students and engineers turn real technical work into verified career content.
 
-The prototype is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
+The product is built around one hard rule: public Artifacts are generated from approved, visibility-compatible Highlights only. Raw notes and repository files never go straight into public output generation.
 
 ## Stack
 
@@ -17,7 +17,7 @@ The prototype is built around one hard rule: public Artifacts are generated from
 
 ## Product loop
 
-1. Complete onboarding for the demo user
+1. Complete onboarding and set the workspace goal
 2. Create a Work Item; its description and optional notes are persisted as
    private Sources/Evidence immediately, while provider work is reserved in a
    durable workflow before the action redirects
@@ -60,18 +60,17 @@ Every OpenRouter request requires zero-data-retention routing and provider
 support for all supplied parameters. `WORKBASE_LLM_PROVIDER=bedrock` plus the
 retained `WORKBASE_BEDROCK_*` values provides the migration rollback switch.
 
-Production and representative cold-import runs must exercise the configured
-`deep_synthesis` model while keeping semantic work-package planning
-deterministic:
+Production and representative cold-import runs exercise both configured model
+paths: `routing` for semantic work-package planning and `deep_synthesis` for
+repository knowledge synthesis:
 
 ```bash
 WORKBASE_REPOSITORY_SYNTHESIS_MODE=model
-WORKBASE_SEMANTIC_PLANNER_MODE=deterministic
+WORKBASE_SEMANTIC_PLANNER_MODE=model
 ```
 
-`WORKBASE_REPOSITORY_SYNTHESIS_MODE=deterministic` is available only as a
-cost/debug alternative. It does not call the main `deep_synthesis` model and
-therefore cannot pass the representative live lifecycle gate.
+The deterministic planner and synthesis modes are available only as explicit
+debug/degraded alternatives. Neither can pass the representative live gate.
 
 For proactive production refreshes, also set:
 
@@ -89,6 +88,9 @@ The executable cold-lifecycle and provider-comparison runbook is in
 [`tests/e2e/README.md`](tests/e2e/README.md). Migration decisions, historical
 controls, privacy invariants, and embedding rollback procedure are recorded in
 [`docs/openrouter-migration.md`](docs/openrouter-migration.md).
+The implementation-neutral, multi-project repository extraction gate and its
+local/serialized observation runner are documented in
+[`docs/repository-knowledge-evaluation.md`](docs/repository-knowledge-evaluation.md).
 
 5. Generate the Prisma client and apply committed migrations
 
@@ -159,6 +161,10 @@ The test suite covers:
 - exact same-thread accomplishments freshness follow-ups, including current-head
   breadth continuity and cross-repository contamination rejection
 - commit-pinned repository refresh, semantic orchestration, reconciliation, and staleness
+- generalized repository knowledge extraction across SaaS, agent/document,
+  fintech, developer-tool, dataset, Java/ML, and CLI/library shapes, including
+  coverage calibration, provenance precision, planned-feature traps, generated
+  artifact pollution, generic-token false positives, and cluster granularity
 - DLP-safe manual-note generation, content-addressed provenance/input fences,
   deterministic extractive recovery, and cited-source-only attribution
 - durable chat and artifact workflows, including review/resume behavior
