@@ -211,16 +211,6 @@ describe("knowledge staleness observations", () => {
       ...complete,
       snapshots: [{ inventoryComplete: true, analysisComplete: true, coverageComplete: false }],
     })).toBe(false);
-    expect(refreshSupportsDestructiveStaleness({
-      qualityStatus: "degraded",
-      coverage: [{
-        coverageStatus: "partial",
-        semanticCoverageStatus: "coverage_limited",
-        capabilityCoverageStatus: "partial",
-        coverageGaps: ["The bounded semantic-analysis capacity was reached."],
-      }],
-      snapshots: [{ inventoryComplete: true, analysisComplete: true, coverageComplete: false }],
-    })).toBe(false);
   });
 
   it("does not treat unrelated knowledge in the same subsystem as a canonical replacement", () => {

@@ -312,25 +312,11 @@ describe("getWorkItemForUser knowledge review loading", () => {
       {
         lifecycleStatus: "active",
         verificationStatus: "approved",
-        reviewState: "reviewed",
         _count: { _all: 14 },
-      },
-      {
-        lifecycleStatus: "active",
-        verificationStatus: "approved",
-        reviewState: "pending_review",
-        _count: { _all: 2 },
-      },
-      {
-        lifecycleStatus: "active",
-        verificationStatus: "draft",
-        reviewState: "reviewed",
-        _count: { _all: 3 },
       },
       {
         lifecycleStatus: "retired",
         verificationStatus: "approved",
-        reviewState: "reviewed",
         _count: { _all: 73 },
       },
     ]);
@@ -362,9 +348,6 @@ describe("getWorkItemForUser knowledge review loading", () => {
     expect(result.includedEvidenceCount).toBe(7);
     expect(result.pendingHighlightSuggestionCount).toBe(4);
     expect(result.highlightCounts.bulkApprovable).toBe(3);
-    expect(result.highlightCounts.approved).toBe(14);
-    expect(result.highlightCounts.pending).toBe(5);
-    expect(result.highlightCounts.lifecycle).toBe(73);
     expect(result.pagination.knowledge).toMatchObject({
       page: 3,
       totalItems: 250,
@@ -373,19 +356,6 @@ describe("getWorkItemForUser knowledge review loading", () => {
     expect(prismaMock.highlight.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 40, take: 20 }),
     );
-    expect(prismaMock.highlight.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { workItemId: "work-item-1" },
-        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-        take: 48,
-      }),
-    );
-    expect(prismaMock.highlight.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        by: ["lifecycleStatus", "verificationStatus", "reviewState"],
-      }),
-    );
-    expect(result.highlightOverviewLimit).toBe(48);
     expect(prismaMock.projectFact.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 40, take: 20 }),
     );

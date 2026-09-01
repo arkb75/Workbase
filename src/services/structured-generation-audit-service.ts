@@ -55,27 +55,6 @@ function json(value: unknown): Prisma.InputJsonValue {
   return sanitizeBedrockConverseEventValue(value) as Prisma.InputJsonValue;
 }
 
-export const EXACT_PARSED_OUTPUT_MAX_BYTES = 128 * 1024;
-
-function exactParsedOutputJson(value: unknown): Prisma.InputJsonValue {
-  let serialized: string | undefined;
-  try {
-    serialized = JSON.stringify(value);
-  } catch {
-    throw new Error("Exact parsed-output audit projection is not JSON serializable.");
-  }
-  if (serialized === undefined) {
-    throw new Error("Exact parsed-output audit projection is not JSON serializable.");
-  }
-  if (Buffer.byteLength(serialized, "utf8") > EXACT_PARSED_OUTPUT_MAX_BYTES) {
-    throw new Error(
-      `Exact parsed-output audit projection exceeds ${EXACT_PARSED_OUTPUT_MAX_BYTES} UTF-8 bytes.`,
-    );
-  }
-  const parsed = JSON.parse(serialized) as JsonValue;
-  return parsed as Prisma.InputJsonValue;
-}
-
 function rawPreview(raw: string | null) {
   if (!raw) return null;
   const safe = sanitizeBedrockConverseEventValue(raw);
@@ -610,9 +589,7 @@ function structuredGenerationFailureMessage(input: {
   error: unknown;
 }) {
   if (input.error instanceof StructuredGenerationBudgetError) {
-    return isStructuredGenerationAdmissionFailure(input.error)
-      ? `Structured generation stopped before dispatch: ${input.error.code}.`
-      : `Structured generation stopped after provider dispatch: ${input.error.code}.`;
+    return `Structured generation stopped before dispatch: ${input.error.code}.`;
   }
   if (input.structured) {
     return `Structured generation failed closed: ${input.structured.status}.`;
@@ -651,13 +628,6 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
   idempotencyKey?: string;
   profile?: TextModelProfile;
   inputSummary: unknown;
-  resultAttestation?: (result: TResult) => Record<string, unknown>;
-  /**
-   * Opts a schema-validated, purpose-built audit projection into lossless
-   * persistence. The projection is JSON-round-tripped and hard-capped;
-   * prompts, notebooks, and raw provider output do not belong here.
-   */
-  exactParsedOutput?: (result: TResult) => unknown;
   execute: () => Promise<TResult>;
 }): Promise<TResult & { generationRunId: string | null }> {
   const startedAt = Date.now();
@@ -696,7 +666,6 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
 
   try {
     const result = await input.execute();
-    const resultAttestation = input.resultAttestation?.(result);
     if (run) {
       const cumulativeUsage = cumulativeAuditUsage({
         priorTokenUsage: run.tokenUsage,
@@ -728,9 +697,7 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
           provider: result.provider,
           modelId: result.modelId,
           rawOutput: rawPreview(result.rawOutput),
-          parsedOutput: input.exactParsedOutput
-            ? exactParsedOutputJson(input.exactParsedOutput(result))
-            : json(result.parsedOutput),
+          parsedOutput: json(result.parsedOutput),
           validationErrors: Prisma.JsonNull,
           tokenUsage: tokenUsage == null ? Prisma.JsonNull : tokenUsage as Prisma.InputJsonValue,
           estimatedCostUsd: auditUsage.estimatedCostUsd,
@@ -752,7 +719,6 @@ export async function runAuditedStructuredGeneration<TResult extends StructuredR
             auditEvidenceTruncated: evidence.truncated,
             usageComplete: auditUsage.usageComplete,
             knownEstimatedCostUsd: auditUsage.knownEstimatedCostUsd,
-            ...(resultAttestation ? { resultAttestation } : {}),
           }),
         },
       });

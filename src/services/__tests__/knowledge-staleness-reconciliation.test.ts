@@ -778,4 +778,258 @@ describe("monotonic repository staleness reconciliation", () => {
     }));
   });
 
+  it("retires mis-scoped Workbase deterministic memory before unchanged Resume blobs can revalidate it", async () => {
+    const statement = "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.";
+    const highlightText = "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow";
+    const unchanged = evidence({
+      id: "resume-unchanged",
+      path: "README.md",
+      blobSha: "resume-readme-blob",
+      lifecycleStatus: "active",
+    });
+    mocks.refreshFind.mockResolvedValue({
+      id: "refresh-resume",
+      workItemId: "work-resume",
+      qualityStatus: "verified",
+      coverage: [{
+        repository: "arkb75/Resume",
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        coverageGaps: [],
+      }],
+      targetHeads: [{ sourceId: "source-1", repository: "arkb75/Resume", commitSha: "resume-head" }],
+      snapshots: [{
+        id: "resume-snapshot",
+        sourceId: "source-1",
+        commitSha: "resume-head",
+        inventoryComplete: true,
+        analysisComplete: true,
+        coverageComplete: true,
+        files: [{ path: "README.md", blobSha: "resume-readme-blob" }],
+      }],
+    });
+    mocks.factFind
+      .mockResolvedValueOnce([{
+        id: "fact-mis-scoped",
+        statement,
+        subsystemKey: "product_surface",
+        status: "approved",
+        lifecycleStatus: "active",
+        reviewState: "pending_review",
+        approvalSource: "automation",
+        publicSafetyStatus: "not_eligible",
+        rejectionReason: null,
+        validatedThroughSha: "resume-old",
+        validationHeads: { "source-1": "resume-old" },
+        lastValidatedAt: null,
+        autoAppliedAt: null,
+        evidence: [{ evidenceItemId: unchanged.id, evidenceItem: unchanged }],
+      }])
+      .mockResolvedValueOnce([]);
+    mocks.highlightFind
+      .mockResolvedValueOnce([{
+        id: "highlight-mis-scoped",
+        text: highlightText,
+        summary: statement,
+        metadata: { subsystemKey: "product_surface", managedBy: "repository_knowledge_sync" },
+        verificationStatus: "approved",
+        lifecycleStatus: "active",
+        reviewState: "pending_review",
+        approvalSource: "automation",
+        publicSafetyStatus: "not_eligible",
+        rejectionReason: null,
+        validatedThroughSha: "resume-old",
+        validationHeads: { "source-1": "resume-old" },
+        lastValidatedAt: null,
+        autoAppliedAt: null,
+        evidence: [{ evidenceItemId: unchanged.id, evidenceItem: unchanged }],
+      }])
+      .mockResolvedValueOnce([]);
+    mocks.evidenceFind.mockResolvedValue([unchanged]);
+    mocks.artifactFind.mockResolvedValue([]);
+
+    await expect(reconcileStaleKnowledge({
+      runId: "refresh-resume",
+      appliedFactIds: [],
+      appliedHighlightIds: [],
+    })).resolves.toEqual({
+      retiredFactIds: ["fact-mis-scoped"],
+      retiredHighlightIds: ["highlight-mis-scoped"],
+      staleArtifactIds: [],
+    });
+
+    expect(mocks.factUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: "fact-mis-scoped",
+        evidence: expect.objectContaining({ some: {}, every: expect.any(Object) }),
+      }),
+      data: expect.objectContaining({ lifecycleStatus: "retired", status: "rejected" }),
+    }));
+    expect(mocks.highlightUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: "highlight-mis-scoped",
+        metadata: { equals: { subsystemKey: "product_surface", managedBy: "repository_knowledge_sync" } },
+        evidence: expect.objectContaining({ some: {}, every: expect.any(Object) }),
+      }),
+      data: expect.objectContaining({ lifecycleStatus: "retired" }),
+    }));
+    expect(mocks.recordChange).toHaveBeenCalledWith(expect.objectContaining({
+      entityKind: "project_fact",
+      entityId: "fact-mis-scoped",
+      action: "retired",
+      provenance: expect.objectContaining({
+        remediation: "mis_scoped_workbase_deterministic_definition",
+        repositories: ["arkb75/Resume"],
+      }),
+    }));
+    expect(mocks.recordChange).toHaveBeenCalledWith(expect.objectContaining({
+      entityKind: "highlight",
+      entityId: "highlight-mis-scoped",
+      action: "retired",
+    }));
+    const revalidations = mocks.recordContentAddressedRevalidations.mock.calls
+      .flatMap((call) => call[0] as Array<{ entityId: string }>);
+    expect(revalidations).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: "fact-mis-scoped" }),
+      expect.objectContaining({ entityId: "highlight-mis-scoped" }),
+    ]));
+  });
+
+  it("preserves user-owned, reviewed, Workbase-sourced, missing-source, and non-sync deterministic memory", async () => {
+    const statement = "Workbase's documented product flow connects Work Items and attached sources to repository knowledge refresh, automatically applies safe facts and Highlights for later review, quarantines unsafe candidates, and generates career artifacts from approved non-sensitive Highlights.";
+    const highlightText = "Connected Work Items, repository knowledge, review-later memory, and approved career artifacts in one product workflow";
+    const sourceEvidence = (id: string, sourceId: string, blobSha: string) => ({
+      ...evidence({ id, path: `${id}.md`, blobSha, lifecycleStatus: "active" }),
+      sourceId,
+    });
+    const resumeEvidence = sourceEvidence("resume", "source-resume", "resume-blob");
+    const workbaseEvidence = sourceEvidence("workbase", "source-workbase", "workbase-blob");
+    const missingEvidence = sourceEvidence("missing", "source-missing", "missing-blob");
+    mocks.refreshFind.mockResolvedValue({
+      id: "refresh-protected",
+      workItemId: "work-mixed",
+      qualityStatus: "verified",
+      coverage: [{
+        coverageStatus: "complete",
+        semanticCoverageStatus: "complete",
+        capabilityCoverageStatus: "verified",
+        coverageGaps: [],
+      }],
+      targetHeads: [
+        { sourceId: "source-resume", repository: "arkb75/Resume", commitSha: "resume-head" },
+        { sourceId: "source-workbase", repository: "arkb75/Workbase", commitSha: "workbase-head" },
+      ],
+      snapshots: [
+        {
+          id: "resume-snapshot",
+          sourceId: "source-resume",
+          commitSha: "resume-head",
+          inventoryComplete: true,
+          analysisComplete: true,
+          coverageComplete: true,
+          files: [{ path: "resume.md", blobSha: "resume-blob" }],
+        },
+        {
+          id: "workbase-snapshot",
+          sourceId: "source-workbase",
+          commitSha: "workbase-head",
+          inventoryComplete: true,
+          analysisComplete: true,
+          coverageComplete: true,
+          files: [{ path: "workbase.md", blobSha: "workbase-blob" }],
+        },
+        {
+          id: "missing-snapshot",
+          sourceId: "source-missing",
+          commitSha: "missing-head",
+          inventoryComplete: true,
+          analysisComplete: true,
+          coverageComplete: true,
+          files: [{ path: "missing.md", blobSha: "missing-blob" }],
+        },
+      ],
+    });
+    const fact = (
+      id: string,
+      approvalSource: "automation" | "user",
+      reviewState: "pending_review" | "reviewed",
+      evidenceItem: typeof resumeEvidence,
+    ) => ({
+      id,
+      statement,
+      subsystemKey: "product_surface",
+      status: "approved",
+      lifecycleStatus: "active",
+      reviewState,
+      approvalSource,
+      publicSafetyStatus: "not_eligible",
+      rejectionReason: null,
+      validatedThroughSha: evidenceItem.sourceId === "source-resume" ? "resume-head" : evidenceItem.sourceId === "source-workbase" ? "workbase-head" : "missing-head",
+      validationHeads: {},
+      lastValidatedAt: null,
+      autoAppliedAt: null,
+      evidence: [{ evidenceItemId: evidenceItem.id, evidenceItem }],
+    });
+    mocks.factFind
+      .mockResolvedValueOnce([
+        fact("fact-user", "user", "pending_review", resumeEvidence),
+        fact("fact-reviewed", "automation", "reviewed", resumeEvidence),
+        fact("fact-workbase", "automation", "pending_review", workbaseEvidence),
+        fact("fact-missing-source", "automation", "pending_review", missingEvidence),
+      ])
+      .mockResolvedValueOnce([]);
+    const highlight = (
+      id: string,
+      approvalSource: "automation" | "user",
+      reviewState: "pending_review" | "reviewed",
+      evidenceItem: typeof resumeEvidence,
+      managedBy = "repository_knowledge_sync",
+    ) => ({
+      id,
+      text: highlightText,
+      summary: statement,
+      metadata: { subsystemKey: "product_surface", managedBy },
+      verificationStatus: "approved",
+      lifecycleStatus: "active",
+      reviewState,
+      approvalSource,
+      publicSafetyStatus: "not_eligible",
+      rejectionReason: null,
+      validatedThroughSha: evidenceItem.sourceId === "source-resume" ? "resume-head" : evidenceItem.sourceId === "source-workbase" ? "workbase-head" : "missing-head",
+      validationHeads: {},
+      lastValidatedAt: null,
+      autoAppliedAt: null,
+      evidence: [{ evidenceItemId: evidenceItem.id, evidenceItem }],
+    });
+    mocks.highlightFind
+      .mockResolvedValueOnce([
+        highlight("highlight-user", "user", "pending_review", resumeEvidence),
+        highlight("highlight-reviewed", "automation", "reviewed", resumeEvidence),
+        highlight("highlight-workbase", "automation", "pending_review", workbaseEvidence),
+        highlight("highlight-missing-source", "automation", "pending_review", missingEvidence),
+        highlight("highlight-other-manager", "automation", "pending_review", resumeEvidence, "manual_evidence_highlight_workflow"),
+      ])
+      .mockResolvedValueOnce([]);
+    mocks.evidenceFind.mockResolvedValue([resumeEvidence, workbaseEvidence, missingEvidence]);
+    mocks.artifactFind.mockResolvedValue([]);
+
+    await expect(reconcileStaleKnowledge({
+      runId: "refresh-protected",
+      appliedFactIds: [],
+      appliedHighlightIds: [],
+    })).resolves.toEqual({ retiredFactIds: [], retiredHighlightIds: [], staleArtifactIds: [] });
+
+    const factRetirements = mocks.factUpdateMany.mock.calls.filter((call) =>
+      call[0]?.data?.lifecycleStatus === "retired"
+    );
+    const highlightRetirements = mocks.highlightUpdateMany.mock.calls.filter((call) =>
+      call[0]?.data?.lifecycleStatus === "retired"
+    );
+    expect(factRetirements).toHaveLength(0);
+    expect(highlightRetirements).toHaveLength(0);
+    expect(mocks.recordChange).not.toHaveBeenCalledWith(expect.objectContaining({
+      provenance: expect.objectContaining({ remediation: "mis_scoped_workbase_deterministic_definition" }),
+    }));
+  });
 });

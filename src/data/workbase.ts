@@ -4,7 +4,6 @@ import {
   PROVENANCE_REVIEW_CARD_LIMIT,
 } from "@/src/lib/knowledge-review-inbox";
 import { pendingHighlightBulkApprovalWhere } from "@/src/lib/highlight-bulk-approval";
-import { HIGHLIGHT_OVERVIEW_LIMIT } from "@/src/lib/highlight-workspace";
 import {
   ACTIVE_REPOSITORY_REFRESH_STATUSES,
   readRepositoryImportState,
@@ -452,8 +451,6 @@ export async function getWorkItemWorkspaceForUser(
   evidenceTypeCounts: Record<string, number>;
   highlightCounts: typeof emptyHighlightCounts;
   highlightCount: number;
-  highlightOverview: WorkItemForUser["highlights"];
-  highlightOverviewLimit: number;
   pendingHighlightSuggestionCount: number;
   approvedProjectFactCount: number;
   projectFactCount: number;
@@ -471,8 +468,6 @@ export async function getWorkItemWorkspaceForUser(
       evidenceTypeCounts: {},
       highlightCounts: emptyHighlightCounts,
       highlightCount: 0,
-      highlightOverview: [],
-      highlightOverviewLimit: HIGHLIGHT_OVERVIEW_LIMIT,
       pendingHighlightSuggestionCount: 0,
       approvedProjectFactCount: 0,
       projectFactCount: 0,
@@ -562,8 +557,6 @@ export async function getWorkItemWorkspaceForUser(
       ),
       highlightCounts: emptyHighlightCounts,
       highlightCount: 0,
-      highlightOverview: [],
-      highlightOverviewLimit: HIGHLIGHT_OVERVIEW_LIMIT,
       pendingHighlightSuggestionCount: 0,
       approvedProjectFactCount: 0,
       projectFactCount: 0,
@@ -640,8 +633,6 @@ export async function getWorkItemWorkspaceForUser(
       evidenceTypeCounts: {},
       highlightCounts: emptyHighlightCounts,
       highlightCount: 0,
-      highlightOverview: [],
-      highlightOverviewLimit: HIGHLIGHT_OVERVIEW_LIMIT,
       pendingHighlightSuggestionCount: 0,
       approvedProjectFactCount: 0,
       projectFactCount: 0,
@@ -665,7 +656,6 @@ export async function getWorkItemWorkspaceForUser(
     bulkApprovableHighlightCount,
     sensitiveHighlightCount,
     highlightGroups,
-    highlightOverview,
   ] = await Promise.all([
     prisma.workItem.findFirstOrThrow({
       where: { id: workItemId, userId },
@@ -738,20 +728,9 @@ export async function getWorkItemWorkspaceForUser(
       },
     }),
     prisma.highlight.groupBy({
-      by: ["lifecycleStatus", "verificationStatus", "reviewState"],
+      by: ["lifecycleStatus", "verificationStatus"],
       where: { workItemId },
       _count: { _all: true },
-    }),
-    prisma.highlight.findMany({
-      where: { workItemId },
-      include: {
-        evidence: {
-          include: { evidenceItem: { include: { source: true } } },
-        },
-        tags: true,
-      },
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-      take: HIGHLIGHT_OVERVIEW_LIMIT,
     }),
   ]);
   const knowledgePagination = buildPagination(
@@ -804,10 +783,13 @@ export async function getWorkItemWorkspaceForUser(
     _count,
     ...workItem
   } = result;
-  const countHighlightGroups = (
-    predicate: (group: (typeof highlightGroups)[number]) => boolean,
+  const countHighlights = (
+    lifecycleStatus: string,
+    verificationStatuses?: string[],
   ) => highlightGroups
-    .filter(predicate)
+    .filter((group) =>
+      group.lifecycleStatus === lifecycleStatus &&
+      (!verificationStatuses || verificationStatuses.includes(group.verificationStatus)))
     .reduce((total, group) => total + group._count._all, 0);
   const lifecycleHighlightCount = highlightGroups
     .filter((group) => group.lifecycleStatus !== "active")
@@ -840,26 +822,14 @@ export async function getWorkItemWorkspaceForUser(
     includedEvidenceCount: _count.evidenceItems,
     evidenceTypeCounts: {},
     highlightCounts: {
-      approved: countHighlightGroups((group) =>
-        group.lifecycleStatus === "active" &&
-        group.verificationStatus === "approved" &&
-        group.reviewState !== "pending_review"),
-      pending: countHighlightGroups((group) =>
-        group.lifecycleStatus === "active" &&
-        group.verificationStatus !== "rejected" &&
-        (group.reviewState === "pending_review" ||
-          group.verificationStatus === "draft" ||
-          group.verificationStatus === "flagged")),
-      rejected: countHighlightGroups((group) =>
-        group.lifecycleStatus === "active" &&
-        group.verificationStatus === "rejected"),
+      approved: countHighlights("active", ["approved"]),
+      pending: countHighlights("active", ["draft", "flagged"]),
+      rejected: countHighlights("active", ["rejected"]),
       lifecycle: lifecycleHighlightCount,
       sensitive: sensitiveHighlightCount,
       bulkApprovable: bulkApprovableHighlightCount,
     },
     highlightCount: totalHighlightCount,
-    highlightOverview,
-    highlightOverviewLimit: HIGHLIGHT_OVERVIEW_LIMIT,
     pendingHighlightSuggestionCount: _count.highlightSuggestions,
     approvedProjectFactCount,
     projectFactCount: totalProjectFactCount,

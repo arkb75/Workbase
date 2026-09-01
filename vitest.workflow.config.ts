@@ -15,8 +15,6 @@ export default defineConfig({
     testTimeout: 60_000,
     env: {
       WORKBASE_LLM_PROVIDER: "mock",
-      WORKBASE_SEMANTIC_PLANNER_MODE: "deterministic",
-      WORKBASE_REPOSITORY_SYNTHESIS_MODE: "deterministic",
       VITEST: "true",
     },
   },

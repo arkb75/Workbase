@@ -8,6 +8,9 @@ import {
 import { prisma } from "@/src/lib/prisma";
 import {
   analyzeRepositoryFilesHierarchically,
+  analyzeRepositoryFiles,
+  analyzeRepositoryFile,
+  BASE_COVERAGE_TARGETS,
   buildCoverageMatrix,
   inferSubsystemsFromPath,
   isProjectDomainCapabilityKey,
@@ -18,7 +21,6 @@ import {
   type RepositoryFileAnalysis,
 } from "@/src/services/repository-coverage-service";
 import {
-  REPOSITORY_INVENTORY_POLICY_VERSION,
   REPOSITORY_SEMANTIC_ANALYZER_VERSION,
   REPOSITORY_STATIC_ANALYZER_VERSION,
   repositoryKnowledgeSyncService,
@@ -26,10 +28,8 @@ import {
   type RepositoryTargetHead,
 } from "@/src/services/repository-knowledge-sync-service";
 import {
-  buildRepositoryDerivedCapabilityManifest,
   REPOSITORY_ORCHESTRATION_POLICY_VERSION,
   repositorySemanticOrchestratorService,
-  resolveRepositorySemanticPlannerMode,
 } from "@/src/services/repository-semantic-orchestrator-service";
 import {
   isNewerKnowledgeRefreshGeneration,
@@ -37,7 +37,7 @@ import {
   lockKnowledgeRefreshWorkItem,
 } from "@/src/services/knowledge-reconciliation-service";
 
-export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v76-bounded-verifier-failover";
+export const REPOSITORY_SYNTHESIS_POLICY_VERSION = "repository-synthesis-v32";
 export const DEGRADED_CHAT_REFRESH_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
 const ACTIVE_KNOWLEDGE_REFRESH_STATUSES = [
   "queued",
@@ -73,7 +73,6 @@ function currentKnowledgeRefreshPolicyHash() {
 
 function currentKnowledgeRefreshPolicyMetadata() {
   return {
-    inventoryPolicyVersion: REPOSITORY_INVENTORY_POLICY_VERSION,
     analyzerVersion: REPOSITORY_STATIC_ANALYZER_VERSION,
     semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
     coveragePolicyVersion: REPOSITORY_COVERAGE_POLICY_VERSION,
@@ -114,18 +113,6 @@ function assertKnowledgeRefreshCanExecute(runId: string, status: string) {
   }
 }
 
-function requiresModelSemanticMainPath() {
-  if (resolveWorkbaseLlmProvider() === "mock") return false;
-  try {
-    return resolveRepositorySemanticPlannerMode() === "model";
-  } catch {
-    // Invalid configuration must not opt a real provider into the degraded
-    // deterministic path. The strict resolver still supplies the terminal
-    // error; this classification ensures the refresh is marked failed.
-    return true;
-  }
-}
-
 function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -134,15 +121,6 @@ function coverageRecords(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)))
     : [];
-}
-
-function unresolvedSemanticCoverageRepositories(value: unknown) {
-  const acceptedStatuses = new Set(["complete", "not_required", "coverage_limited"]);
-  return coverageRecords(value).flatMap((entry) =>
-    acceptedStatuses.has(String(entry.semanticCoverageStatus ?? ""))
-      ? []
-      : [typeof entry.repository === "string" ? entry.repository : "the repository"]
-  );
 }
 
 export function isKnowledgeRefreshPartial(input: { qualityStatus: unknown; coverage: unknown }) {
@@ -164,14 +142,9 @@ export function repositoryCapabilityPriority(input: {
   observationCount: number;
   requiredForSemanticCoverage?: boolean;
 }) {
-  if (input.requiredForSemanticCoverage) return isProjectDomainCapabilityKey(input.capabilityKey) ? 5 : 4;
+  if (BASE_COVERAGE_TARGETS.some((target) => target.key === input.capabilityKey)) return 5;
+  if (input.requiredForSemanticCoverage && isProjectDomainCapabilityKey(input.capabilityKey)) return 4;
   return input.observationCount >= 20 ? 3 : 1;
-}
-
-function semanticAnalysisSupportsCapability(value: unknown, path: string, capabilityKey: string) {
-  const analysis = rebaseCachedAnalysis(value, path);
-  if (!analysis) return false;
-  return analysis.facts.some((fact) => fact.subsystemKeys?.includes(capabilityKey));
 }
 
 export function repositoryOrchestrationCoverageGaps(input: {
@@ -309,8 +282,7 @@ function activeKnowledgeRefreshes(
 function currentKnowledgeRefreshPolicyMatches(warningsValue: unknown) {
   const warnings = record(warningsValue);
   const policy = currentKnowledgeRefreshPolicyMetadata();
-  return warnings.inventoryPolicyVersion === policy.inventoryPolicyVersion &&
-    warnings.analyzerVersion === policy.analyzerVersion &&
+  return warnings.analyzerVersion === policy.analyzerVersion &&
     warnings.semanticAnalyzerVersion === policy.semanticAnalyzerVersion &&
     warnings.coveragePolicyVersion === policy.coveragePolicyVersion &&
     warnings.orchestrationPolicyVersion === policy.orchestrationPolicyVersion &&
@@ -640,10 +612,7 @@ export async function inventoryKnowledgeRefresh(runId: string) {
     const existing = await prisma.repositorySnapshot.findUnique({
       where: { sourceId_commitSha: { sourceId: target.sourceId, commitSha: target.commitSha } },
     });
-    if (
-      existing?.inventoryComplete &&
-      existing.manifestHash?.startsWith(`${REPOSITORY_INVENTORY_POLICY_VERSION}:`)
-    ) {
+    if (existing?.inventoryComplete) {
       const outdatedAnalyses = await prisma.repositoryFileSnapshot.count({
         where: {
           snapshotId: existing.id,
@@ -725,8 +694,6 @@ export async function inventoryKnowledgeRefresh(runId: string) {
           treeSha: target.treeSha,
           resolvedAt: new Date(target.resolvedAt),
           inventoryComplete: true,
-          analysisComplete: false,
-          coverageComplete: false,
           manifestHash: inventory.manifestHash,
           delta: toInputJson(delta),
         },
@@ -896,38 +863,24 @@ export async function analyzeKnowledgeRefreshBatch(input: { runId: string; batch
     offset += MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE
   ) {
     const wave = pendingFiles.slice(offset, offset + MAX_REPOSITORY_STATIC_ANALYSIS_BATCH_SIZE);
-    const readResults = await Promise.all(wave.map(async ({ file, target }) => {
-      try {
-        return {
-          file,
-          target,
-          read: await repositoryKnowledgeSyncService.readFile({
-            userId: run.workItem.userId,
-            workItemId: run.workItemId,
-            target,
-            entry: {
-              path: file.path,
-              blobSha: file.blobSha!,
-              sizeBytes: file.sizeBytes,
-              mode: "100644",
-              objectType: "blob",
-              disposition: "eligible",
-              exclusionReason: null,
-            },
-          }),
-        };
-      } catch (error) {
-        const exclusionReason = repositoryReadExclusionReason(error);
-        if (!exclusionReason) throw error;
-        await prisma.repositoryFileSnapshot.update({
-          where: { id: file.id },
-          data: { disposition: "excluded", exclusionReason },
-        });
-        return null;
-      }
-    }));
-    const pending = readResults.filter((entry) => entry !== null);
-    if (!pending.length) continue;
+    const pending = await Promise.all(wave.map(async ({ file, target }) => ({
+      file,
+      target,
+      read: await repositoryKnowledgeSyncService.readFile({
+        userId: run.workItem.userId,
+        workItemId: run.workItemId,
+        target,
+        entry: {
+          path: file.path,
+          blobSha: file.blobSha!,
+          sizeBytes: file.sizeBytes,
+          mode: "100644",
+          objectType: "blob",
+          disposition: "eligible",
+          exclusionReason: null,
+        },
+      }),
+    })));
     const analyses = await analyzeRepositoryFilesHierarchically(pending.map((entry) => ({
       repository: entry.target.repository,
       commitSha: entry.target.commitSha,
@@ -1007,13 +960,6 @@ export function pairRepositoryAnalysesByInputOrder<T extends {
   });
 }
 
-export function repositoryReadExclusionReason(error: unknown) {
-  const message = error instanceof Error ? error.message : null;
-  if (message === "binary_file") return "binary";
-  if (message === "file_too_large") return "oversized";
-  return null;
-}
-
 export async function analyzeKnowledgeRefreshChunk(input: {
   runId: string;
   batchSize?: number;
@@ -1045,6 +991,132 @@ export async function analyzeKnowledgeRefreshChunk(input: {
   };
 }
 
+async function repairKnowledgeCoverageGapsLegacy(runId: string) {
+  if (resolveWorkbaseLlmProvider() === "mock") return { repaired: 0, remainingGaps: [] as string[] };
+  const run = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
+    where: { id: runId },
+    include: { snapshots: { include: { files: { where: { disposition: "analyzed" }, orderBy: { path: "asc" } } } }, workItem: { select: { userId: true } } },
+  });
+  const targets = new Map(parseTargets(run.targetHeads).map((target) => [target.sourceId, target]));
+  const candidates: Array<{ snapshot: (typeof run.snapshots)[number]; file: (typeof run.snapshots)[number]["files"][number]; analysis: RepositoryFileAnalysis }> = [];
+  const remainingGaps = new Set<string>();
+  for (const snapshot of run.snapshots) {
+    const analyzed = snapshot.files.flatMap((file) => {
+      const analysis = rebaseCachedAnalysis(file.analysis, file.path);
+      return analysis ? [{ path: file.path, analysis, file }] : [];
+    });
+    const matrix = buildCoverageMatrix(analyzed);
+    const baseOrder = new Map<string, number>(BASE_COVERAGE_TARGETS.map((target, index) => [target.key, index]));
+    const orderedAreas = [...matrix].sort((left, right) =>
+      (baseOrder.get(left.key) ?? 1_000) - (baseOrder.get(right.key) ?? 1_000) ||
+      right.observationCount - left.observationCount,
+    );
+    for (const area of orderedAreas) {
+      if (area.semanticPathCount === 0 || area.unresolvedQuestions.length) {
+        remainingGaps.add(area.key);
+        const entry = analyzed
+          .filter((item) => item.analysis.subsystemKeys.includes(area.key) && item.analysis.analysisMode !== "semantic")
+          .filter((item) => !candidates.some((candidate) => candidate.file.id === item.file.id))
+          .sort((left, right) => {
+            const score = (item: typeof left) =>
+              item.analysis.facts.reduce((total, fact) => total + fact.productImportance + fact.implementationBreadth + fact.technicalDifficulty, 0) +
+              item.analysis.architectureSignals.length * 4 +
+              item.analysis.dependencies.length +
+              (/readme|schema|workflow|agent|artifact|chat|retriev|github/i.test(item.path) ? 20 : 0);
+            return score(right) - score(left) || left.path.localeCompare(right.path);
+          })[0];
+        if (entry) candidates.push({ snapshot, file: entry.file, analysis: entry.analysis });
+      }
+      if (candidates.length >= 8) break;
+    }
+    if (candidates.length >= 8) break;
+  }
+  await prisma.knowledgeRefreshRun.update({ where: { id: runId }, data: { status: "semantic_analysis" } });
+  const repairResults: Array<{ path: string; repaired: boolean; status: string; error: string | null }> = [];
+  for (let offset = 0; offset < candidates.length; offset += 3) {
+    const wave = candidates.slice(offset, offset + 3);
+    const waveResults = await Promise.all(wave.map(async (candidate) => {
+    const target = targets.get(candidate.snapshot.sourceId);
+    if (!target || !candidate.file.blobSha) return { path: candidate.file.path, repaired: false, status: "failed", error: "missing_target" };
+    try {
+      const read = await repositoryKnowledgeSyncService.readFile({
+        userId: run.workItem.userId,
+        workItemId: run.workItemId,
+        target,
+        entry: {
+          path: candidate.file.path,
+          blobSha: candidate.file.blobSha,
+          sizeBytes: candidate.file.sizeBytes,
+          mode: "100644",
+          objectType: "blob",
+          disposition: "eligible",
+          exclusionReason: null,
+        },
+      });
+      await prisma.repositoryFileSnapshot.update({ where: { id: candidate.file.id }, data: { semanticStatus: "pending" } });
+      const semantic = await analyzeRepositoryFile({
+        workItemId: run.workItemId,
+        refreshRunId: run.id,
+        repository: target.repository,
+        commitSha: target.commitSha,
+        path: candidate.file.path,
+        content: read.content,
+      });
+      const [freshStaticAnalysis] = await analyzeRepositoryFiles([{
+        repository: target.repository,
+        commitSha: target.commitSha,
+        path: candidate.file.path,
+        content: read.content,
+      }]);
+      const semanticStatus = semantic.semanticStatus ?? (semantic.facts.length ? "succeeded" : "degraded");
+      await prisma.repositoryFileSnapshot.update({
+        where: { id: candidate.file.id },
+        data: {
+          analysis: toInputJson({ ...(freshStaticAnalysis ?? candidate.analysis), redacted: read.redacted, redactionCategories: read.redactionCategories }),
+          semanticStatus,
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+          semanticRefreshRunId: run.id,
+          semanticAnalysis: toInputJson(semantic),
+          semanticDiagnostics: toInputJson(semantic.semanticDiagnostics ?? []),
+          semanticAnalyzedAt: new Date(),
+          analyzedAt: new Date(),
+        },
+      });
+      return {
+        path: candidate.file.path,
+        repaired: semanticStatus === "succeeded",
+        status: semanticStatus,
+        error: semanticStatus === "succeeded" ? null : semantic.unresolvedQuestions.join("; ").slice(0, 300) || "semantic_extraction_degraded",
+      };
+    } catch (error) {
+      await prisma.repositoryFileSnapshot.update({
+        where: { id: candidate.file.id },
+        data: {
+          semanticStatus: "failed",
+          semanticAnalyzerVersion: REPOSITORY_SEMANTIC_ANALYZER_VERSION,
+          semanticRefreshRunId: run.id,
+          semanticDiagnostics: toInputJson({ message: error instanceof Error ? error.message.slice(0, 500) : "unknown_semantic_repair_error" }),
+          semanticAnalyzedAt: new Date(),
+        },
+      }).catch(() => null);
+      return { path: candidate.file.path, repaired: false, status: "failed", error: error instanceof Error ? error.message.slice(0, 300) : "unknown_semantic_repair_error" };
+    }
+    }));
+    repairResults.push(...waveResults);
+  }
+  const failures = repairResults.filter((result) => !result.repaired);
+  if (failures.length) {
+    await prisma.knowledgeRefreshRun.update({
+      where: { id: runId },
+      data: { warnings: toInputJson({ ...record(run.warnings), semanticRepairFailures: failures }) },
+    });
+  }
+  return {
+    repaired: repairResults.filter((result) => result.repaired).length,
+    remainingGaps: [...Array.from(remainingGaps), ...failures.map((failure) => `Semantic repair retained static coverage for ${failure.path}: ${failure.error ?? failure.status}.`)],
+  };
+}
+
 export async function repairKnowledgeCoverageGaps(runId: string) {
   const current = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
@@ -1062,32 +1134,16 @@ export async function repairKnowledgeCoverageGaps(runId: string) {
   } catch (error) {
     const after = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
       where: { id: runId },
-      select: { status: true, orchestration: true, warnings: true },
+      select: { status: true },
     });
     assertKnowledgeRefreshCanExecute(runId, after.status);
-    if (requiresModelSemanticMainPath()) {
-      await failKnowledgeRefresh(runId, error);
-      throw error;
-    }
-    const gap = `Repository-derived semantic orchestration failed closed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown orchestration failure"}.`;
-    await prisma.knowledgeRefreshRun.update({
-      where: { id: runId },
-      data: {
-        status: "auditing",
-        orchestration: toInputJson({
-          ...record(after.orchestration),
-          policyVersion: REPOSITORY_ORCHESTRATION_POLICY_VERSION,
-          remainingGaps: [gap],
-        }),
-        warnings: toInputJson({
-          ...record(after.warnings),
-          semanticOrchestrationFailure: gap,
-        }),
-      },
-    });
+    const legacy = await repairKnowledgeCoverageGapsLegacy(runId);
     return {
-      repaired: 0,
-      remainingGaps: [gap],
+      ...legacy,
+      remainingGaps: [
+        `Hybrid semantic orchestration degraded: ${error instanceof Error ? error.message.slice(0, 300) : "unknown orchestration failure"}.`,
+        ...legacy.remainingGaps,
+      ],
     };
   }
 }
@@ -1110,24 +1166,12 @@ export async function finalizeKnowledgeCoverage(runId: string) {
   }
   const coverageByRepository = [];
   const repositories = parseTargets(run.targetHeads).map((target) => target.repository);
-  const orchestrationRecord = record(run.orchestration);
-  const orchestrationGaps = Array.isArray(orchestrationRecord.remainingGaps)
-    ? (orchestrationRecord.remainingGaps as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+  const orchestrationGaps = Array.isArray(record(run.orchestration).remainingGaps)
+    ? (record(run.orchestration).remainingGaps as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
-  const orchestrationCapacityLimitations = Array.isArray(orchestrationRecord.capacityLimitations)
-    ? (orchestrationRecord.capacityLimitations as unknown[]).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-    : [];
-  const capacityLimitedFileSnapshotIds = new Set(
-    Array.isArray(orchestrationRecord.capacityLimitedFileSnapshotIds)
-      ? (orchestrationRecord.capacityLimitedFileSnapshotIds as unknown[])
-          .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-      : [],
-  );
-  const persistedCartography = coverageRecords(orchestrationRecord.cartography);
-  const persistedCritique = coverageRecords(record(orchestrationRecord.coverageCritique).domains);
   const semanticWorkers = await prisma.agentRun.findMany({
     where: { knowledgeRefreshRunId: runId, kind: "semantic_worker" },
-    select: { id: true, request: true, result: true },
+    select: { id: true, request: true },
   });
   for (const snapshot of run.snapshots) {
     const repository = parseTargets(run.targetHeads).find((target) => target.sourceId === snapshot.sourceId)?.repository ?? snapshot.sourceId;
@@ -1144,153 +1188,33 @@ export async function finalizeKnowledgeCoverage(runId: string) {
         : staticAnalysis;
       return analysis ? [{ path: file.path, analysis }] : [];
     });
-    const persistedCartographyForRepository = persistedCartography.filter((area) => area.scopeKey === repository);
-    const derivedCartographyForRepository = persistedCartographyForRepository.length
-      ? []
-      : buildRepositoryDerivedCapabilityManifest({
-          scopeKey: repository,
-          files: snapshot.files.flatMap((file) => {
-            const analysis = rebaseCachedAnalysis(file.analysis, file.path);
-            return analysis ? [{ id: file.id, path: file.path, changeType: file.changeType, analysis }] : [];
-          }),
-        });
-    const cartographyForRepository = persistedCartographyForRepository.length
-      ? persistedCartographyForRepository
-      : derivedCartographyForRepository;
-    const matrix = cartographyForRepository.length
-      ? cartographyForRepository.flatMap((area) => {
-          if (typeof area.key !== "string" || typeof area.label !== "string") return [];
-          const mappedFiles = coverageRecords(area.files).flatMap((file) =>
-            typeof file.id === "string" && typeof file.path === "string"
-              ? [{ id: file.id, path: file.path }]
-              : []
-          );
-          const paths = Array.from(new Set(mappedFiles.map((file) => file.path))).sort();
-          const mappedSemanticFiles = snapshot.files.flatMap((file) => {
-            if (
-              !paths.includes(file.path) ||
-              file.semanticRefreshRunId !== runId ||
-              file.semanticAnalyzerVersion !== REPOSITORY_SEMANTIC_ANALYZER_VERSION ||
-              !semanticAnalysisSupportsCapability(file.semanticAnalysis, file.path, area.key as string)
-            ) return [];
-            const analysis = rebaseCachedAnalysis(file.semanticAnalysis, file.path);
-            return analysis ? [{ file, analysis }] : [];
-          });
-          const modelSemanticPathCount = mappedSemanticFiles.filter(({ file, analysis }) =>
-            file.semanticStatus === "succeeded" &&
-            analysis.semanticSource !== "deterministic_fallback"
-          ).length;
-          const deterministicFallbackPathCount = mappedSemanticFiles.filter(({ analysis }) =>
-            analysis.semanticSource === "deterministic_fallback"
-          ).length;
-          const semanticPathCount = modelSemanticPathCount;
-          const critique = persistedCritique.find((domain) =>
-            domain.key === area.key && domain.scopeKey === repository
-          );
-          const criticStatus = critique?.status === "covered" ||
-              critique?.status === "coverage_limited" ||
-              critique?.status === "thin" ||
-              critique?.status === "missing"
-            ? critique.status
-            : semanticPathCount > 0 ? "covered" : "missing";
-          return [{
-            key: area.key,
-            label: area.label,
-            status: criticStatus === "covered" ? "semantic_verified" as const : "static_mapped" as const,
-            paths,
-            observationCount: typeof area.salience === "number" ? area.salience : paths.length,
-            staticPathCount: paths.length,
-            semanticPathCount,
-            modelSemanticPathCount,
-            deterministicFallbackPathCount,
-            unresolvedQuestions: [] as string[],
-            criticStatus,
-          }];
-        })
-      : buildCoverageMatrix(analyzed);
-    const requiredAreas = cartographyForRepository.length
-      ? matrix
-      : selectRequiredSemanticCoverageAreas(matrix);
+    const matrix = buildCoverageMatrix(analyzed);
+    const requiredAreas = selectRequiredSemanticCoverageAreas(matrix);
     const requiredAreaKeys = new Set(requiredAreas.map((area) => area.key));
-    const semanticDegradations = snapshot.files.flatMap((file) => {
-      if (
-        file.semanticRefreshRunId !== runId ||
-        file.semanticAnalyzerVersion !== REPOSITORY_SEMANTIC_ANALYZER_VERSION ||
-        (file.semanticStatus !== "degraded" && file.semanticStatus !== "failed" && file.semanticStatus !== "pending")
-      ) return [];
-      const hasPersistedTokenCapacityDiagnostic =
-        Array.isArray(file.semanticDiagnostics) &&
-        file.semanticDiagnostics.some((diagnostic) =>
-          diagnostic &&
-          typeof diagnostic === "object" &&
-          !Array.isArray(diagnostic) &&
-          (diagnostic as { status?: unknown }).status === "token_budget_exhausted"
-        );
-      return [{
-        id: file.id,
-        path: file.path,
-        message: `Semantic analysis ${file.semanticStatus} for ${file.path}.`,
-        capacityLimited:
-          capacityLimitedFileSnapshotIds.has(file.id) &&
-          hasPersistedTokenCapacityDiagnostic,
-      }];
-    });
-    const unresolvedSemanticDegradations = semanticDegradations.filter((entry) => {
-      const mappedAreas = requiredAreas.filter((area) => area.paths.includes(entry.path));
-      const hasUnresolvedArea = mappedAreas.some((area) =>
-        !("criticStatus" in area) || area.criticStatus !== "covered"
-      );
-      if (!hasUnresolvedArea) return false;
-      const isSatisfiedCapacityLimit =
-        entry.capacityLimited &&
-        mappedAreas.length > 0 &&
-        mappedAreas.every((area) =>
-          "criticStatus" in area &&
-          (area.criticStatus === "covered" || area.criticStatus === "coverage_limited")
-        );
-      return !isSatisfiedCapacityLimit;
-    });
+    const semanticDegradations = snapshot.files.flatMap((file) =>
+      file.semanticRefreshRunId === runId &&
+      file.semanticAnalyzerVersion === REPOSITORY_SEMANTIC_ANALYZER_VERSION &&
+      (file.semanticStatus === "degraded" || file.semanticStatus === "failed" || file.semanticStatus === "pending")
+        ? [{ path: file.path, message: `Semantic analysis ${file.semanticStatus} for ${file.path}.` }]
+        : [],
+    );
     const scopedOrchestrationGaps = repositoryOrchestrationCoverageGaps({
       repository,
       repositories,
       filePaths: snapshot.files.map((file) => file.path),
       remainingGaps: orchestrationGaps,
     });
-    const scopedCapacityLimitations = repositoryOrchestrationCoverageGaps({
-      repository,
-      repositories,
-      filePaths: snapshot.files.map((file) => file.path),
-      remainingGaps: orchestrationCapacityLimitations,
-    });
-    const limitedAreas = requiredAreas.filter((area) =>
-      "criticStatus" in area && area.criticStatus === "coverage_limited"
-    );
-    const blockingCoverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
-      ...(("criticStatus" in area
-          ? area.criticStatus !== "covered" && area.criticStatus !== "coverage_limited"
-          : area.semanticPathCount === 0)
-        ? [`${area.label} does not meet its repository-derived semantic sample and implementation-evidence target.`]
-        : []),
-    ]), ...unresolvedSemanticDegradations.map((entry) => entry.message), ...scopedOrchestrationGaps]));
-    const coverageGaps = Array.from(new Set([
-      ...blockingCoverageGaps,
-      ...limitedAreas.map((area) =>
-        `${area.label} reached the bounded semantic-analysis capacity after establishing the required evidence floor.`
-      ),
-      ...scopedCapacityLimitations,
-    ]));
+    const coverageGaps = Array.from(new Set([...requiredAreas.flatMap((area) => [
+      ...(area.semanticPathCount === 0 ? [`${area.label} has static coverage but no successful semantic analysis.`] : []),
+    ]), ...semanticDegradations.map((entry) => entry.message), ...scopedOrchestrationGaps]));
     const semanticPaths = analyzed.filter((entry) => entry.analysis.analysisMode === "semantic").length;
-    const semanticCoverageStatus = requiredAreas.length === 0 && blockingCoverageGaps.length === 0 && limitedAreas.length === 0
+    const semanticCoverageStatus = requiredAreas.length === 0 && semanticDegradations.length === 0 && scopedOrchestrationGaps.length === 0
       ? "not_required"
-      : blockingCoverageGaps.length > 0
-        ? semanticPaths > 0
-          ? "partial"
-          : "failed"
-        : limitedAreas.length > 0 || scopedCapacityLimitations.length > 0
-          ? "coverage_limited"
-          : coverageGaps.length === 0
+      : coverageGaps.length === 0
         ? "complete"
-        : "partial";
+        : semanticPaths > 0
+          ? "partial"
+          : "failed";
     const coverageStatus = semanticCoverageStatus === "complete" || semanticCoverageStatus === "not_required"
       ? "complete"
       : semanticCoverageStatus === "failed"
@@ -1324,35 +1248,10 @@ export async function finalizeKnowledgeCoverage(runId: string) {
     coverageByRepository.push(coverage);
     const ledgerUpserts: Array<() => Promise<unknown>> = [];
     for (const area of matrix) {
-      const areaFileIds = new Set(snapshot.files
+      const representativeFileIds = snapshot.files
         .filter((file) => area.paths.includes(file.path))
-        .map((file) => file.id));
-      const sampledWorkers = semanticWorkers.flatMap((worker) => {
-        const request = record(worker.request);
-        const result = record(worker.result);
-        const inspectedFileSnapshotIds = new Set(
-          Array.isArray(result.inspectedFileSnapshotIds)
-            ? result.inspectedFileSnapshotIds.filter((id): id is string => typeof id === "string")
-            : [],
-        );
-        const capabilityKeys = Array.isArray(request.capabilityKeys)
-          ? request.capabilityKeys.filter((key): key is string => typeof key === "string")
-          : [];
-        const fileSnapshotIds = Array.isArray(request.fileSnapshotIds)
-          ? request.fileSnapshotIds.filter((id): id is string =>
-              typeof id === "string" && areaFileIds.has(id) && inspectedFileSnapshotIds.has(id)
-            )
-          : [];
-        return capabilityKeys.includes(area.key) && fileSnapshotIds.length
-          ? [{ workerId: worker.id, fileSnapshotIds }]
-          : [];
-      });
-      // The ledger records what investigators actually sampled. Mapped-but-
-      // unread files remain visible in the matrix, not mislabelled as semantic
-      // representatives.
-      const representativeFileIds = Array.from(new Set(
-        sampledWorkers.flatMap((worker) => worker.fileSnapshotIds),
-      )).slice(0, 12);
+        .slice(0, 12)
+        .map((file) => file.id);
       const priority = repositoryCapabilityPriority({
         capabilityKey: area.key,
         observationCount: area.observationCount,
@@ -1362,24 +1261,20 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       // are not a trustworthy quality signal. Coverage is blocked only by a
       // structural absence of supported semantic evidence or by an explicit
       // semantic execution failure recorded on a representative file.
-      const blockingGaps = unresolvedSemanticDegradations
+      const blockingGaps = semanticDegradations
         .filter((entry) => area.paths.includes(entry.path))
         .map((entry) => entry.message);
-      const criticStatus = "criticStatus" in area ? area.criticStatus : undefined;
       const status = area.status === "not_applicable"
         ? "not_applicable"
-        : criticStatus === "covered" && !blockingGaps.length
-          ? "semantic_verified"
-          : criticStatus === "thin"
-            ? "partial"
-            : criticStatus === "missing"
-              ? "static_only"
-              : area.semanticPathCount > 0 && !blockingGaps.length
+        : area.semanticPathCount > 0 && !blockingGaps.length
           ? "semantic_verified"
           : area.semanticPathCount > 0
             ? "partial"
             : "static_only";
-      const workerRunIds = sampledWorkers.map((worker) => worker.workerId);
+      const workerRunIds = semanticWorkers.flatMap((worker) => {
+        const request = record(worker.request);
+        return Array.isArray(request?.capabilityKeys) && request.capabilityKeys.includes(area.key) ? [worker.id] : [];
+      });
       ledgerUpserts.push(() => prisma.repositoryCapabilityLedger.upsert({
         where: { snapshotId_capabilityKey: { snapshotId: snapshot.id, capabilityKey: area.key } },
         create: {
@@ -1394,9 +1289,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           staticObservationCount: area.observationCount,
           semanticObservationCount: area.semanticPathCount,
           gaps: toInputJson([
-            ...(criticStatus && criticStatus !== "covered"
-              ? ["Repository-derived semantic sampling or implementation evidence is incomplete."]
-              : area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
+            ...(area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),
@@ -1412,9 +1305,7 @@ export async function finalizeKnowledgeCoverage(runId: string) {
           staticObservationCount: area.observationCount,
           semanticObservationCount: area.semanticPathCount,
           gaps: toInputJson([
-            ...(criticStatus && criticStatus !== "covered"
-              ? ["Repository-derived semantic sampling or implementation evidence is incomplete."]
-              : area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
+            ...(area.semanticPathCount === 0 && area.staticPathCount > 0 ? ["No successful semantic analysis."] : []),
             ...blockingGaps,
           ]),
           workerRunIds: toInputJson(workerRunIds),
@@ -1438,34 +1329,21 @@ export async function finalizeKnowledgeCoverage(runId: string) {
       },
     });
   }
-  const unresolvedModelSemanticCoverage = requiresModelSemanticMainPath()
-    ? unresolvedSemanticCoverageRepositories(coverageByRepository)
-    : [];
-  const semanticFailureMessage = unresolvedModelSemanticCoverage.length
-    ? `Repository semantic analysis did not establish the required evidence for ${unresolvedModelSemanticCoverage.join(", ")}.`
-    : null;
-  const finishedAt = semanticFailureMessage ? new Date() : null;
   await prisma.knowledgeRefreshRun.update({
     where: { id: runId },
     data: {
-      status: semanticFailureMessage ? "failed" : "reconciling",
-      qualityStatus: semanticFailureMessage
-        ? "failed"
-        : coverageByRepository.some((entry) => entry.coverageStatus !== "complete") ? "degraded" : "verified",
+      status: "reconciling",
+      qualityStatus: coverageByRepository.some((entry) => entry.coverageStatus !== "complete") ? "degraded" : "verified",
       coverage: toInputJson(coverageByRepository),
-      ...(!semanticFailureMessage ? { completedHeads: toInputJson(run.targetHeads) } : {}),
-      ...(finishedAt ? { finishedAt } : {}),
-      ...(semanticFailureMessage ? { error: toInputJson({ message: semanticFailureMessage }) } : {}),
+      completedHeads: toInputJson(run.targetHeads),
       warnings: toInputJson({
         ...record(run.warnings),
         modelId: resolveActiveTextModelIdentity("deep_synthesis").modelId,
         semanticOrchestrationGaps: orchestrationGaps,
-        semanticCapacityLimitations: orchestrationCapacityLimitations,
         ...currentKnowledgeRefreshPolicyMetadata(),
       }),
     },
   });
-  if (semanticFailureMessage) throw new Error(semanticFailureMessage);
   return { runId, coverage: coverageByRepository };
 }
 
@@ -1479,25 +1357,9 @@ export async function completeKnowledgeRefresh(
 ) {
   const beforeCompletion = await prisma.knowledgeRefreshRun.findUniqueOrThrow({
     where: { id: runId },
-    select: { progress: true, coverage: true },
+    select: { progress: true },
   });
   const finishedAt = new Date();
-  const unresolvedModelSemanticCoverage = requiresModelSemanticMainPath()
-    ? unresolvedSemanticCoverageRepositories(beforeCompletion.coverage)
-    : [];
-  if (unresolvedModelSemanticCoverage.length) {
-    const message = `Repository semantic analysis did not establish the required evidence for ${unresolvedModelSemanticCoverage.join(", ")}.`;
-    await prisma.knowledgeRefreshRun.updateMany({
-      where: { id: runId, status: "reconciling" },
-      data: {
-        status: "failed",
-        qualityStatus: "failed",
-        finishedAt,
-        error: toInputJson({ message }),
-      },
-    });
-    throw new Error(message);
-  }
   const completed = await prisma.knowledgeRefreshRun.updateMany({
     where: { id: runId, status: "reconciling" },
     data: {

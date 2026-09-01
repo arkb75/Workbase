@@ -15,11 +15,12 @@ import {
   redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
-// Static parsing and semantic extraction keep separate fingerprints so a
-// parser-only change does not invalidate otherwise compatible model output.
-export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v24-hybrid";
-export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v41-operation-breadth";
-export const REPOSITORY_INVENTORY_POLICY_VERSION = "repository-inventory-v2-hybrid";
+// Static and semantic extraction intentionally have separate fingerprints.
+// They currently share a value for backward-compatible cache reuse, but a
+// future prompt/schema/window change can advance semantic extraction without
+// forcing every unchanged repository blob through static analysis again.
+export const REPOSITORY_STATIC_ANALYZER_VERSION = "repository-coverage-v16";
+export const REPOSITORY_SEMANTIC_ANALYZER_VERSION = "repository-coverage-v18";
 export const REPOSITORY_SYNC_MAX_FILE_BYTES = 256 * 1024;
 const GITHUB_TIMEOUT_MS = 30_000;
 
@@ -30,7 +31,6 @@ const metadataSchema = z.object({
     owner: z.string().min(1).max(100),
     name: z.string().min(1).max(100),
     defaultBranch: z.string().min(1).max(200),
-    targetRef: z.string().min(1).max(200).optional(),
     private: z.boolean(),
   }),
 });
@@ -122,7 +122,7 @@ export async function resolveRepositoryTargetHeads(input: {
       token: attached.token,
       owner: attached.repository.owner,
       repo: attached.repository.name,
-      ref: attached.repository.targetRef ?? attached.repository.defaultBranch,
+      ref: attached.repository.defaultBranch,
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
     const resolvedAt = new Date().toISOString();
@@ -260,9 +260,7 @@ export async function inventoryRepositoryAtTarget(input: {
     target: input.target,
     entries,
     treeLookups,
-    manifestHash: `${REPOSITORY_INVENTORY_POLICY_VERSION}:${hash(entries.map((entry) =>
-      [entry.path, entry.blobSha, entry.disposition, entry.exclusionReason].join(":")
-    ).join("\n"))}`,
+    manifestHash: hash(entries.map((entry) => [entry.path, entry.blobSha, entry.disposition, entry.exclusionReason].join(":")).join("\n")),
   };
 }
 

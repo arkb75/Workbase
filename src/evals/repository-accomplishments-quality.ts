@@ -5,12 +5,11 @@ import {
   type ProjectChatApplicationScenarioResult,
 } from "@/src/evals/project-chat-application-runner";
 import { projectChatPrimaryAnswerItems } from "@/src/evals/project-chat-answer-quality";
-import { repositoryKnowledgeFixtures } from "@/src/evals/repository-knowledge-fixtures";
 
 export const REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION =
-  "repository-accomplishments-profile-v3" as const;
+  "workbase-repository-accomplishments-profile-v2" as const;
 export const REPOSITORY_ACCOMPLISHMENTS_REPORT_SCHEMA_VERSION =
-  "repository-accomplishments-report-v3" as const;
+  "workbase-repository-accomplishments-report-v2" as const;
 
 export interface RepositoryAccomplishmentsProfile {
   schemaVersion: typeof REPOSITORY_ACCOMPLISHMENTS_PROFILE_SCHEMA_VERSION;
@@ -380,8 +379,8 @@ export function buildRepositoryAccomplishmentsScenarioCatalog(
         ...scenario.answerContract,
         minCharacters: profile.minimumCharacters,
         maxCharacters: profile.maximumCharacters,
-        // The application scenario catalog contains product-oriented defaults.
-        // Every repository profile supplies its own capability contract instead.
+        // Workbase's default theme taxonomy is intentionally product-specific.
+        // Repository profiles express their own capability coverage instead.
         minReaderThemes: 0,
         minPrimaryItems: profile.minimumPrimaryItems,
         maxPrimaryItems: profile.maximumPrimaryItems,
@@ -396,38 +395,6 @@ export function buildRepositoryAccomplishmentsScenarioCatalog(
         ],
       },
     }));
-}
-
-/**
- * Default application-level accomplishments coverage is deliberately a
- * multi-project catalog. A caller may still evaluate one exact repository,
- * but the release comparison should iterate this catalog rather than treating
- * one project's taxonomy as the repository-quality oracle.
- */
-export function buildGeneralizedRepositoryAccomplishmentsProfileCatalog() {
-  return repositoryKnowledgeFixtures
-    .filter((fixture) => fixture.sourceKind === "curated_real_repository")
-    .map((fixture) => {
-      const requiredCapabilities = fixture.expectedCapabilities.filter(
-        (capability) =>
-          capability.implementationState === "implemented" &&
-          capability.expectedInHighlights,
-      );
-      const minimumItems = Math.min(6, Math.max(3, requiredCapabilities.length));
-      return parseRepositoryAccomplishmentsProfile({
-        workItemTitle: fixture.repository!.split("/").at(-1)!,
-        repository: fixture.repository,
-        requiredCapabilityPatterns: requiredCapabilities
-          .map((capability) => capability.matchPatterns[0]!)
-          .slice(0, 12),
-        forbiddenAnswerPatterns: [],
-        includeFreshnessFollowUp: true,
-        minimumPrimaryItems: minimumItems,
-        maximumPrimaryItems: 6,
-        minimumDevelopedItems: minimumItems,
-        minimumCitedItems: minimumItems,
-      });
-    });
 }
 
 function checkActual(
