@@ -4,18 +4,17 @@ Date: 2026-09-01
 
 ## Decision
 
-The generalized main path at `b777b27` is the release candidate. It is a
-quality improvement over both the original `main` /
-`feature/highlights-atlas-coverage` extractor and the v69 orchestrated
-checkpoint, and should replace the current extractor for product testing.
+The generalized main path at `297d817` is the release candidate. It improves
+quality over the original `main` / `feature/highlights-atlas-coverage`
+extractor, the v69 orchestrated checkpoint, and the pre-efficiency generalized
+build at `b777b27`.
 
-The subsequent efficiency candidate was rejected. It reduced calls, tokens,
-and duration, but its clean six-repository run regressed repository knowledge
-and Highlight quality. It also cost more after the unavailable Luna route
-forced quality-critical work onto Terra, so it did not provide an exact-model
-non-inferiority result. The release therefore retains the certified
-pre-efficiency implementation. No budget or quality threshold was relaxed to
-make the experiment appear green.
+The accepted efficiency work reduces aggregate model calls, tokens, cost, and
+elapsed time while the strict matched-fixture non-inferiority comparator passes
+without a regression. A prior critic-batching experiment remains rejected; its
+lower call count did not justify its measured knowledge and Highlight losses.
+No budget or quality threshold was relaxed to make either decision appear
+green.
 
 ## What changed
 
@@ -33,6 +32,18 @@ make the experiment appear green.
 - Highlight selection evaluates every verified Fact against an absolute bar and
   selects the natural number supported by the repository. There is no target,
   minimum, maximum quota below the eligible candidate set, or per-domain quota.
+- Semantic excerpts use a byte-budget-scaled number of cohesive windows rather
+  than many shallow fragments. This preserves citation continuity without an
+  extra model pass.
+- Highlight selection receives operation-community identity and performs
+  relevance-first, coverage-aware set selection. It keeps distinct workflows
+  apart even when they share implementation vocabulary, while avoiding generic
+  persistence details when a concrete project behavior is available.
+- The existing title critic can repair a title-only issue in its current call;
+  evidence mismatches and unsupported content still fail closed.
+- Provider pacing is reactive rather than unconditional. Transient attempts use
+  bounded same-model retries and retain exact attempt accounting; deterministic
+  knowledge fallbacks are not the default path.
 - Evaluator v7 treats a checked-out source path as disambiguating context only
   when the exact cited excerpt independently overlaps at least one bounded set
   of distinctive claim terms. A filename alone cannot ground a claim. Large
@@ -59,7 +70,7 @@ attempts, policy versions, candidate partitions, and result attestations were
 recertified rather than trusted from serialized JSON.
 
 Final database-certified report SHA-256:
-`db351fcbf58ca796e660922e2410c524eb03fa948e5abe0d6b6ced8ed6e34c58`.
+`245dd85d3a1e72953a6f9ba4df2de9544712e41d18e14c5de7f4c4fcaf372bc6`.
 
 ## Release checkpoints
 
@@ -67,12 +78,12 @@ Final database-certified report SHA-256:
 |---|---|---|
 | Original main | `checkpoint/repository-knowledge-main` (`e470dcb`) | Pre-orchestration implementation |
 | Current orchestrated baseline | `checkpoint/repository-knowledge-current-v69` (`dcfe725`) | General v69 comparison point |
-| Pre-efficiency quality release | `checkpoint/repository-knowledge-pre-efficiency-v86` (`b777b27`) | Certified generalized implementation |
-| Final | `checkpoint/repository-knowledge-final` | Same production code as v86, plus this final decision record |
+| Pre-efficiency quality release | `checkpoint/repository-knowledge-pre-efficiency-v86` (`b777b27`) | Comparison baseline requested for efficiency work |
+| Accepted efficient release | `297d817` | Scope-calibrated, coverage-aware generalized main path |
 
 ## Progression on the five projects completed by original main
 
-| Outcome | Original main | Orchestrated v69 | Final generalized |
+| Outcome | Original main | Orchestrated v69 | Pre-efficiency quality build |
 |---|---:|---:|---:|
 | Overall score | 0.482 | 0.799 | 0.869 |
 | Repository knowledge | 0.195 | 0.762 | 0.877 |
@@ -83,19 +94,20 @@ Original main failed Amazon during inventory. The later variants completed it,
 so the table uses the matched five for the three-way score comparison and
 reports lifecycle completion separately.
 
-## Final versus the current v69 checkpoint
+## Pre-efficiency quality build versus the current v69 checkpoint
 
-| Outcome | v69 | Final | Change |
+| Outcome | v69 | Pre-efficiency | Change |
 |---|---:|---:|---:|
 | Overall score | 0.804 | 0.870 | +0.066 |
 | Repository knowledge | 0.773 | 0.880 | +0.107 |
 | Highlight generation | 0.504 | 0.826 | +0.322 |
 | Execution integrity | passed | passed | no regression |
 
-Every project improves in overall score and repository-knowledge score.
+Every project improved in overall score and repository-knowledge score at this
+intermediate checkpoint.
 Highlight generation improves on five projects and ties on CircleFund.
 
-| Project | Overall v69 → final | Knowledge v69 → final | Highlights v69 → final | Count v69 → final |
+| Project | Overall v69 → pre-efficiency | Knowledge v69 → pre-efficiency | Highlights v69 → pre-efficiency | Count v69 → pre-efficiency |
 |---|---:|---:|---:|---:|
 | Backer | 0.857 → 0.894 | 0.920 → 0.934 | 0.542 → 0.907 | 6 → 18 |
 | SoloPilot | 0.712 → 0.808 | 0.600 → 0.805 | 0.349 → 0.749 | 5 → 21 |
@@ -104,23 +116,43 @@ Highlight generation improves on five projects and ties on CircleFund.
 | InsightUBC | 0.935 → 0.975 | 0.981 → 0.982 | 0.538 → 0.938 | 5 → 11 |
 | Amazon analytics | 0.880 → 0.903 | 0.922 → 0.932 | 0.735 → 0.857 | 6 → 9 |
 
-The output counts now vary naturally from 9 to 26 according to the verified
-Fact surface. Count itself receives no score; the gain comes from capability
-coverage, salience, grounding, domain breadth, and non-redundancy.
+At this checkpoint, output counts varied naturally from 9 to 26 according to
+the verified Fact surface. Count itself receives no score; the gain comes from
+capability coverage, salience, grounding, domain breadth, and non-redundancy.
 
-## Cost and latency
+## Accepted efficiency result
 
-| Six-project operation | v69 | Final | Change |
+The comparison uses the same six pinned projects, evaluator v7, model roles,
+and database attestation path as the pre-efficiency build.
+
+| Six-project outcome | Pre-efficiency | Accepted | Change |
 |---|---:|---:|---:|
-| Model calls | 204 | 364 | +78% |
-| Tokens | 733,477 | 1,191,701 | +62% |
-| Estimated cost | $1.387 | $2.239 | +61% |
-| Duration | 1,508,398 ms | 2,481,160 ms | +64% |
+| Overall score | 0.870 | 0.887 | +1.95% |
+| Repository knowledge | 0.880 | 0.895 | +1.69% |
+| Highlight generation | 0.826 | 0.850 | +2.92% |
+| Macro-average score | 0.897 | 0.920 | +2.59% |
+| Minimum project score | 0.808 | 0.810 | +0.29% |
+| Model calls | 364 | 333 | -8.52% |
+| Tokens | 1,191,701 | 1,146,094 | -3.83% |
+| Estimated cost | $2.239 | $2.121 | -5.28% |
+| Duration | 2,481,160 ms | 2,188,180 ms | -11.81% |
 
-All six final runs used the model-backed main path. There were no schema-repair
-runs, deterministic semantic fallbacks, deterministic synthesis fallbacks, or
-planner fallbacks in the certified runs. The added cost buys materially broader
-knowledge and Highlights, but it is too high to call the efficiency work done.
+The formal comparison passed. Execution integrity passed on every repository,
+the exact model identities matched, and all fixture-level deltas were either
+improvements or within the declared non-inferiority tolerances.
+
+Highlight counts remained repository-shaped rather than fixed: Backer 14,
+SoloPilot 21, CircleFund 15, Workbase 24, InsightUBC 8, and Amazon 11. Amazon's
+Highlight score rose from 0.857 to 1.000 after scope calibration retained its
+distinct product, purchase-order, and forecast workflows instead of a generic
+collection-persistence item.
+
+All accepted runs used the model-backed main path. There were no schema-repair
+runs or deterministic semantic, synthesis, or planner fallbacks in the new live
+runs. The suite's old absolute per-project time/call/token ceilings still make
+the aggregate `hardBudgetPassed` flag false; the accepted claim is measured
+relative efficiency with non-regressing quality, not that every legacy budget
+ceiling has been met.
 
 ## Rejected efficiency experiment
 
@@ -150,8 +182,9 @@ The rejected database-certified report SHA-256 is
 Its integrity status passed on all six repositories; the rejection is about
 measured product quality and cost, not an invalid observation. OpenRouter's
 error guidance identifies 429 as a platform or upstream rate-limit condition
-and recommends honoring `Retry-After` with exponential backoff. That should be
-implemented and separately certified before critic batching is reconsidered.
+and recommends honoring `Retry-After` with exponential backoff. That failure
+motivated the accepted reactive cooldown and same-model bounded retry work;
+critic batching itself remained rejected.
 [Errors and debugging](https://openrouter.ai/docs/api/reference/errors-and-debugging)
 and [rate limits](https://openrouter.ai/docs/api/reference/limits) document those
 behaviors.
@@ -164,16 +197,14 @@ behaviors.
   samples in the large Email Intake domain; metadata/requirement extraction,
   PDF annotation/revision, response evaluation, and provider abstraction remain
   incomplete in the oracle.
-- Workbase still misses commit inventory, semantic synthesis, and knowledge
-  review as distinct operation families.
-- Amazon still misses purchase-order management.
+- Workbase still misses commit inventory and artifact generation in the curated
+  recall oracle.
 - Lower-ranked semantic observations can remain outside the bounded synthesis
   notebook even when coverage certification passes.
-- The current Luna route can fail closed under sustained 429s. Same-model,
-  `Retry-After`-aware bounded backoff is the next reliability change; switching
-  all quality-critical work to Terra is not an acceptable substitute.
-
-After that reliability gate, critic transport batching can be reconsidered in
-isolation with the exact same models and pinned six-project suite. It should not
-reduce sampling, weaken entailment, introduce a deterministic content fallback,
-or reinstate a fixed Highlight count.
+- Amazon now recovers all curated capability keys and scores 1.000 for Highlight
+  generation; two lower-level facts remain outside the evaluator's support
+  oracle, so repository-knowledge grounding is 0.932 rather than perfect.
+- Further optimization should target duplicated prompt context and provider-side
+  cache reuse, and must pass this same exact-model comparison. It should not
+  reduce sampling, weaken entailment, introduce a deterministic content
+  fallback, or reinstate a fixed Highlight count.
