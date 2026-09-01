@@ -941,8 +941,6 @@ async function analyzeChunk(input: {
     suppliedLineRanges,
     researchTask: input.task ? {
       objective: input.task.objective,
-      capabilityKeys: allowedCapabilityKeys,
-      semanticSignalKeys: input.task.semanticSignalKeys ?? [],
       questions: input.task.questions,
       expectedOutputs: input.task.expectedOutputs,
     } : null,
@@ -1033,14 +1031,14 @@ async function analyzeChunk(input: {
       // deeper reasoning here reduces reliability without adding authority.
       effort: "low",
       repairStrategy: "repair_last_failure",
-      // Native schema extraction is the only semantic path. A malformed
-      // response stays visible as a failed file, and the coverage critic can
-      // retry it in the next bounded wave without starving untouched primaries.
-      transportPreference: ["json_schema"],
+      // Native schema extraction is the primary path. If the provider reaches
+      // the bounded output ceiling with partial JSON, one same-model compact
+      // repair is cheaper and more auditable than rerunning a later coverage
+      // wave from scratch.
+      transportPreference: ["json_schema", "text_repair_fallback"],
+      repairModelPolicy: "same_profile",
       enablePromptCaching: false,
-      // Semantic coverage admits every primary file attempt before optional
-      // client-side provider fallback can spend another file's call slot.
-      maxProviderAttempts: 1,
+      maxProviderAttempts: 2,
       budget: input.budget?.model,
       extraValidation: (value) => value.findings.flatMap((finding, index) =>
         [
@@ -1470,8 +1468,6 @@ export async function analyzeRepositoryFileBatch(
       suppliedLineRanges: entry.suppliedLineRanges,
       researchTask: {
         objective: entry.file.task.objective,
-        capabilityKeys: entry.allowedCapabilityKeys,
-        semanticSignalKeys: entry.file.task.semanticSignalKeys ?? [],
         questions: entry.file.task.questions,
         expectedOutputs: entry.file.task.expectedOutputs,
       },
@@ -1591,13 +1587,13 @@ export async function analyzeRepositoryFileBatch(
         // file observations the workflow actually needs.
         effort: "low",
         repairStrategy: "repair_last_failure",
-        // Keep schema failures explicit; the bounded coverage wave retries
-        // affected files through native structured output as new primaries.
-        transportPreference: ["json_schema"],
+        // Native JSON Schema remains the primary transport. One same-model
+        // compact repair may finish a response truncated at the output ceiling;
+        // the generation ledger records that correction explicitly.
+        transportPreference: ["json_schema", "text_repair_fallback"],
+        repairModelPolicy: "same_profile",
         enablePromptCaching: false,
-        // OpenRouter already performs same-model provider routing. Keep the
-        // bounded semantic wave's remaining slots for other primary files.
-        maxProviderAttempts: 1,
+        maxProviderAttempts: 2,
         budget: sharedBudget?.model,
       }),
     }) as typeof result;

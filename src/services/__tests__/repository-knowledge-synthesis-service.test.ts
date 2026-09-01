@@ -134,10 +134,10 @@ describe("repository operation communities", () => {
       maxTotalTokens: 0,
     });
     expect(repositoryOperationCommunityBudgetLimits(3)).toEqual({
-      maxModelCalls: 3,
-      maxRepairPasses: 0,
+      maxModelCalls: 6,
+      maxRepairPasses: 3,
       maxOutputTokens: 2_500,
-      maxTotalTokens: 36_000,
+      maxTotalTokens: 60_000,
     });
 
     for (const invalidLength of [-1, 1.5]) {

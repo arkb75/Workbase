@@ -962,7 +962,7 @@ export class BedrockStructuredLlmClient {
     /** Keep a correction on the caller's configured model instead of the shared repair profile. */
     repairModelPolicy?: "configured_repair" | "same_profile";
     /** Bound client-side provider retries/fallbacks for this logical call. */
-    maxProviderAttempts?: 1 | 2;
+    maxProviderAttempts?: 1 | 2 | 3;
     maxTokens: number;
     /**
      * Small structured completions can be predictably truncated even though a
@@ -1116,10 +1116,10 @@ export class BedrockStructuredLlmClient {
           }
           budget.usage.modelCalls += 1;
           if (phase === "repair") budget.usage.repairPasses += 1;
-          // OpenRouter's configured fallback runtime can make at most one second
-          // provider attempt. Direct Bedrock Converse has no cross-model fallback
-          // and ignores maxProviderAttempts, so reserving a second attempt there
-          // would only suppress useful concurrent synthesis work.
+          // OpenRouter may spend bounded additional attempts on same-model
+          // transient recovery or a configured fallback. Admit only the number
+          // of full request reservations that both the caller and shared budget
+          // can actually support. Bedrock ignores this transport allowance.
           const repairCallReserve =
             phase !== "repair" &&
             transportPreference.includes("text_repair_fallback") &&
@@ -1131,13 +1131,16 @@ export class BedrockStructuredLlmClient {
             budget.usage.modelCalls -
             reservations.modelCalls -
             repairCallReserve;
-          const providerAttemptLimit =
-            this.config.provider !== "bedrock" &&
-            (params.maxProviderAttempts ?? 2) > 1 &&
-            availableAdditionalCalls >= 1 &&
-            currentlyAvailableTokens >= requestTokenReservation * 2
-              ? 2
-              : 1;
+          const providerAttemptLimit = this.config.provider === "bedrock"
+            ? 1
+            : Math.max(
+                1,
+                Math.min(
+                  params.maxProviderAttempts ?? 2,
+                  availableAdditionalCalls + 1,
+                  Math.floor(currentlyAvailableTokens / requestTokenReservation),
+                ),
+              );
           const reservedAdditionalCalls = providerAttemptLimit - 1;
           const reservedTokens = requestTokenReservation * providerAttemptLimit;
           reservations.modelCalls += reservedAdditionalCalls;

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 describe("OpenRouter model configuration", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("enables cross-family fallback only for profiles that cleared its live quality gate", () => {
+  it("keeps cross-family fallback out of specialized repository profiles", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     const primary = resolveOpenRouterConfig("primary_answer");
     const synthesis = resolveOpenRouterConfig("deep_synthesis");
@@ -22,9 +22,7 @@ describe("OpenRouter model configuration", () => {
       requireParameters: true,
       sendTemperature: false,
     });
-    expect(verification.fallbackModelId).toBe(
-      DEFAULT_OPENROUTER_FALLBACK_MODEL_ID,
-    );
+    expect(verification.fallbackModelId).toBeUndefined();
     expect(synthesis.fallbackModelId).toBeUndefined();
     expect(drafting).toMatchObject({
       modelId: DEFAULT_OPENROUTER_MODEL_ID,
@@ -41,6 +39,15 @@ describe("OpenRouter model configuration", () => {
     expect(resolveOpenRouterConfig("code_extraction").modelId).toBe(
       "openai/gpt-5.4-mini",
     );
+  });
+
+  it("does not serialize healthy requests unless a deployment opts in", () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("WORKBASE_OPENROUTER_MIN_REQUEST_INTERVAL_MS", "");
+    expect(resolveOpenRouterConfig("routing").minRequestIntervalMs).toBe(0);
+
+    vi.stubEnv("WORKBASE_OPENROUTER_MIN_REQUEST_INTERVAL_MS", "750");
+    expect(resolveOpenRouterConfig("routing").minRequestIntervalMs).toBe(750);
   });
 
   it("uses the shared OpenRouter application URL for attribution headers", () => {

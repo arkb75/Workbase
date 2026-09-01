@@ -21,6 +21,26 @@ type FetchImplementation = typeof fetch;
 
 const openRouterRequestStarts = new Map<string, number>();
 const openRouterRequestStartQueues = new Map<string, Promise<void>>();
+const openRouterCooldownUntil = new Map<string, number>();
+const openRouterAdaptiveIntervals = new Map<
+  string,
+  { intervalMs: number; expiresAt: number }
+>();
+const OPENROUTER_RETRY_BACKOFF_MS = 5_000;
+const OPENROUTER_MAX_RETRY_AFTER_MS = 60_000;
+const OPENROUTER_RATE_LIMIT_INTERVAL_MS = 2_500;
+const OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS = 60_000;
+
+function openRouterRequestKey(config: OpenRouterTextConfig, modelId: string) {
+  return `${config.baseUrl}:${modelId}`;
+}
+
+export function resetOpenRouterPacingForTests() {
+  openRouterRequestStarts.clear();
+  openRouterRequestStartQueues.clear();
+  openRouterCooldownUntil.clear();
+  openRouterAdaptiveIntervals.clear();
+}
 
 function waitForDelay(delayMs: number, signal?: AbortSignal) {
   if (delayMs <= 0) return Promise.resolve();
@@ -45,19 +65,38 @@ async function paceOpenRouterRequest(input: {
   modelId: string;
   signal?: AbortSignal;
 }) {
-  const intervalMs = input.config.minRequestIntervalMs;
-  if (intervalMs <= 0) return;
-  const key = `${input.config.baseUrl}:${input.modelId}`;
+  const key = openRouterRequestKey(input.config, input.modelId);
+  const adaptive = openRouterAdaptiveIntervals.get(key);
+  if (adaptive && adaptive.expiresAt <= Date.now()) {
+    openRouterAdaptiveIntervals.delete(key);
+  }
+  const intervalMs = Math.max(
+    input.config.minRequestIntervalMs,
+    adaptive && adaptive.expiresAt > Date.now() ? adaptive.intervalMs : 0,
+  );
+  const cooldownUntil = openRouterCooldownUntil.get(key) ?? 0;
+  if (intervalMs <= 0 && cooldownUntil <= Date.now()) {
+    openRouterRequestStarts.set(key, Date.now());
+    return;
+  }
   const previous = openRouterRequestStartQueues.get(key) ?? Promise.resolve();
   const scheduled = previous
     .catch(() => undefined)
     .then(async () => {
       const lastStartedAt = openRouterRequestStarts.get(key) ?? 0;
+      const activeCooldownUntil = openRouterCooldownUntil.get(key) ?? 0;
       await waitForDelay(
-        Math.max(0, lastStartedAt + intervalMs - Date.now()),
+        Math.max(
+          0,
+          lastStartedAt + intervalMs - Date.now(),
+          activeCooldownUntil - Date.now(),
+        ),
         input.signal,
       );
       openRouterRequestStarts.set(key, Date.now());
+      if ((openRouterCooldownUntil.get(key) ?? 0) <= Date.now()) {
+        openRouterCooldownUntil.delete(key);
+      }
     });
   openRouterRequestStartQueues.set(key, scheduled);
   try {
@@ -67,6 +106,46 @@ async function paceOpenRouterRequest(input: {
       openRouterRequestStartQueues.delete(key);
     }
   }
+}
+
+function retryAfterDelayMs(value: string | null) {
+  if (value == null) return OPENROUTER_RETRY_BACKOFF_MS;
+  if (/^\d{1,8}$/u.test(value)) {
+    return Math.min(
+      OPENROUTER_MAX_RETRY_AFTER_MS,
+      Number(value) * 1_000,
+    );
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? OPENROUTER_RETRY_BACKOFF_MS
+    : Math.min(
+        OPENROUTER_MAX_RETRY_AFTER_MS,
+        Math.max(0, timestamp - Date.now()),
+      );
+}
+
+function installOpenRouterCooldown(input: {
+  config: OpenRouterTextConfig;
+  modelId: string;
+  retryAfter: string | null;
+}) {
+  const key = openRouterRequestKey(input.config, input.modelId);
+  const cooldownUntil = Date.now() + Math.max(
+    input.config.minRequestIntervalMs,
+    retryAfterDelayMs(input.retryAfter),
+  );
+  openRouterCooldownUntil.set(
+    key,
+    Math.max(openRouterCooldownUntil.get(key) ?? 0, cooldownUntil),
+  );
+  openRouterAdaptiveIntervals.set(key, {
+    intervalMs: Math.max(
+      input.config.minRequestIntervalMs,
+      OPENROUTER_RATE_LIMIT_INTERVAL_MS,
+    ),
+    expiresAt: Date.now() + OPENROUTER_RATE_LIMIT_INTERVAL_TTL_MS,
+  });
 }
 
 interface OpenRouterUsage {
@@ -264,6 +343,16 @@ function combinedProviderTokenUsage(input: {
       ),
     providerAttemptCount: input.providerAttemptCount,
   };
+}
+
+function providerAttemptCountInTokenUsage(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 1;
+  const candidate = (value as Record<string, unknown>).providerAttemptCount;
+  return typeof candidate === "number" &&
+      Number.isFinite(candidate) &&
+      candidate >= 1
+    ? Math.floor(candidate)
+    : 1;
 }
 
 function parseToolArguments(toolCall: OpenRouterToolCall | undefined) {
@@ -639,7 +728,7 @@ async function sendOpenRouterRequest(input: {
       errorType: rawErrorType,
       providerMessage,
     });
-    throw new OpenRouterRequestError(
+    const failure = new OpenRouterRequestError(
       safeOpenRouterErrorMessage({
         status,
         errorType: rawErrorType,
@@ -662,6 +751,14 @@ async function sendOpenRouterRequest(input: {
         capability,
       },
     );
+    if (status === 429) {
+      installOpenRouterCooldown({
+        config: input.config,
+        modelId: input.modelId,
+        retryAfter: failure.retryAfter,
+      });
+    }
+    throw failure;
   }
   if (!parsed.choices?.length) {
     throw new OpenRouterRequestError(
@@ -690,7 +787,7 @@ async function sendOpenRouterRequest(input: {
       errorType: rawErrorType,
       providerMessage,
     });
-    throw new OpenRouterRequestError(
+    const failure = new OpenRouterRequestError(
       safeOpenRouterErrorMessage({
         status,
         errorType: rawErrorType,
@@ -714,6 +811,14 @@ async function sendOpenRouterRequest(input: {
         capability,
       },
     );
+    if (status === 429) {
+      installOpenRouterCooldown({
+        config: input.config,
+        modelId: input.modelId,
+        retryAfter: failure.retryAfter,
+      });
+    }
+    throw failure;
   }
   if (
     choice.message?.refusal != null ||
@@ -857,6 +962,153 @@ export class OpenRouterChatCompletionsRuntime
   }
 }
 
+function sameModelRetryEligible(
+  error: unknown,
+): error is OpenRouterRequestError {
+  return error instanceof OpenRouterRequestError &&
+    error.retryable &&
+    error.tokenUsage == null &&
+    error.partialContent == null &&
+    (
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    );
+}
+
+function openRouterFailureAttempt(
+  error: OpenRouterRequestError,
+  modelId: string,
+) {
+  return {
+    provider: "openrouter",
+    modelId,
+    requestId: error.requestId,
+    status: "provider_error",
+    httpStatus: error.status,
+    code: error.code,
+    errorType: error.errorType,
+    retryAfter: error.retryAfter,
+    retryable: error.retryable,
+  } satisfies JsonValue;
+}
+
+/**
+ * Retry one unbilled transient failure on the same model before considering a
+ * cross-model fallback. This keeps the quality-critical main route intact and
+ * respects OpenRouter's Retry-After signal without serializing healthy calls.
+ */
+export class RetryableSameModelTextRuntime implements ConverseTextRuntime {
+  constructor(
+    private readonly runtime: ConverseTextRuntime,
+    private readonly config: OpenRouterTextConfig,
+    private readonly modelId = config.modelId,
+  ) {}
+
+  async converse(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
+    const attemptLimit = Math.max(1, input.maxProviderAttempts ?? 2);
+    const failedAttempts: JsonValue[] = [];
+    const observedTokenUsage: JsonValue[] = [];
+    let unknownUsageAttempts = 0;
+    let providerAttemptCount = 0;
+
+    while (providerAttemptCount < attemptLimit) {
+      try {
+        const response = await this.runtime.converse({
+          ...input,
+          maxProviderAttempts: 1,
+        });
+        if (!providerAttemptCount) return response;
+        const responseAttemptCount = providerAttemptCountInTokenUsage(
+          response.tokenUsage,
+        );
+        return {
+          ...response,
+          tokenUsage: {
+            attempts: [
+              ...observedTokenUsage,
+              ...(response.tokenUsage == null ? [] : [response.tokenUsage]),
+            ],
+            failedAttempts,
+            unknownUsageAttempts:
+              unknownUsageAttempts + (response.tokenUsage == null ? 1 : 0),
+            providerAttemptCount:
+              providerAttemptCount + responseAttemptCount,
+          } satisfies JsonValue,
+        };
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
+        if (!(error instanceof OpenRouterRequestError)) throw error;
+
+        providerAttemptCount += error.providerAttemptCount;
+        unknownUsageAttempts += error.unknownUsageAttempts;
+        if (error.tokenUsage != null) observedTokenUsage.push(error.tokenUsage);
+        failedAttempts.push(
+          ...error.failedAttempts,
+          openRouterFailureAttempt(error, this.modelId),
+        );
+
+        if (
+          !sameModelRetryEligible(error) ||
+          providerAttemptCount >= attemptLimit
+        ) {
+          if (providerAttemptCount === error.providerAttemptCount) throw error;
+          throw new OpenRouterRequestError(
+            error.message,
+            error.status,
+            error.retryable,
+            error.requestId,
+            {
+              cause: error,
+              failedAttempts,
+              unknownUsageAttempts,
+              providerAttemptCount,
+              code: error.code,
+              errorType: error.errorType,
+              retryAfter: error.retryAfter,
+              partialContent: error.partialContent,
+              tokenUsage: {
+                attempts: observedTokenUsage,
+                failedAttempts,
+                unknownUsageAttempts,
+                providerAttemptCount,
+              },
+            },
+          );
+        }
+
+        installOpenRouterCooldown({
+          config: this.config,
+          modelId: this.modelId,
+          retryAfter: error.retryAfter,
+        });
+      }
+    }
+
+    // The loop can only exit after exhausting the bounded provider attempts.
+    // Keep this guard explicit for type completeness and fail closed.
+    throw new OpenRouterRequestError(
+      "OpenRouter exhausted the bounded same-model retry attempts.",
+      null,
+      false,
+      null,
+      {
+        failedAttempts,
+        unknownUsageAttempts,
+        providerAttemptCount,
+        tokenUsage: {
+          attempts: observedTokenUsage,
+          failedAttempts,
+          unknownUsageAttempts,
+          providerAttemptCount,
+        },
+      },
+    );
+  }
+}
+
 /**
  * OpenRouter already performs provider-level failover for the requested model.
  * This wrapper changes model families only when the normalized failure is an
@@ -894,7 +1146,7 @@ export class RetryableFallbackTextRuntime implements ConverseTextRuntime {
       ];
       if (
         typeof input.maxProviderAttempts === "number" &&
-        input.maxProviderAttempts < 2
+        error.providerAttemptCount >= input.maxProviderAttempts
       ) {
         throw error;
       }

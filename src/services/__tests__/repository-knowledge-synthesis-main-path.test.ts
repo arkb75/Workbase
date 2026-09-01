@@ -486,6 +486,17 @@ describe("repository synthesis model main path", () => {
       .filter(([request]) => request.schemaName === "repository_architecture_synthesis")
       .flatMap(([request]) => JSON.parse(request.userPrompt).subsystems);
     expect(mappingPrompt.observations).toHaveLength(36);
+    expect(mappingPrompt.observations[0]).toEqual(expect.objectContaining({
+      index: 1,
+      path: "src/domain/operation-1-service.ts",
+      statement: expect.any(String),
+      semanticKind: "user_capability",
+      semanticSignals: [],
+      category: "behavior",
+    }));
+    expect(mappingPrompt.observations[0]).not.toHaveProperty("productImportance");
+    expect(mappingPrompt.observations[0]).not.toHaveProperty("implementationBreadth");
+    expect(mappingPrompt.observations[0]).not.toHaveProperty("technicalDifficulty");
     expect(new Set(synthesisSubsystems.map((subsystem: { operationCommunity: string }) =>
       subsystem.operationCommunity
     ))).toEqual(new Set([
@@ -712,7 +723,7 @@ describe("repository synthesis model main path", () => {
     );
   });
 
-  it("maps two same-kind replacements by server slot rather than object order", async () => {
+  it("revises only the first deterministic rejected Fact when every Fact is rejected", async () => {
     const priorStatements = [
       `${statement} It encrypts every receipt.`,
       "The charge service records latency and guarantees zero downtime.",
@@ -764,18 +775,16 @@ describe("repository synthesis model main path", () => {
       } else if (request.schemaName === "repository_synthesis_claim_revisions") {
         const wrongSlots = request.schema.safeParse({
           factReplacements: {
-            F1: fact(revisedStatements[0]!),
-            F3: fact(revisedStatements[1]!),
+            F2: fact(revisedStatements[1]!),
           },
           highlightTitleReplacements: {},
         });
         expect(wrongSlots.success).toBe(false);
         expect(wrongSlots.error?.issues.map((issue) => issue.message)).toContain(
-          "Fact replacement slots must match exactly; missing [F2], unexpected [F3].",
+          "Fact replacement slots must match exactly; missing [F1], unexpected [F2].",
         );
         data = {
           factReplacements: {
-            F2: fact(revisedStatements[1]!),
             F1: fact(revisedStatements[0]!),
           },
           highlightTitleReplacements: {},
@@ -805,21 +814,18 @@ describe("repository synthesis model main path", () => {
 
     const synthesis = await synthesizeRepositoryKnowledge("refresh-1");
 
-    expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual(
-      revisedStatements,
-    );
+    expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual([
+      revisedStatements[0],
+    ]);
     const revisionPatch = prismaMock.generationRun.update.mock.calls[2]![0]
       .data.parsedOutput.revisionPatch;
     expect(revisionPatch.map((candidate: { claimKey: string; replacement: { statement: string } }) => [
       candidate.claimKey.match(/:fact:(\d+)$/u)?.[1],
       candidate.replacement.statement,
-    ])).toEqual([
-      ["1", revisedStatements[0]],
-      ["2", revisedStatements[1]],
-    ]);
+    ])).toEqual([["1", revisedStatements[0]]]);
   });
 
-  it("rechecks only the changed claim through a bounded second revision", async () => {
+  it("does not revise a rejected Fact when supported siblings already satisfy the floor", async () => {
     const latencyStatement =
       "The charge service records request latency for diagnostics.";
     const correctedPaymentStatement =
@@ -928,16 +934,14 @@ describe("repository synthesis model main path", () => {
     expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
       "repository_architecture_synthesis",
       "repository_synthesis_entailment_critic",
-      "repository_synthesis_claim_revisions",
-      "repository_synthesis_entailment_critic",
-      "repository_synthesis_claim_revisions",
-      "repository_synthesis_entailment_critic",
     ]);
     expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual([
       latencyStatement,
-      correctedPaymentStatement,
     ]);
     expect(synthesis[0]?.coverageGaps).toEqual([]);
+    expect(synthesis[0]?.unresolvedQuestions).toContain(
+      "Entailment verification rejected fact 2: unsupported detail.",
+    );
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
     );
@@ -945,97 +949,17 @@ describe("repository synthesis model main path", () => {
       .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
-      ["synthesis", 1],
-      ["entailment_critic", 1],
-      ["synthesis", 2],
-      ["entailment_critic", 2],
     ]);
-    expect(summaries[4]).toEqual(expect.objectContaining({
-      rejectedClaimCount: 1,
-      revisionContract: "rejected_claim_patch_v3_server_slots",
-    }));
     expect(summaries[1]).toEqual(expect.objectContaining({
       claimCount: 2,
       criticScope: "full_payload",
     }));
-    expect(summaries[3]).toEqual(expect.objectContaining({
-      claimCount: 1,
-      criticScope: "changed_claims",
-    }));
-    expect(summaries[5]).toEqual(expect.objectContaining({
-      claimCount: 1,
-      criticScope: "changed_claims",
-    }));
-    const firstRevisionPrompt = JSON.parse(
-      generateStructuredMock.mock.calls[2]![0].userPrompt,
-    );
-    const secondRevisionPrompt = JSON.parse(
-      generateStructuredMock.mock.calls[4]![0].userPrompt,
-    );
-    expect(firstRevisionPrompt).toMatchObject({
-      revisionRound: 1,
-      isFinalRevisionRound: false,
-    });
-    expect(secondRevisionPrompt).toMatchObject({
-      revisionRound: 2,
-      isFinalRevisionRound: true,
-    });
-    expect(firstRevisionPrompt.subsystems[0].rejectedClaims.map(
-      (claim: { claimKey: string }) => claim.claimKey,
-    )).toEqual([expect.stringMatching(/:fact:2$/u)]);
-    expect(firstRevisionPrompt.subsystems[0].notebook).toEqual([{
-      index: 1,
-      sourceExcerpt,
-    }]);
-    expect(secondRevisionPrompt.subsystems[0].rejectedClaims.map(
-      (claim: { claimKey: string }) => claim.claimKey,
-    )).toEqual([expect.stringMatching(/:fact:2$/u)]);
-    expect(secondRevisionPrompt.subsystems[0].notebook).toEqual([{
-      index: 1,
-      sourceExcerpt,
-    }]);
-    expect(generateStructuredMock.mock.calls[4]![0].systemPrompt).toContain(
-      repositoryEvidenceBoundaryGuidance,
-    );
-    expect(generateStructuredMock.mock.calls[4]![0].systemPrompt).toMatch(
-      /final bounded revision round[\s\S]*(?:replacement to null|return null)/iu,
-    );
     expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
-      usage: { modelCalls: 6, totalTokens: 900 },
+      usage: { modelCalls: 2, totalTokens: 300 },
     });
-    const persistedSecondRevision = prismaMock.generationRun.update.mock.calls[4]![0].data;
-    expect(persistedSecondRevision.parsedOutput).toEqual(expect.objectContaining({
-      subsystems: [expect.objectContaining({
-        facts: [
-          expect.objectContaining({ statement: latencyStatement }),
-          expect.objectContaining({ statement: correctedPaymentStatement }),
-        ],
-      })],
-      revisionPatch: [{
-          claimKey: expect.stringMatching(/:fact:2$/u),
-          kind: "fact",
-          replacement: expect.objectContaining({
-            statement: correctedPaymentStatement,
-          }),
-      }],
-    }));
-    expect(persistedSecondRevision.resultRefs).toEqual(expect.objectContaining({
-      resultAttestation: expect.objectContaining({
-        claimContentDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
-        criticClaimCount: 1,
-        criticClaimKeys: [expect.stringMatching(/:fact:2$/u)],
-        criticClaimContentDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
-      }),
-    }));
-    expect(
-      persistedSecondRevision.resultRefs.resultAttestation
-        .criticClaimContentDigest,
-    ).not.toBe(
-      persistedSecondRevision.resultRefs.resultAttestation.claimContentDigest,
-    );
   });
 
-  it("skips an empty delta critic after removal and retains accepted siblings", async () => {
+  it("drops rejected siblings without revision when the subsystem retains a supported Fact", async () => {
     const acceptedStatement =
       "The charge service records request latency for diagnostics.";
     const rejectedStatement =
@@ -1118,14 +1042,13 @@ describe("repository synthesis model main path", () => {
     expect(generateStructuredMock.mock.calls.map(([request]) => request.schemaName)).toEqual([
       "repository_architecture_synthesis",
       "repository_synthesis_entailment_critic",
-      "repository_synthesis_claim_revisions",
     ]);
     expect(synthesis[0]?.facts.map((candidate) => candidate.statement)).toEqual([
       acceptedStatement,
     ]);
     expect(synthesis[0]?.coverageGaps).toEqual([]);
     expect(synthesis[0]?.unresolvedQuestions).toContain(
-      "Entailment verification rejected fact 2 in revision round 1: unsupported detail.",
+      "Entailment verification rejected fact 2: unsupported detail.",
     );
     const summaries = prismaMock.generationRun.upsert.mock.calls.map(([request]) =>
       request.create.inputSummary
@@ -1134,28 +1057,11 @@ describe("repository synthesis model main path", () => {
       .map((summary) => [summary.phase, summary.revisionRound])).toEqual([
       ["synthesis", 0],
       ["entailment_critic", 0],
-      ["synthesis", 1],
     ]);
-    const persistedRevision = prismaMock.generationRun.update.mock.calls[2]![0].data;
-    expect(persistedRevision.parsedOutput).toEqual(expect.objectContaining({
-      revisionPatch: [{
-          claimKey: expect.stringMatching(/:fact:2$/u),
-          kind: "fact",
-          replacement: null,
-      }],
-    }));
-    expect(persistedRevision.resultRefs.resultAttestation).toEqual(
-      expect.objectContaining({
-        criticScope: "changed_claims",
-        criticClaimCount: 0,
-        criticClaimKeys: [],
-        criticClaimContentDigest: null,
-        priorClaimContentDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
-      }),
-    );
     expect(generateStructuredMock.mock.calls[0]![0].budget).toMatchObject({
-      usage: { modelCalls: 3, totalTokens: 450 },
+      usage: { modelCalls: 2, totalTokens: 300 },
     });
+    expect(prismaMock.generationRun.upsert).toHaveBeenCalledTimes(3);
   });
 
   it("fails closed after the second critic without starting a third revision", async () => {
@@ -1407,14 +1313,14 @@ describe("repository synthesis model main path", () => {
 
   it("keeps the 80K floor and scales required batch headroom", () => {
     expect(repositorySynthesisBudgetLimits(3)).toEqual({
-      maxModelCalls: 18,
-      maxRepairPasses: 0,
+      maxModelCalls: 21,
+      maxRepairPasses: 3,
       maxOutputTokens: 10_000,
       maxTotalTokens: 80_000,
     });
     expect(repositorySynthesisBudgetLimits(5)).toEqual({
-      maxModelCalls: 30,
-      maxRepairPasses: 0,
+      maxModelCalls: 35,
+      maxRepairPasses: 5,
       maxOutputTokens: 10_000,
       maxTotalTokens: 100_000,
     });

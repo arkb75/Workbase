@@ -158,7 +158,7 @@ describe("repository semantic orchestration guardrails", () => {
       unknownUsageCalls: 1,
       fallbackUsed: true,
       maxTotalTokens: 80_000,
-    })).toBe(12_000);
+    })).toBe(20_000);
     expect(semanticPlannerTokenCommitment({
       totalTokens: 90_000,
       unknownUsageCalls: 0,
@@ -290,7 +290,7 @@ describe("repository semantic orchestration guardrails", () => {
       .toEqual({ shouldRun: true, tokenPool: 35_000, modelCallPool: 7 });
   });
 
-  it("admits all native repair-wave primaries without inline schema fallbacks", () => {
+  it("admits every repair-wave primary plus bounded same-model recovery", () => {
     const repairPackage = (
       id: string,
       fileSnapshotIds: string[],
@@ -310,8 +310,8 @@ describe("repository semantic orchestration guardrails", () => {
     expect(boundedSingletons?.fileSnapshotIds).toEqual(singletonIds);
     expect(semanticWorkPackageGenerationLimits(boundedSingletons!)).toMatchObject({
       primaryModelCalls: 8,
-      maxModelCalls: 8,
-      maxRepairPasses: 0,
+      maxModelCalls: 24,
+      maxRepairPasses: 8,
     });
 
     const ordinary = boundedSemanticRepairPackagesForModelCalls([
@@ -347,10 +347,9 @@ describe("repository semantic orchestration guardrails", () => {
     expect(admitted.packages[0]?.fileSnapshotIds).toEqual([
       "parser",
       "executor",
-      "reviewer",
     ]);
-    expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper"]);
-    expect(admitted.remainingTokens).toBe(1);
+    expect(admitted.capacityLimitedFileSnapshotIds).toEqual(["helper", "reviewer"]);
+    expect(admitted.remainingTokens).toBe(751);
   });
 
   it("admits ordinary initial packages and trims an impossible all-singleton tail", () => {
@@ -382,7 +381,7 @@ describe("repository semantic orchestration guardrails", () => {
     });
   });
 
-  it("trims a two-file repair to one file when schema framing cannot fit both", () => {
+  it("defers a repair when the larger structured completion cannot fit one file", () => {
     const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
       objective: "Inspect the last two operations.",
       capabilityKeys: ["project_domain:operations"],
@@ -395,16 +394,13 @@ describe("repository semantic orchestration guardrails", () => {
       [repairPackage],
       8_586,
     )).toEqual({
-      packages: [{
-        ...repairPackage,
-        fileSnapshotIds: ["response-reviser"],
-      }],
-      capacityLimitedFileSnapshotIds: ["wireframe-patcher"],
-      remainingTokens: 336,
+      packages: [],
+      capacityLimitedFileSnapshotIds: ["response-reviser", "wireframe-patcher"],
+      remainingTokens: 8_586,
     });
   });
 
-  it("does not admit the live two-file request boundary that the structured client cannot dispatch", () => {
+  it("does not admit the live request boundary below the larger completion reserve", () => {
     const repairPackage: Omit<SemanticWorkPackage, "id" | "budget"> = {
       objective: "Close the last evidence-floor deficit.",
       capabilityKeys: ["project_domain:knowledge", "project_domain:chat"],
@@ -417,12 +413,9 @@ describe("repository semantic orchestration guardrails", () => {
       [repairPackage],
       9_128,
     )).toEqual({
-      packages: [{
-        ...repairPackage,
-        fileSnapshotIds: ["knowledge-retrieval"],
-      }],
-      capacityLimitedFileSnapshotIds: ["chat-highlights"],
-      remainingTokens: 878,
+      packages: [],
+      capacityLimitedFileSnapshotIds: ["chat-highlights", "knowledge-retrieval"],
+      remainingTokens: 9_128,
     });
   });
 
@@ -1310,8 +1303,8 @@ describe("repository semantic orchestration guardrails", () => {
       singletonFileSnapshotIds: ["retry-a", "retry-b", "retry-c"],
     })).toEqual({
       primaryModelCalls: 3,
-      maxModelCalls: 3,
-      maxRepairPasses: 0,
+      maxModelCalls: 9,
+      maxRepairPasses: 3,
     });
   });
 
@@ -1363,11 +1356,11 @@ describe("repository semantic orchestration guardrails", () => {
     const limits = packages.map(semanticWorkPackageGenerationLimits);
 
     expect(limits).toEqual([
-      { primaryModelCalls: 1, maxModelCalls: 1, maxRepairPasses: 0 },
-      { primaryModelCalls: 1, maxModelCalls: 1, maxRepairPasses: 0 },
+      { primaryModelCalls: 1, maxModelCalls: 3, maxRepairPasses: 1 },
+      { primaryModelCalls: 1, maxModelCalls: 3, maxRepairPasses: 1 },
     ]);
     expect(limits.reduce((total, entry) => total + entry.primaryModelCalls, 0)).toBe(2);
-    expect(limits.reduce((total, entry) => total + entry.maxModelCalls, 0)).toBe(2);
+    expect(limits.reduce((total, entry) => total + entry.maxModelCalls, 0)).toBe(6);
   });
 
   it("keeps model follow-up questions diagnostic when semantic extraction succeeded", () => {

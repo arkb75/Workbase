@@ -132,8 +132,7 @@ export function resolveOpenRouterConfig(
     // profiles fail closed on model-specific errors and rely on OpenRouter's
     // same-model provider failover first.
     fallbackModelId:
-      profile === "primary_answer" ||
-      profile === "verification"
+      profile === "primary_answer"
         ? configuredFallback === profileModelId
           ? undefined
           : configuredFallback
@@ -143,12 +142,13 @@ export function resolveOpenRouterConfig(
       process.env.WORKBASE_OPENROUTER_REQUEST_TIMEOUT_MS,
       240_000,
     ),
-    // Structured workflows often issue drafting and verification calls back
-    // to back. A small shared per-model interval prevents burst throttling at
-    // the routed provider without hiding or retrying a failed provider call.
+    // Healthy OpenRouter requests may run concurrently. Rate-limit responses
+    // install a shared, Retry-After-aware cooldown in the transport instead of
+    // charging every successful request a fixed launch delay. Deployments can
+    // still opt into a fixed interval for a known constrained provider route.
     minRequestIntervalMs: boundedRequestInterval(
       process.env.WORKBASE_OPENROUTER_MIN_REQUEST_INTERVAL_MS,
-      2_500,
+      0,
     ),
     providerOrder: commaSeparatedValues(
       process.env.WORKBASE_OPENROUTER_PROVIDER_ORDER,

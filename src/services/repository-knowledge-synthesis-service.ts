@@ -571,11 +571,11 @@ export function repositorySynthesisBudgetLimits(batchCount: number) {
   }
   return {
     // Normal batches use synthesis + critic. A subsystem whose critic accepts
-    // no Fact may use two bounded Fact-floor revision + re-critic pairs. Every
-    // phase is one native JSON Schema request; no inline schema-repair calls
-    // are admitted.
-    maxModelCalls: batchCount * 6,
-    maxRepairPasses: 0,
+    // no Fact may use two bounded Fact-floor revision + re-critic pairs. Keep
+    // one conditional same-model correction slot per batch for a structurally
+    // invalid critic response; successful native responses do not spend it.
+    maxModelCalls: batchCount * 7,
+    maxRepairPasses: batchCount,
     maxOutputTokens: 10_000,
     // Preserve the established 80K floor for ordinary repositories while
     // giving every additional bounded batch enough admission headroom for its
@@ -852,13 +852,17 @@ export function repositoryOperationCommunityBudgetLimits(mappingCount: number) {
     throw new Error("Repository operation-community mapping count must be a non-negative integer.");
   }
   return {
-    maxModelCalls: mappingCount,
-    maxRepairPasses: 0,
+    // The mapper's semantic grouping can be valid while its index partition
+    // contains one omission. Reserve a same-model correction for that explicit
+    // validator failure instead of failing the whole repository or inventing a
+    // deterministic grouping. Healthy mappings still cost one request.
+    maxModelCalls: mappingCount * 2,
+    maxRepairPasses: mappingCount,
     maxOutputTokens: 2_500,
     // A mapping request contains at most 36 compact observations. Twelve
     // thousand tokens per request bounds both that input and its small index
     // partition without borrowing from evidence synthesis or critic calls.
-    maxTotalTokens: mappingCount * 12_000,
+    maxTotalTokens: mappingCount * 20_000,
   };
 }
 
@@ -968,9 +972,6 @@ async function mapRepositoryOperationCommunities(input: {
           semanticKind: entry.semanticKind ?? null,
           semanticSignals: [...(entry.semanticSignals ?? [])],
           category: entry.category,
-          productImportance: entry.productImportance,
-          implementationBreadth: entry.implementationBreadth,
-          technicalDifficulty: entry.technicalDifficulty,
         })),
       }),
       schema: repositoryOperationCommunitySchema,
@@ -981,7 +982,13 @@ async function mapRepositoryOperationCommunities(input: {
       temperature: 0,
       effort: "low",
       enablePromptCaching: false,
-      transportPreference: ["json_schema"],
+      transportPreference: ["json_schema", "text_repair_fallback"],
+      repairStrategy: "repair_last_failure",
+      repairModelPolicy: "same_profile",
+      repairMappings: [
+        `Return exactly ${expectedCommunityCount} nonempty communities.`,
+        `Partition every integer index from 1 through ${input.notebook.length} exactly once without additions.`,
+      ],
       maxProviderAttempts: 1,
       budget: input.budget,
       extraValidation: (value) => repositoryOperationCommunityValidationErrors(
@@ -2645,12 +2652,18 @@ async function synthesizeSubsystemBase(
           // payload is batch-specific. Avoid reserving a cache write that will
           // not occur, which can otherwise block older in-flight batches.
           enablePromptCaching: false,
-          transportPreference: ["json_schema"],
-          // Verification already has a separately quality-gated cross-family
-          // model. Let a transient provider failure or 429 use that one
-          // bounded attempt; ordinary successful critics stay on the primary
-          // model, while synthesis itself remains single-model and fail-closed.
-          maxProviderAttempts: 2,
+          transportPreference: ["json_schema", "text_repair_fallback"],
+          repairStrategy: "repair_last_failure",
+          repairModelPolicy: "same_profile",
+          repairMappings: [
+            "Return exactly one assessment for every supplied claimKey.",
+            "Copy each supplied claimKey verbatim and do not add or omit keys.",
+          ],
+          // A payload-level 429 often carries no Retry-After and can be
+          // intermittent on the otherwise healthy verification route. Keep
+          // all attempts on the quality-gated critic model and allow one final
+          // staggered retry before failing closed.
+          maxProviderAttempts: 3,
           budget: input.budget,
           extraValidation: (value) =>
             repositorySynthesisCriticValidationErrors(value, expectedClaimKeys),
@@ -2699,11 +2712,36 @@ async function refineSynthesisSubsystemBase(
         };
       }
 
+      const revisionClaimKeys = new Set(
+        repositorySynthesisFactFloorRevisionClaimKeys(
+          currentData,
+          currentCritique.critic.data,
+        ),
+      );
+      // Revision is a bounded availability repair for an otherwise empty
+      // subsystem, not a general-purpose polish pass. Once every subsystem
+      // retains a verified Fact, unsupported siblings can be dropped by the
+      // critic projection without another synthesis or verification call.
+      if (!revisionClaimKeys.size) {
+        return {
+          data: applyRepositorySynthesisCritic(
+            currentData,
+            currentCritique.critic.data,
+          ),
+          tokenUsage,
+        };
+      }
+
       const priorData = currentData;
       const priorCritic = currentCritique.critic.data;
+      const revisionCritic = {
+        assessments: priorCritic.assessments.filter((assessment) =>
+          revisionClaimKeys.has(assessment.claimKey)
+        ),
+      } satisfies RepositorySynthesisCriticResult;
       const revisionSlots = repositorySynthesisRevisionSlots(
         priorData,
-        priorCritic,
+        revisionCritic,
       );
       const revisionSubsystems: RepositorySynthesisRevisionPromptSubsystem[] =
         input.subsystems.flatMap((subsystemInput) => {
@@ -2752,6 +2790,7 @@ async function refineSynthesisSubsystemBase(
             priorSubsystem,
             priorCritic,
             subsystemInput.notebook.length,
+            revisionClaimKeys,
           ),
         );
         return rejectedClaims.length
@@ -2804,7 +2843,7 @@ async function refineSynthesisSubsystemBase(
           revisionRound,
           refreshRunId: input.refreshRunId,
           subsystemKeys,
-          rejectedClaimCount: rejectedClaimKeys.size,
+          rejectedClaimCount: revisionClaimKeys.size,
           revisionContract: "rejected_claim_patch_v3_server_slots",
           revisionEvidenceIndexesBySubsystem: revisionSubsystems.map(
             (subsystem) => ({

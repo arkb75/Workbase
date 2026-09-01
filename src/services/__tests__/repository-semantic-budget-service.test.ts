@@ -686,7 +686,10 @@ describe("repository semantic task and budget", () => {
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
     expect(request.systemPrompt).toContain("opaque identifier");
     expect(request.systemPrompt).toContain("preserving punctuation such as ':'");
-    expect(request.transportPreference).toEqual(["json_schema"]);
+    expect(request.transportPreference).toEqual([
+      "json_schema",
+      "text_repair_fallback",
+    ]);
     expect(request.enablePromptCaching).toBe(false);
     expect(request.minimumOutputTokens).toBe(request.maxTokens);
   });
@@ -1407,7 +1410,7 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("places the complete worker objective, questions, outputs, and capability keys in the extraction prompt", async () => {
+  it("places each worker instruction once while keeping capability keys schema-authoritative", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
       maxModelCalls: 2,
@@ -1434,18 +1437,23 @@ describe("repository semantic task and budget", () => {
     expect(JSON.parse(request.userPrompt)).toMatchObject({
       researchTask: {
         objective: "Determine how project retrieval is grounded.",
-        capabilityKeys: ["retrieval_provenance"],
         questions: ["How is retrieval scoped?"],
         expectedOutputs: ["A supported data-flow finding"],
       },
       allowedCapabilityKeys: ["retrieval_provenance"],
     });
+    expect(JSON.parse(request.userPrompt).researchTask).not.toHaveProperty(
+      "capabilityKeys",
+    );
     expect(request.maxTokens).toBe(777);
     expect(request.budget).toBe(budget.model);
     expect(request.systemPrompt).toContain("query-parameter plumbing");
     expect(request.systemPrompt).toContain("concrete secret, credential, token, or key material");
     expect(request.systemPrompt).toContain("not sensitive merely because they are security-related");
-    expect(request.transportPreference).toEqual(["json_schema"]);
+    expect(request.transportPreference).toEqual([
+      "json_schema",
+      "text_repair_fallback",
+    ]);
     expect(request.enablePromptCaching).toBe(false);
     expect(request.minimumOutputTokens).toBe(request.maxTokens);
     expect(analysis.facts[0]?.subsystemKeys).toEqual(["retrieval_provenance"]);
@@ -1569,7 +1577,8 @@ describe("repository semantic task and budget", () => {
 
     const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt);
     expect(prompt.content).toContain("720: export function routeCitationToReviewEvidence");
-    expect(prompt.researchTask.semanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
+    expect(prompt.allowedSemanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
+    expect(prompt.researchTask).not.toHaveProperty("semanticSignalKeys");
   });
 
   it("returns an explicit gap without calling the provider when the input-byte budget is exhausted", async () => {

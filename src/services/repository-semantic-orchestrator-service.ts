@@ -67,7 +67,11 @@ const MAX_SEMANTIC_REPAIR_WAVES = 5;
 const BASE_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const LARGE_REPOSITORY_SEMANTIC_REPAIR_MODEL_CALLS = 12;
 const REPAIR_TOKEN_RESERVE = 16_000;
-const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 2_500;
+// Four-file extraction batches can spend roughly 1K reasoning tokens before
+// emitting their JSON. A 2.5K ceiling truncated otherwise valid long-repository
+// batches, so retain enough room for the bounded three-findings-per-file
+// contract without increasing the number of healthy requests.
+const SEMANTIC_WORKER_MAX_OUTPUT_TOKENS = 3_500;
 // Repair admission reserves the full structured output plus a bounded prompt
 // envelope before dispatch. The semantic batcher supplies at most 4 KiB per
 // file, but JSON/schema/task framing and the coverage questions are material
@@ -87,7 +91,9 @@ const REPAIR_FILE_TOKEN_RESERVE = 1_750;
 // inside the repository-wide ceiling at all.
 const INITIAL_PACKAGE_TOKEN_RESERVE = 4_000;
 const INITIAL_FILE_TOKEN_RESERVE = 500;
-const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 10_000;
+// Two full-size admissions let a large repository planner honor one bounded
+// same-model transient retry without borrowing from semantic worker budgets.
+const SEMANTIC_PLANNER_MAX_TOTAL_TOKENS = 20_000;
 const SEMANTIC_PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const SEMANTIC_PLANNER_REPRESENTATIVES_PER_CAPABILITY = 1;
 
@@ -527,7 +533,10 @@ export function buildRepositorySemanticPlannerRequest(input: {
       `Allowed capability keys: ${Array.from(allowedKeys).join(", ")}`,
       `Allowed representative file snapshot IDs: ${Array.from(allowedIds).join(", ")}`,
     ],
-    maxProviderAttempts: 1 as const,
+    // Preserve the routing model as the main path: one unbilled transient
+    // 429/5xx may retry the same model after Retry-After. The shared planner
+    // budget still caps the entire operation at two provider attempts.
+    maxProviderAttempts: 2 as const,
     budget: input.budget,
     extraValidation: (value: z.infer<typeof workPackageSchema>) => {
       const errors: string[] = [];
@@ -1126,8 +1135,12 @@ export function semanticWorkPackageGenerationLimits(input: Pick<
   const primaryModelCalls = semanticWorkPackageModelCallCount(input);
   return {
     primaryModelCalls,
-    maxModelCalls: primaryModelCalls,
-    maxRepairPasses: 0,
+    // A successful primary still spends exactly one call. The second slot is
+    // only admission headroom for a same-model transport retry, which keeps a
+    // recovered extraction inside one auditable generation instead of leaving
+    // a failed primary behind for a later coverage wave.
+    maxModelCalls: primaryModelCalls * 3,
+    maxRepairPasses: primaryModelCalls,
   };
 }
 
