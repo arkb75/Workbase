@@ -66,6 +66,10 @@ const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
 const MAX_SEMANTIC_REPAIR_WAVES = 5;
 const BASE_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const LARGE_REPOSITORY_SEMANTIC_REPAIR_MODEL_CALLS = 12;
+// Grounding corrections are exceptional and global to the repository repair
+// path. Healthy batches still spend one call; at most two invalid citation
+// payloads can be corrected before the workflow fails closed.
+const MAX_SEMANTIC_REPAIR_VALIDATION_PASSES = 2;
 const REPAIR_TOKEN_RESERVE = 16_000;
 // Four-file extraction batches can spend roughly 1K reasoning tokens before
 // emitting their JSON. A 2.5K ceiling truncated otherwise valid long-repository
@@ -4343,9 +4347,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     initialWorkerTokens: initialWorkerUsage.totalTokens,
   });
   const repairModelBudget = createStructuredGenerationBudget({
-    maxModelCalls: semanticRepairModelCallLimit,
-    // Raised per wave only by capacity left after all admitted primary calls.
-    maxRepairPasses: 0,
+    maxModelCalls:
+      semanticRepairModelCallLimit + MAX_SEMANTIC_REPAIR_VALIDATION_PASSES,
+    maxRepairPasses: MAX_SEMANTIC_REPAIR_VALIDATION_PASSES,
     maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
     maxTotalTokens: initialRepairTokenPool,
   });
@@ -4413,7 +4417,10 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxInputBytes: 64 * 1024,
         maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
         maxTotalTokens: repairTokenPool,
-        maxRepairPasses: 0,
+        maxRepairPasses: Math.min(
+          1,
+          repairGenerationLimits[index]!.maxRepairPasses,
+        ),
       },
     }));
     for (const fileSnapshotId of wavePackages.flatMap((workPackage) =>

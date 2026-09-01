@@ -884,6 +884,106 @@ describe("repository semantic task and budget", () => {
     expect(generateStructuredMock.mock.calls[0]?.[0].systemPrompt).toContain("same suppliedLineRanges entry");
   });
 
+  it("offers a bounded same-model correction for cross-gap repair-wave citations", async () => {
+    generateStructuredMock.mockImplementationOnce(async (request: {
+      userPrompt: string;
+      extraValidation?: (value: never) => string[];
+    }) => {
+      const prompt = JSON.parse(request.userPrompt) as {
+        files: Array<{
+          fileKey: string;
+          suppliedLineRanges: Array<[number, number]>;
+        }>;
+      };
+      const sparseRanges = prompt.files[0]!.suppliedLineRanges;
+      const focusedRange = prompt.files[1]!.suppliedLineRanges[0]!;
+      const finding = (
+        lineStart: number,
+        lineEnd: number,
+      ) => ({
+        statement: "The supplied range implements the requested operation.",
+        kind: "user_capability" as const,
+        capabilityKeys: ["product_surface"],
+        signalKeys: [],
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        lineStart,
+        lineEnd,
+      });
+      const invalid = {
+        files: {
+          "file-1": {
+            summary: "The sparse module exposes an operation.",
+            subsystemKeys: ["product_surface"],
+            findings: [finding(sparseRanges[0]![0], sparseRanges.at(-1)![1])],
+            unresolvedQuestions: [],
+          },
+          "file-2": {
+            summary: "The focused module exposes an operation.",
+            subsystemKeys: ["product_surface"],
+            findings: [finding(focusedRange[0], focusedRange[1])],
+            unresolvedQuestions: [],
+          },
+        },
+      };
+      expect(request.extraValidation?.(invalid as never)).toEqual([
+        expect.stringContaining("must fit entirely inside one suppliedLineRanges entry"),
+      ]);
+      const corrected = structuredClone(invalid);
+      corrected.files["file-1"].findings = [
+        finding(sparseRanges[0]![0], sparseRanges[0]![1]),
+      ];
+      return {
+        data: corrected,
+        rawOutput: "{}",
+        parsedOutput: corrected,
+        tokenUsage: null,
+        provider: "openrouter",
+        modelId: "openai/gpt-5.4-mini",
+        transportMode: "json_schema",
+        attempts: [{ status: "success" }],
+      };
+    });
+    const budget = createRepositorySemanticBudget({
+      maxInputBytes: 64 * 1024,
+      maxModelCalls: 2,
+      maxRepairPasses: 1,
+      maxOutputTokens: 4_000,
+      maxTotalTokens: 20_000,
+    });
+    const largeContent = Array.from({ length: 320 }, (_, index) =>
+      `export const operation${index} = () => "${"implementation".repeat(5)}";`
+    ).join("\n");
+    const task = {
+      objective: "Identify implemented project operations.",
+      capabilityKeys: ["product_surface"],
+      questions: [],
+      expectedOutputs: ["Exact-line supported operations"],
+    };
+
+    const analyses = await analyzeRepositoryFileBatch([
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/many-operations.ts",
+        content: largeContent,
+        task,
+        budget,
+      },
+      {
+        repository: "example/general-project",
+        commitSha: "b".repeat(40),
+        path: "src/focused-operation.ts",
+        content: "export const operation = () => true;",
+        task,
+        budget,
+      },
+    ]);
+
+    expect(analyses.every((analysis) => analysis.semanticStatus === "succeeded"))
+      .toBe(true);
+  });
+
   it("bounds a four-file model batch and leaves per-file usage to shared-wave accounting", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
