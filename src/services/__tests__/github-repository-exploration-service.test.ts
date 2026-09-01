@@ -23,10 +23,8 @@ vi.mock("@/src/lib/prisma", () => ({
 vi.mock("@/src/services/github-client", () => githubClientMocks);
 
 import {
-  classifyRepositoryPathForKnowledgeSync,
   GitHubRepositoryExplorationError,
   githubRepositoryExplorationService,
-  redactRepositorySecrets,
 } from "@/src/services/github-repository-exploration-service";
 
 const commitSha = "a".repeat(40);
@@ -64,132 +62,6 @@ async function startSession() {
     sourceId: "source-1",
   });
 }
-
-describe("redactRepositorySecrets", () => {
-  it("does not treat TypeScript token annotations as assigned secrets", () => {
-    const source = [
-      "function parse(token: string, value: unknown) {",
-      "  const token: string = Object.keys(value as object)[0];",
-      "  let accessToken: TokenKind;",
-      "  let authToken: auth.Token;",
-      "  let refreshToken: Readonly<Record<string, string>>;",
-      "  let privateKey: () => string;",
-      "  let token: 'access' | 'refresh';",
-      "  type Operator = { token: 'MAX' };",
-      "  type MixedOperator = { token: 'MAX' | string };",
-      "}",
-    ].join("\n");
-
-    expect(redactRepositorySecrets(source)).toEqual({
-      content: source,
-      categories: [],
-    });
-  });
-
-  it("preserves semicolonless annotations in multiline parameters and type blocks", () => {
-    const source = [
-      "function calculate(",
-      "  values: number[],",
-      "  token: string",
-      ") {",
-      "  return values.length;",
-      "}",
-      "interface LexerState {",
-      "  token: string",
-      "  accessToken: TokenKind",
-      "}",
-      "type ParserState =",
-      "{",
-      "  authToken: auth.Token",
-      "}",
-    ].join("\n");
-
-    expect(redactRepositorySecrets(source)).toEqual({
-      content: source,
-      categories: [],
-    });
-  });
-
-  it("still redacts concrete secret literals on typed and object properties", () => {
-    const result = redactRepositorySecrets([
-      "const token: string = 'plain-secret-value';",
-      "const password: String = new String('wrapped-secret-value');",
-      "const accessToken: Buffer = Buffer.from('buffered-secret-value');",
-      "const authToken: string = /* configured value */ ('parenthesized-secret-value');",
-      "const apiKey: number = 123456789;",
-      "const config = { apiKey: 'another-secret-value' };",
-    ].join("\n"));
-
-    expect(result.content).toBe([
-      "const token: [REDACTED]",
-      "const password: [REDACTED]",
-      "const accessToken: [REDACTED]",
-      "const authToken: [REDACTED]",
-      "const apiKey: [REDACTED]",
-      "const config = { apiKey: [REDACTED]",
-    ].join("\n"));
-    expect(result.categories).toEqual(["assigned_secret"]);
-  });
-
-  it("redacts concrete typed initializers continued onto following lines", () => {
-    const result = redactRepositorySecrets([
-      "const token: string =",
-      "  'plain-secret-value';",
-      "const apiKey: number =",
-      "  1234_5678;",
-      "const password: string = /* configured",
-      "  outside source control */",
-      "  'another-secret-value';",
-    ].join("\n"));
-
-    expect(result.content).toBe([
-      "const token: string =",
-      "[REDACTED]",
-      "const apiKey: number =",
-      "[REDACTED]",
-      "const password: string = /* configured",
-      "  outside source control */",
-      "[REDACTED]",
-    ].join("\n"));
-    expect(result.categories).toEqual(["assigned_secret"]);
-  });
-
-  it("ends typed-initializer continuation before an unrelated statement", () => {
-    const source = [
-      "const token: string =",
-      "  resolveToken()",
-      "const title = 'Visible project title';",
-    ].join("\n");
-
-    expect(redactRepositorySecrets(source)).toEqual({
-      content: source,
-      categories: [],
-    });
-  });
-
-  it("does not mistake object literals inside calls for parameter annotations", () => {
-    const result = redactRepositorySecrets([
-      "configure({",
-      "  token: 'plain-secret-value',",
-      "  password: 'another-secret-value'",
-      "});",
-      "configure(",
-      "  { token: 'second-secret-value' }",
-      ");",
-    ].join("\n"));
-
-    expect(result.content).toBe([
-      "configure({",
-      "  token: [REDACTED]",
-      "  password: [REDACTED]",
-      "});",
-      "configure(",
-      "  { token: [REDACTED]",
-      ");",
-    ].join("\n"));
-    expect(result.categories).toEqual(["assigned_secret"]);
-  });
-});
 
 describe("githubRepositoryExplorationService", () => {
   beforeEach(() => {
@@ -250,65 +122,6 @@ describe("githubRepositoryExplorationService", () => {
         treeEntry({ path: "src", sha: "7".repeat(40), type: "tree" }),
       ],
     });
-  });
-
-  it("excludes operating-system and editor metadata without hiding implementation files", () => {
-    expect(classifyRepositoryPathForKnowledgeSync(".DS_Store", 8196).exclusionReason).toBe("generated");
-    expect(classifyRepositoryPathForKnowledgeSync(".idea/workspace.xml", 512).exclusionReason).toBe("generated");
-    expect(classifyRepositoryPathForKnowledgeSync(".vscode/settings.json", 512).exclusionReason).toBe("generated");
-    expect(classifyRepositoryPathForKnowledgeSync("src/main/java/app/Main.java", 512).exclusionReason).toBeNull();
-  });
-
-  it("excludes hidden agent skill packages without hiding product skill modules", () => {
-    for (const root of [".agents", ".codex", ".claude"]) {
-      expect(
-        classifyRepositoryPathForKnowledgeSync(`${root}/skills/database/SKILL.md`, 512)
-          .exclusionReason,
-      ).toBe("generated");
-    }
-
-    expect(
-      classifyRepositoryPathForKnowledgeSync("skills/database/SKILL.md", 512)
-        .exclusionReason,
-    ).toBeNull();
-    expect(
-      classifyRepositoryPathForKnowledgeSync(".agents/project-rules.md", 512)
-        .exclusionReason,
-    ).toBeNull();
-  });
-
-  it("excludes SVG assets while retaining source components that render SVG", () => {
-    expect(
-      classifyRepositoryPathForKnowledgeSync("public/brand-mark.svg", 512)
-        .exclusionReason,
-    ).toBe("binary");
-    expect(
-      classifyRepositoryPathForKnowledgeSync("src/icons/BrandMarkSvg.tsx", 512)
-        .exclusionReason,
-    ).toBeNull();
-    expect(
-      classifyRepositoryPathForKnowledgeSync("src/icons/brand-mark.svg.tsx", 512)
-        .exclusionReason,
-    ).toBeNull();
-  });
-
-  it("excludes top-level runtime datasets without hiding source or schema files", () => {
-    expect(
-      classifyRepositoryPathForKnowledgeSync("data/productdetails.json", 512)
-        .exclusionReason,
-    ).toBe("generated");
-    expect(
-      classifyRepositoryPathForKnowledgeSync("data/orders.csv", 512)
-        .exclusionReason,
-    ).toBe("generated");
-    expect(
-      classifyRepositoryPathForKnowledgeSync("src/data/catalog.json", 512)
-        .exclusionReason,
-    ).toBeNull();
-    expect(
-      classifyRepositoryPathForKnowledgeSync("data/schema.sql", 512)
-        .exclusionReason,
-    ).toBeNull();
   });
 
   it("authorizes through the user, Work Item, and attached GitHub source", async () => {

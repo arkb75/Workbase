@@ -382,71 +382,11 @@ describe("generation run telemetry privacy", () => {
         unknownUsageCalls: 0,
       },
     );
-    const sharedBudgetAdmissionError = new StructuredGenerationBudgetError(
-      "token_budget_exhausted",
-      "request did not fit after earlier shared-budget work",
-      {
-        modelCalls: 6,
-        repairPasses: 0,
-        inputTokens: 48_000,
-        outputTokens: 12_000,
-        totalTokens: 60_000,
-        unknownUsageCalls: 0,
-      },
-      {
-        providerAttemptCount: 0,
-        unknownUsageAttempts: 0,
-        tokenUsage: null,
-      },
-    );
-    const sharedBudgetChargedError = new StructuredGenerationBudgetError(
-      "token_budget_exhausted",
-      "provider response exceeded the shared cumulative limit",
-      {
-        modelCalls: 6,
-        repairPasses: 0,
-        inputTokens: 48_120,
-        outputTokens: 12_030,
-        totalTokens: 60_150,
-        unknownUsageCalls: 0,
-      },
-      {
-        providerAttemptCount: 1,
-        unknownUsageAttempts: 0,
-        tokenUsage: {
-          inputTokens: 120,
-          outputTokens: 30,
-          totalTokens: 150,
-        },
-      },
-    );
 
     expect(isStructuredGenerationAdmissionFailure(admissionError)).toBe(true);
     expect(generationRunFailureTokenUsage(admissionError)).toBeNull();
     expect(isStructuredGenerationAdmissionFailure(chargedError)).toBe(false);
     expect(generationRunFailureTokenUsage(chargedError)).toEqual({
-      attempts: [{
-        inputTokens: 120,
-        outputTokens: 30,
-        totalTokens: 150,
-      }],
-      failedAttempts: [],
-      providerAttemptCount: 1,
-      unknownUsageAttempts: 0,
-      budgetCode: "token_budget_exhausted",
-    });
-    expect(
-      isStructuredGenerationAdmissionFailure(sharedBudgetAdmissionError),
-    ).toBe(true);
-    expect(
-      generationRunFailureTokenUsage(sharedBudgetAdmissionError),
-    ).toBeNull();
-    expect(
-      isStructuredGenerationAdmissionFailure(sharedBudgetChargedError),
-    ).toBe(false);
-    expect(
-      generationRunFailureTokenUsage(sharedBudgetChargedError),
-    ).toEqual({
       attempts: [{
         inputTokens: 120,
         outputTokens: 30,

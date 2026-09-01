@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { reconcileRepositoryCapabilityFunnelMaterialization } from "@/src/domain/repository-capability-funnel";
 import {
   applySynthesisCoverageGapsToRefreshState,
   allowsCanonicalKnowledgeReplacement,
@@ -7,7 +6,6 @@ import {
   hasPromotedReconciliationEvidence,
   isSynthesizedCandidateUnsafe,
   isNewerKnowledgeRefreshGeneration,
-  isRetryableKnowledgeRefreshTransactionError,
   knowledgeRefreshStateForEmbeddingTelemetry,
   projectFactReconciliationCasWhere,
   repositoryHighlightOwnershipDecision,
@@ -15,11 +13,6 @@ import {
   repositoryHighlightPublicDisposition,
   runBoundedKnowledgeEmbeddingTasks,
   shouldQuarantineSynthesizedCandidate,
-  synthesisCandidateReconciliationKey,
-  synthesisCoverageLedgerGapUpdates,
-  synthesisProducedEntityBuckets,
-  synthesisProducedEntityLedgerWhere,
-  synthesisReconciliationScopeKey,
 } from "@/src/services/knowledge-reconciliation-service";
 
 describe("repository knowledge auto-apply policy", () => {
@@ -35,35 +28,14 @@ describe("repository knowledge auto-apply policy", () => {
     expect(allowsCanonicalKnowledgeReplacement(null)).toBe(false);
   });
 
-  it("retries Prisma and driver-adapter forms of a serializable write conflict", () => {
-    expect(isRetryableKnowledgeRefreshTransactionError(
-      Object.assign(new Error("write conflict"), { code: "P2034" }),
-    )).toBe(true);
-    expect(isRetryableKnowledgeRefreshTransactionError(
-      new Error("TransactionWriteConflict"),
-    )).toBe(true);
-    expect(isRetryableKnowledgeRefreshTransactionError(
-      Object.assign(new Error("unique constraint"), { code: "P2002" }),
-    )).toBe(false);
-  });
-
-  it("keeps content safety independent from synthesis-path approval", () => {
+  it("does not quarantine a supported deterministic fallback merely because model synthesis failed", () => {
     expect(shouldQuarantineSynthesizedCandidate({
       confidence: "medium",
       sensitivityFlag: false,
     })).toBe(false);
   });
 
-  it("keeps exact deterministic synthesis review-only even when its semantic citation succeeded", () => {
-    const source = {
-      path: "src/retry.ts",
-      statement: "The service performs a bounded retry.",
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-    };
-
+  it("quarantines otherwise safe candidates when their synthesis result is not approval eligible", () => {
     expect(isSynthesizedCandidateUnsafe({
       approvalEligible: false,
       candidate: {
@@ -71,111 +43,30 @@ describe("repository knowledge auto-apply policy", () => {
         confidence: "high",
         sensitivityFlag: false,
       },
-      sources: [source],
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
+      }],
     })).toBe(true);
     expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: false,
+      approvalEligible: true,
       candidate: {
-        statement: "The service performs a bounded retry across every provider.",
+        statement: "The service performs a bounded retry.",
         confidence: "high",
         sensitivityFlag: false,
       },
-      sources: [source],
-    })).toBe(true);
-  });
-
-  it("does not restore deterministic auto-approval through otherwise safe extra citations", () => {
-    const candidate = {
-      statement: "The service performs a bounded retry.",
-      confidence: "high",
-      sensitivityFlag: false,
-    };
-    const source = {
-      path: "src/retry.ts",
-      statement: candidate.statement,
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      confidence: "medium" as const,
-      sensitivityFlag: false,
-    };
-
-    expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: false,
-      candidate,
-      sources: [source, {
-        ...source,
-        path: "src/retry-policy.ts",
-        statement: "The retry policy bounds provider attempts.",
+      sources: [{
+        path: "src/retry.ts",
+        statement: "The service performs a bounded retry.",
+        semanticStatus: "succeeded",
       }],
-    })).toBe(true);
-    for (const unsafeSource of [
-      { ...source, semanticStatus: "degraded" as const },
-      { ...source, evidenceMode: "deterministic_anchor" as const },
-      { ...source, sensitivityFlag: true },
-      { ...source, confidence: "low" as const },
-      { ...source, path: "README.md" },
-      { ...source, path: "vendor/generated-client.ts" },
-    ]) {
-      expect(isSynthesizedCandidateUnsafe({
-        approvalEligible: false,
-        candidate,
-        sources: [source, unsafeSource],
-      })).toBe(true);
-    }
-  });
-
-  it("keeps deterministic Highlights review-only even when text and summary preserve the finding", () => {
-    const source = {
-      path: "src/retry.ts",
-      statement: "The service performs a bounded retry.",
-      evidenceMode: "semantic" as const,
-      semanticStatus: "succeeded" as const,
-      confidence: "high" as const,
-      sensitivityFlag: false,
-    };
-    const exact = {
-      text: source.statement,
-      summary: `  The service performs a bounded retry.  `,
-      confidence: "high",
-      sensitivityFlag: false,
-    };
-
-    expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: false,
-      candidate: exact,
-      sources: [source],
-    })).toBe(true);
-    expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: false,
-      candidate: { ...exact, summary: "The service retries providers and guarantees recovery." },
-      sources: [source],
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it("still quarantines low-confidence or sensitive candidates", () => {
     expect(shouldQuarantineSynthesizedCandidate({ confidence: "low", sensitivityFlag: false })).toBe(true);
     expect(shouldQuarantineSynthesizedCandidate({ confidence: "high", sensitivityFlag: true })).toBe(true);
-  });
-
-  it("does not let synthesis clear sensitivity from a cited source", () => {
-    const candidate = {
-      statement: "The runtime reads a configured service credential.",
-      confidence: "high",
-      sensitivityFlag: false,
-    };
-    const sensitiveSource = {
-      path: "src/runtime/config.ts",
-      statement: candidate.statement,
-      semanticStatus: "succeeded" as const,
-      sensitivityFlag: true,
-    };
-
-    expect(shouldQuarantineSynthesizedCandidate(candidate, [sensitiveSource])).toBe(true);
-    expect(isSynthesizedCandidateUnsafe({
-      approvalEligible: true,
-      candidate,
-      sources: [sensitiveSource],
-    })).toBe(true);
   });
 
   it("quarantines candidates whose cited semantic extraction degraded", () => {
@@ -500,183 +391,6 @@ describe("repository knowledge auto-apply policy", () => {
     expect(state.warnings).toMatchObject({
       existingWarning: true,
       synthesisCoverageGaps: [expect.stringContaining("owner/repo-b")],
-    });
-  });
-
-  it("applies an anchor-only synthesis gap only to the matching repository capability ledger", () => {
-    const gap = "Repository owner/repo-b produced no supported Project Facts for data_model during repository synthesis.";
-
-    expect(synthesisCoverageLedgerGapUpdates({
-      synthesis: [{
-        sourceId: "source-b",
-        repository: "owner/repo-b",
-        subsystemKey: "data_model",
-        coverageGaps: [gap],
-        notebook: [],
-      }],
-      ledgers: [{
-        id: "ledger-a",
-        capabilityKey: "data_model",
-        gaps: ["Existing repository A gap."],
-        sourceId: "source-a",
-      }, {
-        id: "ledger-b",
-        capabilityKey: "data_model",
-        gaps: ["Existing repository B gap."],
-        sourceId: "source-b",
-      }],
-    })).toEqual([{
-      id: "ledger-b",
-      gaps: ["Existing repository B gap.", gap],
-    }]);
-  });
-
-  it("keeps same-capability candidates, production buckets, and ledger writes source-scoped", () => {
-    const repositoryA = {
-      sourceId: "source-a",
-      repository: "owner/repo-a",
-      subsystemKey: "data_model",
-    };
-    const repositoryB = {
-      sourceId: "source-b",
-      repository: "owner/repo-b",
-      subsystemKey: "data_model",
-    };
-
-    expect(synthesisReconciliationScopeKey(repositoryA)).not.toBe(
-      synthesisReconciliationScopeKey(repositoryB),
-    );
-    expect(synthesisCandidateReconciliationKey("fact", repositoryA, 0)).not.toBe(
-      synthesisCandidateReconciliationKey("fact", repositoryB, 0),
-    );
-    const buckets = synthesisProducedEntityBuckets([repositoryA, repositoryB]);
-    buckets.get(synthesisReconciliationScopeKey(repositoryA))?.projectFactIds.push("fact-a");
-    expect(buckets.size).toBe(2);
-    expect(buckets.get(synthesisReconciliationScopeKey(repositoryA))).toEqual({
-      projectFactIds: ["fact-a"],
-      highlightIds: [],
-    });
-    expect(buckets.get(synthesisReconciliationScopeKey(repositoryB))).toEqual({
-      projectFactIds: [],
-      highlightIds: [],
-    });
-    expect(synthesisProducedEntityLedgerWhere("refresh-1", repositoryB)).toEqual({
-      refreshRunId: "refresh-1",
-      capabilityKey: "data_model",
-      snapshot: { sourceId: "source-b" },
-    });
-  });
-
-  it("keeps sibling operation-community candidate keys distinct within one capability", () => {
-    const first = {
-      sourceId: "source-a",
-      subsystemKey: "project_domain:billing",
-      synthesisKey: "project_domain:billing#community-1",
-    };
-    const second = {
-      ...first,
-      synthesisKey: "project_domain:billing#community-2",
-    };
-
-    expect(synthesisCandidateReconciliationKey("fact", first, 0)).not.toBe(
-      synthesisCandidateReconciliationKey("fact", second, 0),
-    );
-    expect(synthesisCandidateReconciliationKey("highlight", first, 0)).not.toBe(
-      synthesisCandidateReconciliationKey("highlight", second, 0),
-    );
-  });
-
-  it("merges capability-funnel traces instead of overwriting sibling synthesis communities", () => {
-    const trace = (candidateRef: string, selected: boolean) => ({
-      version: 1 as const,
-      observations: { admittedToSynthesis: 3 },
-      facts: { verified: 1 },
-      highlights: {
-        eligibleCandidates: 1,
-        selected: selected ? 1 : 0,
-        decisions: [{
-          candidateRef,
-          factIndex: 0,
-          outcome: selected ? "selected" as const : "omitted" as const,
-          reasons: selected ? [] : ["selector_lower_relative_salience" as const],
-        }],
-      },
-      auditRefs: {
-        selectionGenerationRunId: "selection-run",
-        criticGenerationRunIds: selected ? ["critic-run"] : [],
-      },
-    });
-    const buckets = synthesisProducedEntityBuckets([
-      {
-        sourceId: "source-a",
-        subsystemKey: "project_domain:billing",
-        capabilityFunnel: trace("candidate-a", true),
-      },
-      {
-        sourceId: "source-a",
-        subsystemKey: "project_domain:billing",
-        capabilityFunnel: trace("candidate-b", false),
-      },
-    ]);
-
-    expect(buckets.get(JSON.stringify(["source-a", "project_domain:billing"])))
-      .toMatchObject({
-        capabilityFunnel: {
-          observations: { admittedToSynthesis: 6 },
-          facts: { verified: 2 },
-          highlights: {
-            eligibleCandidates: 2,
-            selected: 1,
-            decisions: [
-              expect.objectContaining({ candidateRef: "candidate-a", outcome: "selected" }),
-              expect.objectContaining({ candidateRef: "candidate-b", reasons: ["selector_lower_relative_salience"] }),
-            ],
-          },
-          auditRefs: {
-            selectionGenerationRunId: "selection-run",
-            criticGenerationRunIds: ["critic-run"],
-          },
-        },
-      });
-  });
-
-  it("records which selected Highlights actually materialized", () => {
-    const trace = {
-      version: 1 as const,
-      observations: { admittedToSynthesis: 2 },
-      facts: { verified: 2 },
-      highlights: {
-        eligibleCandidates: 2,
-        selected: 2,
-        decisions: ["candidate-a", "candidate-b"].map((candidateRef, factIndex) => ({
-          candidateRef,
-          factIndex,
-          outcome: "selected" as const,
-          reasons: [],
-        })),
-      },
-      auditRefs: { criticGenerationRunIds: [] },
-    };
-
-    expect(reconcileRepositoryCapabilityFunnelMaterialization(
-      trace,
-      new Map([["candidate-a", "highlight-a"]]),
-    )).toMatchObject({
-      highlights: {
-        selected: 2,
-        materialized: 1,
-        decisions: [
-          expect.objectContaining({
-            candidateRef: "candidate-a",
-            materialization: { status: "materialized", entityId: "highlight-a" },
-          }),
-          expect.objectContaining({
-            candidateRef: "candidate-b",
-            reasons: ["not_materialized"],
-            materialization: { status: "not_materialized" },
-          }),
-        ],
-      },
     });
   });
 });

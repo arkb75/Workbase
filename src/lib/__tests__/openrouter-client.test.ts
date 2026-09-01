@@ -4,13 +4,9 @@ import {
   OpenRouterChatCompletionsRuntime,
   OpenRouterConverseTransport,
   OpenRouterRequestError,
-  resetOpenRouterPacingForTests,
   RetryableFallbackTextRuntime,
-  RetryableSameModelTextRuntime,
 } from "@/src/lib/openrouter-client";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-afterEach(() => resetOpenRouterPacingForTests());
+import { describe, expect, it, vi } from "vitest";
 
 function config(
   overrides: Partial<OpenRouterTextConfig> = {},
@@ -173,9 +169,13 @@ async function structuredRequestBody(
   ) as StructuredRequestBody;
 }
 
-function schemaFromStructuredRequest(body: StructuredRequestBody) {
-  return body.response_format?.json_schema.schema ??
-    body.tools?.[0]?.function.parameters;
+function schemaFromStructuredRequest(
+  body: StructuredRequestBody,
+  mode: "json_schema" | "strict_tool_use",
+) {
+  return mode === "json_schema"
+    ? body.response_format?.json_schema.schema
+    : body.tools?.[0]?.function.parameters;
 }
 
 describe("OpenRouterChatCompletionsRuntime", () => {
@@ -269,76 +269,13 @@ describe("OpenRouterChatCompletionsRuntime", () => {
     });
   });
 
-  it("uses Anthropic's advertised max_tokens parameter", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      response({
-        id: "gen_anthropic_1",
-        model: "anthropic/claude-sonnet-5",
-        provider: "anthropic",
-        choices: [
-          {
-            finish_reason: "tool_calls",
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: "tool_anthropic_status",
-                  function: {
-                    name: "status",
-                    arguments: "{\"status\":\"ok\"}",
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 4,
-          total_tokens: 16,
-          cost: 0.0001,
-        },
-      }),
-    );
-    const runtime = new OpenRouterChatCompletionsRuntime(
-      config({ modelId: "anthropic/claude-sonnet-5" }),
-      undefined,
-      fetchMock,
-    );
-
-    const result = await runtime.converse({
-      systemPrompt: "Return JSON.",
-      userPrompt: "Return ok.",
-      maxTokens: 128,
-      temperature: 0,
-      structuredOutput: {
-        mode: "json_schema",
-        schemaName: "status",
-        schemaDescription: "A status result.",
-        jsonSchema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["status"],
-          properties: { status: { type: "string" } },
-        },
-      },
-    });
-
-    const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
-    expect(body.max_tokens).toBe(128);
-    expect(body.max_completion_tokens).toBeUndefined();
-    expect(body.response_format).toBeUndefined();
-    expect(body.tools[0].function).not.toHaveProperty("strict");
-    expect(result.structuredData).toEqual({ status: "ok" });
-  });
-
   it("removes only unsupported constraints from Anthropic native and strict-tool schemas", async () => {
     for (const mode of ["json_schema", "strict_tool_use"] as const) {
       const body = await structuredRequestBody(
         "anthropic/claude-sonnet-5",
         mode,
       );
-      expect(schemaFromStructuredRequest(body)).toEqual(
+      expect(schemaFromStructuredRequest(body, mode)).toEqual(
         constraintCompatibleJsonSchema,
       );
     }
@@ -355,7 +292,7 @@ describe("OpenRouterChatCompletionsRuntime", () => {
         "openai/gpt-5.6-terra",
         mode,
       );
-      expect(schemaFromStructuredRequest(body)).toEqual(
+      expect(schemaFromStructuredRequest(body, mode)).toEqual(
         constraintRichJsonSchema,
       );
     }
@@ -721,302 +658,6 @@ describe("OpenRouterChatCompletionsRuntime", () => {
   });
 });
 
-describe("RetryableSameModelTextRuntime", () => {
-  const input = {
-    systemPrompt: "test",
-    userPrompt: "test",
-    maxTokens: 16,
-    temperature: 0,
-    maxProviderAttempts: 2,
-  };
-
-  it("retries an unbilled 429 on the same model and preserves both attempts", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(new Response(
-          JSON.stringify({
-            error: {
-              message: "rate limited",
-              code: 429,
-              metadata: { error_type: "rate_limit_exceeded" },
-            },
-          }),
-          {
-            status: 429,
-            headers: {
-              "x-request-id": "req_rate_limited",
-              "retry-after": "0",
-            },
-          },
-        ))
-        .mockResolvedValueOnce(response({
-          model: "openai/gpt-5.6-terra",
-          provider: "openai",
-          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
-          usage: {
-            prompt_tokens: 7,
-            completion_tokens: 1,
-            total_tokens: 8,
-            cost: 0.0002,
-          },
-        }));
-      const runtimeConfig = config({
-        baseUrl: "https://same-model-retry.example/api/v1",
-      });
-      const runtime = new RetryableSameModelTextRuntime(
-        new OpenRouterChatCompletionsRuntime(
-          runtimeConfig,
-          undefined,
-          fetchMock,
-        ),
-        runtimeConfig,
-      );
-
-      const pending = runtime.converse(input);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(2_500);
-      const result = await pending;
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result).toMatchObject({
-        text: "ok",
-        modelId: "openai/gpt-5.6-terra",
-        tokenUsage: {
-          providerAttemptCount: 2,
-          unknownUsageAttempts: 1,
-          failedAttempts: [expect.objectContaining({
-            modelId: "openai/gpt-5.6-terra",
-            requestId: "req_rate_limited",
-            httpStatus: 429,
-          })],
-        },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not exceed a one-attempt caller budget", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      response({ error: { message: "rate limited" } }, 429),
-    );
-    const runtimeConfig = config({
-      baseUrl: "https://same-model-no-retry.example/api/v1",
-    });
-    const runtime = new RetryableSameModelTextRuntime(
-      new OpenRouterChatCompletionsRuntime(
-        runtimeConfig,
-        undefined,
-        fetchMock,
-      ),
-      runtimeConfig,
-    );
-
-    await expect(runtime.converse({
-      ...input,
-      maxProviderAttempts: 1,
-    })).rejects.toMatchObject({ status: 429, providerAttemptCount: 1 });
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it("retries a zero-cost completion-choice provider error on the same model", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(response({
-          model: "openai/gpt-5.4-mini",
-          provider: "azure",
-          choices: [{
-            finish_reason: "error",
-            error: { message: "provider error" },
-            message: { content: "" },
-          }],
-          usage: {
-            prompt_tokens: 120,
-            completion_tokens: 8,
-            total_tokens: 128,
-            cost: 0,
-          },
-        }))
-        .mockResolvedValueOnce(response({
-          model: "openai/gpt-5.4-mini",
-          provider: "azure",
-          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
-          usage: {
-            prompt_tokens: 120,
-            completion_tokens: 4,
-            total_tokens: 124,
-            cost: 0.001,
-          },
-        }));
-      const runtimeConfig = config({
-        baseUrl: "https://same-model-zero-cost-choice.example/api/v1",
-        modelId: "openai/gpt-5.4-mini",
-      });
-      const runtime = new RetryableSameModelTextRuntime(
-        new OpenRouterChatCompletionsRuntime(
-          runtimeConfig,
-          undefined,
-          fetchMock,
-        ),
-        runtimeConfig,
-      );
-
-      const pending = runtime.converse(input);
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(5_000);
-      const result = await pending;
-
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result).toMatchObject({
-        text: "ok",
-        tokenUsage: {
-          providerAttemptCount: 2,
-          unknownUsageAttempts: 0,
-          failedAttempts: [expect.objectContaining({
-            code: "choice_error",
-            retryable: true,
-          })],
-        },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not retry a completion-choice provider error with billable usage", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({
-      choices: [{
-        finish_reason: "error",
-        error: { message: "provider error" },
-        message: { content: "" },
-      }],
-      usage: {
-        prompt_tokens: 120,
-        completion_tokens: 8,
-        total_tokens: 128,
-        cost: 0.001,
-      },
-    }));
-    const runtimeConfig = config({
-      baseUrl: "https://same-model-billable-choice.example/api/v1",
-    });
-    const runtime = new RetryableSameModelTextRuntime(
-      new OpenRouterChatCompletionsRuntime(
-        runtimeConfig,
-        undefined,
-        fetchMock,
-      ),
-      runtimeConfig,
-    );
-
-    await expect(runtime.converse(input)).rejects.toMatchObject({
-      code: "choice_error",
-      providerAttemptCount: 1,
-    });
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it("uses a third admitted slot on the same model after two transient 429s", async () => {
-    vi.useFakeTimers();
-    try {
-      const limited = () => new Response(
-        JSON.stringify({ error: { message: "rate limited", code: 429 } }),
-        { status: 200, headers: { "retry-after": "0" } },
-      );
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(limited())
-        .mockResolvedValueOnce(limited())
-        .mockResolvedValueOnce(response({
-          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }));
-      const runtimeConfig = config({
-        baseUrl: "https://same-model-third-attempt.example/api/v1",
-      });
-      const runtime = new RetryableSameModelTextRuntime(
-        new OpenRouterChatCompletionsRuntime(
-          runtimeConfig,
-          undefined,
-          fetchMock,
-        ),
-        runtimeConfig,
-      );
-
-      const pending = runtime.converse({
-        ...input,
-        maxProviderAttempts: 3,
-      });
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(2_500);
-      await vi.advanceTimersByTimeAsync(2_500);
-      const result = await pending;
-
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(result.tokenUsage).toMatchObject({
-        providerAttemptCount: 3,
-        unknownUsageAttempts: 2,
-        failedAttempts: [
-          expect.objectContaining({ httpStatus: 429 }),
-          expect.objectContaining({ httpStatus: 429 }),
-        ],
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("honors Retry-After before the bounded same-model retry", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(new Response(
-          JSON.stringify({ error: { message: "rate limited", code: 429 } }),
-          {
-            status: 429,
-            headers: {
-              "x-request-id": "req_wait",
-              "retry-after": "2",
-            },
-          },
-        ))
-        .mockResolvedValueOnce(response({
-          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }));
-      const runtimeConfig = config({
-        baseUrl: "https://retry-after.example/api/v1",
-      });
-      const runtime = new RetryableSameModelTextRuntime(
-        new OpenRouterChatCompletionsRuntime(
-          runtimeConfig,
-          undefined,
-          fetchMock,
-        ),
-        runtimeConfig,
-      );
-
-      const pending = runtime.converse(input);
-      await vi.advanceTimersByTimeAsync(0);
-      // Retry-After is a lower bound. The shared adaptive interval also
-      // staggers concurrent retries after a burst-level 429.
-      await vi.advanceTimersByTimeAsync(2_499);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await pending;
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe("RetryableFallbackTextRuntime", () => {
   const input: Parameters<ConverseTextRuntime["converse"]>[0] = {
     systemPrompt: "test",
@@ -1095,34 +736,6 @@ describe("RetryableFallbackTextRuntime", () => {
         }),
       ],
     });
-  });
-
-  it("does not add a cross-model fallback after the same model uses the attempt budget", async () => {
-    const primary = {
-      converse: vi.fn().mockRejectedValue(
-        new OpenRouterRequestError("still rate limited", 429, true, "req_second", {
-          providerAttemptCount: 2,
-          unknownUsageAttempts: 2,
-          failedAttempts: [{
-            provider: "openrouter",
-            modelId: "openai/gpt-5.6-terra",
-            requestId: "req_first",
-            status: "provider_error",
-            httpStatus: 429,
-            retryable: true,
-          }],
-        }),
-      ),
-    };
-    const fallback = { converse: vi.fn().mockResolvedValue(success) };
-
-    await expect(
-      new RetryableFallbackTextRuntime(primary, fallback).converse({
-        ...input,
-        maxProviderAttempts: 2,
-      }),
-    ).rejects.toMatchObject({ providerAttemptCount: 2, status: 429 });
-    expect(fallback.converse).not.toHaveBeenCalled();
   });
 
   it("does not fall back for capability/auth errors or caller cancellation", async () => {

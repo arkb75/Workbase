@@ -99,11 +99,7 @@ function nonNegativeInteger(value: unknown) {
 export function isStructuredGenerationAdmissionFailure(error: unknown) {
   return (
     error instanceof StructuredGenerationBudgetError &&
-    (
-      error.operationUsage
-        ? error.operationUsage.providerAttemptCount === 0
-        : error.usage.modelCalls === 0
-    )
+    error.usage.modelCalls === 0
   );
 }
 
@@ -186,17 +182,6 @@ export function generationRunFailureTokenUsage(
 ): Prisma.InputJsonValue | null {
   if (error instanceof StructuredGenerationBudgetError) {
     if (isStructuredGenerationAdmissionFailure(error)) return null;
-    if (error.operationUsage) {
-      const operationTokenUsage = generationRunFailureTokenUsage({
-        tokenUsage: error.operationUsage.tokenUsage,
-        providerAttemptCount: error.operationUsage.providerAttemptCount,
-        unknownUsageAttempts: error.operationUsage.unknownUsageAttempts,
-      });
-      return {
-        ...record(operationTokenUsage),
-        budgetCode: error.code,
-      };
-    }
     const usage = error.usage;
     return {
       attempts: [{

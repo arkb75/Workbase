@@ -57,75 +57,6 @@ export interface StructuredGenerationBudget {
   usage: StructuredGenerationBudgetUsage;
 }
 
-/**
- * Usage attributable to one generateStructured operation. A budget can be
- * shared by many operations, so its cumulative snapshot cannot establish
- * whether the operation that raised an error dispatched a provider request.
- */
-export interface StructuredGenerationOperationUsage {
-  providerAttemptCount: number;
-  unknownUsageAttempts: number;
-  tokenUsage: JsonValue | null;
-}
-
-type StructuredGenerationBudgetReservations = {
-  modelCalls: number;
-  totalTokens: number;
-  waiters: Set<() => void>;
-};
-
-// Reservations are deliberately kept out of the persisted/public usage shape:
-// they exist only while provider requests are in flight. JavaScript executes
-// each admission section synchronously, so one shared budget can safely admit
-// concurrent callers without a lock while still preventing them from spending
-// the same remaining token or provider-call capacity.
-const structuredGenerationBudgetReservations = new WeakMap<
-  StructuredGenerationBudget,
-  StructuredGenerationBudgetReservations
->();
-
-function reservationsForStructuredGenerationBudget(
-  budget: StructuredGenerationBudget,
-) {
-  const existing = structuredGenerationBudgetReservations.get(budget);
-  if (existing) return existing;
-  const created = {
-    modelCalls: 0,
-    totalTokens: 0,
-    waiters: new Set<() => void>(),
-  };
-  structuredGenerationBudgetReservations.set(budget, created);
-  return created;
-}
-
-function waitForStructuredGenerationBudgetReservation(
-  reservations: StructuredGenerationBudgetReservations,
-  signal?: AbortSignal,
-) {
-  if (signal?.aborted) {
-    return Promise.reject(new DOMException("Cancelled", "AbortError"));
-  }
-  return new Promise<void>((resolve, reject) => {
-    const resume = () => {
-      signal?.removeEventListener("abort", cancel);
-      reservations.waiters.delete(resume);
-      resolve();
-    };
-    const cancel = () => {
-      reservations.waiters.delete(resume);
-      reject(new DOMException("Cancelled", "AbortError"));
-    };
-    reservations.waiters.add(resume);
-    signal?.addEventListener("abort", cancel, { once: true });
-  });
-}
-
-function notifyStructuredGenerationBudgetWaiters(
-  reservations: StructuredGenerationBudgetReservations,
-) {
-  for (const resume of [...reservations.waiters]) resume();
-}
-
 export class StructuredGenerationBudgetError extends Error {
   constructor(
     public readonly code:
@@ -134,7 +65,6 @@ export class StructuredGenerationBudgetError extends Error {
       | "token_budget_exhausted",
     message: string,
     public readonly usage: StructuredGenerationBudgetUsage,
-    public readonly operationUsage?: StructuredGenerationOperationUsage,
   ) {
     super(message);
     this.name = "StructuredGenerationBudgetError";
@@ -462,9 +392,7 @@ function tokenDensityFloor(value: string) {
   }, 0);
 }
 
-export function estimateStructuredGenerationInputTokens(
-  input: Parameters<ConverseTextRuntime["converse"]>[0],
-) {
+function estimatedInputTokenReserve(input: Parameters<ConverseTextRuntime["converse"]>[0]) {
   const segments = [
     input.systemPrompt,
     input.userPrompt,
@@ -497,44 +425,6 @@ export function estimateStructuredGenerationInputTokens(
   // below three bytes per token. Actual usage is still enforced after every
   // provider call because this remains an admission estimate, not a tokenizer.
   return Math.max(Math.ceil(promptBytes / 3), densityFloor) + 768;
-}
-
-const STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT =
-  "You repair structured model outputs. Return JSON only and match the provided schema exactly.";
-
-/**
- * Conservatively price one possible schema-repair request. Its variable input
- * contains both the full failed output and validation diagnostics; reserve up
- * to the original output ceiling for each in addition to the exact fixed
- * schema-aware repair prompt.
- */
-export function estimateStructuredGenerationRepairTokens(input: {
-  schemaName: string;
-  schemaDescription: string;
-  jsonSchema: JsonSchemaObject;
-  maxTokens: number;
-  enablePromptCaching: boolean;
-}) {
-  const fixedInputTokens = estimateStructuredGenerationInputTokens({
-    systemPrompt: STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT,
-    userPrompt: buildSchemaAwareRepairPrompt({
-      schemaName: input.schemaName,
-      schemaDescription: input.schemaDescription,
-      jsonSchema: input.jsonSchema,
-      exampleOutput: undefined,
-      requiredFieldPaths: undefined,
-      repairMappings: undefined,
-      validationErrors: null,
-      originalOutput: "",
-    }),
-    maxTokens: input.maxTokens,
-    temperature: 0,
-    effort: "medium",
-    enablePromptCaching: input.enablePromptCaching,
-  });
-  const repairInputTokens = fixedInputTokens + input.maxTokens * 2;
-  return repairInputTokens * (input.enablePromptCaching ? 2 : 1) +
-    input.maxTokens;
 }
 
 function readTextFromContent(content: ContentBlock[] | undefined) {
@@ -959,37 +849,15 @@ export class BedrockStructuredLlmClient {
     repairMappings?: readonly string[];
     transportPreference?: StructuredOutputTransportMode[];
     repairStrategy?: "fresh_then_repair" | "repair_last_failure";
-    /** Keep a correction on the caller's configured model instead of the shared repair profile. */
-    repairModelPolicy?: "configured_repair" | "same_profile";
-    /** Bound client-side provider retries/fallbacks for this logical call. */
-    maxProviderAttempts?: 1 | 2 | 3;
     maxTokens: number;
-    /**
-     * Small structured completions can be predictably truncated even though a
-     * shared budget still has a few tokens left. When set, fail admission
-     * before dispatch instead of silently shrinking below this viable floor.
-     */
-    minimumOutputTokens?: number;
     temperature?: number;
     effort?: "low" | "medium" | "high";
-    enablePromptCaching?: boolean;
     budget?: StructuredGenerationBudget;
     extraValidation?: (value: T) => string[];
     signal?: AbortSignal;
   }) {
-    if (
-      params.minimumOutputTokens !== undefined &&
-      (
-        !Number.isInteger(params.minimumOutputTokens) ||
-        params.minimumOutputTokens < 1 ||
-        params.minimumOutputTokens > params.maxTokens
-      )
-    ) {
-      throw new Error("minimumOutputTokens must be a positive integer no greater than maxTokens.");
-    }
     const temperature = params.temperature ?? 0;
     const effort = params.effort ?? "high";
-    const enablePromptCaching = params.enablePromptCaching ?? true;
     const transportPreference =
       params.transportPreference ??
       this.config.defaultTransportPreference ??
@@ -1002,7 +870,6 @@ export class BedrockStructuredLlmClient {
     let reportedCostUsd = 0;
     let hasReportedCost = false;
     let unknownUsageAttempts = 0;
-    let operationProviderAttemptCount = 0;
     const tokenUsageSnapshot = (): JsonValue | null => {
       if (!observedTokenUsage.length && !unknownUsageAttempts) return null;
       // Preserve the existing single-call shape for callers that inspect raw
@@ -1015,162 +882,53 @@ export class BedrockStructuredLlmClient {
         unknownUsageAttempts,
       } as JsonValue;
     };
-    const budgetError = (
-      code: StructuredGenerationBudgetError["code"],
-      message: string,
-      budget: StructuredGenerationBudget,
-    ) => new StructuredGenerationBudgetError(
-      code,
-      message,
-      snapshotStructuredGenerationBudget(budget),
-      {
-        providerAttemptCount: operationProviderAttemptCount,
-        unknownUsageAttempts,
-        tokenUsage: tokenUsageSnapshot(),
-      },
-    );
     const converse = async (
       request: Parameters<ConverseTextRuntime["converse"]>[0],
       phase: StructuredGenerationPhase,
     ) => {
       const budget = params.budget;
-      let boundedRequest = params.maxProviderAttempts === undefined
-        ? request
-        : { ...request, maxProviderAttempts: params.maxProviderAttempts };
-      let releaseAdmissionReservation = () => {};
+      let boundedRequest = request;
       if (budget) {
-        const reservations = reservationsForStructuredGenerationBudget(budget);
-        while (true) {
-          if (
-            budget.usage.modelCalls + reservations.modelCalls >=
-              budget.limits.maxModelCalls
-          ) {
-            if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
-              throw budgetError(
-                "model_call_budget_exhausted",
-                `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
-                budget,
-              );
-            }
-            await waitForStructuredGenerationBudgetReservation(
-              reservations,
-              params.signal,
-            );
-            continue;
-          }
-          if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
-            throw budgetError(
-              "repair_budget_exhausted",
-              `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
-              budget,
-            );
-          }
-          const permanentlyAvailableTokens =
-            budget.limits.maxTotalTokens - budget.usage.totalTokens;
-          const currentlyAvailableTokens =
-            permanentlyAvailableTokens - reservations.totalTokens;
-          const inputTokenReserve = estimateStructuredGenerationInputTokens(request);
-          // Bedrock reports cache reads/writes in the charged total in addition
-          // to ordinary input and output tokens. Cacheable prompt tokens are a
-          // subset of the request input, so one extra input-sized reserve is a
-          // conservative ceiling that keeps concurrent admission from spending
-          // the same cache-accounting headroom twice.
-          const cacheTokenReserve =
-            this.config.provider === "bedrock" &&
-            request.enablePromptCaching
-            ? inputTokenReserve
-            : 0;
-          // Charged usage determines the request's real output ceiling. In-flight
-          // reservations may delay admission, but must never shrink maxTokens and
-          // turn a healthy structured request into a likely truncation.
-          const permittedOutputTokens = Math.min(
-            request.maxTokens,
-            budget.limits.maxOutputTokens,
-            permanentlyAvailableTokens -
-              inputTokenReserve -
-              cacheTokenReserve,
+        if (budget.usage.modelCalls >= budget.limits.maxModelCalls) {
+          throw new StructuredGenerationBudgetError(
+            "model_call_budget_exhausted",
+            `The structured-generation model-call budget of ${budget.limits.maxModelCalls} is exhausted.`,
+            snapshotStructuredGenerationBudget(budget),
           );
-          const minimumOutputTokens = params.minimumOutputTokens ?? 1;
-          if (permittedOutputTokens < minimumOutputTokens) {
-            throw budgetError(
-              "token_budget_exhausted",
-              `The structured-generation token budget cannot preserve the ${minimumOutputTokens}-token minimum completion allowance for another bounded request.`,
-              budget,
-            );
-          }
-          const requestTokenReservation =
-            inputTokenReserve + cacheTokenReserve + permittedOutputTokens;
-          if (requestTokenReservation > currentlyAvailableTokens) {
-            if (reservations.totalTokens > 0) {
-              await waitForStructuredGenerationBudgetReservation(
-                reservations,
-                params.signal,
-              );
-              continue;
-            }
-            throw budgetError(
-              "token_budget_exhausted",
-              `The structured-generation token budget cannot admit another bounded request.`,
-              budget,
-            );
-          }
-          budget.usage.modelCalls += 1;
-          if (phase === "repair") budget.usage.repairPasses += 1;
-          // OpenRouter may spend bounded additional attempts on same-model
-          // transient recovery or a configured fallback. Admit only the number
-          // of full request reservations that both the caller and shared budget
-          // can actually support. Bedrock ignores this transport allowance.
-          const repairCallReserve =
-            phase !== "repair" &&
-            transportPreference.includes("text_repair_fallback") &&
-            budget.usage.repairPasses < budget.limits.maxRepairPasses
-              ? 1
-              : 0;
-          const availableAdditionalCalls =
-            budget.limits.maxModelCalls -
-            budget.usage.modelCalls -
-            reservations.modelCalls -
-            repairCallReserve;
-          const providerAttemptLimit = this.config.provider === "bedrock"
-            ? 1
-            : Math.max(
-                1,
-                Math.min(
-                  params.maxProviderAttempts ?? 2,
-                  availableAdditionalCalls + 1,
-                  Math.floor(currentlyAvailableTokens / requestTokenReservation),
-                ),
-              );
-          const reservedAdditionalCalls = providerAttemptLimit - 1;
-          const reservedTokens = requestTokenReservation * providerAttemptLimit;
-          reservations.modelCalls += reservedAdditionalCalls;
-          reservations.totalTokens += reservedTokens;
-          let reservationReleased = false;
-          releaseAdmissionReservation = () => {
-            if (reservationReleased) return;
-            reservationReleased = true;
-            reservations.modelCalls -= reservedAdditionalCalls;
-            reservations.totalTokens -= reservedTokens;
-            notifyStructuredGenerationBudgetWaiters(reservations);
-          };
-          boundedRequest = {
-            ...request,
-            maxTokens: permittedOutputTokens,
-            maxProviderAttempts: providerAttemptLimit,
-          };
-          break;
         }
+        if (phase === "repair" && budget.usage.repairPasses >= budget.limits.maxRepairPasses) {
+          throw new StructuredGenerationBudgetError(
+            "repair_budget_exhausted",
+            `The structured-generation repair budget of ${budget.limits.maxRepairPasses} is exhausted.`,
+            snapshotStructuredGenerationBudget(budget),
+          );
+        }
+        const remainingTokens = budget.limits.maxTotalTokens - budget.usage.totalTokens;
+        const inputTokenReserve = estimatedInputTokenReserve(request);
+        const permittedOutputTokens = Math.min(
+          request.maxTokens,
+          budget.limits.maxOutputTokens,
+          remainingTokens - inputTokenReserve,
+        );
+        if (permittedOutputTokens < 1) {
+          throw new StructuredGenerationBudgetError(
+            "token_budget_exhausted",
+            `The structured-generation token budget is exhausted before another bounded request can start.`,
+            snapshotStructuredGenerationBudget(budget),
+          );
+        }
+        budget.usage.modelCalls += 1;
+        if (phase === "repair") budget.usage.repairPasses += 1;
+        boundedRequest = {
+          ...request,
+          maxTokens: permittedOutputTokens,
+          maxProviderAttempts:
+            budget.limits.maxModelCalls - budget.usage.modelCalls + 1,
+        };
       }
       const chargeConservativeUnknownUsage = (attemptCount = 1) => {
         if (!budget) return;
-        const baseInputTokens = estimateStructuredGenerationInputTokens(boundedRequest);
-        const estimatedInputTokens = baseInputTokens *
-          (
-            this.config.provider === "bedrock" &&
-            boundedRequest.enablePromptCaching
-              ? 2
-              : 1
-          );
+        const estimatedInputTokens = estimatedInputTokenReserve(boundedRequest);
         const estimatedOutputTokens = boundedRequest.maxTokens;
         budget.usage.inputTokens += estimatedInputTokens * attemptCount;
         budget.usage.outputTokens += estimatedOutputTokens * attemptCount;
@@ -1178,127 +936,114 @@ export class BedrockStructuredLlmClient {
           (estimatedInputTokens + estimatedOutputTokens) * attemptCount;
       };
       let response: Awaited<ReturnType<ConverseTextRuntime["converse"]>>;
-      operationProviderAttemptCount += 1;
       try {
         response = await (
-          phase === "repair" &&
-            this.repairRuntime &&
-            params.repairModelPolicy !== "same_profile"
+          phase === "repair" && this.repairRuntime
             ? this.repairRuntime
             : this.runtime
         ).converse(boundedRequest);
       } catch (error) {
-        try {
-          if (isCallerCancellation(error, params.signal)) throw error;
-          const providerAttemptCount = providerErrorAttemptCount(error);
-          operationProviderAttemptCount += providerAttemptCount - 1;
-          if (budget && providerAttemptCount > 1) {
-            budget.usage.modelCalls += providerAttemptCount - 1;
-          }
-          const errorTokenUsage =
-            error &&
-            typeof error === "object" &&
-            "tokenUsage" in error
-              ? normalizeJsonValue(error.tokenUsage)
-              : null;
-          const failedAttemptCount =
-            error &&
-            typeof error === "object" &&
-            "unknownUsageAttempts" in error &&
-            typeof error.unknownUsageAttempts === "number"
-              ? Math.max(0, Math.floor(error.unknownUsageAttempts))
-              : errorTokenUsage
-                ? 0
-                : 1;
-          unknownUsageAttempts += failedAttemptCount;
-          const failureMetadata = providerFailureMetadata(error);
-          if (failureMetadata) observedTokenUsage.push(failureMetadata);
-          if (budget) {
-            budget.usage.unknownUsageCalls += failedAttemptCount;
-            // A disconnected or malformed provider response may still represent
-            // a fully charged request. Consume the request's conservative
-            // admission reserve so an unmetered attempt cannot bypass a shared
-            // cumulative token ceiling through transport fallback.
-            if (failedAttemptCount) {
-              chargeConservativeUnknownUsage(failedAttemptCount);
-            }
-            if (errorTokenUsage) {
-              const knownInput = numericTokenUsage(
-                errorTokenUsage,
-                "inputTokens",
-              );
-              const knownOutput = numericTokenUsage(
-                errorTokenUsage,
-                "outputTokens",
-              );
-              budget.usage.inputTokens += knownInput;
-              budget.usage.outputTokens += knownOutput;
-              budget.usage.totalTokens +=
-                numericTokenUsage(errorTokenUsage, "totalTokens") ||
-                knownInput + knownOutput;
-            }
-          }
-        } finally {
-          releaseAdmissionReservation();
-        }
-        throw error;
-      }
-      try {
-        response = {
-          ...response,
-          tokenUsage: tokenUsageWithRequestId(
-            response.tokenUsage,
-            response.requestId,
-          ),
-        };
-        const providerAttemptCount = providerAttemptCountIn(
-          response.tokenUsage,
-        );
-        operationProviderAttemptCount += providerAttemptCount - 1;
+        if (isCallerCancellation(error, params.signal)) throw error;
+        const providerAttemptCount = providerErrorAttemptCount(error);
         if (budget && providerAttemptCount > 1) {
           budget.usage.modelCalls += providerAttemptCount - 1;
         }
-        if (response.tokenUsage) {
-          observedTokenUsage.push(response.tokenUsage);
-          const responseUnknownUsageAttempts = unknownUsageAttemptsIn(
-            response.tokenUsage,
-          );
-          unknownUsageAttempts += responseUnknownUsageAttempts;
-          if (budget && responseUnknownUsageAttempts) {
-            budget.usage.unknownUsageCalls += responseUnknownUsageAttempts;
-            chargeConservativeUnknownUsage(responseUnknownUsageAttempts);
+        const errorTokenUsage =
+          error &&
+          typeof error === "object" &&
+          "tokenUsage" in error
+            ? normalizeJsonValue(error.tokenUsage)
+            : null;
+        const failedAttemptCount =
+          error &&
+          typeof error === "object" &&
+          "unknownUsageAttempts" in error &&
+          typeof error.unknownUsageAttempts === "number"
+            ? Math.max(0, Math.floor(error.unknownUsageAttempts))
+            : errorTokenUsage
+              ? 0
+              : 1;
+        unknownUsageAttempts += failedAttemptCount;
+        const failureMetadata = providerFailureMetadata(error);
+        if (failureMetadata) observedTokenUsage.push(failureMetadata);
+        if (budget) {
+          budget.usage.unknownUsageCalls += failedAttemptCount;
+          // A disconnected or malformed provider response may still represent
+          // a fully charged request. Consume the request's conservative
+          // admission reserve so an unmetered attempt cannot bypass a shared
+          // cumulative token ceiling through transport fallback.
+          if (failedAttemptCount) {
+            chargeConservativeUnknownUsage(failedAttemptCount);
           }
-          const responseReportedCost = reportedCostIn(response.tokenUsage);
-          if (responseReportedCost != null) {
-            reportedCostUsd += responseReportedCost;
-            hasReportedCost = true;
+          if (errorTokenUsage) {
+            const knownInput = numericTokenUsage(
+              errorTokenUsage,
+              "inputTokens",
+            );
+            const knownOutput = numericTokenUsage(
+              errorTokenUsage,
+              "outputTokens",
+            );
+            budget.usage.inputTokens += knownInput;
+            budget.usage.outputTokens += knownOutput;
+            budget.usage.totalTokens +=
+              numericTokenUsage(errorTokenUsage, "totalTokens") ||
+              knownInput + knownOutput;
           }
         }
-        else unknownUsageAttempts += 1;
-        if (!budget) return response;
-        const inputTokens = numericTokenUsage(response.tokenUsage, "inputTokens");
-        const outputTokens = numericTokenUsage(response.tokenUsage, "outputTokens");
-        const reportedTotal = numericTokenUsage(response.tokenUsage, "totalTokens");
-        const totalTokens = reportedTotal || inputTokens + outputTokens;
-        if (!response.tokenUsage) {
-          budget.usage.unknownUsageCalls += 1;
-          chargeConservativeUnknownUsage();
-          return response;
-        }
-        budget.usage.inputTokens += inputTokens;
-        budget.usage.outputTokens += outputTokens;
-        budget.usage.totalTokens += totalTokens;
-        if (budget.usage.totalTokens > budget.limits.maxTotalTokens) {
-          throw budgetError(
-            "token_budget_exhausted",
-            `The provider reported ${budget.usage.totalTokens} cumulative tokens, exceeding the ${budget.limits.maxTotalTokens}-token budget.`,
-            budget,
-          );
-        }
-        return response;
-      } finally {
-        releaseAdmissionReservation();
+        throw error;
       }
+      response = {
+        ...response,
+        tokenUsage: tokenUsageWithRequestId(
+          response.tokenUsage,
+          response.requestId,
+        ),
+      };
+      const providerAttemptCount = providerAttemptCountIn(
+        response.tokenUsage,
+      );
+      if (budget && providerAttemptCount > 1) {
+        budget.usage.modelCalls += providerAttemptCount - 1;
+      }
+      if (response.tokenUsage) {
+        observedTokenUsage.push(response.tokenUsage);
+        const responseUnknownUsageAttempts = unknownUsageAttemptsIn(
+          response.tokenUsage,
+        );
+        unknownUsageAttempts += responseUnknownUsageAttempts;
+        if (budget && responseUnknownUsageAttempts) {
+          budget.usage.unknownUsageCalls += responseUnknownUsageAttempts;
+          chargeConservativeUnknownUsage(responseUnknownUsageAttempts);
+        }
+        const responseReportedCost = reportedCostIn(response.tokenUsage);
+        if (responseReportedCost != null) {
+          reportedCostUsd += responseReportedCost;
+          hasReportedCost = true;
+        }
+      }
+      else unknownUsageAttempts += 1;
+      if (!budget) return response;
+      const inputTokens = numericTokenUsage(response.tokenUsage, "inputTokens");
+      const outputTokens = numericTokenUsage(response.tokenUsage, "outputTokens");
+      const reportedTotal = numericTokenUsage(response.tokenUsage, "totalTokens");
+      const totalTokens = reportedTotal || inputTokens + outputTokens;
+      if (!response.tokenUsage) {
+        budget.usage.unknownUsageCalls += 1;
+        chargeConservativeUnknownUsage();
+        return response;
+      }
+      budget.usage.inputTokens += inputTokens;
+      budget.usage.outputTokens += outputTokens;
+      budget.usage.totalTokens += totalTokens;
+      if (budget.usage.totalTokens > budget.limits.maxTotalTokens) {
+        throw new StructuredGenerationBudgetError(
+          "token_budget_exhausted",
+          `The provider reported ${budget.usage.totalTokens} cumulative tokens, exceeding the ${budget.limits.maxTotalTokens}-token budget.`,
+          snapshotStructuredGenerationBudget(budget),
+        );
+      }
+      return response;
     };
     let lastFailure:
       | {
@@ -1322,7 +1067,7 @@ export class BedrockStructuredLlmClient {
           maxTokens: params.maxTokens,
           temperature,
           effort,
-          enablePromptCaching,
+          enablePromptCaching: true,
           signal: params.signal,
           structuredOutput: {
             mode,
@@ -1492,7 +1237,7 @@ export class BedrockStructuredLlmClient {
           maxTokens: params.maxTokens,
           temperature,
           effort,
-          enablePromptCaching,
+          enablePromptCaching: true,
           signal: params.signal,
         }, "generation");
       } catch (error) {
@@ -1577,7 +1322,8 @@ export class BedrockStructuredLlmClient {
 
     try {
       repairResponse = await converse({
-        systemPrompt: STRUCTURED_OUTPUT_REPAIR_SYSTEM_PROMPT,
+        systemPrompt:
+          "You repair structured model outputs. Return JSON only and match the provided schema exactly.",
         userPrompt: buildSchemaAwareRepairPrompt({
           schemaName: params.schemaName,
           schemaDescription: params.schemaDescription,
@@ -1591,7 +1337,7 @@ export class BedrockStructuredLlmClient {
         maxTokens: params.maxTokens,
         temperature: 0,
         effort: "medium",
-        enablePromptCaching,
+        enablePromptCaching: true,
         signal: params.signal,
       }, "repair");
     } catch (error) {
