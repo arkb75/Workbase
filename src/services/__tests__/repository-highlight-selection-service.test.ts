@@ -315,6 +315,12 @@ describe("repository-wide Highlight selection", () => {
       synthesisKey: "project_domain:domain_1#community-1",
       operationCommunity: "invoice settlement operation",
     });
+    expect(mocks.generateStructured.mock.calls[0]![0].systemPrompt).toContain(
+      "Calibrate centrality to the repository's actual product scope",
+    );
+    expect(mocks.generateStructured.mock.calls[0]![0].systemPrompt).toContain(
+      "prefer the one that names the concrete domain action or state transition",
+    );
     expect(result.synthesis.reduce(
       (total, subsystem) => total + subsystem.highlights.length,
       0,
