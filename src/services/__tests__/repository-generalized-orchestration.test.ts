@@ -2687,6 +2687,76 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(critique.repairPackages).toEqual([]);
   });
 
+  it("retries the strongest inspected implementation once when mapped evidence produced no finding", () => {
+    const area = {
+      key: "project_domain:documents",
+      label: "Documents",
+      scopeKey: "example/document-system",
+      files: [
+        { id: "lower", path: "src/documents/reader.ts", score: 40 },
+        { id: "highest", path: "src/documents/processor.ts", score: 90 },
+      ],
+    };
+    const firstPass = [{
+      inspectedFileSnapshotIds: ["lower", "highest"],
+      candidates: [],
+    }];
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: firstPass,
+      allowRepair: true,
+      allowEvidenceEmptyRetry: true,
+    });
+
+    expect(critique.repairPackages).toHaveLength(1);
+    expect(critique.repairPackages[0]).toEqual(expect.objectContaining({
+      capabilityKeys: [area.key],
+      fileSnapshotIds: ["highest"],
+      singletonFileSnapshotIds: ["highest"],
+      retryFileSnapshotIds: ["highest"],
+    }));
+
+    const afterFocusedRetry = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [...firstPass, {
+        inspectedFileSnapshotIds: ["highest"],
+        candidates: [],
+      }],
+      allowRepair: true,
+    });
+    expect(afterFocusedRetry.repairPackages).toEqual([]);
+  });
+
+  it("broadens to uninspected evidence before retrying an evidence-empty capability", () => {
+    const area = {
+      key: "project_domain:documents",
+      label: "Documents",
+      scopeKey: "example/document-system",
+      files: [
+        { id: "inspected", path: "src/documents/reader.ts", score: 90 },
+        { id: "uninspected", path: "src/documents/processor.ts", score: 80 },
+      ],
+    };
+
+    const critique = critiqueRepositoryCoverage({
+      manifest: [area],
+      reports: [{
+        inspectedFileSnapshotIds: ["inspected"],
+        candidates: [],
+      }],
+      allowRepair: true,
+      allowEvidenceEmptyRetry: true,
+    });
+
+    expect(critique.repairPackages).toHaveLength(1);
+    expect(critique.repairPackages[0]).toEqual(expect.objectContaining({
+      capabilityKeys: [area.key],
+      fileSnapshotIds: ["uninspected"],
+    }));
+    expect(critique.repairPackages[0]?.retryFileSnapshotIds).toBeUndefined();
+  });
+
   it("retries an exact degraded model-selected file even after its domain is covered", () => {
     const area = {
       key: "project_domain:orders",

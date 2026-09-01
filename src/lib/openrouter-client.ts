@@ -965,11 +965,25 @@ export class OpenRouterChatCompletionsRuntime
 function sameModelRetryEligible(
   error: unknown,
 ): error is OpenRouterRequestError {
+  const usage = error instanceof OpenRouterRequestError &&
+      error.tokenUsage &&
+      typeof error.tokenUsage === "object" &&
+      !Array.isArray(error.tokenUsage)
+    ? error.tokenUsage as Record<string, JsonValue>
+    : null;
+  const hasNoBillableUsage = error instanceof OpenRouterRequestError &&
+    (error.tokenUsage == null || usage?.cost === 0);
+  const hasNoPartialAnswer = error instanceof OpenRouterRequestError &&
+    !error.partialContent?.trim();
   return error instanceof OpenRouterRequestError &&
     error.retryable &&
-    error.tokenUsage == null &&
-    error.partialContent == null &&
+    hasNoBillableUsage &&
+    hasNoPartialAnswer &&
     (
+      // A completion-choice provider error may not carry an HTTP-style code.
+      // Retry it only when OpenRouter classified it as transient and reported
+      // zero cost, preserving the same model and complete usage accounting.
+      error.status === null ||
       error.status === 408 ||
       error.status === 429 ||
       error.status === 502 ||

@@ -2844,7 +2844,11 @@ async function refineSynthesisSubsystemBase(
           refreshRunId: input.refreshRunId,
           subsystemKeys,
           rejectedClaimCount: revisionClaimKeys.size,
-          revisionContract: "rejected_claim_patch_v3_server_slots",
+          // This patch intentionally revises only one rejected Fact for each
+          // otherwise-empty subsystem. Attest the narrower fact-floor contract
+          // so the evaluator validates that bounded subset instead of requiring
+          // every optional rejected sibling claim to be revised.
+          revisionContract: "empty_fact_floor_patch_v1_server_slots",
           revisionEvidenceIndexesBySubsystem: revisionSubsystems.map(
             (subsystem) => ({
               subsystemKey: subsystem.subsystemKey,

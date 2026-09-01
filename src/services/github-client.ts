@@ -27,6 +27,7 @@ const defaultHeaders = {
 } as const;
 
 export const DEFAULT_GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_GITHUB_RETRY_DELAY_MS = 30_000;
 
 export class GitHubApiError extends Error {
   readonly status: number | null;
@@ -59,6 +60,41 @@ function requestSignal(callerSignal?: AbortSignal) {
   return callerSignal
     ? AbortSignal.any([callerSignal, timeoutSignal])
     : timeoutSignal;
+}
+
+function githubRetryDelayMs(response: Response | null, attempt: number) {
+  const retryAfter = response?.headers.get("retry-after")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const requestedDelay = Number.isFinite(seconds)
+      ? seconds * 1_000
+      : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(requestedDelay)) {
+      return Math.min(
+        MAX_GITHUB_RETRY_DELAY_MS,
+        Math.max(0, Math.ceil(requestedDelay)),
+      );
+    }
+  }
+  return 100 * (2 ** attempt);
+}
+
+function waitForGitHubRetry(delayMs: number, signal?: AbortSignal) {
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  }
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function rateLimitResetAt(value: string | null) {
@@ -98,9 +134,11 @@ async function fetchJson<T>({
   transientRetries?: number;
 }) {
   const callerSignal = init?.signal ?? undefined;
-  const signal = requestSignal(callerSignal);
+  const method = (init?.method ?? "GET").toUpperCase();
 
   for (let attempt = 0; ; attempt += 1) {
+    const signal = requestSignal(callerSignal);
+    const mayRetry = method === "GET" && attempt < transientRetries;
     let response: Response;
     try {
       response = await fetch(`${resolveGitHubConfig().apiBaseUrl}${path}`, {
@@ -115,6 +153,10 @@ async function fetchJson<T>({
       });
     } catch (error) {
       if (callerSignal?.aborted) throw error;
+      if (mayRetry) {
+        await waitForGitHubRetry(githubRetryDelayMs(null, attempt), callerSignal);
+        continue;
+      }
       throw new GitHubApiError({
         message: signal.aborted
           ? `GitHub API request timed out for ${path}.`
@@ -128,38 +170,25 @@ async function fetchJson<T>({
     if (!response.ok) {
       const remaining = response.headers.get("x-ratelimit-remaining");
       const reset = response.headers.get("x-ratelimit-reset");
-      if (response.status === 429 || (response.status === 403 && remaining === "0")) {
+      const rateLimited = response.status === 429 ||
+        (response.status === 403 && remaining === "0");
+      if (
+        mayRetry &&
+        (response.status === 429 || (response.status >= 500 && response.status <= 599))
+      ) {
+        await waitForGitHubRetry(
+          githubRetryDelayMs(response, attempt),
+          callerSignal,
+        );
+        continue;
+      }
+      if (rateLimited) {
         throw new GitHubApiError({
           message: `GitHub API rate limit exceeded for ${path}; reset at ${rateLimitResetAt(reset)}.`,
           status: response.status,
           path,
           retryable: true,
         });
-      }
-      if (
-        response.status >= 500 &&
-        response.status <= 599 &&
-        attempt < transientRetries
-      ) {
-        // GitHub's blob endpoint occasionally returns a short-lived 5xx for a
-        // single object. Keep retries bounded and inside the same logical
-        // repository read so they cannot consume the agent's file-read budget.
-        await new Promise<void>((resolve, reject) => {
-          const onAbort = () => {
-            clearTimeout(timeout);
-            reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-          };
-          const timeout = setTimeout(() => {
-            signal.removeEventListener("abort", onAbort);
-            resolve();
-          }, 100 * (2 ** attempt));
-          if (signal.aborted) {
-            onAbort();
-            return;
-          }
-          signal.addEventListener("abort", onAbort, { once: true });
-        });
-        continue;
       }
       throw new GitHubApiError({
         message: `GitHub API request failed (${response.status}) for ${path}`,

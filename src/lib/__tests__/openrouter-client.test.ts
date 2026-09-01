@@ -822,6 +822,105 @@ describe("RetryableSameModelTextRuntime", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("retries a zero-cost completion-choice provider error on the same model", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(response({
+          model: "openai/gpt-5.4-mini",
+          provider: "azure",
+          choices: [{
+            finish_reason: "error",
+            error: { message: "provider error" },
+            message: { content: "" },
+          }],
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 8,
+            total_tokens: 128,
+            cost: 0,
+          },
+        }))
+        .mockResolvedValueOnce(response({
+          model: "openai/gpt-5.4-mini",
+          provider: "azure",
+          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 4,
+            total_tokens: 124,
+            cost: 0.001,
+          },
+        }));
+      const runtimeConfig = config({
+        baseUrl: "https://same-model-zero-cost-choice.example/api/v1",
+        modelId: "openai/gpt-5.4-mini",
+      });
+      const runtime = new RetryableSameModelTextRuntime(
+        new OpenRouterChatCompletionsRuntime(
+          runtimeConfig,
+          undefined,
+          fetchMock,
+        ),
+        runtimeConfig,
+      );
+
+      const pending = runtime.converse(input);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        text: "ok",
+        tokenUsage: {
+          providerAttemptCount: 2,
+          unknownUsageAttempts: 0,
+          failedAttempts: [expect.objectContaining({
+            code: "choice_error",
+            retryable: true,
+          })],
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry a completion-choice provider error with billable usage", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      choices: [{
+        finish_reason: "error",
+        error: { message: "provider error" },
+        message: { content: "" },
+      }],
+      usage: {
+        prompt_tokens: 120,
+        completion_tokens: 8,
+        total_tokens: 128,
+        cost: 0.001,
+      },
+    }));
+    const runtimeConfig = config({
+      baseUrl: "https://same-model-billable-choice.example/api/v1",
+    });
+    const runtime = new RetryableSameModelTextRuntime(
+      new OpenRouterChatCompletionsRuntime(
+        runtimeConfig,
+        undefined,
+        fetchMock,
+      ),
+      runtimeConfig,
+    );
+
+    await expect(runtime.converse(input)).rejects.toMatchObject({
+      code: "choice_error",
+      providerAttemptCount: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("uses a third admitted slot on the same model after two transient 429s", async () => {
     vi.useFakeTimers();
     try {

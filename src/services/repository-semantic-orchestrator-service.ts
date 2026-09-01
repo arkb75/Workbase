@@ -1646,7 +1646,7 @@ export function preserveSettledCapabilityReports(
 ) {
   return settled.map((result, index): CapabilityReport => result.status === "fulfilled"
     ? result.value
-    : {
+      : {
         packageId: packages[index]!.id,
         inspectedFileSnapshotIds: [],
         retryFileSnapshotIds: [...packages[index]!.fileSnapshotIds],
@@ -2975,6 +2975,8 @@ export function critiqueRepositoryCoverage(input: {
     >>
   >;
   allowRepair: boolean;
+  /** Permit the initial critic to make one focused reread after breadth is exhausted. */
+  allowEvidenceEmptyRetry?: boolean;
   selectedFileSnapshotIds?: readonly string[];
   capacityLimited?: boolean;
 }): RepositoryCoverageCritique {
@@ -3400,8 +3402,13 @@ export function critiqueRepositoryCoverage(input: {
       area: input.manifest.find((area) =>
         area.key === domain.key && area.scopeKey === domain.scopeKey
       )!,
+      evidenceEmptyRetry: input.allowEvidenceEmptyRetry === true &&
+        domain.supportedCandidates === 0 &&
+        domain.totalFiles > 0 &&
+        domain.inspectedSamples > 0 &&
+        domain.inspectedSamples >= domain.totalFiles,
     }))
-    .filter(({ area }) => area.files.some((file) =>
+    .filter(({ area, evidenceEmptyRetry }) => evidenceEmptyRetry || area.files.some((file) =>
       !inspected.has(file.id) && isCoverageEvidencePath(area.key, file.path)
     ))
     .sort((left, right) => {
@@ -3428,7 +3435,7 @@ export function critiqueRepositoryCoverage(input: {
       return (right.area.salience ?? 0) - (left.area.salience ?? 0) ||
         left.area.key.localeCompare(right.area.key);
     });
-  const repairRequests = repairAreas.map(({ domain, area }) => {
+  const repairRequests = repairAreas.map(({ domain, area, evidenceEmptyRetry }) => {
     const desired = Math.max(
       1,
       domain.targetSamples - domain.inspectedSamples,
@@ -3444,12 +3451,19 @@ export function critiqueRepositoryCoverage(input: {
       area.key,
       domain.targetSamples,
     );
-    const repairPool = areaEvidenceFiles.filter((file) =>
-      !inspected.has(file.id)
-    );
+    const repairPool = evidenceEmptyRetry
+      ? areaEvidenceFiles
+          .filter((file) => inspected.has(file.id))
+          .sort((left, right) =>
+            right.score - left.score ||
+            left.path.localeCompare(right.path) ||
+            left.id.localeCompare(right.id)
+          )
+          .slice(0, 1)
+      : areaEvidenceFiles.filter((file) => !inspected.has(file.id));
     const repairLimit = Math.min(desired, MAX_REPAIR_FILES);
     const fileById = new Map(areaEvidenceFiles.map((file) => [file.id, file] as const));
-    const priorityAuditFiles = domain.priorityAuditFileIds
+    const priorityAuditFiles = (evidenceEmptyRetry ? [] : domain.priorityAuditFileIds)
       .map((id) => fileById.get(id))
       .filter((file): file is CapabilityManifestArea["files"][number] =>
         file !== undefined &&
@@ -3461,7 +3475,7 @@ export function critiqueRepositoryCoverage(input: {
     // First inspect one concrete branch of an otherwise generic workflow. Any
     // remaining slot keeps the normal diversity ranking. This is a main-path
     // sampling obligation.
-    const additionalFiles = diverseSemanticFiles(
+    const additionalFiles = evidenceEmptyRetry ? repairPool : diverseSemanticFiles(
       repairPool.filter((file) => !priorityAuditFileIds.has(file.id)),
       repairLimit - priorityAuditFiles.length,
       [
@@ -3477,6 +3491,7 @@ export function critiqueRepositoryCoverage(input: {
       desired,
       repairFiles,
       priorityFileIds: priorityAuditFiles.map((file) => file.id),
+      evidenceEmptyRetry,
     };
   });
   // Keep the existing two-call repair ceiling, but share its bounded file slots
@@ -3487,6 +3502,7 @@ export function critiqueRepositoryCoverage(input: {
     capabilityKeys: Set<string>;
     singleton: boolean;
     exactRetry: boolean;
+    capabilityFocused: boolean;
   }>();
   const remainingNeed = repairRequests.map((request) => request.desired);
   const creditedRepairIds = repairRequests.map(() => new Set<string>());
@@ -3497,12 +3513,14 @@ export function critiqueRepositoryCoverage(input: {
     singleton = false,
     creditCoverageDebt = true,
     exactRetry = false,
+    capabilityFocused = false,
   ) => {
     const existing = repairSelections.get(file.id);
     if (existing) {
       existing.capabilityKeys.add(areaKey);
       existing.singleton ||= singleton;
       existing.exactRetry ||= exactRetry;
+      existing.capabilityFocused ||= capabilityFocused;
     } else if (repairSelections.size < MAX_REPAIR_FILES) {
       const addsSemanticBreadth = !selectedFileSnapshotIds.has(file.id);
       if (
@@ -3514,6 +3532,7 @@ export function critiqueRepositoryCoverage(input: {
         capabilityKeys: new Set([areaKey]),
         singleton,
         exactRetry,
+        capabilityFocused,
       });
       if (addsSemanticBreadth) selectedFileSnapshotIds.add(file.id);
     } else {
@@ -3542,6 +3561,25 @@ export function critiqueRepositoryCoverage(input: {
       }
     }
   };
+  // A capability whose selected evidence produced no supported finding gets
+  // one isolated, capability-scoped retry of its strongest already-inspected
+  // implementation file. The scope marker is copied into the resulting
+  // report. Only the initial critique enables this path, so later repair waves
+  // cannot schedule the same recovery again.
+  for (const [requestIndex, request] of repairRequests.entries()) {
+    if (!request.evidenceEmptyRetry) continue;
+    const file = request.repairFiles[0];
+    if (!file) continue;
+    selectRepairFile(
+      file,
+      request.area.key,
+      true,
+      false,
+      true,
+      true,
+    );
+    remainingNeed[requestIndex] = 0;
+  }
   // A model-selected file that degraded or failed is an unresolved primary
   // path obligation even when other files already cover its aggregate domain.
   // Retry the exact immutable file before expanding breadth elsewhere. The
@@ -3621,13 +3659,27 @@ export function critiqueRepositoryCoverage(input: {
     }
   }
   const selectedRepairs = Array.from(repairSelections.values());
-  const repairPackages = Array.from(
-    { length: Math.ceil(selectedRepairs.length / REPAIR_MICRO_BATCH_SIZE) },
-    (_unused, index) => selectedRepairs.slice(
+  const focusedEvidenceEmptyRepairs = selectedRepairs.filter((entry) =>
+    entry.capabilityFocused
+  );
+  const ordinaryRepairs = selectedRepairs.filter((entry) =>
+    !entry.capabilityFocused
+  );
+  const repairGroups = [
+    // Keep each evidence-empty retry genuinely capability-focused instead of
+    // widening its worker prompt with unrelated repair areas.
+    ...focusedEvidenceEmptyRepairs.map((entry) => [entry]),
+    ...Array.from(
+      { length: Math.ceil(ordinaryRepairs.length / REPAIR_MICRO_BATCH_SIZE) },
+      (_unused, index) => ordinaryRepairs.slice(
       index * REPAIR_MICRO_BATCH_SIZE,
       (index + 1) * REPAIR_MICRO_BATCH_SIZE,
+      ),
     ),
-  ).slice(0, MAX_REPAIR_PACKAGES).map((entries) => packageTemplate({
+  ];
+  const repairPackages = repairGroups
+    .slice(0, MAX_REPAIR_PACKAGES)
+    .map((entries) => packageTemplate({
     capabilityKeys: Array.from(new Set(entries.flatMap((entry) =>
       Array.from(entry.capabilityKeys)
     ))),
@@ -4278,6 +4330,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     manifest,
     reports: initialReports,
     allowRepair: true,
+    allowEvidenceEmptyRetry: true,
     selectedFileSnapshotIds: [...selectedFileSnapshotIds],
   });
   const initialWorkerUsage = snapshotStructuredGenerationBudget(workerModelBudget);

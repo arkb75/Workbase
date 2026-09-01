@@ -3189,6 +3189,54 @@ describe("repository knowledge main-path integrity", () => {
     });
   });
 
+  it("accepts a fully accounted same-model transient retry", () => {
+    const recoveredExtraction = generation("semantic_extraction", "semantic-model", {
+      resultRefs: {
+        configuredModelId: "semantic-model",
+        requestIds: ["failed-request", "successful-request"],
+        usageComplete: true,
+        failedProviderAttempts: [{
+          provider: "bedrock",
+          modelId: "semantic-model",
+          requestId: "failed-request",
+          status: "provider_error",
+          retryable: true,
+        }],
+        providerAttemptCount: 2,
+        transportMode: "json_schema",
+      },
+      tokenUsage: {
+        inputTokens: 200,
+        outputTokens: 50,
+        totalTokens: 250,
+        unknownUsageAttempts: 0,
+      },
+    });
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        recoveredExtraction,
+        synthesisGeneration({
+          subsystems: [{
+            subsystemKey: "project_domain:payments#scope",
+            facts: [],
+            highlights: [],
+          }],
+        }),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.metrics.providerAttemptCount).toBe(4);
+  });
+
   it("rejects failed or substituted generations and deterministic completion", () => {
     const result = evaluateRepositoryKnowledgeMainPath({
       generationRuns: [

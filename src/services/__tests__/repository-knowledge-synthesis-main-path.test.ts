@@ -653,7 +653,7 @@ describe("repository synthesis model main path", () => {
     ]);
     expect(summaries[2]).toEqual(expect.objectContaining({
       rejectedClaimCount: 1,
-      revisionContract: "rejected_claim_patch_v3_server_slots",
+      revisionContract: "empty_fact_floor_patch_v1_server_slots",
     }));
     expect(summaries[1]).toEqual(expect.objectContaining({
       claimCount: 1,

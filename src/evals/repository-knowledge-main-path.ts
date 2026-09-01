@@ -2263,7 +2263,19 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       issues.push(`${label} has incomplete model-usage evidence.`);
     }
     if (Array.isArray(refs?.failedProviderAttempts) && refs.failedProviderAttempts.length) {
-      issues.push(`${label} records failed provider attempts.`);
+      const sameModelTransientRetries = expected &&
+        refs.failedProviderAttempts.every((attempt) => {
+          const value = record(attempt);
+          return value?.provider === expected.provider &&
+            value?.modelId === expected.modelId &&
+            value?.status === "provider_error" &&
+            value?.retryable === true &&
+            typeof value?.requestId === "string" &&
+            value.requestId.trim().length > 0;
+        });
+      if (!sameModelTransientRetries) {
+        issues.push(`${label} records failed provider attempts outside the configured same-model transient retry path.`);
+      }
     }
     if (refs?.admissionFailure === true) {
       issues.push(`${label} stopped before a provider dispatch.`);
