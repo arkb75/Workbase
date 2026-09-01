@@ -1554,9 +1554,45 @@ function digestCanonicalStrings(values: readonly string[]) {
     .digest("hex");
 }
 
-function digestParsedOutput(value: unknown) {
+function digestHighlightSelectionOutput(value: unknown) {
+  const output = record(value);
+  const selections = Array.isArray(output?.selections)
+    ? output.selections.map((value) => {
+        const selection = record(value);
+        return {
+          candidateId: selection?.candidateId,
+          title: selection?.title,
+        };
+      })
+    : null;
+  const omissions = Array.isArray(output?.omissions)
+    ? output.omissions.map((value) => {
+        const omission = record(value);
+        return {
+          candidateId: omission?.candidateId,
+          reason: omission?.reason,
+        };
+      })
+    : null;
   return createHash("sha256")
-    .update(JSON.stringify(value))
+    .update(JSON.stringify({ selections, omissions }))
+    .digest("hex");
+}
+
+function digestHighlightCriticOutput(value: unknown) {
+  const output = record(value);
+  const assessments = Array.isArray(output?.assessments)
+    ? output.assessments.map((value) => {
+        const assessment = record(value);
+        return {
+          candidateId: assessment?.candidateId,
+          supported: assessment?.supported,
+          issues: assessment?.issues,
+        };
+      })
+    : null;
+  return createHash("sha256")
+    .update(JSON.stringify({ assessments }))
     .digest("hex");
 }
 
@@ -1724,7 +1760,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       attestation?.candidateDigest === candidateDigest &&
       typeof rawOutputHash === "string" &&
       /^[a-f0-9]{64}$/u.test(rawOutputHash) &&
-      attestation?.selectionDigest === digestParsedOutput(run.parsedOutput);
+      attestation?.selectionDigest ===
+        digestHighlightSelectionOutput(run.parsedOutput);
     return valid ? [{ refreshRunId, selectedIds }] : [];
   });
   if (highlightSelections.length !== highlightSelectionRuns.length) {
@@ -1764,7 +1801,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       attestation?.criticInputDigest === criticInputDigest &&
       typeof rawOutputHash === "string" &&
       /^[a-f0-9]{64}$/u.test(rawOutputHash) &&
-      attestation?.assessmentDigest === digestParsedOutput(run.parsedOutput);
+      attestation?.assessmentDigest ===
+        digestHighlightCriticOutput(run.parsedOutput);
     return valid ? [{ refreshRunId, assessmentIds }] : [];
   });
   if (highlightCritics.length !== highlightCriticRuns.length) {
