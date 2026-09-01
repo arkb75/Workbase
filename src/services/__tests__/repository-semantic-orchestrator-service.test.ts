@@ -1227,6 +1227,13 @@ describe("repository semantic orchestration guardrails", () => {
       "src/orders/menu.ts: Semantic analysis failed.",
       "src/orders/menu.ts: Semantic model retry did not establish complete assigned capability coverage.",
     ]));
+    expect(unresolvedSemanticExecutionGaps({
+      initialReports: [initial],
+      repairReports: [failedRepair],
+      retriedFileSnapshotIds: ["file-1"],
+      nonBlockingFileSnapshotIds: ["file-1"],
+      filePathBySnapshotId: new Map([["file-1", "src/orders/menu.ts"]]),
+    })).toEqual([]);
 
     const requiredIds = Array.from({ length: 7 }, (_, index) => `file-${index + 1}`);
     const selectedIds = requiredIds.slice(0, 6);

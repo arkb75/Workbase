@@ -670,7 +670,7 @@ describe("repository-derived cartographer and coverage critic", () => {
     expect(fullyInspectedOrdinaryRetry.domains[0]?.status).toBe("covered");
     expect(fullyInspectedOrdinaryRetry.capacityLimitations).toEqual([]);
 
-    const failedRetry = critiqueRepositoryCoverage({
+    const evidenceSaturatedRetry = critiqueRepositoryCoverage({
       manifest: [area],
       reports: [{
         inspectedFileSnapshotIds,
@@ -680,8 +680,14 @@ describe("repository-derived cartographer and coverage critic", () => {
       allowRepair: false,
       capacityLimited: true,
     });
-    expect(failedRetry.domains[0]?.status).toBe("thin");
-    expect(failedRetry.capacityLimitations).toEqual([]);
+    // Once the evidence and diversity floors are met, the larger sample target
+    // remains an exploration ceiling. The exact failed file is still handled
+    // separately by the execution-gap barrier.
+    expect(evidenceSaturatedRetry.domains[0]?.status).toBe("coverage_limited");
+    expect(evidenceSaturatedRetry.gaps).toEqual([]);
+    expect(evidenceSaturatedRetry.capacityLimitations).toEqual([
+      expect.stringContaining("evidence and diversity floors were met"),
+    ]);
 
     const weakEvidence = critiqueRepositoryCoverage({
       manifest: [area],

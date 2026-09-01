@@ -915,31 +915,6 @@ function semanticFindingSensitivityFlag(
   return modelFlag || /\[REDACTED(?: [^\]\r\n]+)?\]/iu.test(evidenceExcerpt);
 }
 
-function semanticFindingGroundingValidationErrors(
-  findings: Array<{ lineStart: number; lineEnd: number }>,
-  numberedContent: string,
-  label = "Finding",
-) {
-  return findings.flatMap((finding, index) => {
-    const evidenceRange = inspectSemanticEvidenceRange(
-      numberedContent,
-      finding.lineStart,
-      finding.lineEnd,
-    );
-    if (!evidenceRange.complete) {
-      return [
-        `${label} ${index + 1} range ${finding.lineStart}-${finding.lineEnd} must fit entirely inside one suppliedLineRanges entry.`,
-      ];
-    }
-    if (evidenceRange.byteLength > REPOSITORY_SEMANTIC_MAX_CITATION_BYTES) {
-      return [
-        `${label} ${index + 1} range ${finding.lineStart}-${finding.lineEnd} exceeds the maximum citation size; cite a smaller supplied range.`,
-      ];
-    }
-    return [];
-  });
-}
-
 async function analyzeChunk(input: {
   workItemId?: string;
   refreshRunId?: string;
@@ -992,11 +967,6 @@ async function analyzeChunk(input: {
   const semanticMaxTokens = Math.min(
     input.budget?.model.limits.maxOutputTokens ?? 4_000,
     4_000,
-  );
-  const canRepairGrounding = Boolean(
-    input.budget &&
-      input.budget.model.usage.repairPasses <
-        input.budget.model.limits.maxRepairPasses,
   );
   const result = await runAuditedStructuredGeneration({
     workItemId: input.workItemId,
@@ -1081,13 +1051,6 @@ async function analyzeChunk(input: {
             .filter((key) => !(input.task?.semanticSignalKeys ?? []).includes(key))
             .map((key) => `Finding ${index + 1} uses semantic signal ${key}, which is outside the file task.`),
         ]
-      ).concat(
-        canRepairGrounding
-          ? semanticFindingGroundingValidationErrors(
-              value.findings,
-              input.content,
-            )
-          : [],
       ),
     }),
   });
@@ -1531,11 +1494,6 @@ export async function analyzeRepositoryFileBatch(
     sharedBudget?.model.limits.maxOutputTokens ?? 6_000,
     6_000,
   );
-  const canRepairGrounding = Boolean(
-    sharedBudget &&
-      sharedBudget.model.usage.repairPasses <
-        sharedBudget.model.limits.maxRepairPasses,
-  );
   let result: {
     data: z.infer<typeof semanticBatchAnalysisSchema>;
     tokenUsage: unknown;
@@ -1641,20 +1599,6 @@ export async function analyzeRepositoryFileBatch(
         enablePromptCaching: false,
         maxProviderAttempts: 2,
         budget: sharedBudget?.model,
-        extraValidation: canRepairGrounding
-          ? (value) => prepared.flatMap((entry) => {
-              const member = semanticBatchFileAnalysisSchema.safeParse(
-                value.files[entry.fileKey],
-              );
-              return member.success
-                ? semanticFindingGroundingValidationErrors(
-                    member.data.findings,
-                    entry.window.content,
-                    entry.fileKey,
-                  )
-                : [];
-            })
-          : undefined,
       }),
     }) as typeof result;
   } catch (error) {

@@ -66,10 +66,6 @@ const MAX_REPAIR_FILES = MAX_REPAIR_PACKAGES * REPAIR_MICRO_BATCH_SIZE;
 const MAX_SEMANTIC_REPAIR_WAVES = 5;
 const BASE_SEMANTIC_REPAIR_MODEL_CALLS = 8;
 const LARGE_REPOSITORY_SEMANTIC_REPAIR_MODEL_CALLS = 12;
-// Grounding corrections are exceptional and global to the repository repair
-// path. Healthy batches still spend one call; at most two invalid citation
-// payloads can be corrected before the workflow fails closed.
-const MAX_SEMANTIC_REPAIR_VALIDATION_PASSES = 2;
 const REPAIR_TOKEN_RESERVE = 16_000;
 // Four-file extraction batches can spend roughly 1K reasoning tokens before
 // emitting their JSON. A 2.5K ceiling truncated otherwise valid long-repository
@@ -1576,15 +1572,21 @@ export function unresolvedSemanticExecutionGaps(input: {
   initialReports: CapabilityReport[];
   repairReports: CapabilityReport[];
   retriedFileSnapshotIds: string[];
+  nonBlockingFileSnapshotIds?: string[];
   filePathBySnapshotId?: ReadonlyMap<string, string>;
 }) {
   const retried = new Set(input.retriedFileSnapshotIds);
   const capacityLimitedFileSnapshotIds = new Set([
     ...input.initialReports,
     ...input.repairReports,
-  ].flatMap((report) => report.capacityLimitedFileSnapshotIds ?? []));
+  ].flatMap((report) => report.capacityLimitedFileSnapshotIds ?? []).concat(
+    input.nonBlockingFileSnapshotIds ?? [],
+  ));
   const isCapacityLimitedGap = (report: CapabilityReport, gap: string) =>
-    (report.capacityLimitedFileSnapshotIds ?? []).some((id) => {
+    Array.from(new Set([
+      ...(report.capacityLimitedFileSnapshotIds ?? []),
+      ...(input.nonBlockingFileSnapshotIds ?? []),
+    ])).some((id) => {
       const path = input.filePathBySnapshotId?.get(id);
       return Boolean(
         path && (
@@ -3319,9 +3321,6 @@ export function critiqueRepositoryCoverage(input: {
     const hasOutstandingCapacityRetry = auditEvidenceFiles.some((file) =>
       retryFileSnapshotIds.has(file.id) && capacityLimitedFileSnapshotIds.has(file.id)
     );
-    const hasOutstandingExecutionRetry = auditEvidenceFiles.some((file) =>
-      retryFileSnapshotIds.has(file.id) && !capacityLimitedFileSnapshotIds.has(file.id)
-    );
     const evidenceFloorMet =
       supportedCandidates >= requiredSupportedCandidates &&
       supportedFileIds.size >= requiredSupportedFiles;
@@ -3329,7 +3328,6 @@ export function critiqueRepositoryCoverage(input: {
       evidenceFloorMet &&
       missingBranchVariantFileIds.length === 0 &&
       diversityGapCount === 0 &&
-      !hasOutstandingExecutionRetry &&
       (inspectedSamples < targetSamples || hasOutstandingCapacityRetry);
     return {
       key: area.key,
@@ -4347,9 +4345,9 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     initialWorkerTokens: initialWorkerUsage.totalTokens,
   });
   const repairModelBudget = createStructuredGenerationBudget({
-    maxModelCalls:
-      semanticRepairModelCallLimit + MAX_SEMANTIC_REPAIR_VALIDATION_PASSES,
-    maxRepairPasses: MAX_SEMANTIC_REPAIR_VALIDATION_PASSES,
+    maxModelCalls: semanticRepairModelCallLimit,
+    // Raised per wave only by capacity left after all admitted primary calls.
+    maxRepairPasses: 0,
     maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
     maxTotalTokens: initialRepairTokenPool,
   });
@@ -4417,10 +4415,7 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
         maxInputBytes: 64 * 1024,
         maxOutputTokens: SEMANTIC_WORKER_MAX_OUTPUT_TOKENS,
         maxTotalTokens: repairTokenPool,
-        maxRepairPasses: Math.min(
-          1,
-          repairGenerationLimits[index]!.maxRepairPasses,
-        ),
+        maxRepairPasses: 0,
       },
     }));
     for (const fileSnapshotId of wavePackages.flatMap((workPackage) =>
@@ -4535,10 +4530,30 @@ export async function orchestrateRepositorySemanticCoverage(refreshRunId: string
     selectedFileSnapshotIds: [...selectedFileSnapshotIds],
     capacityLimited: semanticCapacityReached,
   });
+  const finalDomainStatus = new Map(finalCritique.domains.map((domain) => [
+    `${domain.scopeKey ?? ""}\u0000${domain.key}`,
+    domain.status,
+  ] as const));
+  const evidenceSaturatedRetryFileSnapshotIds = Array.from(new Set(
+    effectiveReports.flatMap((report) => report.retryFileSnapshotIds ?? []),
+  )).filter((fileSnapshotId) => {
+    const statuses = manifest.flatMap((area) =>
+      area.files.some((file) => file.id === fileSnapshotId)
+        ? [finalDomainStatus.get(`${area.scopeKey ?? ""}\u0000${area.key}`)]
+        : []
+    ).filter((status): status is "covered" | "coverage_limited" | "thin" | "missing" =>
+      status !== undefined
+    );
+    return statuses.some((status) => status === "coverage_limited") &&
+      statuses.every((status) =>
+        status === "covered" || status === "coverage_limited"
+      );
+  });
   const executionGaps = unresolvedSemanticExecutionGaps({
     initialReports: effectiveReports,
     repairReports: [],
     retriedFileSnapshotIds: [],
+    nonBlockingFileSnapshotIds: evidenceSaturatedRetryFileSnapshotIds,
     filePathBySnapshotId,
   });
   const mappedScopes = new Set(manifest.flatMap((area) => area.scopeKey ? [area.scopeKey] : []));
