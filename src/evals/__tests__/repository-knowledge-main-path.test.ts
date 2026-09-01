@@ -538,7 +538,9 @@ describe("repository knowledge main-path integrity", () => {
           selectedCandidateDigest: createHash("sha256")
             .update(JSON.stringify(["HC1"]))
             .digest("hex"),
-          selectionDigest: "c".repeat(64),
+          selectionDigest: createHash("sha256")
+            .update(JSON.stringify(selectionOutput))
+            .digest("hex"),
         },
       },
     });
@@ -565,7 +567,9 @@ describe("repository knowledge main-path integrity", () => {
         rawOutputHash: "d".repeat(64),
         resultAttestation: {
           criticInputDigest: "b".repeat(64),
-          assessmentDigest: "d".repeat(64),
+          assessmentDigest: createHash("sha256")
+            .update(JSON.stringify(criticOutput))
+            .digest("hex"),
         },
       },
     });
@@ -644,7 +648,9 @@ describe("repository knowledge main-path integrity", () => {
         rawOutputHash: "d".repeat(64),
         resultAttestation: {
           criticInputDigest: "b".repeat(64),
-          assessmentDigest: "d".repeat(64),
+          assessmentDigest: createHash("sha256")
+            .update(JSON.stringify(criticOutput))
+            .digest("hex"),
         },
       },
     });
@@ -690,17 +696,20 @@ describe("repository knowledge main-path integrity", () => {
     const selectedCandidateDigest = createHash("sha256")
       .update(JSON.stringify([...selectedIds].sort()))
       .digest("hex");
+    const selectionOutputDigest = createHash("sha256")
+      .update(JSON.stringify(selectionOutput))
+      .digest("hex");
     expect(evaluateSelection({
       candidateDigest: "a".repeat(64),
       selectedCandidateIds: [...selectedIds.slice(0, 20), "[2 more items]"],
       selectedCandidateCount: selectedIds.length,
       selectedCandidateDigest,
-      selectionDigest: "c".repeat(64),
+      selectionDigest: selectionOutputDigest,
     }).passed).toBe(true);
     const legacySanitized = evaluateSelection({
       candidateDigest: "a".repeat(64),
       selectedCandidateIds: [...selectedIds.slice(0, 20), "[2 more items]"],
-      selectionDigest: "c".repeat(64),
+      selectionDigest: selectionOutputDigest,
     });
     expect(legacySanitized.passed).toBe(false);
     expect(legacySanitized.issues).toContain(

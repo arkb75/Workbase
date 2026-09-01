@@ -1554,6 +1554,12 @@ function digestCanonicalStrings(values: readonly string[]) {
     .digest("hex");
 }
 
+function digestParsedOutput(value: unknown) {
+  return createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex");
+}
+
 function legacySelectedCandidateAttestationMatches(
   parsedSelectedIds: readonly string[],
   attestedValues: readonly unknown[],
@@ -1717,7 +1723,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       selectedAttestationMatches &&
       attestation?.candidateDigest === candidateDigest &&
       typeof rawOutputHash === "string" &&
-      attestation?.selectionDigest === rawOutputHash;
+      /^[a-f0-9]{64}$/u.test(rawOutputHash) &&
+      attestation?.selectionDigest === digestParsedOutput(run.parsedOutput);
     return valid ? [{ refreshRunId, selectedIds }] : [];
   });
   if (highlightSelections.length !== highlightSelectionRuns.length) {
@@ -1756,7 +1763,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       /^[a-f0-9]{64}$/u.test(criticInputDigest) &&
       attestation?.criticInputDigest === criticInputDigest &&
       typeof rawOutputHash === "string" &&
-      attestation?.assessmentDigest === rawOutputHash;
+      /^[a-f0-9]{64}$/u.test(rawOutputHash) &&
+      attestation?.assessmentDigest === digestParsedOutput(run.parsedOutput);
     return valid ? [{ refreshRunId, assessmentIds }] : [];
   });
   if (highlightCritics.length !== highlightCriticRuns.length) {
