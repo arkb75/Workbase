@@ -324,6 +324,8 @@ export interface SynthesizedKnowledge {
   subsystemKey: string;
   /** Distinguishes independently synthesized operation communities inside one capability. */
   synthesisKey?: string;
+  /** Repository-derived grouping hint; never evidence or persisted claim text. */
+  operationCommunity?: string;
   facts: RepositorySubsystemSynthesis["facts"];
   highlights: RepositorySubsystemSynthesis["highlights"];
   unresolvedQuestions: string[];
@@ -3248,6 +3250,7 @@ export function finalizeRepositorySubsystemSynthesis(input: {
   repository: string;
   subsystemKey: string;
   synthesisKey?: string;
+  operationCommunity?: string;
   notebook: SynthesisNotebookEntry[];
   coverageGaps: string[];
   result: RepositorySubsystemSynthesis & {
@@ -3256,7 +3259,16 @@ export function finalizeRepositorySubsystemSynthesis(input: {
   };
   tokenUsage: unknown;
 }): SynthesizedKnowledge {
-  const { sourceId, repository, subsystemKey, synthesisKey, notebook, result, tokenUsage } = input;
+  const {
+    sourceId,
+    repository,
+    subsystemKey,
+    synthesisKey,
+    operationCommunity,
+    notebook,
+    result,
+    tokenUsage,
+  } = input;
   const approvalEligible = result.approvalEligible ?? true;
   const fallbackCoverageGaps = result.synthesisFallbackReason
     ? [`Repository ${repository} used deterministic subsystem synthesis because ${result.synthesisFallbackReason}`]
@@ -3310,6 +3322,7 @@ export function finalizeRepositorySubsystemSynthesis(input: {
     repository,
     subsystemKey,
     ...(synthesisKey ? { synthesisKey } : {}),
+    ...(operationCommunity ? { operationCommunity } : {}),
     facts,
     // Highlights are selected repository-wide only after every Fact has
     // completed synthesis, critique, and any required revision.
@@ -3678,12 +3691,21 @@ export async function synthesizeRepositoryKnowledge(
     tokenUsage.push({ synthesisBudget: snapshotStructuredGenerationBudget(synthesisBudget) });
   }
   const byKey = new Map(synthesizedSubsystems.map((subsystem) => [subsystem.synthesisKey, subsystem]));
-  const finalized = finalizationInputs.map(({ sourceId, subsystemKey, synthesisKey, scopeKey, notebook, coverageGaps }) =>
+  const finalized = finalizationInputs.map(({
+    sourceId,
+    subsystemKey,
+    synthesisKey,
+    operationCommunity,
+    scopeKey,
+    notebook,
+    coverageGaps,
+  }) =>
     finalizeRepositorySubsystemSynthesis({
       sourceId,
       repository: scopeKey,
       subsystemKey,
       synthesisKey,
+      operationCommunity,
       notebook,
       coverageGaps,
       result: byKey.get(synthesisKey)!,

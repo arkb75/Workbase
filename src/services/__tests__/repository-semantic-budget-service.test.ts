@@ -17,6 +17,7 @@ import {
   createRepositorySemanticBudget,
   repositorySemanticFindingGuidance,
   REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+  selectSemanticWindows,
 } from "@/src/services/repository-coverage-service";
 
 describe("repository semantic task and budget", () => {
@@ -62,6 +63,41 @@ describe("repository semantic task and budget", () => {
     expect(repositorySemanticFindingGuidance).toContain("generic load, save, back-navigation");
     expect(repositorySemanticFindingGuidance).toContain("visible button or field proves an affordance");
     expect(repositorySemanticFindingGuidance).toContain("cite the action handler or mutation");
+  });
+
+  it("allocates a batch notebook to a small number of cohesive operation ranges", () => {
+    const content = Array.from({ length: 360 }, (_unused, index) =>
+      `export function operation${index}() { return ${index}; }`
+    ).join("\n");
+
+    const [window] = selectSemanticWindows(
+      content,
+      REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+      {
+        path: "src/operations.ts",
+        task: {
+          objective: "Identify distinct implemented operations.",
+          capabilityKeys: ["project_domain:operations"],
+          questions: [],
+          expectedOutputs: ["Exact-line supported operation behavior"],
+        },
+      },
+    );
+    const ranges = window!.content.split("\n").reduce<Array<[number, number]>>(
+      (result, line) => {
+        const lineNumber = Number(/^([0-9]+):/u.exec(line)?.[1]);
+        const prior = result.at(-1);
+        if (prior && lineNumber === prior[1] + 1) prior[1] = lineNumber;
+        else result.push([lineNumber, lineNumber]);
+        return result;
+      },
+      [],
+    );
+
+    expect(ranges.length).toBeLessThanOrEqual(4);
+    expect(Buffer.byteLength(window!.content, "utf8")).toBeLessThanOrEqual(
+      REPOSITORY_SEMANTIC_BATCH_FILE_WINDOW_BYTES,
+    );
   });
 
   it("retains the exact cited source lines with accepted semantic facts", async () => {

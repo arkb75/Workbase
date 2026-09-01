@@ -1581,6 +1581,12 @@ function digestHighlightSelectionOutput(value: unknown) {
 
 function digestHighlightCriticOutput(value: unknown) {
   const output = record(value);
+  const includesCorrectedTitle = Array.isArray(output?.assessments) &&
+    output.assessments.some((value) => {
+      const assessment = record(value);
+      return assessment !== null &&
+        Object.prototype.hasOwnProperty.call(assessment, "correctedTitle");
+    });
   const assessments = Array.isArray(output?.assessments)
     ? output.assessments.map((value) => {
         const assessment = record(value);
@@ -1588,6 +1594,9 @@ function digestHighlightCriticOutput(value: unknown) {
           candidateId: assessment?.candidateId,
           supported: assessment?.supported,
           issues: assessment?.issues,
+          ...(includesCorrectedTitle
+            ? { correctedTitle: assessment?.correctedTitle }
+            : {}),
         };
       })
     : null;

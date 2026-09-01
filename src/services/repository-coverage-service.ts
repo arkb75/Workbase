@@ -760,10 +760,19 @@ export function selectSemanticWindows(
   addCenter(0, 1);
   addCenter(Math.max(0, lines.length - 1), 0);
 
+  // A semantic notebook is useful only when each selected operation retains
+  // enough contiguous implementation context for an exact citation. Packing
+  // eight shallow anchors into a 4 KiB batch window produced fragmented
+  // function bodies: models could identify the right behavior, but their
+  // evidence range crossed an omitted gap and had to be discarded. Scale the
+  // number of centers with the byte allowance so ordinary batch windows keep
+  // roughly one KiB of cohesive context per operation while larger singleton
+  // windows can still represent more of a broad file.
+  const maximumCenters = Math.max(2, Math.min(6, Math.floor(semanticByteLimit / 1_024)));
   const centers = prioritizedCenters
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .filter((entry, index, all) => all.findIndex((candidate) => Math.abs(candidate.index - entry.index) < 12) === index)
-    .slice(0, 8)
+    .slice(0, maximumCenters)
     .map((entry) => entry.index);
   const selectedLines = new Map<number, string>();
   let remainingBytes = semanticByteLimit;

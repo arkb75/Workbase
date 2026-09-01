@@ -175,8 +175,13 @@ describe("repository-wide Highlight selection", () => {
       { candidateId: "HC1", title: "Adaptive selected workflow" },
       { candidateId: "HC2", title: "Rejected title is omitted" },
     ], [
-      { candidateId: "HC1", supported: true, issues: [] },
-      { candidateId: "HC2", supported: false, issues: ["unsupported_title"] },
+      { candidateId: "HC1", supported: true, issues: [], correctedTitle: null },
+      {
+        candidateId: "HC2",
+        supported: false,
+        issues: ["unsupported_title"],
+        correctedTitle: null,
+      },
     ]);
 
     expect(output[0]!.highlights).toHaveLength(1);
@@ -192,6 +197,27 @@ describe("repository-wide Highlight selection", () => {
       technicalDifficulty: input[0]!.facts[0]!.technicalDifficulty,
       distinctiveness: input[0]!.facts[0]!.distinctiveness,
     });
+  });
+
+  it("retains a verified Fact with a critic-supplied grounded title correction", () => {
+    const input = synthesis(1);
+    const candidates = repositoryHighlightCandidates(input);
+    const output = materializeRepositoryHighlights(input, candidates, [{
+      candidateId: "HC1",
+      title: "Overstated ungrounded workflow title",
+    }], [{
+      candidateId: "HC1",
+      supported: false,
+      issues: ["unsupported_title"],
+      correctedTitle: "Distinct user workflow",
+    }]);
+
+    expect(output[0]!.highlights).toEqual([
+      expect.objectContaining({
+        text: "Distinct user workflow",
+        summary: input[0]!.facts[0]!.statement,
+      }),
+    ]);
   });
 
   it("selects a natural set above twelve and batches strict title critique at ten", async () => {
@@ -222,6 +248,8 @@ describe("repository-wide Highlight selection", () => {
         sourceId: `source-${index + 1}`,
         repository: `org/project-${index + 1}`,
         subsystemKey: `project_domain:domain_${index + 1}`,
+        synthesisKey: `project_domain:domain_${index + 1}#community-${index + 1}`,
+        operationCommunity: `${distinctNouns[index]} operation`,
         notebook: [notebook(index + 1)],
       });
       subsystem!.facts[0] = {
@@ -255,6 +283,7 @@ describe("repository-wide Highlight selection", () => {
             candidateId,
             supported: true,
             issues: [],
+            correctedTitle: null,
           })),
         },
         parsedOutput: {},
@@ -277,6 +306,15 @@ describe("repository-wide Highlight selection", () => {
       "repository_highlight_title_critic",
       "repository_highlight_title_critic",
     ]);
+    const selectionPrompt = JSON.parse(
+      mocks.generateStructured.mock.calls[0]![0].userPrompt,
+    ) as {
+      candidates: Array<{ synthesisKey: string; operationCommunity: string }>;
+    };
+    expect(selectionPrompt.candidates[0]).toMatchObject({
+      synthesisKey: "project_domain:domain_1#community-1",
+      operationCommunity: "invoice settlement operation",
+    });
     expect(result.synthesis.reduce(
       (total, subsystem) => total + subsystem.highlights.length,
       0,
