@@ -941,6 +941,8 @@ async function analyzeChunk(input: {
     suppliedLineRanges,
     researchTask: input.task ? {
       objective: input.task.objective,
+      capabilityKeys: allowedCapabilityKeys,
+      semanticSignalKeys: input.task.semanticSignalKeys ?? [],
       questions: input.task.questions,
       expectedOutputs: input.task.expectedOutputs,
     } : null,
@@ -1468,6 +1470,8 @@ export async function analyzeRepositoryFileBatch(
       suppliedLineRanges: entry.suppliedLineRanges,
       researchTask: {
         objective: entry.file.task.objective,
+        capabilityKeys: entry.allowedCapabilityKeys,
+        semanticSignalKeys: entry.file.task.semanticSignalKeys ?? [],
         questions: entry.file.task.questions,
         expectedOutputs: entry.file.task.expectedOutputs,
       },

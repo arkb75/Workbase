@@ -493,10 +493,10 @@ describe("repository synthesis model main path", () => {
       semanticKind: "user_capability",
       semanticSignals: [],
       category: "behavior",
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 3,
     }));
-    expect(mappingPrompt.observations[0]).not.toHaveProperty("productImportance");
-    expect(mappingPrompt.observations[0]).not.toHaveProperty("implementationBreadth");
-    expect(mappingPrompt.observations[0]).not.toHaveProperty("technicalDifficulty");
     expect(new Set(synthesisSubsystems.map((subsystem: { operationCommunity: string }) =>
       subsystem.operationCommunity
     ))).toEqual(new Set([
@@ -653,7 +653,7 @@ describe("repository synthesis model main path", () => {
     ]);
     expect(summaries[2]).toEqual(expect.objectContaining({
       rejectedClaimCount: 1,
-      revisionContract: "empty_fact_floor_patch_v1_server_slots",
+      revisionContract: "quality_critical_fact_patch_v1_server_slots",
     }));
     expect(summaries[1]).toEqual(expect.objectContaining({
       claimCount: 1,

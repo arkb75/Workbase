@@ -225,7 +225,8 @@ function deltaRevisionGeneration(
     revisionContract?:
       | "rejected_claim_patch_v2_delta_critic"
       | "rejected_claim_patch_v3_server_slots"
-      | "empty_fact_floor_patch_v1_server_slots";
+      | "empty_fact_floor_patch_v1_server_slots"
+      | "quality_critical_fact_patch_v1_server_slots";
     revisionEvidenceIndexesBySubsystem?: Array<{
       subsystemKey: string;
       citationIndexes: number[];
@@ -280,7 +281,9 @@ function deltaRevisionGeneration(
       ...(options?.revisionContract ===
           "rejected_claim_patch_v3_server_slots" ||
           options?.revisionContract ===
-          "empty_fact_floor_patch_v1_server_slots"
+          "empty_fact_floor_patch_v1_server_slots" ||
+          options?.revisionContract ===
+          "quality_critical_fact_patch_v1_server_slots"
         ? {
             revisionEvidenceIndexesBySubsystem:
               options.revisionEvidenceIndexesBySubsystem ?? [{
@@ -1720,7 +1723,12 @@ describe("repository knowledge main-path integrity", () => {
     }
   });
 
-  it("accepts one critiqued Fact-floor repair and drops its dependent Highlight", () => {
+  it.each([
+    "empty_fact_floor_patch_v1_server_slots",
+    "quality_critical_fact_patch_v1_server_slots",
+  ] as const)("accepts a %s repair and drops its dependent Highlight", (
+    revisionContract,
+  ) => {
     const subsystemKey = "project_domain:payments#scope";
     const factKey = `${subsystemKey}:fact:1`;
     const highlightKey = `${subsystemKey}:highlight:1`;
@@ -1784,9 +1792,7 @@ describe("repository knowledge main-path integrity", () => {
           },
           changedClaims,
           1,
-          {
-            revisionContract: "empty_fact_floor_patch_v1_server_slots",
-          },
+          { revisionContract },
         ),
         deltaEntailmentCritic(changedClaims),
       ],
@@ -1801,6 +1807,183 @@ describe("repository knowledge main-path integrity", () => {
 
     expect(result.passed).toBe(true);
     expect(result.issues).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "repairs the highest-ranked quality-critical rejection beside a supported Fact",
+      subsystemKey: "project_domain:payments#scope",
+      firstSupported: true,
+      rejectedPromotion: {
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      },
+      expectedPass: true,
+    },
+    {
+      name: "rejects a supported-sibling repair below the promotion threshold",
+      subsystemKey: "project_domain:payments#scope",
+      firstSupported: true,
+      rejectedPromotion: {
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 2,
+        distinctiveness: 3,
+      },
+      expectedPass: false,
+    },
+    {
+      name: "rejects a lower-ranked eligible Fact when a stronger rejection exists",
+      subsystemKey: "project_domain:payments#scope",
+      firstSupported: true,
+      rejectedPromotion: {
+        productImportance: 3,
+        implementationBreadth: 2,
+        technicalDifficulty: 3,
+        distinctiveness: 3,
+      },
+      strongerRejectedPromotion: {
+        productImportance: 5,
+        implementationBreadth: 4,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      },
+      expectedPass: false,
+    },
+    {
+      name: "rejects supported-sibling refinement in a quality scope",
+      subsystemKey: "repository_area:quality#scope",
+      firstSupported: true,
+      rejectedPromotion: {
+        productImportance: 5,
+        implementationBreadth: 5,
+        technicalDifficulty: 5,
+        distinctiveness: 5,
+      },
+      expectedPass: false,
+    },
+    {
+      name: "repairs the first rejection when the subsystem has no supported Fact",
+      subsystemKey: "project_domain:payments#scope",
+      firstSupported: false,
+      rejectedPromotion: {
+        productImportance: 1,
+        implementationBreadth: 1,
+        technicalDifficulty: 1,
+        distinctiveness: 1,
+      },
+      expectedPass: true,
+    },
+  ])("$name", ({
+    subsystemKey,
+    firstSupported,
+    rejectedPromotion,
+    strongerRejectedPromotion,
+    expectedPass,
+  }) => {
+    const firstFactKey = `${subsystemKey}:fact:1`;
+    const selectedFactKey = firstSupported
+      ? `${subsystemKey}:fact:2`
+      : firstFactKey;
+    const basePromotion = {
+      confidence: "high" as const,
+      sensitivityFlag: false,
+      productImportance: 4,
+      implementationBreadth: 3,
+      technicalDifficulty: 4,
+      distinctiveness: 4,
+    };
+    const facts = [
+      {
+        statement: "The service validates payment ownership before settlement.",
+        category: "behavior" as const,
+        reviewNotes: null,
+        citationIndexes: [1],
+        ...basePromotion,
+      },
+      {
+        statement: "The service records an immutable settlement receipt.",
+        category: "behavior" as const,
+        reviewNotes: null,
+        citationIndexes: [2],
+        confidence: "high" as const,
+        sensitivityFlag: false,
+        ...rejectedPromotion,
+      },
+      ...(strongerRejectedPromotion
+        ? [{
+            statement: "The service reconciles settlement failures idempotently.",
+            category: "behavior" as const,
+            reviewNotes: null,
+            citationIndexes: [2],
+            confidence: "high" as const,
+            sensitivityFlag: false,
+            ...strongerRejectedPromotion,
+          }]
+        : []),
+    ];
+    const initial = {
+      subsystems: [{ subsystemKey, facts, highlights: [] }],
+    };
+    const selectedIndex = firstSupported ? 1 : 0;
+    const revisedFact = {
+      ...facts[selectedIndex]!,
+      statement: `${facts[selectedIndex]!.statement} The operation is transaction-bound.`,
+    };
+    const revisedFacts = facts.map((fact, index) =>
+      index === selectedIndex ? revisedFact : fact
+    );
+    const revised = {
+      subsystems: [{ subsystemKey, facts: revisedFacts, highlights: [] }],
+    };
+    const changedClaims: DeltaCriticClaim[] = [{
+      claimKey: selectedFactKey,
+      kind: "fact",
+      claim: { statement: revisedFact.statement },
+      citationIndexes: revisedFact.citationIndexes,
+    }];
+    const rejectedKeys = firstSupported
+      ? facts.slice(1).map((_fact, index) =>
+          `${subsystemKey}:fact:${index + 2}`
+        )
+      : [firstFactKey, `${subsystemKey}:fact:2`];
+    const result = evaluateRepositoryKnowledgeMainPath({
+      generationRuns: [
+        generation("execution_routing", "routing-model"),
+        generation("semantic_extraction", "semantic-model"),
+        synthesisGeneration(initial),
+        entailmentCriticRejecting(initial, rejectedKeys),
+        deltaRevisionGeneration(
+          initial,
+          revised,
+          {
+            factRevisions: [{ claimKey: selectedFactKey, replacement: revisedFact }],
+            highlightRevisions: [],
+          },
+          changedClaims,
+          1,
+          {
+            revisionContract: "quality_critical_fact_patch_v1_server_slots",
+            revisionEvidenceIndexesBySubsystem: [{
+              subsystemKey,
+              citationIndexes: [1, 2],
+            }],
+          },
+        ),
+        deltaEntailmentCritic(changedClaims),
+      ],
+      expectedIdentities,
+      coverage: null,
+      orchestration: {
+        fallbackUsed: false,
+        generationRunId: "generation-execution_routing",
+      },
+      warnings: null,
+    });
+
+    expect(result.passed, JSON.stringify(result.issues)).toBe(expectedPass);
   });
 
   it("replays full promotion binding and permits a null cascade after ambiguity", () => {

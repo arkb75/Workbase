@@ -1108,7 +1108,7 @@ describe("repository synthesis model-path limits", () => {
     ]);
   });
 
-  it("selects one deterministic rejected Fact only for each empty subsystem", () => {
+  it("selects one rejected Fact for empty or quality-critical non-quality subsystems", () => {
     const fact = (statement: string) => ({
       statement,
       category: "behavior" as const,
@@ -1141,6 +1141,12 @@ describe("repository synthesis model-path limits", () => {
           highlights: [],
           unresolvedQuestions: [],
         },
+        {
+          subsystemKey: "repository_area:quality#scope",
+          facts: [fact("Accepted test Fact."), fact("Rejected test sibling.")],
+          highlights: [],
+          unresolvedQuestions: [],
+        },
       ],
     };
     const supported = (claimKey: string) => ({
@@ -1161,9 +1167,12 @@ describe("repository synthesis model-path limits", () => {
         supported("project_domain:billing#scope:fact:1"),
         rejected("project_domain:billing#scope:fact:2"),
         rejected("repository_area:product_surface#scope:fact:1"),
+        supported("repository_area:quality#scope:fact:1"),
+        rejected("repository_area:quality#scope:fact:2"),
       ],
     })).toEqual([
       "project_domain:orders#scope:fact:1",
+      "project_domain:billing#scope:fact:2",
       "repository_area:product_surface#scope:fact:1",
     ]);
   });

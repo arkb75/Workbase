@@ -972,6 +972,9 @@ async function mapRepositoryOperationCommunities(input: {
           semanticKind: entry.semanticKind ?? null,
           semanticSignals: [...(entry.semanticSignals ?? [])],
           category: entry.category,
+          productImportance: entry.productImportance,
+          implementationBreadth: entry.implementationBreadth,
+          technicalDifficulty: entry.technicalDifficulty,
         })),
       }),
       schema: repositoryOperationCommunitySchema,
@@ -1603,12 +1606,23 @@ function criticAssessmentSupportsClaim(
   return assessment?.supported === true && assessment.issues.length === 0;
 }
 
+function qualityCriticalRejectedFact(
+  subsystemKey: string,
+  fact: RepositorySynthesisFact,
+) {
+  if (subsystemKey.startsWith("repository_area:quality")) return false;
+  return fact.productImportance >= 3 &&
+    fact.implementationBreadth >= 2 &&
+    fact.technicalDifficulty >= 3 &&
+    fact.distinctiveness >= 3;
+}
+
 /**
- * Pick one stable recovery candidate for every subsystem that would otherwise
- * retain no verified Fact. Facts stay in model output order, so the first
- * rejected Fact is deterministic across retries and resumptions. Rejected
- * sibling Facts and all rejected Highlights remain optional and are filtered
- * instead of consuming another model call.
+ * Pick at most one stable recovery candidate per subsystem. An otherwise
+ * empty subsystem keeps its first rejected Fact as an availability floor. A
+ * subsystem that already retained evidence spends a revision only on its
+ * strongest independently substantial rejected Fact, preserving operation
+ * breadth without replaying routine sibling claims.
  */
 export function repositorySynthesisFactFloorRevisionClaimKeys(
   value: { subsystems: Array<RepositorySubsystemSynthesis & { subsystemKey: string }> },
@@ -1622,13 +1636,34 @@ export function repositorySynthesisFactFloorRevisionClaimKeys(
     const factClaimKeys = subsystem.facts.map((_fact, index) =>
       synthesisClaimKey(subsystem.subsystemKey, "fact", index)
     );
-    if (factClaimKeys.some((claimKey) =>
+    const hasSupportedFact = factClaimKeys.some((claimKey) =>
       criticAssessmentSupportsClaim(assessments.get(claimKey))
-    )) return [];
-    const rejectedClaimKey = factClaimKeys.find((claimKey) =>
-      !criticAssessmentSupportsClaim(assessments.get(claimKey))
     );
-    return rejectedClaimKey ? [rejectedClaimKey] : [];
+    const rejectedFacts = subsystem.facts.flatMap((fact, index) => {
+      const claimKey = factClaimKeys[index]!;
+      return criticAssessmentSupportsClaim(assessments.get(claimKey))
+        ? []
+        : [{ claimKey, fact, index }];
+    });
+    if (!hasSupportedFact) {
+      return rejectedFacts[0] ? [rejectedFacts[0].claimKey] : [];
+    }
+    const qualityCritical = rejectedFacts
+      .filter(({ fact }) => qualityCriticalRejectedFact(subsystem.subsystemKey, fact))
+      .sort((left, right) =>
+        (
+          right.fact.productImportance +
+          right.fact.implementationBreadth +
+          right.fact.technicalDifficulty +
+          right.fact.distinctiveness
+        ) - (
+          left.fact.productImportance +
+          left.fact.implementationBreadth +
+          left.fact.technicalDifficulty +
+          left.fact.distinctiveness
+        ) || left.index - right.index
+      )[0];
+    return qualityCritical ? [qualityCritical.claimKey] : [];
   });
 }
 
@@ -2696,6 +2731,7 @@ async function refineSynthesisSubsystemBase(
     const subsystemKeys = input.subsystems.map((entry) =>
       entry.synthesisKey ?? entry.subsystemKey
     );
+    let revisionFocusClaimKeys: Set<string> | null = null;
 
     for (
       let revisionRound = 1;
@@ -2712,16 +2748,22 @@ async function refineSynthesisSubsystemBase(
         };
       }
 
-      const revisionClaimKeys = new Set(
+      const authorizedRevisionClaimKeys =
         repositorySynthesisFactFloorRevisionClaimKeys(
           currentData,
           currentCritique.critic.data,
-        ),
+        );
+      const existingRevisionFocus = revisionFocusClaimKeys;
+      const revisionClaimKeys: Set<string> = new Set(
+        existingRevisionFocus
+          ? authorizedRevisionClaimKeys.filter((claimKey) =>
+              existingRevisionFocus.has(claimKey)
+            )
+          : authorizedRevisionClaimKeys,
       );
-      // Revision is a bounded availability repair for an otherwise empty
-      // subsystem, not a general-purpose polish pass. Once every subsystem
-      // retains a verified Fact, unsupported siblings can be dropped by the
-      // critic projection without another synthesis or verification call.
+      // Revision is a bounded coverage repair, not a general-purpose polish
+      // pass. Preserve one otherwise-empty Fact or one independently
+      // substantial rejected Fact per subsystem; routine siblings are dropped.
       if (!revisionClaimKeys.size) {
         return {
           data: applyRepositorySynthesisCritic(
@@ -2731,6 +2773,7 @@ async function refineSynthesisSubsystemBase(
           tokenUsage,
         };
       }
+      revisionFocusClaimKeys ??= new Set(revisionClaimKeys);
 
       const priorData = currentData;
       const priorCritic = currentCritique.critic.data;
@@ -2844,11 +2887,9 @@ async function refineSynthesisSubsystemBase(
           refreshRunId: input.refreshRunId,
           subsystemKeys,
           rejectedClaimCount: revisionClaimKeys.size,
-          // This patch intentionally revises only one rejected Fact for each
-          // otherwise-empty subsystem. Attest the narrower fact-floor contract
-          // so the evaluator validates that bounded subset instead of requiring
-          // every optional rejected sibling claim to be revised.
-          revisionContract: "empty_fact_floor_patch_v1_server_slots",
+          // The evaluator independently recomputes this bounded subset from
+          // the prior critic and server-owned promotion scores.
+          revisionContract: "quality_critical_fact_patch_v1_server_slots",
           revisionEvidenceIndexesBySubsystem: revisionSubsystems.map(
             (subsystem) => ({
               subsystemKey: subsystem.subsystemKey,

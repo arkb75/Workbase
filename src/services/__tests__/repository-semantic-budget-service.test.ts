@@ -1410,7 +1410,7 @@ describe("repository semantic task and budget", () => {
     ]));
   });
 
-  it("places each worker instruction once while keeping capability keys schema-authoritative", async () => {
+  it("keeps capability routing context cohesive and schema-authoritative", async () => {
     const budget = createRepositorySemanticBudget({
       maxInputBytes: 64 * 1024,
       maxModelCalls: 2,
@@ -1437,14 +1437,13 @@ describe("repository semantic task and budget", () => {
     expect(JSON.parse(request.userPrompt)).toMatchObject({
       researchTask: {
         objective: "Determine how project retrieval is grounded.",
+        capabilityKeys: ["retrieval_provenance"],
+        semanticSignalKeys: [],
         questions: ["How is retrieval scoped?"],
         expectedOutputs: ["A supported data-flow finding"],
       },
       allowedCapabilityKeys: ["retrieval_provenance"],
     });
-    expect(JSON.parse(request.userPrompt).researchTask).not.toHaveProperty(
-      "capabilityKeys",
-    );
     expect(request.maxTokens).toBe(777);
     expect(request.budget).toBe(budget.model);
     expect(request.systemPrompt).toContain("query-parameter plumbing");
@@ -1578,7 +1577,9 @@ describe("repository semantic task and budget", () => {
     const prompt = JSON.parse(generateStructuredMock.mock.calls[0]?.[0].userPrompt);
     expect(prompt.content).toContain("720: export function routeCitationToReviewEvidence");
     expect(prompt.allowedSemanticSignalKeys).toEqual(["review_ui.citation_navigation"]);
-    expect(prompt.researchTask).not.toHaveProperty("semanticSignalKeys");
+    expect(prompt.researchTask.semanticSignalKeys).toEqual([
+      "review_ui.citation_navigation",
+    ]);
   });
 
   it("returns an explicit gap without calling the provider when the input-byte budget is exhausted", async () => {

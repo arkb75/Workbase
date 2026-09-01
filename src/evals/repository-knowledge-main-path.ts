@@ -1320,6 +1320,115 @@ function repositorySynthesisFactFloorRevisionPatchIsAuthorized(input: {
   });
 }
 
+function repositorySynthesisQualityCriticalFactRevisionPatchIsAuthorized(input: {
+  priorClaims: readonly RepositorySynthesisAuditClaim[];
+  patch: RepositorySynthesisRevisionPatch;
+  priorAssessments: readonly {
+    claimKey: string;
+    supported: boolean;
+    issues: string[];
+  }[];
+  allowedCitationIndexesBySubsystem: ReadonlyMap<
+    string,
+    ReadonlySet<number>
+  >;
+}) {
+  const assessmentByKey = new Map(input.priorAssessments.map((assessment) => [
+    assessment.claimKey,
+    assessment,
+  ]));
+  const factsBySubsystem = new Map<string, RepositorySynthesisAuditClaim[]>();
+  input.priorClaims
+    .filter((claim) => claim.kind === "fact")
+    .forEach((fact) => {
+      const subsystemKey = repositorySynthesisAuditClaimSubsystemKey(
+        fact.claimKey,
+        "fact",
+      );
+      if (!subsystemKey) return;
+      factsBySubsystem.set(subsystemKey, [
+        ...(factsBySubsystem.get(subsystemKey) ?? []),
+        fact,
+      ]);
+    });
+
+  const rejected = (fact: RepositorySynthesisAuditClaim) => {
+    const assessment = assessmentByKey.get(fact.claimKey);
+    return Boolean(
+      assessment && (!assessment.supported || assessment.issues.length > 0),
+    );
+  };
+  const supported = (fact: RepositorySynthesisAuditClaim) => {
+    const assessment = assessmentByKey.get(fact.claimKey);
+    return assessment?.supported === true && assessment.issues.length === 0;
+  };
+  const qualityCritical = (fact: RepositorySynthesisAuditClaim) => {
+    const promotion = fact.promotion;
+    return Boolean(
+      promotion &&
+      promotion.productImportance >= 3 &&
+      promotion.implementationBreadth >= 2 &&
+      promotion.technicalDifficulty >= 3 &&
+      promotion.distinctiveness >= 3,
+    );
+  };
+  const selectedFactKeys = Array.from(factsBySubsystem.entries()).flatMap(
+    ([subsystemKey, facts]) => {
+      const hasSupportedFact = facts.some(supported);
+      if (!hasSupportedFact) {
+        const firstRejected = facts.find(rejected);
+        return firstRejected ? [firstRejected.claimKey] : [];
+      }
+      if (subsystemKey.startsWith("repository_area:quality")) return [];
+      const highestRankedEligible = facts
+        .map((fact, index) => ({ fact, index }))
+        .filter(({ fact }) => rejected(fact) && qualityCritical(fact))
+        .sort((left, right) => {
+          const leftPromotion = left.fact.promotion!;
+          const rightPromotion = right.fact.promotion!;
+          return (
+            rightPromotion.productImportance +
+            rightPromotion.implementationBreadth +
+            rightPromotion.technicalDifficulty +
+            rightPromotion.distinctiveness
+          ) - (
+            leftPromotion.productImportance +
+            leftPromotion.implementationBreadth +
+            leftPromotion.technicalDifficulty +
+            leftPromotion.distinctiveness
+          ) || left.index - right.index;
+        })[0]?.fact;
+      return highestRankedEligible ? [highestRankedEligible.claimKey] : [];
+    },
+  );
+  if (!sameUniqueKeys(
+    input.patch.factRevisions.map((entry) => entry.claimKey),
+    selectedFactKeys,
+  )) return false;
+
+  const selectedFacts = input.priorClaims.filter((claim) =>
+    claim.kind === "fact" && selectedFactKeys.includes(claim.claimKey)
+  );
+  const dependentHighlightKeys = input.priorClaims.flatMap((claim) =>
+    claim.kind === "highlight" &&
+      selectedFacts.some((fact) => auditHighlightPromotesFact(claim, fact))
+      ? [claim.claimKey]
+      : []
+  );
+  if (
+    !sameUniqueKeys(
+      input.patch.highlightRevisions.map((entry) => entry.claimKey),
+      dependentHighlightKeys,
+    ) ||
+    input.patch.highlightRevisions.some((entry) => entry.replacement !== null)
+  ) return false;
+
+  return repositorySynthesisRevisionPatchIsAuthorized({
+    ...input,
+    rejectedClaimKeys: [...selectedFactKeys, ...dependentHighlightKeys],
+  });
+}
+
 function repositoryCriticAssessments(parsedOutput: unknown) {
   const values = record(parsedOutput)?.assessments;
   if (!Array.isArray(values)) return null;
@@ -1983,7 +2092,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
     );
     const serverSlotContract =
       revisionContract === "rejected_claim_patch_v3_server_slots" ||
-      revisionContract === "empty_fact_floor_patch_v1_server_slots";
+      revisionContract === "empty_fact_floor_patch_v1_server_slots" ||
+      revisionContract === "quality_critical_fact_patch_v1_server_slots";
     return applied &&
         currentClaims &&
         currentDigest &&
@@ -2031,6 +2141,7 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
         "rejected_claim_patch_v2_delta_critic",
         "rejected_claim_patch_v3_server_slots",
         "empty_fact_floor_patch_v1_server_slots",
+        "quality_critical_fact_patch_v1_server_slots",
       ].includes(revisionContract)) {
         return false;
       }
@@ -2053,7 +2164,8 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
       if (!currentClaims) return false;
       const serverSlots =
         revisionContract === "rejected_claim_patch_v3_server_slots" ||
-        revisionContract === "empty_fact_floor_patch_v1_server_slots";
+        revisionContract === "empty_fact_floor_patch_v1_server_slots" ||
+        revisionContract === "quality_critical_fact_patch_v1_server_slots";
       const allowedCitationIndexesBySubsystem = serverSlots
         ? repositorySynthesisRevisionEvidenceIndexesBySubsystem(
             record(run.inputSummary)?.revisionEvidenceIndexesBySubsystem,
@@ -2135,6 +2247,14 @@ export function evaluateRepositoryKnowledgeMainPath(input: {
         ? sameUniqueKeys(patchClaimKeys, rejectedClaimKeys)
         : revisionContract === "empty_fact_floor_patch_v1_server_slots"
           ? repositorySynthesisFactFloorRevisionPatchIsAuthorized({
+              priorClaims,
+              patch: deltaCritic.revisionPatch,
+              priorAssessments: remappedPriorAssessments,
+              allowedCitationIndexesBySubsystem:
+                allowedCitationIndexesBySubsystem!,
+            })
+        : revisionContract === "quality_critical_fact_patch_v1_server_slots"
+          ? repositorySynthesisQualityCriticalFactRevisionPatchIsAuthorized({
               priorClaims,
               patch: deltaCritic.revisionPatch,
               priorAssessments: remappedPriorAssessments,
