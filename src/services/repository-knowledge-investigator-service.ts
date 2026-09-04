@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v30-actionable-citation-repair";
+  "repository-knowledge-investigator-v31-actionable-exact-range-repair";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -2602,6 +2602,34 @@ export function validateRepositoryCoverageAuditContract(input: {
       read.lineStart <= citation.lineStart &&
       read.lineEnd >= citation.lineEnd
     );
+  const exactRangeCorrection = (expected: {
+    path: string;
+    blobSha: string | null;
+    lineStart: number;
+    lineEnd: number;
+  }) => {
+    const enclosingRead = input.sourceInspection.readSet.find((read) =>
+      read.sourceId === input.notebook.sourceId &&
+      read.repository === input.notebook.repository &&
+      read.commitSha === input.notebook.commitSha &&
+      read.path === expected.path &&
+      read.blobSha === expected.blobSha &&
+      read.lineStart <= expected.lineStart &&
+      read.lineEnd >= expected.lineEnd
+    );
+    return enclosingRead
+      ? ` Use this exact candidate-phase citation: ${JSON.stringify({
+          evidenceId: enclosingRead.evidenceId,
+          path: expected.path,
+          lineStart: expected.lineStart,
+          lineEnd: expected.lineEnd,
+        })}.`
+      : ` No candidate-phase exact read currently encloses ${JSON.stringify({
+          path: expected.path,
+          lineStart: expected.lineStart,
+          lineEnd: expected.lineEnd,
+        })}; inspect that pinned range before resubmitting.`;
+  };
 
   const expectedIndependentObservations = new Map(
     (input.independentReview?.independentObservations ?? []).map((observation) => [
@@ -2658,7 +2686,16 @@ export function validateRepositoryCoverageAuditContract(input: {
       check.evidence.lineEnd !== observation.evidence.lineEnd
     ) {
       errors.push(
-        `Independent observation ${check.observationDigest} was not re-read at its exact pinned source range in the candidate phase.`,
+        `Independent observation ${check.observationDigest} was not re-read at its exact pinned source range in the candidate phase.${
+          originalRead
+            ? exactRangeCorrection({
+                path: originalRead.path,
+                blobSha: originalRead.blobSha,
+                lineStart: observation.evidence.lineStart,
+                lineEnd: observation.evidence.lineEnd,
+              })
+            : ""
+        }`,
       );
     }
     if (check.verdict === "covered_by_candidate") {
@@ -2714,7 +2751,11 @@ export function validateRepositoryCoverageAuditContract(input: {
       check.evidence.lineStart !== original.lineStart ||
       check.evidence.lineEnd !== original.lineEnd
     ) {
-      errors.push(`${checkKey} did not re-read the exact source range supporting the claim.`);
+      errors.push(
+        `${checkKey} did not re-read the exact source range supporting the claim.${
+          original ? exactRangeCorrection(original) : ""
+        }`,
+      );
     }
   }
   for (const operation of input.audit.missingOperations) {

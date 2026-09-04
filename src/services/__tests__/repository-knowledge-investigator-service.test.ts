@@ -2571,6 +2571,30 @@ describe("repository knowledge investigator", () => {
       requireDiscovery: false,
       independentReview: fixture.checkpoint,
     })).toEqual({ accepted: true });
+    const incorrectExactRange = validateRepositoryCoverageAuditContract({
+      audit: {
+        ...audit,
+        capabilityChecks: audit.capabilityChecks.map((check) => ({
+          ...check,
+          evidence: { ...check.evidence, lineStart: 2 },
+        })),
+      },
+      notebook: fixture.notebook,
+      sourceInspection: candidatePhaseInspection,
+      targets,
+      requireDiscovery: false,
+      independentReview: fixture.checkpoint,
+    });
+    expect(incorrectExactRange).toMatchObject({
+      accepted: false,
+      errors: [expect.stringContaining("exact candidate-phase citation")],
+    });
+    if (incorrectExactRange.accepted) {
+      throw new Error("Expected the altered exact range to fail closed.");
+    }
+    expect(incorrectExactRange.errors[0]).toContain(fixture.evidence.evidenceId);
+    expect(incorrectExactRange.errors[0]).toContain('"lineStart":1');
+    expect(incorrectExactRange.errors[0]).toContain('"lineEnd":4');
   });
 
   it("keeps the blind checkpoint reusable while later notebook waves change", () => {
