@@ -132,6 +132,10 @@ export interface BedrockConverseTool {
   inputSchema: z.ZodType<unknown>;
   jsonSchema: JsonSchemaObject;
   strict?: boolean;
+  /** Number of malformed calls the model may correct before the run fails. */
+  maxRecoverableInvalidInputAttempts?: number;
+  /** Return true when a successful normalized result completes the agent run. */
+  isTerminalResult?: (result: JsonValue) => boolean;
   execute(
     input: unknown,
     context: BedrockConverseToolContext,
@@ -144,6 +148,10 @@ interface TypedBedrockConverseTool<TInput> {
   inputSchema: z.ZodType<TInput>;
   jsonSchema: JsonSchemaObject;
   strict?: boolean;
+  /** Number of malformed calls the model may correct before the run fails. */
+  maxRecoverableInvalidInputAttempts?: number;
+  /** Return true when a successful normalized result completes the agent run. */
+  isTerminalResult?: (result: JsonValue) => boolean;
   execute(
     input: TInput,
     context: BedrockConverseToolContext,
@@ -249,7 +257,11 @@ export interface BedrockConverseAgentRunResult {
   text: string;
   assistantMessage: Message;
   messages: Message[];
-  stopReason: "end_turn" | "stop_sequence";
+  stopReason: "end_turn" | "stop_sequence" | "tool_use";
+  terminalTool?: {
+    name: string;
+    toolUseId: string;
+  };
   iterations: number;
   toolCalls: number;
   usage: BedrockConverseAgentTokenUsage;
@@ -791,6 +803,19 @@ function validateTools(tools: readonly BedrockConverseTool[]) {
       );
     }
 
+    if (
+      tool.maxRecoverableInvalidInputAttempts !== undefined &&
+      (
+        !Number.isSafeInteger(tool.maxRecoverableInvalidInputAttempts) ||
+        tool.maxRecoverableInvalidInputAttempts < 0
+      )
+    ) {
+      throw new BedrockConverseAgentError(
+        `Tool \"${truncate(tool.name, 128)}\" maxRecoverableInvalidInputAttempts must be a non-negative safe integer.`,
+        "configuration_error",
+      );
+    }
+
     names.add(tool.name);
   }
 }
@@ -1009,6 +1034,7 @@ export class BedrockConverseAgent {
     let reportedCostUsd = 0;
     let hasReportedCost = false;
     const requestIds: string[] = [];
+    const invalidInputAttemptsByTool = new Map<string, number>();
     let iterations = 0;
     let toolCalls = 0;
 
@@ -1371,14 +1397,31 @@ export class BedrockConverseAgent {
       const semanticTokens = bedrockConverseAgentSemanticTokenCount(
         aggregateUsage,
       );
-      if (
+      const semanticTokenLimitExceeded =
         limits.maxSemanticTokens !== undefined &&
-        semanticTokens > limits.maxSemanticTokens
-      ) {
+        semanticTokens > limits.maxSemanticTokens;
+      const responseToolRequests = (response.message.content ?? []).flatMap(
+        (block) =>
+          "toolUse" in block && block.toolUse ? [block.toolUse] : [],
+      );
+      const soleResponseToolRequest =
+        responseToolRequests.length === 1 ? responseToolRequests[0] : null;
+      const soleResponseTool = soleResponseToolRequest?.name
+        ? toolByName.get(soleResponseToolRequest.name)
+        : undefined;
+      const canDeferPostResponseTokenLimit =
+        stopReason === "tool_use" &&
+        Boolean(
+          soleResponseToolRequest?.toolUseId &&
+          soleResponseToolRequest.input !== undefined &&
+          soleResponseTool?.isTerminalResult,
+        );
+
+      if (semanticTokenLimitExceeded && !canDeferPostResponseTokenLimit) {
         throw new BedrockConverseLimitError(
           `${this.providerLabel()} agent exceeded its ${limits.maxSemanticTokens}-semantic-token budget before completing an answer.`,
           "token_limit_exceeded",
-          limits.maxSemanticTokens,
+          limits.maxSemanticTokens!,
           semanticTokens,
           failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
         );
@@ -1430,7 +1473,9 @@ export class BedrockConverseAgent {
         };
       }
 
-      if (aggregateUsage.totalTokens > limits.maxTotalTokens) {
+      const totalTokenLimitExceeded =
+        aggregateUsage.totalTokens > limits.maxTotalTokens;
+      if (totalTokenLimitExceeded && !canDeferPostResponseTokenLimit) {
         throw new BedrockConverseLimitError(
           `${this.providerLabel()} agent exceeded its ${limits.maxTotalTokens}-token budget before completing an answer.`,
           "token_limit_exceeded",
@@ -1505,6 +1550,18 @@ export class BedrockConverseAgent {
         );
       }
 
+      const terminalCapableRequests = requestedTools.filter(
+        (requestedTool) =>
+          Boolean(toolByName.get(requestedTool.name)?.isTerminalResult),
+      );
+      if (terminalCapableRequests.length && requestedTools.length !== 1) {
+        throw new BedrockConverseAgentError(
+          `${this.providerLabel()} returned a terminal-capable tool request together with another tool request. Terminal-capable tools must be called alone.`,
+          "protocol_error",
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
+
       if (
         forcedToolName &&
         (
@@ -1530,6 +1587,7 @@ export class BedrockConverseAgent {
       }
 
       const toolResults: ContentBlock[] = [];
+      let terminalTool: BedrockConverseAgentRunResult["terminalTool"];
 
       for (const requestedTool of requestedTools) {
         toolCalls += 1;
@@ -1552,6 +1610,11 @@ export class BedrockConverseAgent {
         const tool = toolByName.get(requestedTool.name);
         let outcome: BedrockConverseToolOutcome;
         let modelResult: JsonValue;
+        let isTerminalResult = false;
+        let terminalPredicateFailed = false;
+        let terminalPredicateCause: unknown;
+        let invalidInputRecoveryExceeded = false;
+        let invalidInputAttemptCount = 0;
 
         if (!tool) {
           outcome = "unknown_tool";
@@ -1564,6 +1627,16 @@ export class BedrockConverseAgent {
 
           if (!parsedInput.success) {
             outcome = "invalid_input";
+            invalidInputAttemptCount =
+              (invalidInputAttemptsByTool.get(requestedTool.name) ?? 0) + 1;
+            invalidInputAttemptsByTool.set(
+              requestedTool.name,
+              invalidInputAttemptCount,
+            );
+            invalidInputRecoveryExceeded =
+              tool.maxRecoverableInvalidInputAttempts !== undefined &&
+              invalidInputAttemptCount >
+                tool.maxRecoverableInvalidInputAttempts;
             modelResult = createToolError(
               "invalid_tool_input",
               `Input for tool \"${safeToolName}\" did not match its schema.`,
@@ -1593,6 +1666,15 @@ export class BedrockConverseAgent {
           }
         }
 
+        if (outcome === "success" && tool?.isTerminalResult) {
+          try {
+            isTerminalResult = tool.isTerminalResult(modelResult);
+          } catch (error) {
+            terminalPredicateFailed = true;
+            terminalPredicateCause = error;
+          }
+        }
+
         toolResults.push(
           createToolResultBlock({
             toolUseId: requestedTool.toolUseId,
@@ -1610,12 +1692,94 @@ export class BedrockConverseAgent {
           durationMs: Math.max(0, Date.now() - startedAt),
           output: sanitizeBedrockConverseEventValue(modelResult),
         });
+
+        if (invalidInputRecoveryExceeded) {
+          throw new BedrockConverseAgentError(
+            `Tool \"${safeToolName}\" exceeded its ${tool?.maxRecoverableInvalidInputAttempts}-attempt malformed-input recovery allowance on invalid call ${invalidInputAttemptCount}.`,
+            "protocol_error",
+            failureOptions({
+              stopReason,
+              iterations,
+              toolCalls,
+              usage: aggregateUsage,
+            }),
+          );
+        }
+
+        if (terminalPredicateFailed) {
+          throw new BedrockConverseAgentError(
+            `Terminal-result predicate for tool "${safeToolName}" failed after the tool completed successfully.`,
+            "configuration_error",
+            failureOptions({
+              stopReason,
+              iterations,
+              toolCalls,
+              usage: aggregateUsage,
+              cause: terminalPredicateCause,
+            }),
+          );
+        }
+
+        if (isTerminalResult) {
+          terminalTool = {
+            name: requestedTool.name,
+            toolUseId: requestedTool.toolUseId,
+          };
+        }
       }
 
       messages.push({
         role: "user",
         content: toolResults,
       });
+
+      if (terminalTool) {
+        return {
+          text: readText(response.message),
+          assistantMessage: response.message,
+          messages,
+          stopReason: "tool_use",
+          terminalTool,
+          iterations,
+          toolCalls,
+          usage: aggregateUsage,
+          events,
+          ...(actualProvider ? { provider: actualProvider } : {}),
+          ...(routedProviders.size
+            ? { routedProviders: Array.from(routedProviders) }
+            : {}),
+          ...(actualModelId ? { modelId: actualModelId } : {}),
+          ...(requestIds.length ? { requestIds } : {}),
+          ...(hasReportedCost
+            ? {
+                reportedCostUsd:
+                  (aggregateUsage.unknownUsageAttempts ?? 0) === 0
+                    ? Number(reportedCostUsd.toFixed(8))
+                    : null,
+              }
+            : {}),
+        };
+      }
+
+      if (semanticTokenLimitExceeded) {
+        throw new BedrockConverseLimitError(
+          `${this.providerLabel()} agent exceeded its ${limits.maxSemanticTokens}-semantic-token budget before completing an answer.`,
+          "token_limit_exceeded",
+          limits.maxSemanticTokens!,
+          semanticTokens,
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
+
+      if (totalTokenLimitExceeded) {
+        throw new BedrockConverseLimitError(
+          `${this.providerLabel()} agent exceeded its ${limits.maxTotalTokens}-token budget before completing an answer.`,
+          "token_limit_exceeded",
+          limits.maxTotalTokens,
+          aggregateUsage.totalTokens,
+          failureOptions({ stopReason, iterations, toolCalls, usage: aggregateUsage }),
+        );
+      }
     }
   }
 }

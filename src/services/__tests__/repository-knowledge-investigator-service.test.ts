@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   BedrockConverseAgent,
+  BedrockConverseAgentError,
   defineBedrockConverseTool,
   type BedrockConverseTransportResponse,
 } from "@/src/lib/bedrock-converse-agent";
@@ -26,8 +27,10 @@ import {
   REPOSITORY_INVESTIGATION_CHECKPOINT_VERSION,
   REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION,
   REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+  REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
   REPOSITORY_VERIFIER_MAX_OBSERVATIONS,
   REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+  REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
   recoverRepositoryInvestigatorAgentBudgetError,
   RepositoryInvestigationSharedBudget,
   repositoryCoverageAuditPhaseLimits,
@@ -59,6 +62,9 @@ import {
   repositoryVerifierIndependentSubmissionDiagnostics,
   repositoryVerifierNextAction,
   repositoryVerifierForcedSubmissionTool,
+  repositoryVerifierRequiredExactReadGate,
+  repositoryVerifierSubmissionAttemptDiagnostics,
+  repositoryVerifierSubmissionNeedsSourceRepair,
   restoreRepositoryInvestigationCheckpoint,
   runRepositoryVerificationIfCandidate,
   validateRepositoryVerifierCandidateDisclosure,
@@ -237,40 +243,32 @@ describe("repository knowledge investigator", () => {
     expect(repositoryCoverageVerifierLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 280_000,
+      maxTotalTokens: 170_000,
     });
-    expect(repositoryCoverageVerifierLimits(81).maxTotalTokens).toBe(460_000);
-    expect(repositoryCoverageVerifierLimits(250).maxTotalTokens).toBe(460_000);
-    expect(repositoryCoverageVerifierLimits(251).maxTotalTokens).toBe(760_000);
-    for (const fileCount of [80, 81, 250, 251]) {
-      expect(repositoryCoverageVerifierLimits(fileCount).maxTotalTokens).toBe(
-        repositoryInvestigationSharedBudgetLimits({
-          repositoryCount: 1,
-          analyzedFileCount: fileCount,
-        }).maxModelTokens,
-      );
-    }
+    expect(repositoryCoverageVerifierLimits(81).maxTotalTokens).toBe(270_000);
+    expect(repositoryCoverageVerifierLimits(250).maxTotalTokens).toBe(270_000);
+    expect(repositoryCoverageVerifierLimits(251).maxTotalTokens).toBe(360_000);
   });
 
   it("gives each fresh verifier context its own raw transcript ceiling", () => {
     expect(repositoryCoverageReviewPhaseLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 280_000,
+      maxTotalTokens: 170_000,
     });
     expect(repositoryCoverageAuditPhaseLimits(80)).toEqual({
       maxIterations: 12,
       maxToolCalls: 10,
-      maxTotalTokens: 280_000,
+      maxTotalTokens: 170_000,
     });
     for (const limits of [
       repositoryCoverageReviewPhaseLimits(81),
       repositoryCoverageAuditPhaseLimits(81),
       repositoryCoverageReviewPhaseLimits(250),
       repositoryCoverageAuditPhaseLimits(250),
-    ]) expect(limits.maxTotalTokens).toBe(460_000);
-    expect(repositoryCoverageReviewPhaseLimits(251).maxTotalTokens).toBe(760_000);
-    expect(repositoryCoverageAuditPhaseLimits(251).maxTotalTokens).toBe(760_000);
+    ]) expect(limits.maxTotalTokens).toBe(270_000);
+    expect(repositoryCoverageReviewPhaseLimits(251).maxTotalTokens).toBe(360_000);
+    expect(repositoryCoverageAuditPhaseLimits(251).maxTotalTokens).toBe(360_000);
   });
 
   it("returns indexed correction diagnostics for invalid blind-review observations", () => {
@@ -352,6 +350,231 @@ describe("repository knowledge investigator", () => {
     expect(JSON.stringify(diagnostics)).not.toContain("database.session.create");
   });
 
+  it("counts schema-invalid forced submissions from the agent error event trail", async () => {
+    const toolName = "submit_repository_coverage_audit";
+    const executeSubmission = vi.fn(async () => ({
+      status: "accepted",
+    }));
+    const submission = defineBedrockConverseTool({
+      name: toolName,
+      description: "Submit a source-grounded candidate audit.",
+      inputSchema: z.object({ status: z.literal("satisfied") }),
+      jsonSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["status"],
+        properties: { status: { type: "string", enum: ["satisfied"] } },
+      },
+      maxRecoverableInvalidInputAttempts: 1,
+      execute: executeSubmission,
+    });
+    let providerCall = 0;
+    const transport = {
+      converse: vi.fn(async (): Promise<BedrockConverseTransportResponse> => {
+        providerCall += 1;
+        return {
+          message: {
+            role: "assistant",
+            content: [{
+              toolUse: {
+                toolUseId: `schema-invalid-forced-submit-${providerCall}`,
+                name: toolName,
+                input: {},
+              },
+            }],
+          },
+          stopReason: "tool_use",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          requestId: `request-schema-invalid-forced-submit-${providerCall}`,
+        };
+      }),
+    };
+    const agent = new BedrockConverseAgent(transport, {
+      modelId: "test-verifier",
+    });
+    let error: unknown;
+
+    try {
+      await agent.run({
+        messages: [{ role: "user", content: [{ text: "Submit the audit." }] }],
+        tools: [submission],
+        limits: { maxIterations: 3, maxToolCalls: 3, maxTotalTokens: 10_000 },
+        forceTool: () => toolName,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(BedrockConverseAgentError);
+    expect(error).toMatchObject({ code: "protocol_error" });
+    expect(transport.converse).toHaveBeenCalledTimes(2);
+    expect(executeSubmission).not.toHaveBeenCalled();
+    if (!(error instanceof BedrockConverseAgentError)) {
+      throw new Error("Expected the agent to preserve its failed tool event trail.");
+    }
+    expect(error.events.filter((event) =>
+      event.type === "tool_call_completed" &&
+      event.toolName === toolName &&
+      event.outcome === "invalid_input"
+    )).toEqual([
+      expect.objectContaining({
+        type: "tool_call_completed",
+        toolName,
+        outcome: "invalid_input",
+      }),
+      expect.objectContaining({
+        type: "tool_call_completed",
+        toolName,
+        outcome: "invalid_input",
+      }),
+    ]);
+    expect(repositoryVerifierSubmissionAttemptDiagnostics({
+      error,
+      toolName,
+    })).toEqual({
+      toolCallAttemptCount: 2,
+      schemaInvalidAttemptCount: 2,
+      executionErrorAttemptCount: 0,
+    });
+  });
+
+  it("reports the exact missing half of the independent-review provenance gate", () => {
+    const { files, sourceInspection, target } = verifierFixture();
+    const exactReadOnly = {
+      sourceSearchTrace: sourceInspection.sourceSearchTrace.filter((entry) =>
+        entry.operationKind === "exact_blob_read"
+      ),
+      readSet: sourceInspection.readSet,
+    };
+    const discoveryOnly = {
+      sourceSearchTrace: sourceInspection.sourceSearchTrace.filter((entry) =>
+        entry.operationKind === "discovery"
+      ),
+      readSet: [],
+    };
+
+    expect(repositoryVerifierIndependentDiscoveryGate({
+      sourceInspection: exactReadOnly,
+      files,
+      target,
+    })).toMatchObject({
+      accepted: false,
+      missingDiscovery: true,
+      missingExactProductionRead: false,
+    });
+    expect(repositoryVerifierIndependentDiscoveryGate({
+      sourceInspection: discoveryOnly,
+      files,
+      target,
+    })).toMatchObject({
+      accepted: false,
+      missingDiscovery: false,
+      missingExactProductionRead: true,
+    });
+    expect(repositoryVerifierIndependentDiscoveryGate({
+      sourceInspection,
+      files,
+      target,
+    })).toMatchObject({
+      accepted: true,
+      missingDiscovery: false,
+      missingExactProductionRead: false,
+    });
+  });
+
+  it("requires every distinct candidate target to be covered by an enclosing exact read", () => {
+    const { sourceInspection, target } = verifierFixture();
+    const firstRead = sourceInspection.readSet[0];
+    if (!firstRead?.blobSha) throw new Error("Expected one pinned exact read.");
+    const firstTarget = {
+      path: firstRead.path,
+      blobSha: firstRead.blobSha,
+      lineStart: 2,
+      lineEnd: 3,
+    };
+    const secondBlobSha = "d".repeat(40);
+    const secondTarget = {
+      path: "src/worker.ts",
+      blobSha: secondBlobSha,
+      lineStart: 10,
+      lineEnd: 12,
+    };
+    const targets = [firstTarget, { ...firstTarget }, secondTarget];
+    const emptyInspection = { sourceSearchTrace: [], readSet: [] };
+    const secondRead = {
+      ...firstRead,
+      evidenceId: "worker-exact-read-evidence",
+      path: secondTarget.path,
+      blobSha: secondBlobSha,
+      lineStart: 8,
+      lineEnd: 20,
+    };
+
+    expect(repositoryVerifierRequiredExactReadGate({
+      sourceInspection: emptyInspection,
+      targets: [],
+      target,
+    })).toEqual({
+      accepted: false,
+      requiredReadCount: 0,
+      completedReadCount: 0,
+      missingReadCount: 0,
+    });
+    expect(repositoryVerifierRequiredExactReadGate({
+      sourceInspection: emptyInspection,
+      targets,
+      target,
+    })).toEqual({
+      accepted: false,
+      requiredReadCount: 2,
+      completedReadCount: 0,
+      missingReadCount: 2,
+    });
+    expect(repositoryVerifierRequiredExactReadGate({
+      sourceInspection: { ...sourceInspection, readSet: [firstRead] },
+      targets,
+      target,
+    })).toEqual({
+      accepted: false,
+      requiredReadCount: 2,
+      completedReadCount: 1,
+      missingReadCount: 1,
+    });
+    expect(repositoryVerifierRequiredExactReadGate({
+      sourceInspection: {
+        ...sourceInspection,
+        readSet: [firstRead, secondRead],
+      },
+      targets,
+      target,
+    })).toEqual({
+      accepted: true,
+      requiredReadCount: 2,
+      completedReadCount: 2,
+      missingReadCount: 0,
+    });
+
+    for (const mismatchedIdentity of [
+      { sourceId: "source-2" },
+      { repository: "other/project" },
+      { commitSha: "e".repeat(40) },
+    ]) {
+      expect(repositoryVerifierRequiredExactReadGate({
+        sourceInspection: {
+          ...sourceInspection,
+          readSet: [{ ...firstRead, ...mismatchedIdentity }],
+        },
+        targets: [firstTarget],
+        target,
+      })).toEqual({
+        accepted: false,
+        requiredReadCount: 1,
+        completedReadCount: 0,
+        missingReadCount: 1,
+      });
+    }
+  });
+
   it("leaves bounded verifier headroom after repository inspection", () => {
     const smallReview = repositoryCoverageReviewPhaseLimits(77);
     const smallAudit = repositoryCoverageAuditPhaseLimits(77);
@@ -374,22 +597,22 @@ describe("repository knowledge investigator", () => {
     const policies = {
       initial_investigator: {
         minimum: { modelTokens: 16_000, modelCalls: 5, inspectionOperations: 4 },
-        reserve: { modelTokens: 64_000, modelCalls: 22, inspectionOperations: 28 },
+        reserve: { modelTokens: 64_000, modelCalls: 25, inspectionOperations: 28 },
       },
       independent_review: {
-        minimum: { modelTokens: 12_000, modelCalls: 5, inspectionOperations: 4 },
-        reserve: { modelTokens: 52_000, modelCalls: 17, inspectionOperations: 24 },
+        minimum: { modelTokens: 12_000, modelCalls: 6, inspectionOperations: 4 },
+        reserve: { modelTokens: 52_000, modelCalls: 19, inspectionOperations: 24 },
       },
       candidate_audit: {
-        minimum: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
-        reserve: { modelTokens: 34_000, modelCalls: 11, inspectionOperations: 14 },
+        minimum: { modelTokens: 18_000, modelCalls: 7, inspectionOperations: 10 },
+        reserve: { modelTokens: 34_000, modelCalls: 12, inspectionOperations: 14 },
       },
       verifier_repair: {
         minimum: { modelTokens: 16_000, modelCalls: 5, inspectionOperations: 4 },
-        reserve: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
+        reserve: { modelTokens: 18_000, modelCalls: 7, inspectionOperations: 10 },
       },
       candidate_reaudit: {
-        minimum: { modelTokens: 18_000, modelCalls: 6, inspectionOperations: 10 },
+        minimum: { modelTokens: 18_000, modelCalls: 7, inspectionOperations: 10 },
         reserve: { modelTokens: 0, modelCalls: 0, inspectionOperations: 0 },
       },
     } as const;
@@ -421,10 +644,10 @@ describe("repository knowledge investigator", () => {
     }
 
     expect(policies.independent_review.minimum.modelCalls).toBe(
-      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS + 2,
     );
     expect(policies.candidate_audit.minimum.modelCalls).toBe(
-      REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 2,
+      REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS + 2,
     );
     expect(repositoryVerifierRepairDecision(0)).toEqual({ action: "repair" });
     expect(repositoryVerifierRepairDecision(
@@ -435,11 +658,310 @@ describe("repository knowledge investigator", () => {
     });
   });
 
-  it("lets the blind reviewer correct a rejected submission after its inspection allowance", async () => {
+  it("forces only the tool allowed by the blind-review provenance state", () => {
+    const forcedTool = (input: {
+      inspectionToolCalls: number;
+      readyToSubmit: boolean;
+      submitted?: boolean;
+    }) => repositoryVerifierForcedSubmissionTool({
+      inspectionToolCalls: input.inspectionToolCalls,
+      maxInspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+      maxRepairInspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS -
+        REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+      readyToSubmit: input.readyToSubmit,
+      submitted: input.submitted ?? false,
+      toolName: "submit_repository_independent_review",
+      inspectionToolName: "inspect_repository_snapshot",
+    });
+
+    expect(forcedTool({
+      inspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS - 1,
+      readyToSubmit: false,
+    })).toBeNull();
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+      readyToSubmit: false,
+    })).toBe("inspect_repository_snapshot");
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+      readyToSubmit: true,
+    })).toBe("submit_repository_independent_review");
+    expect(forcedTool({
+      inspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+      readyToSubmit: false,
+    })).toBeNull();
+    expect(forcedTool({
+      inspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+      readyToSubmit: true,
+      submitted: true,
+    })).toBeNull();
+  });
+
+  it("forces one bounded source repair without treating payload corrections as rereads", () => {
+    const normalInspectionLimit =
+      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS;
+    const totalInspectionLimit =
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS;
+    const forcedTool = (input: {
+      inspectionToolCalls: number;
+      repairRequired: boolean;
+    }) => repositoryVerifierForcedSubmissionTool({
+      inspectionToolCalls: input.inspectionToolCalls,
+      maxInspectionToolCalls: normalInspectionLimit,
+      maxRepairInspectionToolCalls:
+        totalInspectionLimit - normalInspectionLimit,
+      readyToSubmit: true,
+      repairRequired: input.repairRequired,
+      submitted: false,
+      toolName: "submit_repository_independent_review",
+      inspectionToolName: "inspect_repository_snapshot",
+    });
+    const sourceRepairBeforeNormalLimit =
+      repositoryVerifierSubmissionNeedsSourceRepair({
+        codes: ["evidence_range_not_visible"],
+        inspectionToolCalls: normalInspectionLimit - 1,
+        maxTotalInspectionToolCalls: totalInspectionLimit,
+        contractSubmissionRejectionCount: 1,
+      });
+    const sourceRepairAtNormalLimit =
+      repositoryVerifierSubmissionNeedsSourceRepair({
+        codes: ["evidence_not_inspected"],
+        inspectionToolCalls: normalInspectionLimit,
+        maxTotalInspectionToolCalls: totalInspectionLimit,
+        contractSubmissionRejectionCount: 1,
+      });
+
+    expect(sourceRepairBeforeNormalLimit).toBe(true);
+    expect(forcedTool({
+      inspectionToolCalls: normalInspectionLimit - 1,
+      repairRequired: sourceRepairBeforeNormalLimit,
+    })).toBe("inspect_repository_snapshot");
+    expect(sourceRepairAtNormalLimit).toBe(true);
+    expect(forcedTool({
+      inspectionToolCalls: normalInspectionLimit,
+      repairRequired: sourceRepairAtNormalLimit,
+    })).toBe("inspect_repository_snapshot");
+
+    // A successful repair clears the state and makes the next bounded action submit.
+    expect(forcedTool({
+      inspectionToolCalls: totalInspectionLimit,
+      repairRequired: false,
+    })).toBe("submit_repository_independent_review");
+
+    const payloadOnlyCorrection = repositoryVerifierSubmissionNeedsSourceRepair({
+      codes: ["duplicate_observation"],
+      inspectionToolCalls: normalInspectionLimit,
+      maxTotalInspectionToolCalls: totalInspectionLimit,
+      contractSubmissionRejectionCount: 1,
+    });
+    expect(payloadOnlyCorrection).toBe(false);
+    expect(forcedTool({
+      inspectionToolCalls: normalInspectionLimit,
+      repairRequired: payloadOnlyCorrection,
+    })).toBe("submit_repository_independent_review");
+
+    const secondRejection = repositoryVerifierSubmissionNeedsSourceRepair({
+      codes: ["evidence_range_not_visible"],
+      inspectionToolCalls: normalInspectionLimit,
+      maxTotalInspectionToolCalls: totalInspectionLimit,
+      contractSubmissionRejectionCount: 2,
+    });
+    const noRemainingSlot = repositoryVerifierSubmissionNeedsSourceRepair({
+      codes: ["evidence_range_not_visible"],
+      inspectionToolCalls: totalInspectionLimit,
+      maxTotalInspectionToolCalls: totalInspectionLimit,
+      contractSubmissionRejectionCount: 1,
+    });
+    expect(secondRejection).toBe(false);
+    expect(noRemainingSlot).toBe(false);
+    expect(forcedTool({
+      inspectionToolCalls: totalInspectionLimit,
+      repairRequired: noRemainingSlot,
+    })).not.toBe("inspect_repository_snapshot");
+  });
+
+  it("gives candidate audit one exact-read repair after its normal inspection allowance", () => {
+    const fixture = verifierFixture();
+    const targets = repositoryCoverageVerificationTargets(fixture.notebook);
+    const forcedTool = (input: {
+      inspectionToolCalls: number;
+      readyToSubmit: boolean;
+    }) => repositoryVerifierForcedSubmissionTool({
+      inspectionToolCalls: input.inspectionToolCalls,
+      maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+      maxRepairInspectionToolCalls:
+        REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS -
+        REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+      readyToSubmit: input.readyToSubmit,
+      submitted: false,
+      toolName: "submit_repository_coverage_audit",
+      inspectionToolName: "inspect_repository_snapshot",
+    });
+
+    expect(REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS).toBe(
+      REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 1,
+    );
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS - 1,
+      readyToSubmit: false,
+    })).toBeNull();
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+      readyToSubmit: false,
+    })).toBe("inspect_repository_snapshot");
+    expect(repositoryVerifierNextAction({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+      sourceInspection: { sourceSearchTrace: [], readSet: [] },
+      candidateRevealed: true,
+      candidateReviewAvailable: true,
+      targets,
+      target: fixture.target,
+    })).toContain("one bounded reread-repair inspection call");
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+      readyToSubmit: true,
+    })).toBe("submit_repository_coverage_audit");
+    expect(forcedTool({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
+      readyToSubmit: false,
+    })).toBeNull();
+    expect(repositoryVerifierNextAction({
+      inspectionToolCalls: REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
+      sourceInspection: { sourceSearchTrace: [], readSet: [] },
+      candidateRevealed: true,
+      candidateReviewAvailable: true,
+      targets,
+      target: fixture.target,
+    })).toContain("reread-repair allowance is exhausted");
+    expect(candidateCoverageAuditRequest({
+      projectTitle: "Project",
+      notebook: fixture.notebook,
+      independentReview: fixture.checkpoint,
+    }).systemPrompt).toContain("one final reread-only repair call");
+  });
+
+  it("repairs missing provenance once before forcing the blind-review submission", async () => {
+    const responses: BedrockConverseTransportResponse[] = [
+      ...Array.from(
+        { length: REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS },
+        (_, index) => ({
+          message: {
+            role: "assistant" as const,
+            content: [{
+              toolUse: {
+                toolUseId: `inspect-${index + 1}`,
+                name: "inspect_repository_snapshot",
+                input: {},
+              },
+            }],
+          },
+          stopReason: "tool_use" as const,
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          requestId: `request-inspect-${index + 1}`,
+        }),
+      ),
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
+              toolUseId: "submit-ready-review",
+              name: "submit_repository_independent_review",
+              input: {},
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-submit-ready-review",
+      },
+      {
+        message: { role: "assistant", content: [{ text: "Review submitted." }] },
+        stopReason: "end_turn",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        requestId: "request-review-complete",
+      },
+    ];
+    let responseIndex = 0;
+    const transport = {
+      converse: vi.fn(async (_input: ConverseCommandInput) => {
+        void _input;
+        const response = responses[responseIndex++];
+        if (!response) throw new Error("Unexpected verifier model turn.");
+        return response;
+      }),
+    };
+    let readyToSubmit = false;
+    const executeInspection = vi.fn(async () => {
+      if (
+        executeInspection.mock.calls.length ===
+          REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS
+      ) readyToSubmit = true;
+      return { status: "completed" };
+    });
+    const inspect = defineBedrockConverseTool({
+      name: "inspect_repository_snapshot",
+      description: "Inspect the pinned repository snapshot.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: executeInspection,
+    });
+    let submitted = false;
+    const executeSubmission = vi.fn(async () => {
+      submitted = true;
+      return { status: "accepted" };
+    });
+    const submit = defineBedrockConverseTool({
+      name: "submit_repository_independent_review",
+      description: "Submit the blind repository review.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: executeSubmission,
+    });
+    const agent = new BedrockConverseAgent(transport, { modelId: "test-verifier" });
+
+    const result = await agent.run({
+      messages: [{ role: "user", content: [{ text: "Review this repository." }] }],
+      tools: [inspect, submit],
+      limits: repositoryCoverageReviewPhaseLimits(77),
+      forceTool: () => repositoryVerifierForcedSubmissionTool({
+        inspectionToolCalls: executeInspection.mock.calls.length,
+        maxInspectionToolCalls:
+          REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+        maxRepairInspectionToolCalls:
+          REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS -
+          REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+        readyToSubmit,
+        submitted,
+        toolName: "submit_repository_independent_review",
+        inspectionToolName: "inspect_repository_snapshot",
+      }),
+    });
+
+    expect(executeInspection).toHaveBeenCalledTimes(
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+    );
+    expect(executeSubmission).toHaveBeenCalledTimes(1);
+    expect(result.text).toBe("Review submitted.");
+    expect(transport.converse.mock.calls[3]?.[0].toolConfig?.toolChoice).toEqual({
+      tool: { name: "inspect_repository_snapshot" },
+    });
+    expect(transport.converse.mock.calls[4]?.[0].toolConfig?.toolChoice).toEqual({
+      tool: { name: "submit_repository_independent_review" },
+    });
+    expect(transport.converse.mock.calls[5]?.[0].toolConfig?.toolChoice).toBeUndefined();
+  });
+
+  it("repairs source provenance between a rejected and accepted blind submission", async () => {
     const replayedUsage = {
-      inputTokens: 40_000,
+      inputTokens: 18_000,
       outputTokens: 2_000,
-      totalTokens: 42_000,
+      totalTokens: 20_000,
     };
     const inspectionResponses: BedrockConverseTransportResponse[] = Array.from(
       { length: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS },
@@ -481,6 +1003,21 @@ describe("repository knowledge investigator", () => {
           role: "assistant",
           content: [{
             toolUse: {
+              toolUseId: "inspect-source-repair",
+              name: "inspect_repository_snapshot",
+              input: {},
+            },
+          }],
+        },
+        stopReason: "tool_use",
+        usage: replayedUsage,
+        requestId: "request-inspect-source-repair",
+      },
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            toolUse: {
               toolUseId: "submit-corrected",
               name: "submit_repository_independent_review",
               input: { corrected: true },
@@ -490,12 +1027,6 @@ describe("repository knowledge investigator", () => {
         stopReason: "tool_use",
         usage: replayedUsage,
         requestId: "request-submit-corrected",
-      },
-      {
-        message: { role: "assistant", content: [{ text: "Review submitted." }] },
-        stopReason: "end_turn",
-        usage: replayedUsage,
-        requestId: "request-complete",
       },
     ];
     let responseIndex = 0;
@@ -507,7 +1038,11 @@ describe("repository knowledge investigator", () => {
         return response;
       }),
     };
-    const executeInspection = vi.fn(async () => ({ status: "completed" }));
+    let sourceRepairRequired = false;
+    const executeInspection = vi.fn(async () => {
+      if (sourceRepairRequired) sourceRepairRequired = false;
+      return { status: "completed" };
+    });
     const inspect = defineBedrockConverseTool({
       name: "inspect_repository_snapshot",
       description: "Inspect the pinned repository snapshot.",
@@ -516,11 +1051,22 @@ describe("repository knowledge investigator", () => {
       execute: executeInspection,
     });
     let submitted = false;
+    let contractSubmissionRejectionCount = 0;
     const executeSubmission = vi.fn(async ({ corrected }: { corrected: boolean }) => {
       submitted = corrected;
-      return corrected
-        ? { status: "accepted" }
-        : { status: "rejected", instruction: "Correct the source contract." };
+      if (corrected) return { status: "accepted" };
+      contractSubmissionRejectionCount += 1;
+      sourceRepairRequired = repositoryVerifierSubmissionNeedsSourceRepair({
+        codes: ["evidence_range_not_visible"],
+        inspectionToolCalls: executeInspection.mock.calls.length,
+        maxTotalInspectionToolCalls:
+          REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+        contractSubmissionRejectionCount,
+      });
+      return {
+        status: "rejected",
+        instruction: "Inspect the missing exact source range, then resubmit.",
+      };
     });
     const submit = defineBedrockConverseTool({
       name: "submit_repository_independent_review",
@@ -532,6 +1078,11 @@ describe("repository knowledge investigator", () => {
         required: ["corrected"],
         properties: { corrected: { type: "boolean" } },
       },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
       execute: executeSubmission,
     });
     const agent = new BedrockConverseAgent(transport, { modelId: "test-verifier" });
@@ -544,27 +1095,39 @@ describe("repository knowledge investigator", () => {
         inspectionToolCalls: executeInspection.mock.calls.length,
         maxInspectionToolCalls:
           REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+        maxRepairInspectionToolCalls:
+          REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS -
+          REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+        readyToSubmit: true,
+        repairRequired: sourceRepairRequired,
         submitted,
         toolName: "submit_repository_independent_review",
+        inspectionToolName: "inspect_repository_snapshot",
       }),
     });
 
     expect(executeInspection).toHaveBeenCalledTimes(
-      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
     );
     expect(executeSubmission).toHaveBeenCalledTimes(2);
     expect(result.toolCalls).toBe(
-      REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 2,
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS + 2,
     );
-    expect(result.usage.totalTokens).toBe(252_000);
-    expect(result.text).toBe("Review submitted.");
+    expect(result.usage.totalTokens).toBe(120_000);
+    expect(result.text).toBe("");
+    expect(result.terminalTool?.name).toBe(
+      "submit_repository_independent_review",
+    );
     expect(transport.converse.mock.calls[3]?.[0].toolConfig?.toolChoice).toEqual({
       tool: { name: "submit_repository_independent_review" },
     });
     expect(transport.converse.mock.calls[4]?.[0].toolConfig?.toolChoice).toEqual({
+      tool: { name: "inspect_repository_snapshot" },
+    });
+    expect(transport.converse.mock.calls[5]?.[0].toolConfig?.toolChoice).toEqual({
       tool: { name: "submit_repository_independent_review" },
     });
-    expect(transport.converse.mock.calls[5]?.[0].toolConfig?.toolChoice).toBeUndefined();
+    expect(transport.converse.mock.calls[6]).toBeUndefined();
   });
 
   it("preserves a validated terminal notebook when the redundant model turn hits token preflight", async () => {
@@ -704,7 +1267,7 @@ describe("repository knowledge investigator", () => {
     );
 
     expect(review).toMatchObject({
-      maxTotalTokens: 280_000,
+      maxTotalTokens: 170_000,
       maxSemanticTokens: 32_000,
     });
     budget.consumeModelUsage({
@@ -723,7 +1286,7 @@ describe("repository knowledge investigator", () => {
       { modelTokens: 0, modelCalls: 0 },
       { preserveRawTokenLimit: true },
     )).toMatchObject({
-      maxTotalTokens: 280_000,
+      maxTotalTokens: 170_000,
       maxSemanticTokens: 24_000,
     });
   });
@@ -1754,6 +2317,7 @@ describe("repository knowledge investigator", () => {
       candidateRevealed: true,
       candidateReviewAvailable: true,
       targets,
+      target: fixture.target,
     })).toMatch(/re-read/iu);
     expect(validateRepositoryCoverageAuditContract({
       audit,
@@ -1783,6 +2347,7 @@ describe("repository knowledge investigator", () => {
       candidateRevealed: true,
       candidateReviewAvailable: true,
       targets,
+      target: fixture.target,
     })).toContain("required candidate checks are complete");
     expect(validateRepositoryCoverageAuditContract({
       audit: { ...audit, independentObservationChecks: [] },
@@ -1919,7 +2484,10 @@ describe("repository knowledge investigator", () => {
     const candidate = repositoryCoverageCandidatePacket(notebook);
 
     expect(request.systemPrompt).toContain(
-      `Use at most ${REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS} inspect_repository_snapshot calls`,
+      `Use up to ${REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls`,
+    );
+    expect(request.systemPrompt).toContain(
+      "one final provenance-only repair call",
     );
     expect(request.systemPrompt).toContain(
       "No candidate notebook is available",
@@ -2042,7 +2610,7 @@ describe("repository knowledge investigator", () => {
       },
     });
     expect(candidateRequest.systemPrompt).toContain(
-      `Use at most ${REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS} inspect_repository_snapshot calls`,
+      `Use up to ${REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls`,
     );
     expect(candidateRequest.userPrompt).toContain("creates_persisted_sessions");
     expect(candidateRequest.userPrompt).toContain("src/session.ts");
@@ -2085,6 +2653,7 @@ describe("repository knowledge investigator", () => {
       candidateRevealed: false,
       candidateReviewAvailable: gate.accepted,
       targets: [],
+      target,
     })).toContain("review_repository_candidate next");
     expect(repositoryVerifierNextAction({
       inspectionToolCalls: 2,
@@ -2092,6 +2661,7 @@ describe("repository knowledge investigator", () => {
       candidateRevealed: true,
       candidateReviewAvailable: true,
       targets,
+      target,
     })).toContain("required candidate checks are complete");
     expect(
       REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 1,
@@ -2102,6 +2672,7 @@ describe("repository knowledge investigator", () => {
       candidateRevealed: false,
       candidateReviewAvailable: false,
       targets,
+      target,
     })).toContain("cannot be certified");
   });
 
@@ -2335,17 +2906,17 @@ describe("repository knowledge investigator", () => {
     const tiers = [
       {
         files: 80,
-        limits: { maxModelTokens: 280_000, maxModelCalls: 68, maxInspectionOperations: 110 },
+        limits: { maxModelTokens: 280_000, maxModelCalls: 71, maxInspectionOperations: 110 },
         legacyDiscovery: { modelTokens: 210_000, modelCalls: 46, inspectionOperations: 82 },
       },
       {
         files: 81,
-        limits: { maxModelTokens: 460_000, maxModelCalls: 100, maxInspectionOperations: 194 },
+        limits: { maxModelTokens: 460_000, maxModelCalls: 103, maxInspectionOperations: 194 },
         legacyDiscovery: { modelTokens: 390_000, modelCalls: 78, inspectionOperations: 166 },
       },
       {
         files: 251,
-        limits: { maxModelTokens: 760_000, maxModelCalls: 152, maxInspectionOperations: 314 },
+        limits: { maxModelTokens: 760_000, maxModelCalls: 155, maxInspectionOperations: 314 },
         legacyDiscovery: { modelTokens: 690_000, modelCalls: 130, inspectionOperations: 286 },
       },
     ];
@@ -2385,7 +2956,7 @@ describe("repository knowledge investigator", () => {
       inspectionOperations:
         twoRepositories.maxInspectionOperations -
         oneRepository.maxInspectionOperations,
-    }).toEqual({ modelTokens: 64_000, modelCalls: 22, inspectionOperations: 28 });
+    }).toEqual({ modelTokens: 64_000, modelCalls: 25, inspectionOperations: 28 });
   });
 
   it("does not charge cached input replay to the refresh-wide semantic token allowance", () => {

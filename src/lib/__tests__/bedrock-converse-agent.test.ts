@@ -277,6 +277,370 @@ describe("BedrockConverseAgent", () => {
     expect(JSON.stringify(result.events)).not.toContain("github_pat_");
   });
 
+  it("returns immediately when a successful normalized tool result is terminal", async () => {
+    const execute = vi.fn(() => ({ status: "accepted", checkpointId: "cp-1" }));
+    const isTerminalResult = vi.fn(
+      (result: unknown) =>
+        typeof result === "object" &&
+        result !== null &&
+        "status" in result &&
+        result.status === "accepted",
+    );
+    const submit = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({ checkpointId: z.string() }),
+      jsonSchema: {
+        type: "object",
+        required: ["checkpointId"],
+        properties: { checkpointId: { type: "string" } },
+      },
+      isTerminalResult,
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          { text: "The checkpoint is ready." },
+          toolRequest({
+            id: "submit-1",
+            name: "submit_checkpoint",
+            input: { checkpointId: "cp-1" },
+          }),
+        ],
+        usage: usage(13, 5),
+        requestId: "request-terminal",
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+    });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(isTerminalResult).toHaveBeenCalledWith({
+      status: "accepted",
+      checkpointId: "cp-1",
+    });
+    expect(result).toMatchObject({
+      text: "The checkpoint is ready.",
+      stopReason: "tool_use",
+      terminalTool: {
+        name: "submit_checkpoint",
+        toolUseId: "submit-1",
+      },
+      iterations: 1,
+      toolCalls: 1,
+      usage: {
+        inputTokens: 13,
+        outputTokens: 5,
+        totalTokens: 18,
+      },
+      requestIds: ["request-terminal"],
+    });
+    expect(result.assistantMessage.content).toEqual([
+      { text: "The checkpoint is ready." },
+      toolRequest({
+        id: "submit-1",
+        name: "submit_checkpoint",
+        input: { checkpointId: "cp-1" },
+      }),
+    ]);
+    expect(result.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(result.messages[2]?.content?.[0]).toEqual({
+      toolResult: {
+        toolUseId: "submit-1",
+        content: [
+          {
+            json: { status: "accepted", checkpointId: "cp-1" },
+          },
+        ],
+      },
+    });
+    expect(result.events.map((event) => event.type)).toEqual([
+      "model_call_started",
+      "model_call_completed",
+      "tool_call_started",
+      "tool_call_completed",
+    ]);
+  });
+
+  it("continues after a nonterminal result from a terminal-capable tool", async () => {
+    const submit = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute: () => ({ status: "rejected", instruction: "Revise it." }),
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-rejected", name: "submit_checkpoint", input: {} }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "I will revise the checkpoint." }],
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+    });
+
+    expect(transport.calls).toHaveLength(2);
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.terminalTool).toBeUndefined();
+    expect(result.toolCalls).toBe(1);
+  });
+
+  it("rejects batched terminal-capable tool requests before executing any tool", async () => {
+    const terminalExecute = vi.fn(() => ({ status: "accepted" }));
+    const siblingExecute = vi.fn(() => {
+      throw new Error("must not execute");
+    });
+    const terminal = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute: terminalExecute,
+    });
+    const sibling = defineBedrockConverseTool({
+      name: "inspect_checkpoint",
+      description: "Inspect checkpoint evidence.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      execute: siblingExecute,
+    });
+    const batchedWithSibling = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-1", name: terminal.name, input: {} }),
+          toolRequest({ id: "inspect-1", name: sibling.name, input: {} }),
+        ],
+      }),
+    ]);
+
+    await expect(batchedWithSibling.agent.run({
+      messages: [userMessage()],
+      tools: [terminal, sibling],
+    })).rejects.toMatchObject({
+      code: "protocol_error",
+      toolCalls: 0,
+    });
+    expect(terminalExecute).not.toHaveBeenCalled();
+    expect(siblingExecute).not.toHaveBeenCalled();
+
+    const twoTerminalRequests = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-2", name: terminal.name, input: {} }),
+          toolRequest({ id: "submit-3", name: terminal.name, input: {} }),
+        ],
+      }),
+    ]);
+
+    await expect(twoTerminalRequests.agent.run({
+      messages: [userMessage()],
+      tools: [terminal],
+    })).rejects.toMatchObject({
+      code: "protocol_error",
+      toolCalls: 0,
+    });
+    expect(terminalExecute).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a throwing terminal predicate as a host configuration error", async () => {
+    const predicateError = new Error("terminal predicate bug");
+    const execute = vi.fn(() => ({ status: "accepted" }));
+    const submit = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: () => {
+        throw predicateError;
+      },
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-predicate", name: submit.name, input: {} }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "This response must not be requested." }],
+      }),
+    ]);
+
+    const error = await agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(BedrockConverseAgentError);
+    expect(error).toMatchObject({
+      code: "configuration_error",
+      cause: predicateError,
+      toolCalls: 1,
+    });
+    expect((error as BedrockConverseAgentError).events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_call_completed",
+        outcome: "success",
+      }),
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      budget: "raw total-token",
+      responseUsage: usage(8, 5),
+      limits: { maxTotalTokens: 10 },
+    },
+    {
+      budget: "semantic-token",
+      responseUsage: {
+        inputTokens: 18_000,
+        outputTokens: 2_000,
+        totalTokens: 20_000,
+        cacheReadInputTokens: 5_000,
+      },
+      limits: { maxTotalTokens: 50_000, maxSemanticTokens: 10_000 },
+    },
+  ])("accepts a terminal result across the post-response $budget boundary", async ({
+    responseUsage,
+    limits,
+  }) => {
+    const submit = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute: () => ({ status: "accepted" }),
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-boundary", name: submit.name, input: {} }),
+        ],
+        usage: responseUsage,
+      }),
+    ]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+      limits,
+    })).resolves.toMatchObject({
+      stopReason: "tool_use",
+      terminalTool: { name: submit.name, toolUseId: "submit-boundary" },
+      toolCalls: 1,
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      budget: "raw total-token",
+      responseUsage: usage(8, 5),
+      limits: { maxTotalTokens: 10 },
+      expectedLimit: 10,
+      expectedActual: 13,
+    },
+    {
+      budget: "semantic-token",
+      responseUsage: {
+        inputTokens: 18_000,
+        outputTokens: 2_000,
+        totalTokens: 20_000,
+        cacheReadInputTokens: 5_000,
+      },
+      limits: { maxTotalTokens: 50_000, maxSemanticTokens: 10_000 },
+      expectedLimit: 10_000,
+      expectedActual: 15_000,
+    },
+  ])("throws the deferred $budget error after a nonterminal result", async ({
+    responseUsage,
+    limits,
+    expectedLimit,
+    expectedActual,
+  }) => {
+    const execute = vi.fn(() => ({ status: "rejected" }));
+    const submit = defineBedrockConverseTool({
+      name: "submit_checkpoint",
+      description: "Submit a completed checkpoint.",
+      inputSchema: z.object({}),
+      jsonSchema: { type: "object", properties: {} },
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "submit-rejected-boundary", name: submit.name, input: {} }),
+        ],
+        usage: responseUsage,
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "This response must not be requested." }],
+      }),
+    ]);
+
+    await expect(agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+      limits,
+    })).rejects.toMatchObject({
+      code: "token_limit_exceeded",
+      limit: expectedLimit,
+      actual: expectedActual,
+      toolCalls: 1,
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("dynamically forces a corrected terminal tool instead of accepting prose", async () => {
     let inspectionComplete = false;
     let submitted = false;
@@ -446,6 +810,177 @@ describe("BedrockConverseAgent", () => {
         outcome: "invalid_input",
       }),
     );
+  });
+
+  it("allows the configured malformed-input correction before terminal success", async () => {
+    const execute = vi.fn(() => ({ status: "accepted" }));
+    const submit = defineBedrockConverseTool({
+      name: "submit_result",
+      description: "Submit the final result.",
+      inputSchema: z.object({ answer: z.string().min(1) }),
+      jsonSchema: {
+        type: "object",
+        required: ["answer"],
+        properties: { answer: { type: "string" } },
+      },
+      maxRecoverableInvalidInputAttempts: 1,
+      isTerminalResult: (result) =>
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result) &&
+        result.status === "accepted",
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({
+            id: "submit-invalid",
+            name: submit.name,
+            input: { answer: 42 },
+          }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({
+            id: "submit-valid",
+            name: submit.name,
+            input: { answer: "grounded result" },
+          }),
+        ],
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+      forceTool: () => submit.name,
+    });
+
+    expect(transport.calls).toHaveLength(2);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result.terminalTool).toEqual({
+      name: submit.name,
+      toolUseId: "submit-valid",
+    });
+    expect(
+      result.events
+        .filter((event) => event.type === "tool_call_completed")
+        .map((event) => event.outcome),
+    ).toEqual(["invalid_input", "success"]);
+  });
+
+  it("fails after a configured tool exceeds its malformed-input recovery allowance", async () => {
+    const execute = vi.fn();
+    const submit = defineBedrockConverseTool({
+      name: "submit_result",
+      description: "Submit the final result.",
+      inputSchema: z.object({ answer: z.string().min(1) }),
+      jsonSchema: {
+        type: "object",
+        required: ["answer"],
+        properties: { answer: { type: "string" } },
+      },
+      maxRecoverableInvalidInputAttempts: 1,
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({
+            id: "submit-invalid-1",
+            name: submit.name,
+            input: { answer: 1 },
+          }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({
+            id: "submit-invalid-2",
+            name: submit.name,
+            input: { answer: 2 },
+          }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "This response must not be requested." }],
+      }),
+    ]);
+
+    const error = await agent.run({
+      messages: [userMessage()],
+      tools: [submit],
+      forceTool: () => submit.name,
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(BedrockConverseAgentError);
+    expect(error).toMatchObject({
+      code: "protocol_error",
+      iterations: 2,
+      toolCalls: 2,
+      usage: { totalTokens: 10 },
+    });
+    expect(
+      (error as BedrockConverseAgentError).events
+        .filter((event) => event.type === "tool_call_completed")
+        .map((event) => event.outcome),
+    ).toEqual(["invalid_input", "invalid_input"]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it("keeps malformed-input recovery unbounded for tools without the option", async () => {
+    const execute = vi.fn();
+    const tool = defineBedrockConverseTool({
+      name: "lookup",
+      description: "Look up a count.",
+      inputSchema: z.object({ count: z.number().int() }),
+      jsonSchema: {
+        type: "object",
+        required: ["count"],
+        properties: { count: { type: "integer" } },
+      },
+      execute,
+    });
+    const { agent, transport } = makeAgent([
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "bad-1", name: tool.name, input: { count: "one" } }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "tool_use",
+        content: [
+          toolRequest({ id: "bad-2", name: tool.name, input: { count: "two" } }),
+        ],
+      }),
+      assistantResponse({
+        stopReason: "end_turn",
+        content: [{ text: "Recovered without executing the invalid calls." }],
+      }),
+    ]);
+
+    const result = await agent.run({
+      messages: [userMessage()],
+      tools: [tool],
+    });
+
+    expect(result.text).toBe("Recovered without executing the invalid calls.");
+    expect(execute).not.toHaveBeenCalled();
+    expect(transport.calls).toHaveLength(3);
+    expect(
+      result.events
+        .filter((event) => event.type === "tool_call_completed")
+        .map((event) => event.outcome),
+    ).toEqual(["invalid_input", "invalid_input"]);
   });
 
   it("returns unknown and failed tools as safe error results so the model can recover", async () => {

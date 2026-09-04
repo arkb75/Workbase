@@ -54,7 +54,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v26-verifier-correction-diagnostics";
+  "repository-knowledge-investigator-v27-verifier-provenance-state";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -110,7 +110,11 @@ const MAX_INVESTIGATION_FINDINGS = 160;
 const MAX_INVESTIGATION_UNRESOLVED_AREAS = 32;
 const INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE = 3;
 export const REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS = 3;
+export const REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS =
+  REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS + 1;
 export const REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS = 4;
+export const REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS =
+  REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS + 1;
 export const MAX_REPOSITORY_VERIFIER_REPAIR_CYCLES = 1;
 const MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION = 2;
 const MIN_INVESTIGATOR_PHASE_TOKENS = 16_000;
@@ -120,10 +124,10 @@ const MIN_INVESTIGATOR_PHASE_MODEL_CALLS =
   INVESTIGATOR_INSPECTION_CALLS_PER_DURABLE_PHASE +
   MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
 const MIN_VERIFIER_REVIEW_PHASE_MODEL_CALLS =
-  REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS +
+  REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS +
   MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
 const MIN_VERIFIER_AUDIT_PHASE_MODEL_CALLS =
-  REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS +
+  REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS +
   MODEL_CALLS_FOR_REJECTED_AND_CORRECTED_SUBMISSION;
 const MIN_INVESTIGATOR_INSPECTION_OPERATIONS = 4;
 const MIN_VERIFIER_REVIEW_INSPECTION_OPERATIONS = 4;
@@ -283,10 +287,10 @@ export function repositoryInvestigationSharedBudgetLimits(input: {
   const fileCount = Math.max(0, input.analyzedFileCount);
   const maxModelTokens = repositorySemanticTokenTier(fileCount);
   const base = fileCount <= 80
-    ? { maxModelTokens, maxModelCalls: 68, maxInspectionOperations: 110 }
+    ? { maxModelTokens, maxModelCalls: 71, maxInspectionOperations: 110 }
     : fileCount <= 250
-      ? { maxModelTokens, maxModelCalls: 100, maxInspectionOperations: 194 }
-      : { maxModelTokens, maxModelCalls: 152, maxInspectionOperations: 314 };
+      ? { maxModelTokens, maxModelCalls: 103, maxInspectionOperations: 194 }
+      : { maxModelTokens, maxModelCalls: 155, maxInspectionOperations: 314 };
   const additionalRepositories = Math.max(0, repositoryCount - 1);
   return {
     maxModelTokens: Math.min(
@@ -295,7 +299,7 @@ export function repositoryInvestigationSharedBudgetLimits(input: {
     ),
     maxModelCalls: Math.min(
       180,
-      base.maxModelCalls + additionalRepositories * 22,
+      base.maxModelCalls + additionalRepositories * 25,
     ),
     maxInspectionOperations: Math.min(
       420,
@@ -1116,6 +1120,27 @@ type RepositoryEvidenceResolutionRejectionCode = Exclude<
   RepositoryVerifierSubmissionRejectionCode,
   "discovery_gate_incomplete" | "duplicate_observation"
 >;
+
+const REPOSITORY_VERIFIER_SOURCE_REPAIR_CODES = new Set<
+  RepositoryVerifierSubmissionRejectionCode
+>([
+  "evidence_not_inspected",
+  "evidence_range_not_visible",
+  "evidence_not_exact_pinned_source",
+  "evidence_not_eligible_pinned_file",
+  "evidence_not_eligible_semantic_source",
+]);
+
+export function repositoryVerifierSubmissionNeedsSourceRepair(input: {
+  codes: readonly RepositoryVerifierSubmissionRejectionCode[];
+  inspectionToolCalls: number;
+  maxTotalInspectionToolCalls: number;
+  contractSubmissionRejectionCount: number;
+}) {
+  return input.contractSubmissionRejectionCount < 2 &&
+    input.inspectionToolCalls < input.maxTotalInspectionToolCalls &&
+    input.codes.some((code) => REPOSITORY_VERIFIER_SOURCE_REPAIR_CODES.has(code));
+}
 
 export type RepositorySourceInspectionAttestation = {
   sourceSearchTrace: Array<{
@@ -2086,7 +2111,8 @@ export function repositoryCoverageVerifierLimits(fileCount: number) {
     // on every turn, so this is a per-context runaway guard rather than a
     // refresh-wide token allocation. Refresh-wide semantic work, calls, and
     // inspections remain independently capped by the shared budget.
-    maxTotalTokens: repositorySemanticTokenTier(fileCount),
+    maxTotalTokens:
+      Math.ceil(preferred.maxTotalTokens * 1.5 / 10_000) * 10_000,
   };
 }
 
@@ -2891,8 +2917,12 @@ export function repositoryVerifierIndependentDiscoveryGate(input: {
     sourceSearchTrace: discovery,
     readSet: exactProductionReads,
   };
+  const missingDiscovery = discovery.length === 0;
+  const missingExactProductionRead = exactProductionReads.length === 0;
   return {
-    accepted: discovery.length > 0 && exactProductionReads.length > 0,
+    accepted: !missingDiscovery && !missingExactProductionRead,
+    missingDiscovery,
+    missingExactProductionRead,
     discoveryEvidenceIds: uniqueStrings(discovery.map((entry) => entry.evidenceId)),
     exactReadEvidenceIds: uniqueStrings(
       exactProductionReads.map((entry) => entry.evidenceId),
@@ -2907,12 +2937,29 @@ export function repositoryVerifierIndependentNextAction(input: {
   files: RepositorySnapshotFile[];
   target: Pick<RepositoryTargetHead, "sourceId" | "repository" | "commitSha">;
 }) {
-  const minimumGateSatisfied = repositoryVerifierIndependentDiscoveryGate({
+  const gate = repositoryVerifierIndependentDiscoveryGate({
     sourceInspection: input.sourceInspection,
     files: input.files,
     target: input.target,
-  }).accepted;
-  if (!minimumGateSatisfied) {
+  });
+  if (!gate.accepted) {
+    const missing = [
+      ...(gate.missingDiscovery
+        ? ["one successful grep or ls-tree discovery query"]
+        : []),
+      ...(gate.missingExactProductionRead
+        ? ["one exact git show HEAD:path read of analyzed non-test production source"]
+        : []),
+    ].join(" and ");
+    if (
+      input.completedInspectionToolCalls >=
+        REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS
+    ) {
+      return input.completedInspectionToolCalls <
+          REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS
+        ? `The normal blind-review allowance is complete, but the provenance gate still needs ${missing}. Use the one bounded provenance-repair inspection call only for that missing evidence; do not submit until the gate is ready.`
+        : `The one bounded provenance-repair inspection is exhausted, but the gate still needs ${missing}. This blind review cannot be certified; do not fabricate or resubmit observations.`;
+    }
     return "Continue blind discovery with grep or ls-tree and read decisive exact production source before submitting the independent review.";
   }
   return input.completedInspectionToolCalls <
@@ -3026,6 +3073,7 @@ export function repositoryVerifierIndependentSubmissionDiagnostics(input: {
     };
   };
   const diagnostics: RepositoryVerifierIndependentSubmissionDiagnostic[] = [];
+  let includedExactReadRangeCatalog = false;
   input.independentObservations.forEach((observation, submissionIndex) => {
     const resolved = resolvedEvidenceForPinnedTarget({
       evidenceById: input.evidenceById,
@@ -3039,10 +3087,14 @@ export function repositoryVerifierIndependentSubmissionDiagnostics(input: {
       ...diagnosticBase(submissionIndex),
       code: resolved.code,
       instruction: resolved.error.slice(0, 700),
-      ...(resolved.code === "evidence_not_inspected"
+      ...(resolved.code === "evidence_not_inspected" &&
+          !includedExactReadRangeCatalog
         ? { validExactReadRanges }
         : {}),
     });
+    if (resolved.code === "evidence_not_inspected") {
+      includedExactReadRangeCatalog = true;
+    }
   });
   const indicesByDigest = new Map<string, number[]>();
   input.independentObservations.forEach((observation, submissionIndex) => {
@@ -3126,7 +3178,7 @@ const repositoryVerifierIndependentReviewCheckpointSchema = z.object({
   independentObservationDigest: checkpointDigestSchema,
   observationCapacityReached: z.literal(true).optional(),
   inspectionToolCalls: z.number().int().min(1)
-    .max(REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS),
+    .max(REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS),
   checkpointDigest: checkpointDigestSchema,
 });
 
@@ -3308,7 +3360,7 @@ export function independentCoverageReviewRequest(input: {
       "Do not infer repository-wide absence from a single snippet. Record the positive bounded constraint established by exact source and request multiple linked findings when multiple ranges are needed.",
       "README aspirations, tests alone, filenames, and attractive architecture labels are navigation hints only.",
       "Use grep or ls-tree to discover the implementation, then read exact production source and submit source-cited independent observations or open leads about the operations, state transitions, side effects, integrations, and boundaries you found.",
-      `Use at most ${REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS} inspect_repository_snapshot calls. Batch related discovery and exact reads, then call submit_repository_independent_review.`,
+      `Use up to ${REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls. Batch related discovery and exact reads, then call submit_repository_independent_review. If the host reports that the required discovery/read provenance is still incomplete, it may require one final provenance-only repair call; use it only for the explicitly missing gate evidence.`,
       `Submit one independent observation for each materially distinct operation, state transition, external side effect, integration, or implementation boundary established by the source you inspected, up to the bounded safety ceiling of ${REPOSITORY_VERIFIER_MAX_OBSERVATIONS}. This ceiling is not a target: do not manufacture findings, split one behavior into trivia, or collapse unrelated behaviors merely to keep the review short.`,
       "Set observationCapacityReached true only when additional material observations were discovered but could not fit within that ceiling; that result will stop as explicitly incomplete instead of silently omitting them.",
       "Do not narrate the plan or source walk. Use the inspection tool, then submit the complete material review supported by those bounded reads.",
@@ -3363,7 +3415,7 @@ export function candidateCoverageAuditRequest(input: {
       "Every capability check and every newly discovered missing operation must cite one exact visible git show HEAD:path range read in this phase. Unsupported means you re-read the investigator's exact claim range and found the statement unsupported.",
       repositoryInvestigationBoundaryReviewGuidance,
       "Do not infer repository-wide absence from a single snippet. Express a source-bounded positive constraint.",
-      `Use at most ${REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS} inspect_repository_snapshot calls. Batch the required exact reads and any concrete independent-review lead, then call submit_repository_coverage_audit.`,
+      `Use up to ${REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS} normal inspect_repository_snapshot calls. Batch the required exact reads and any concrete independent-review lead, then call submit_repository_coverage_audit. If the host reports that a required reread is still missing, it may require one final reread-only repair call before submission.`,
       "Do not repeat the exhaustive repository walk or narrate a plan. Submit satisfied only when no material uncovered operation or boundary remains and every retained representative finding is supportable.",
     ].join(" "),
     userPrompt: JSON.stringify({
@@ -3378,28 +3430,60 @@ export function candidateCoverageAuditRequest(input: {
   };
 }
 
-export function repositoryVerifierNextAction(input: {
-  inspectionToolCalls: number;
+type RepositoryVerifierRequiredExactRead = Pick<
+  RepositoryCoverageVerificationTarget,
+  "path" | "blobSha" | "lineStart" | "lineEnd"
+>;
+
+export function repositoryVerifierRequiredExactReadGate(input: {
   sourceInspection: RepositorySourceInspectionAttestation;
-  candidateRevealed: boolean;
-  candidateReviewAvailable: boolean;
-  targets?: RepositoryCoverageVerificationTarget[];
+  targets: readonly RepositoryVerifierRequiredExactRead[];
+  target: Pick<RepositoryTargetHead, "sourceId" | "repository" | "commitSha">;
 }) {
-  const performedDiscovery = input.sourceInspection.sourceSearchTrace.some((entry) =>
-    entry.operationKind === "discovery" &&
-    ["grep", "ls-tree"].includes(entry.command)
-  );
-  const targets = input.targets ?? [];
-  const coveredTargets = targets.filter((target) =>
+  const distinctTargets = Array.from(new Map(input.targets.map((target) => [
+    `${target.path}:${target.blobSha}:${target.lineStart}:${target.lineEnd}`,
+    target,
+  ])).values());
+  const coveredTargets = distinctTargets.filter((target) =>
     input.sourceInspection.readSet.some((read) =>
+      read.sourceId === input.target.sourceId &&
+      read.repository === input.target.repository &&
+      read.commitSha === input.target.commitSha &&
       read.path === target.path &&
       read.blobSha === target.blobSha &&
       read.lineStart <= target.lineStart &&
       read.lineEnd >= target.lineEnd
     )
   );
+  return {
+    accepted: distinctTargets.length > 0 &&
+      coveredTargets.length === distinctTargets.length,
+    requiredReadCount: distinctTargets.length,
+    completedReadCount: coveredTargets.length,
+    missingReadCount: distinctTargets.length - coveredTargets.length,
+  };
+}
+
+export function repositoryVerifierNextAction(input: {
+  inspectionToolCalls: number;
+  sourceInspection: RepositorySourceInspectionAttestation;
+  candidateRevealed: boolean;
+  candidateReviewAvailable: boolean;
+  targets?: readonly RepositoryVerifierRequiredExactRead[];
+  target: Pick<RepositoryTargetHead, "sourceId" | "repository" | "commitSha">;
+}) {
+  const performedDiscovery = input.sourceInspection.sourceSearchTrace.some((entry) =>
+    entry.operationKind === "discovery" &&
+    ["grep", "ls-tree"].includes(entry.command)
+  );
+  const targets = input.targets ?? [];
+  const exactReadGate = repositoryVerifierRequiredExactReadGate({
+    sourceInspection: input.sourceInspection,
+    targets,
+    target: input.target,
+  });
   const performedRequiredReads = targets.length
-    ? coveredTargets.length === targets.length
+    ? exactReadGate.accepted
     : input.sourceInspection.readSet.length > 0;
   if (!input.candidateRevealed) {
     if (input.candidateReviewAvailable) {
@@ -3421,21 +3505,62 @@ export function repositoryVerifierNextAction(input: {
     input.inspectionToolCalls >=
       REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS
   ) {
-    return "The bounded verification inspection allowance is complete. Submit the audit now; the submission gate will fail closed if a required exact source reread is still missing.";
+    return input.inspectionToolCalls <
+        REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS
+      ? `The normal verification allowance is complete, but ${Math.max(1, exactReadGate.missingReadCount)} required exact reread(s) remain. Use the one bounded reread-repair inspection call only for those ranges; do not submit yet.`
+      : "The bounded reread-repair allowance is exhausted and required exact source evidence is still missing; this audit cannot be certified.";
   }
-  return `Re-read the ${Math.max(1, targets.length - coveredTargets.length)} remaining required exact HEAD:path range(s), then submit the audit.`;
+  return `Re-read the ${Math.max(1, exactReadGate.missingReadCount)} remaining required exact HEAD:path range(s), then submit the audit.`;
 }
 
 export function repositoryVerifierForcedSubmissionTool(input: {
   inspectionToolCalls: number;
   maxInspectionToolCalls: number;
+  maxRepairInspectionToolCalls?: number;
+  readyToSubmit?: boolean;
+  repairRequired?: boolean;
   submitted: boolean;
+  inspectionToolName?: string;
   toolName: string;
 }) {
-  return !input.submitted &&
-      input.inspectionToolCalls >= input.maxInspectionToolCalls
-    ? input.toolName
+  const hardInspectionLimit = input.maxInspectionToolCalls +
+    Math.max(0, input.maxRepairInspectionToolCalls ?? 0);
+  if (input.submitted) return null;
+  if (
+    input.repairRequired &&
+    input.inspectionToolName &&
+    input.inspectionToolCalls < hardInspectionLimit
+  ) {
+    return input.inspectionToolName;
+  }
+  if (input.inspectionToolCalls < input.maxInspectionToolCalls) return null;
+  if (input.readyToSubmit ?? true) return input.toolName;
+  return input.inspectionToolName &&
+      input.inspectionToolCalls < hardInspectionLimit
+    ? input.inspectionToolName
     : null;
+}
+
+export function repositoryVerifierSubmissionAttemptDiagnostics(input: {
+  error?: unknown;
+  result?: BedrockConverseAgentRunResult;
+  toolName: string;
+}) {
+  const eventTrail = input.result?.events ??
+    (input.error instanceof BedrockConverseAgentError ? input.error.events : []);
+  const completions = eventTrail.filter((event) =>
+        event.type === "tool_call_completed" &&
+        event.toolName === input.toolName
+      );
+  return {
+    toolCallAttemptCount: completions.length,
+    schemaInvalidAttemptCount: completions.filter((event) =>
+      event.type === "tool_call_completed" && event.outcome === "invalid_input"
+    ).length,
+    executionErrorAttemptCount: completions.filter((event) =>
+      event.type === "tool_call_completed" && event.outcome === "execution_error"
+    ).length,
+  };
 }
 
 function sourceFromSnapshot(input: {
@@ -3514,7 +3639,9 @@ function createRepositoryInspectionTool(input: {
   maxExpansionRequestsPerCall?: number;
   nextAction?: (inspectionToolCalls: number) => string;
   checkpointRequirement?: () => string | null;
+  isTerminalResult?: (result: JsonValue) => boolean;
   onInspectionToolCallCompleted?: () => void;
+  onSuccessfulInspectionToolCallCompleted?: () => void;
   objective: string;
   onSharedBudgetExhausted: () => void;
 }) {
@@ -3533,6 +3660,9 @@ function createRepositoryInspectionTool(input: {
     inputSchema: schemas.inputSchema,
     jsonSchema: schemas.jsonSchema,
     strict: true,
+    ...(input.isTerminalResult
+      ? { isTerminalResult: input.isTerminalResult }
+      : {}),
     execute: async ({ repositoryQueries, repositoryExpansions }) => {
       if (
         input.maxInspectionToolCalls !== undefined &&
@@ -3574,8 +3704,8 @@ function createRepositoryInspectionTool(input: {
       });
       inspectionToolCalls += 1;
       input.onInspectionToolCallCompleted?.();
-      const nextAction = input.nextAction?.(inspectionToolCalls);
       if (result.status !== "completed") {
+        const nextAction = input.nextAction?.(inspectionToolCalls);
         return nextAction ? { ...result, instruction: nextAction } : result;
       }
       const results = result.results.map((entry) => {
@@ -3612,6 +3742,8 @@ function createRepositoryInspectionTool(input: {
         }
         return entry;
       });
+      input.onSuccessfulInspectionToolCallCompleted?.();
+      const nextAction = input.nextAction?.(inspectionToolCalls);
       return {
         ...result,
         results,
@@ -3656,6 +3788,22 @@ function agentResultFromValidatedTerminalTool(
     ...agentResultFromBudgetError(error, identity),
     text,
   } satisfies BedrockConverseAgentRunResult;
+}
+
+function protocolErrorFromAgentResult(
+  result: BedrockConverseAgentRunResult,
+  message: string,
+) {
+  return new BedrockConverseAgentError(message, "protocol_error", {
+    stopReason: result.stopReason,
+    iterations: result.iterations,
+    toolCalls: result.toolCalls,
+    usage: result.usage,
+    events: result.events,
+    requestIds: result.requestIds,
+    routedProviders: result.routedProviders,
+    reportedCostUsd: result.reportedCostUsd,
+  });
 }
 
 function isAgentBudgetError(error: unknown): error is BedrockConverseAgentError {
@@ -4569,11 +4717,27 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
   const visibleEvidenceRanges: VisibleEvidenceRange[] = [];
   const inspectorLimits = verifierRepositoryInspectionLimits(input.files.length);
   const filesByPath = new Map(input.files.map((file) => [file.path, file]));
+  const currentDiscoveryGate = () => repositoryVerifierIndependentDiscoveryGate({
+    sourceInspection: buildRepositorySourceInspectionAttestation({
+      evidence: rawEvidence.values(),
+      visibleRanges: visibleEvidenceRanges,
+    }),
+    files: input.files,
+    target: input.target,
+  });
   let inspectionToolCalls = 0;
   let sharedInspectionBudgetExhausted = false;
   let submittedCheckpoint: RepositoryVerifierIndependentReviewCheckpoint | null = null;
   let schemaValidSubmissionAttemptCount = 0;
+  let contractSubmissionRejectionCount = 0;
   let lastSubmissionRejectionCodes: RepositoryVerifierSubmissionRejectionCode[] = [];
+  let submissionNeedsSourceRepair = false;
+  let sourceRepairInspectionCount = 0;
+  let terminalProtocolFailure:
+    | "provenance_gate_exhausted"
+    | "source_repair_exhausted"
+    | "submission_correction_exhausted"
+    | null = null;
   const inspector = new ProjectChatRepositoryInspector({
     userId: input.userId,
     workItemId: input.workItemId,
@@ -4593,10 +4757,18 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
     visibleEvidenceRanges,
     sharedBudget: input.sharedBudget,
     reservedInspectionOperations: budgetPolicy.reserve.inspectionOperations,
-    maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+    maxInspectionToolCalls:
+      REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
     maxQueriesPerCall: inspectorLimits.maxQueriesPerCall,
     maxExpansionRequestsPerCall: inspectorLimits.maxExpansionRequestsPerCall,
+    isTerminalResult: () =>
+      inspectionToolCalls >=
+        REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS &&
+      (!currentDiscoveryGate().accepted || submissionNeedsSourceRepair),
     nextAction: (completedInspectionToolCalls) => {
+      if (submissionNeedsSourceRepair) {
+        return "The prior submission cited source that was not inspectable at the submitted range. Use this one bounded repair call to read the exact production range named by the diagnostic, then resubmit the complete observation set.";
+      }
       const sourceInspection = buildRepositorySourceInspectionAttestation({
         evidence: rawEvidence.values(),
         visibleRanges: visibleEvidenceRanges,
@@ -4611,6 +4783,10 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
     onInspectionToolCallCompleted: () => {
       inspectionToolCalls += 1;
     },
+    onSuccessfulInspectionToolCallCompleted: () => {
+      if (submissionNeedsSourceRepair) sourceRepairInspectionCount += 1;
+      submissionNeedsSourceRepair = false;
+    },
     objective:
       "Independently identify central operations, state transitions, integrations, side effects, and material implementation boundaries without access to candidate claims.",
     onSharedBudgetExhausted: () => {
@@ -4624,6 +4800,10 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
     inputSchema: repositoryVerifierCandidateReviewSchema,
     jsonSchema: repositoryVerifierCandidateReviewJsonSchema,
     strict: true,
+    maxRecoverableInvalidInputAttempts: 1,
+    isTerminalResult: (result) =>
+      record(result).status === "accepted" ||
+      terminalProtocolFailure === "submission_correction_exhausted",
     execute: async ({
       independentObservations,
       observationCapacityReached,
@@ -4639,7 +4819,16 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         target: input.target,
       });
       if (!gate.accepted) {
+        submissionNeedsSourceRepair = false;
         lastSubmissionRejectionCodes = ["discovery_gate_incomplete"];
+        const missing = [
+          ...(gate.missingDiscovery
+            ? ["a successful grep or ls-tree discovery"]
+            : []),
+          ...(gate.missingExactProductionRead
+            ? ["an exact git show HEAD:path read of analyzed non-test production source"]
+            : []),
+        ].join(" and ");
         return {
           status: "rejected" as const,
           rejection: {
@@ -4647,8 +4836,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
             codes: lastSubmissionRejectionCodes,
             diagnostics: [],
           },
-          instruction:
-            "First complete a successful grep/ls-tree discovery and an exact git show HEAD:path read of analyzed non-test production source.",
+          instruction: `Do not resubmit yet. First complete ${missing}.`,
         };
       }
       const diagnostics = repositoryVerifierIndependentSubmissionDiagnostics({
@@ -4659,9 +4847,21 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         target: input.target,
       });
       if (diagnostics.length) {
+        contractSubmissionRejectionCount += 1;
         lastSubmissionRejectionCodes = Array.from(new Set(
           diagnostics.map((diagnostic) => diagnostic.code),
         ));
+        submissionNeedsSourceRepair =
+          repositoryVerifierSubmissionNeedsSourceRepair({
+            codes: lastSubmissionRejectionCodes,
+            inspectionToolCalls,
+            maxTotalInspectionToolCalls:
+              REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+            contractSubmissionRejectionCount,
+          });
+        if (contractSubmissionRejectionCount >= 2) {
+          terminalProtocolFailure = "submission_correction_exhausted";
+        }
         return {
           status: "rejected" as const,
           rejection: {
@@ -4673,6 +4873,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
             "Correct every zero-based indexed diagnostic and resubmit the complete observation set. The checkpoint is accepted only when every observation is valid and distinct.",
         };
       }
+      submissionNeedsSourceRepair = false;
       submittedCheckpoint = buildRepositoryVerifierIndependentReviewCheckpoint({
         target: input.target,
         snapshotScopeDigest: scopeDigest,
@@ -4706,6 +4907,16 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         snapshotScopeDigest: scopeDigest,
         limits,
         inspectorLimits,
+        verifierToolPolicy: {
+          normalInspectionToolCalls:
+            REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+          provenanceRepairInspectionToolCalls:
+            REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS -
+            REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+          totalInspectionToolCalls:
+            REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+          submissionRequiresProvenanceGate: true,
+        },
         candidateAvailable: false,
         sharedBudgetAtStart: input.sharedBudget.snapshot(),
       },
@@ -4716,24 +4927,50 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         snapshotScopeDigest: scopeDigest,
         checkpointDigest: executed.data.checkpointDigest,
         sourceInspectionDigest: executed.data.sourceInspectionDigest,
+        sourceRepairInspectionCount,
+        submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
+          result: executed.result,
+          toolName: "submit_repository_independent_review",
+        }),
         inspectionUsage: {
           operations: input.sharedBudget.snapshot().used.inspectionOperations -
             inspectionOperationsAtStart,
         },
         sharedBudget: input.sharedBudget.snapshot(),
       }),
-      failureResultAttestation: () => ({
-        executionMode: "agentic_investigator_verifier_independent_review",
-        fallbackUsed: false,
-        snapshotScopeDigest: scopeDigest,
-        schemaValidSubmissionAttemptCount,
-        lastSubmissionRejectionCodes,
-        inspectionUsage: {
-          operations: input.sharedBudget.snapshot().used.inspectionOperations -
-            inspectionOperationsAtStart,
-        },
-        sharedBudget: input.sharedBudget.snapshot(),
-      }),
+      failureResultAttestation: (error) => {
+        const gate = currentDiscoveryGate();
+        return {
+          executionMode: "agentic_investigator_verifier_independent_review",
+          fallbackUsed: false,
+          snapshotScopeDigest: scopeDigest,
+          schemaValidSubmissionAttemptCount,
+          contractSubmissionRejectionCount,
+          sourceRepairInspectionCount,
+          submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
+            error,
+            toolName: "submit_repository_independent_review",
+          }),
+          lastSubmissionRejectionCodes,
+          submissionNeedsSourceRepair,
+          terminalProtocolFailure,
+          provenanceGate: {
+            accepted: gate.accepted,
+            missingDiscovery: gate.missingDiscovery,
+            missingExactProductionRead: gate.missingExactProductionRead,
+            discoveryEvidenceCount: gate.discoveryEvidenceIds.length,
+            exactReadEvidenceCount: gate.exactReadEvidenceIds.length,
+            repairInspectionAvailable:
+              inspectionToolCalls <
+                REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS,
+          },
+          inspectionUsage: {
+            operations: input.sharedBudget.snapshot().used.inspectionOperations -
+              inspectionOperationsAtStart,
+          },
+          sharedBudget: input.sharedBudget.snapshot(),
+        };
+      },
       preserveResultAttestationExactly: true,
       execute: async () => {
         const request = independentCoverageReviewRequest({
@@ -4758,7 +4995,13 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
               inspectionToolCalls,
               maxInspectionToolCalls:
                 REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+              maxRepairInspectionToolCalls:
+                REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS -
+                REPOSITORY_VERIFIER_MAX_REVIEW_INSPECTION_TOOL_CALLS,
+              readyToSubmit: currentDiscoveryGate().accepted,
+              repairRequired: submissionNeedsSourceRepair,
               submitted: submittedCheckpoint !== null,
+              inspectionToolName: "inspect_repository_snapshot",
               toolName: "submit_repository_independent_review",
             }),
           });
@@ -4790,7 +5033,38 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
           );
         }
         if (!submittedCheckpoint) {
-          throw new Error(
+          const gate = currentDiscoveryGate();
+          if (terminalProtocolFailure === "submission_correction_exhausted") {
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository review could not correct every source-citation diagnostic in one bounded resubmission.",
+            );
+          }
+          if (
+            submissionNeedsSourceRepair &&
+            inspectionToolCalls >=
+              REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS
+          ) {
+            terminalProtocolFailure = "source_repair_exhausted";
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository review exhausted its bounded source-repair inspection without making the rejected citation inspectable.",
+            );
+          }
+          if (
+            inspectionToolCalls >=
+              REPOSITORY_VERIFIER_MAX_REVIEW_TOTAL_INSPECTION_TOOL_CALLS &&
+            !gate.accepted
+          ) {
+            terminalProtocolFailure = "provenance_gate_exhausted";
+            lastSubmissionRejectionCodes = ["discovery_gate_incomplete"];
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository review exhausted its one provenance-repair inspection before satisfying the discovery/read gate.",
+            );
+          }
+          throw protocolErrorFromAgentResult(
+            agentResult,
             "Independent repository review ended without submitting a source-grounded checkpoint.",
           );
         }
@@ -4900,6 +5174,24 @@ async function auditRepositoryInvestigationCoverage(input: {
       "The durable independent repository review no longer satisfies its source gate.",
     );
   }
+  const candidateRequiredReadTargets: RepositoryVerifierRequiredExactRead[] = [
+    ...verificationTargets,
+    ...independentReview.checkpoint.independentObservations.flatMap((observation) => {
+      const read = independentReview.checkpoint.sourceInspection.readSet.find((entry) =>
+        entry.evidenceId === observation.evidence.evidenceId &&
+        entry.lineStart <= observation.evidence.lineStart &&
+        entry.lineEnd >= observation.evidence.lineEnd
+      );
+      return read
+        ? [{
+            path: read.path,
+            blobSha: read.blobSha ?? "",
+            lineStart: observation.evidence.lineStart,
+            lineEnd: observation.evidence.lineEnd,
+          }]
+        : [];
+    }),
+  ];
   const durableCandidateDisclosure: RepositoryVerifierCandidateDisclosure = {
     inspectionToolCallsAtReveal: independentReview.checkpoint.inspectionToolCalls,
     preDisclosureDiscoveryEvidenceIds: independentGate.discoveryEvidenceIds,
@@ -5048,8 +5340,28 @@ async function auditRepositoryInvestigationCoverage(input: {
     target: input.target,
   }));
   const verifierFilesByPath = new Map(input.files.map((file) => [file.path, file]));
+  const currentCandidateReadGate = () => repositoryVerifierRequiredExactReadGate({
+    sourceInspection: buildRepositorySourceInspectionAttestation({
+      evidence: rawEvidence.values(),
+      visibleRanges: visibleEvidenceRanges,
+    }),
+    targets: candidateRequiredReadTargets,
+    target: input.target,
+  });
   let inspectionToolCalls = 0;
   let sharedInspectionBudgetExhausted = false;
+  let submittedAudit: z.infer<typeof coverageAuditSchema> | null = null;
+  let schemaValidSubmissionAttemptCount = 0;
+  let contractSubmissionRejectionCount = 0;
+  let submissionNeedsSourceRepair = false;
+  let sourceRepairInspectionCount = 0;
+  let terminalProtocolFailure:
+    | "required_read_gate_exhausted"
+    | "source_repair_exhausted"
+    | "submission_correction_exhausted"
+    | null = null;
+  let lastSubmissionRejectionCodes: string[] = [];
+  let lastSubmissionRejectionReasons: string[] = [];
   const candidateDisclosure = durableCandidateDisclosure;
   const inspectTool = createRepositoryInspectionTool({
     inspector,
@@ -5058,20 +5370,28 @@ async function auditRepositoryInvestigationCoverage(input: {
     visibleEvidenceRanges,
     sharedBudget: input.sharedBudget,
     reservedInspectionOperations: budgetPolicy.reserve.inspectionOperations,
-    maxInspectionToolCalls: REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+    maxInspectionToolCalls:
+      REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
     maxQueriesPerCall: inspectorLimits.maxQueriesPerCall,
     maxExpansionRequestsPerCall:
       inspectorLimits.maxExpansionRequestsPerCall,
-    nextAction: (inspectionToolCalls) => repositoryVerifierNextAction({
-      inspectionToolCalls,
-      candidateRevealed: true,
-      candidateReviewAvailable: true,
-      targets: verificationTargets,
-      sourceInspection: buildRepositorySourceInspectionAttestation({
-        evidence: rawEvidence.values(),
-        visibleRanges: visibleEvidenceRanges,
-      }),
-    }),
+    nextAction: (inspectionToolCalls) => submissionNeedsSourceRepair
+      ? "The prior audit submission used a citation that was not inspectable at the submitted range. Use this bounded repair call to read the exact production range named by the rejection, then resubmit the complete audit."
+      : repositoryVerifierNextAction({
+          inspectionToolCalls,
+          candidateRevealed: true,
+          candidateReviewAvailable: true,
+          targets: candidateRequiredReadTargets,
+          target: input.target,
+          sourceInspection: buildRepositorySourceInspectionAttestation({
+            evidence: rawEvidence.values(),
+            visibleRanges: visibleEvidenceRanges,
+          }),
+        }),
+    isTerminalResult: () =>
+      inspectionToolCalls >=
+        REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS &&
+      (!currentCandidateReadGate().accepted || submissionNeedsSourceRepair),
     objective:
       "Independently verify central implemented operations, exact claim support, and material placeholders, proxy boundaries, WIP seams, policy/security constraints, and other limitations.",
     onSharedBudgetExhausted: () => {
@@ -5080,8 +5400,11 @@ async function auditRepositoryInvestigationCoverage(input: {
     onInspectionToolCallCompleted: () => {
       inspectionToolCalls += 1;
     },
+    onSuccessfulInspectionToolCallCompleted: () => {
+      if (submissionNeedsSourceRepair) sourceRepairInspectionCount += 1;
+      submissionNeedsSourceRepair = false;
+    },
   });
-  let submittedAudit: z.infer<typeof coverageAuditSchema> | null = null;
   const submitAuditTool = defineBedrockConverseTool({
     name: "submit_repository_coverage_audit",
     description:
@@ -5089,8 +5412,16 @@ async function auditRepositoryInvestigationCoverage(input: {
     inputSchema: coverageAuditSchema,
     jsonSchema: coverageAuditJsonSchema,
     strict: true,
+    maxRecoverableInvalidInputAttempts: 1,
+    isTerminalResult: (result) =>
+      record(result).status === "accepted" ||
+      terminalProtocolFailure === "submission_correction_exhausted",
     execute: async (audit) => {
+      schemaValidSubmissionAttemptCount += 1;
       if (audit.status === "incomplete") {
+        submissionNeedsSourceRepair = false;
+        lastSubmissionRejectionCodes = ["model_submitted_incomplete"];
+        lastSubmissionRejectionReasons = ["model_submitted_incomplete"];
         return {
           status: "rejected" as const,
           instruction:
@@ -5113,6 +5444,9 @@ async function auditRepositoryInvestigationCoverage(input: {
           entry.commitSha === input.target.commitSha;
       });
       if (!performedPinnedImplementationRead) {
+        submissionNeedsSourceRepair = false;
+        lastSubmissionRejectionCodes = ["missing_pinned_implementation_read"];
+        lastSubmissionRejectionReasons = ["missing_pinned_implementation_read"];
         return {
           status: "rejected" as const,
           instruction:
@@ -5125,7 +5459,7 @@ async function auditRepositoryInvestigationCoverage(input: {
         visibleEvidenceRanges,
         filesByPath: verifierFilesByPath,
       };
-      const citationErrors = [
+      const citationDiagnostics = [
         ...audit.capabilityChecks.map((check) => ({
           label: `${check.capabilityKey}:${check.findingId}`,
           citation: check.evidence,
@@ -5149,7 +5483,9 @@ async function auditRepositoryInvestigationCoverage(input: {
           citation,
           implementationState,
         });
-        return "error" in resolved ? [`${label}: ${resolved.error}`] : [];
+        return "error" in resolved
+          ? [{ code: resolved.code, reason: `${label}: ${resolved.error}` }]
+          : [];
       });
       const contract = validateRepositoryCoverageAuditContract({
         audit,
@@ -5159,15 +5495,36 @@ async function auditRepositoryInvestigationCoverage(input: {
         requireDiscovery: false,
         independentReview: independentReview.checkpoint,
       });
-      if (citationErrors.length || !contract.accepted) {
+      if (citationDiagnostics.length || !contract.accepted) {
+        contractSubmissionRejectionCount += 1;
+        const citationRejectionCodes = Array.from(new Set(
+          citationDiagnostics.map((diagnostic) => diagnostic.code),
+        ));
+        lastSubmissionRejectionCodes = [
+          ...citationRejectionCodes,
+          ...(contract.accepted ? [] : ["coverage_contract_invalid"]),
+        ];
+        lastSubmissionRejectionReasons = [
+          ...citationDiagnostics.map((diagnostic) => diagnostic.reason),
+          ...(contract.accepted ? [] : contract.errors),
+        ].slice(0, 12).map((reason) => reason.slice(0, 700));
+        submissionNeedsSourceRepair =
+          repositoryVerifierSubmissionNeedsSourceRepair({
+            codes: citationRejectionCodes,
+            inspectionToolCalls,
+            maxTotalInspectionToolCalls:
+              REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
+            contractSubmissionRejectionCount,
+          });
+        if (contractSubmissionRejectionCount >= 2) {
+          terminalProtocolFailure = "submission_correction_exhausted";
+        }
         return {
           status: "rejected" as const,
-          instruction: [
-            ...citationErrors,
-            ...(contract.accepted ? [] : contract.errors),
-          ].join(" "),
+          instruction: lastSubmissionRejectionReasons.join(" "),
         };
       }
+      submissionNeedsSourceRepair = false;
       submittedAudit = audit;
       return { status: "accepted" as const };
     },
@@ -5209,6 +5566,11 @@ async function auditRepositoryInvestigationCoverage(input: {
         verifierToolPolicy: {
           maxInspectionToolCalls:
             REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+          repairInspectionToolCalls:
+            REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS -
+            REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+          totalInspectionToolCalls:
+            REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS,
           reservedAuditSubmissionToolCalls: 1,
           durableBlindReview: true,
           representativeCheck: true,
@@ -5240,6 +5602,18 @@ async function auditRepositoryInvestigationCoverage(input: {
             independentReview.checkpoint.sourceInspection,
           candidateDisclosure,
           postDisclosureSourceInspectionDigest: hash(sourceAttestation),
+          requiredReadGate: repositoryVerifierRequiredExactReadGate({
+            sourceInspection: sourceAttestation,
+            targets: candidateRequiredReadTargets,
+            target: input.target,
+          }),
+          schemaValidSubmissionAttemptCount,
+          contractSubmissionRejectionCount,
+          sourceRepairInspectionCount,
+          submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
+            result: executed.result,
+            toolName: "submit_repository_coverage_audit",
+          }),
           toolTrace: sourceAttestation.sourceSearchTrace,
           readSet: sourceAttestation.readSet,
           inspectionUsage: {
@@ -5249,7 +5623,7 @@ async function auditRepositoryInvestigationCoverage(input: {
           sharedBudget: input.sharedBudget.snapshot(),
         };
       },
-      failureResultAttestation: () => ({
+      failureResultAttestation: (error) => ({
         executionMode: "agentic_investigator_verifier_candidate_audit",
         fallbackUsed: false,
         snapshotScopeDigest: scopeDigest,
@@ -5258,6 +5632,18 @@ async function auditRepositoryInvestigationCoverage(input: {
           independentReview.generationRunId,
         independentReviewCheckpointDigest:
           independentReview.checkpoint.checkpointDigest,
+        schemaValidSubmissionAttemptCount,
+        contractSubmissionRejectionCount,
+        sourceRepairInspectionCount,
+        submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
+          error,
+          toolName: "submit_repository_coverage_audit",
+        }),
+        lastSubmissionRejectionReasons,
+        lastSubmissionRejectionCodes,
+        submissionNeedsSourceRepair,
+        terminalProtocolFailure,
+        requiredReadGate: currentCandidateReadGate(),
         inspectionUsage: {
           operations: input.sharedBudget.snapshot().used.inspectionOperations -
             inspectionOperationsAtStart,
@@ -5289,7 +5675,13 @@ async function auditRepositoryInvestigationCoverage(input: {
               inspectionToolCalls,
               maxInspectionToolCalls:
                 REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+              maxRepairInspectionToolCalls:
+                REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS -
+                REPOSITORY_VERIFIER_MAX_INSPECTION_TOOL_CALLS,
+              readyToSubmit: currentCandidateReadGate().accepted,
+              repairRequired: submissionNeedsSourceRepair,
               submitted: submittedAudit !== null,
+              inspectionToolName: "inspect_repository_snapshot",
               toolName: "submit_repository_coverage_audit",
             }),
           });
@@ -5341,7 +5733,40 @@ async function auditRepositoryInvestigationCoverage(input: {
           );
         }
         if (!submittedAudit) {
-          throw new Error(
+          const readGate = currentCandidateReadGate();
+          if (terminalProtocolFailure === "submission_correction_exhausted") {
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository verifier could not correct every candidate-audit contract diagnostic in one bounded resubmission.",
+            );
+          }
+          if (
+            submissionNeedsSourceRepair &&
+            inspectionToolCalls >=
+              REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS
+          ) {
+            terminalProtocolFailure = "source_repair_exhausted";
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository verifier exhausted its bounded source-repair inspection without making the rejected citation inspectable.",
+            );
+          }
+          if (
+            inspectionToolCalls >=
+              REPOSITORY_VERIFIER_MAX_TOTAL_INSPECTION_TOOL_CALLS &&
+            !readGate.accepted
+          ) {
+            terminalProtocolFailure = "required_read_gate_exhausted";
+            lastSubmissionRejectionReasons = [
+              `${readGate.missingReadCount} required exact source reread(s) remained after the one bounded repair inspection.`,
+            ];
+            throw protocolErrorFromAgentResult(
+              agentResult,
+              "Independent repository verifier exhausted its one required-read repair inspection before the candidate audit could be submitted.",
+            );
+          }
+          throw protocolErrorFromAgentResult(
+            agentResult,
             "Independent repository verifier ended without submitting a source-inspected coverage audit.",
           );
         }
