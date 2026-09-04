@@ -55,7 +55,7 @@ import {
 import { runAuditedStructuredGeneration } from "@/src/services/structured-generation-audit-service";
 
 export const REPOSITORY_KNOWLEDGE_INVESTIGATOR_VERSION =
-  "repository-knowledge-investigator-v29-correction-headroom";
+  "repository-knowledge-investigator-v30-actionable-citation-repair";
 
 export const repositoryInvestigationMaterialityGuidance = [
   "Treat unresolved areas as a bounded materiality queue, not an inventory of every uninspected surface.",
@@ -3091,16 +3091,21 @@ export function repositoryVerifierIndependentSubmissionDiagnostics(input: {
       citation: observation.evidence,
     });
     if (!("error" in resolved)) return;
+    const needsExactReadRangeCatalog = [
+      "evidence_not_inspected",
+      "evidence_not_exact_pinned_source",
+      "evidence_not_eligible_pinned_file",
+      "evidence_not_eligible_semantic_source",
+    ].includes(resolved.code);
     diagnostics.push({
       ...diagnosticBase(submissionIndex),
       code: resolved.code,
       instruction: resolved.error.slice(0, 700),
-      ...(resolved.code === "evidence_not_inspected" &&
-          !includedExactReadRangeCatalog
+      ...(needsExactReadRangeCatalog && !includedExactReadRangeCatalog
         ? { validExactReadRanges }
         : {}),
     });
-    if (resolved.code === "evidence_not_inspected") {
+    if (needsExactReadRangeCatalog) {
       includedExactReadRangeCatalog = true;
     }
   });
@@ -4735,6 +4740,8 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
   let schemaValidSubmissionAttemptCount = 0;
   let contractSubmissionRejectionCount = 0;
   let lastSubmissionRejectionCodes: RepositoryVerifierSubmissionRejectionCode[] = [];
+  let lastSubmissionDiagnostics:
+    RepositoryVerifierIndependentSubmissionDiagnostic[] = [];
   let submissionNeedsSourceRepair = false;
   let sourceRepairInspectionCount = 0;
   let terminalProtocolFailure:
@@ -4821,6 +4828,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
       if (!gate.accepted) {
         submissionNeedsSourceRepair = false;
         lastSubmissionRejectionCodes = ["discovery_gate_incomplete"];
+        lastSubmissionDiagnostics = [];
         const missing = [
           ...(gate.missingDiscovery
             ? ["a successful grep or ls-tree discovery"]
@@ -4848,6 +4856,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
       });
       if (diagnostics.length) {
         contractSubmissionRejectionCount += 1;
+        lastSubmissionDiagnostics = diagnostics;
         lastSubmissionRejectionCodes = Array.from(new Set(
           diagnostics.map((diagnostic) => diagnostic.code),
         ));
@@ -4927,7 +4936,11 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
         snapshotScopeDigest: scopeDigest,
         checkpointDigest: executed.data.checkpointDigest,
         sourceInspectionDigest: executed.data.sourceInspectionDigest,
+        schemaValidSubmissionAttemptCount,
+        contractSubmissionRejectionCount,
         sourceRepairInspectionCount,
+        lastSubmissionRejectionCodes,
+        lastSubmissionDiagnostics,
         submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
           result: executed.result,
           toolName: "submit_repository_independent_review",
@@ -4947,6 +4960,7 @@ async function establishRepositoryIndependentReviewCheckpoint(input: {
           schemaValidSubmissionAttemptCount,
           contractSubmissionRejectionCount,
           sourceRepairInspectionCount,
+          lastSubmissionDiagnostics,
           submissionAttempts: repositoryVerifierSubmissionAttemptDiagnostics({
             error,
             toolName: "submit_repository_independent_review",

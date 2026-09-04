@@ -353,6 +353,68 @@ describe("repository knowledge investigator", () => {
     expect(JSON.stringify(diagnostics)).not.toContain("database.session.create");
   });
 
+  it("offers exact-read identities when a blind observation cites discovery output", () => {
+    const fixture = verifierFixture();
+    const diagnostics = repositoryVerifierIndependentSubmissionDiagnostics({
+      independentObservations: [{
+        kind: "operation",
+        statement: "The implementation creates and persists an authenticated session record.",
+        evidence: {
+          evidenceId: fixture.discovery.evidenceId,
+          lineStart: 1,
+          lineEnd: 1,
+        },
+      }],
+      evidenceById: new Map([
+        [fixture.evidence.evidenceId, fixture.evidence],
+        [fixture.discovery.evidenceId, fixture.discovery],
+      ]),
+      visibleEvidenceRanges: [{
+        evidenceId: fixture.evidence.evidenceId,
+        startLine: 1,
+        endLine: 4,
+      }],
+      filesByPath: new Map(fixture.files.map((file) => [file.path, file])),
+      target: fixture.target,
+    });
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        submissionIndex: 0,
+        code: "evidence_not_exact_pinned_source",
+        evidenceId: fixture.discovery.evidenceId,
+        validExactReadRanges: [{
+          evidenceId: fixture.evidence.evidenceId,
+          path: "src/session.ts",
+          lineStart: 1,
+          lineEnd: 4,
+        }],
+      }),
+    ]);
+    expect(repositoryVerifierIndependentSubmissionDiagnostics({
+      independentObservations: [{
+        kind: "operation",
+        statement: "The implementation creates and persists an authenticated session record.",
+        evidence: {
+          evidenceId: fixture.evidence.evidenceId,
+          lineStart: 1,
+          lineEnd: 4,
+        },
+      }],
+      evidenceById: new Map([
+        [fixture.evidence.evidenceId, fixture.evidence],
+        [fixture.discovery.evidenceId, fixture.discovery],
+      ]),
+      visibleEvidenceRanges: [{
+        evidenceId: fixture.evidence.evidenceId,
+        startLine: 1,
+        endLine: 4,
+      }],
+      filesByPath: new Map(fixture.files.map((file) => [file.path, file])),
+      target: fixture.target,
+    })).toEqual([]);
+  });
+
   it("counts schema-invalid forced submissions from the agent error event trail", async () => {
     const toolName = "submit_repository_coverage_audit";
     const executeSubmission = vi.fn(async () => ({
